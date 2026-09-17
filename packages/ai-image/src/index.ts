@@ -11,6 +11,7 @@ import { chooseImageDimensions, probeImage, type SizeOption } from "@openmanga/i
 import type { Logger } from "@openmanga/logger";
 import { mockImagePng, scenarioFromText } from "@openmanga/testing";
 
+export * from "./batch.ts";
 export { MetaImageProvider, OpenRouterImageProvider } from "./compat.ts";
 export { GEMINI_ASPECTS, GeminiImageProvider, geminiAspectFor } from "./gemini.ts";
 
