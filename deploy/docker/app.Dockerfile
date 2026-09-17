@@ -1,12 +1,12 @@
 # Shared runtime image for api, worker, migrate and mock-ai.
-FROM oven/bun:1.3-debian AS deps
+FROM oven/bun:1.4-debian AS deps
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
 RUN rm -rf apps/web/src apps/web/public && bun install --frozen-lockfile --production --ignore-scripts
 
-FROM oven/bun:1.3-debian AS runtime
+FROM oven/bun:1.4-debian AS runtime
 ENV NODE_ENV=production
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core fonts-comic-neue tini ca-certificates \
