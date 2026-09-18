@@ -98,10 +98,16 @@ export type ChapterListItem = Omit<ChapterRow, "lastPlan" | "sourceExcerpt"> & {
   sourceLength: number;
   stats?: { scenes: number; pages: number; panels: number; ready: number; narration: number; narratedPanels: number };
 };
+/** Just the panel fields the page thumbnail draws; the editor loads the full document separately. */
+export type PageThumbPanel = Pick<
+  PanelRow,
+  "id" | "pageId" | "frame" | "status" | "activeArtworkAssetId" | "review" | "qa"
+>;
+export type ChapterDetailPage = PageRow & { panelCount: number; readyCount: number; panels: PageThumbPanel[] };
 export type ChapterDetail = {
   chapter: ChapterRow;
   scenes: (SceneRow & { beats: StoryBeatRow[] })[];
-  pages: (PageRow & { panelCount: number; readyCount: number })[];
+  pages: ChapterDetailPage[];
 };
 
 export type EditorPanel = PanelRow & {
