@@ -94,7 +94,7 @@ export async function listReferences(c: Context<AppEnv>, subject: Subject, versi
 const GenerateRef = z.object({
   kind: z
     .enum(["portrait", "full_body", "multi_angle", "expression_sheet", "outfit", "location", "prop", "style"])
-    .default("portrait"),
+    .default("full_body"),
   extraInstruction: z.string().max(2000).optional(),
   outfitId: z.string().uuid().optional(),
   ai: AiChoiceInput,

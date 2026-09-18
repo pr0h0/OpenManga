@@ -11,6 +11,9 @@ import { useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { useEditor } from "./store.ts";
 
+/** Prepared prompt fields the planner prefers over the panel spec, in the order the prompt reads them. */
+const DRAFT_FIELDS = ["intent", "action", "expression", "composition", "lighting", "continuity"] as const;
+
 type PanelDetail = {
   characters: { id: string; versionNumber: number; status: string; characterId: string; name: string }[];
 };
@@ -147,6 +150,14 @@ export function PanelTab({
   });
 
   const attached = detail.data?.characters ?? [];
+  // Prepared text outranks the spec fields in the compiled prompt (intent over the beat, action, expression,
+  // composition and lighting), so an edit here looks ignored until it is discarded. Continuity merges instead.
+  const draft = (panel.promptDraft ?? null) as Record<string, unknown> | null;
+  const draftFields = DRAFT_FIELDS.filter((k) => {
+    const v = draft?.[k];
+    return Array.isArray(v) ? v.length > 0 : String(v ?? "").trim().length > 0;
+  });
+  const draftHasContinuity = draftFields.includes("continuity");
   const toggleCharacter = (c: PageDocument["cast"][number]) => {
     const current = attached.find((a) => a.characterId === c.id);
     const ids = current
@@ -251,6 +262,25 @@ export function PanelTab({
         )}
         {locked && <p className="muted text-xs">Locked panels are read-only.</p>}
       </div>
+
+      {draftFields.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+          <div className="font-medium">Prepared prompt text is in use</div>
+          <p className="mt-1">
+            "Prepare page prompts" wrote {draftFields.join(", ")} for this panel, and the compiled prompt uses that text
+            instead of the matching fields below{draftHasContinuity ? " (continuity is added to yours)" : ""}. Discard
+            it to go back to what you type here.
+          </p>
+          <button
+            type="button"
+            className="btn-ghost mt-1 text-xs"
+            disabled={locked || patchPanel.isPending}
+            onClick={() => patchPanel.mutate({ promptDraft: null })}
+          >
+            Discard prepared text
+          </button>
+        </div>
+      )}
 
       <fieldset disabled={locked} className="space-y-3">
         <Field label="Story beat">

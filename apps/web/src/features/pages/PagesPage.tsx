@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, LayoutGrid, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { assetUrl, del, get, patch, post } from "../../api/client.ts";
 import { qk, useAction, useMeta } from "../../api/hooks.ts";
-import type { ChapterDetail, ChapterListItem, PageDocument } from "../../api/types.ts";
+import type { ChapterDetail, ChapterDetailPage, ChapterListItem } from "../../api/types.ts";
 import {
   ConfirmDialog,
   clsx,
@@ -19,18 +19,20 @@ import { ActiveBatches } from "../generation/BatchStatus.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 import { BulkGenerateButton, LayoutThumb } from "./BulkGenerate.tsx";
 
-function PagePreview({ pageId }: { pageId: string }) {
-  const { data } = useQuery({ queryKey: qk.page(pageId), queryFn: () => get<PageDocument>(`/pages/${pageId}`) });
-  if (!data) return <div className="aspect-[2/3] w-full animate-pulse bg-[var(--panel-2)]" />;
-  const { width: W, height: H } = data.page;
+/**
+ * Draws from the chapter payload rather than fetching. One query per card meant a request per page on every
+ * visit — 148 of them for a feature-length film project, which rate-limited the grid on its own.
+ */
+function PagePreview({ page }: { page: ChapterDetailPage }) {
+  const { width: W, height: H } = page;
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
       className="block w-full bg-white"
       role="img"
-      aria-label={`Page ${data.page.order} preview`}
+      aria-label={`Page ${page.order} preview`}
     >
-      {data.panels.map((p) => {
+      {page.panels.map((p) => {
         const x = p.frame.x * W;
         const y = p.frame.y * H;
         const w = p.frame.width * W;
@@ -215,7 +217,7 @@ export function PagesPage() {
               aria-label={`Open page ${p.order} in editor`}
               className="block focus-visible:outline-2 focus-visible:outline-accent-500"
             >
-              <PagePreview pageId={p.id} />
+              <PagePreview page={p} />
             </Link>
             <div className="flex items-center justify-between gap-1 p-2 text-sm">
               <div className="min-w-0">

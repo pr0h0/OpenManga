@@ -121,10 +121,37 @@ chapterRoutes.get("/chapters/:id", async (c) => {
     .from(pages)
     .where(eq(pages.chapterId, id))
     .orderBy(asc(pages.order));
+  // Enough of each panel to draw the page thumbnail. Without this the shots grid fetches one page document per
+  // card, which is 148 requests for a feature-length film project — a quarter of a user's rate limit per visit.
+  const thumbs = pg.length
+    ? await db
+        .select({
+          id: panels.id,
+          pageId: panels.pageId,
+          frame: panels.frame,
+          status: panels.status,
+          activeArtworkAssetId: panels.activeArtworkAssetId,
+          review: panels.review,
+          qa: panels.qa,
+        })
+        .from(panels)
+        .where(
+          inArray(
+            panels.pageId,
+            pg.map((r) => r.page.id),
+          ),
+        )
+        .orderBy(asc(panels.order))
+    : [];
   return c.json({
     chapter: ch,
     scenes: sc.map((s) => ({ ...s, beats: beats.filter((b) => b.sceneId === s.id) })),
-    pages: pg.map((r) => ({ ...r.page, panelCount: r.panelCount, readyCount: r.readyCount })),
+    pages: pg.map((r) => ({
+      ...r.page,
+      panelCount: r.panelCount,
+      readyCount: r.readyCount,
+      panels: thumbs.filter((t) => t.pageId === r.page.id),
+    })),
   });
 });
 

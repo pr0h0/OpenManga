@@ -11,7 +11,8 @@ import { useProjectId } from "../project/ProjectLayout.tsx";
 export type Subject = "character" | "location" | "prop" | "style";
 
 const KINDS: Record<Subject, string[]> = {
-  character: ["portrait", "full_body", "multi_angle", "expression_sheet", "outfit"],
+  // full_body first: it is the default kind, and the one panels lean on most (height, proportions, clothing).
+  character: ["full_body", "portrait", "multi_angle", "expression_sheet", "outfit"],
   location: ["location"],
   prop: ["prop"],
   style: ["style"],
