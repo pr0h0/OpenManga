@@ -228,6 +228,7 @@ export function CharacterDetailPage() {
             </form>
           </section>
           <OutfitsEditor
+            references={data.references}
             characterId={characterId}
             versionId={version?.id ?? null}
             outfits={data.outfits}
