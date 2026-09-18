@@ -1,4 +1,4 @@
-import type { CharacterBible } from "@openmanga/schemas";
+import type { CharacterBible, ImageDescription } from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { AlertTriangle, GitBranch, Info, Plus, Trash2, X } from "lucide-react";
@@ -14,9 +14,11 @@ import {
   SaveIndicator,
   Spinner,
   StatusChip,
+  toast,
   useAutosave,
 } from "../../components/ui.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
+import { DescribeImageButton } from "../vision/DescribeImageButton.tsx";
 import { FieldGroup, ListRow, TextRow, VERSION_ACTIONS } from "./fields.tsx";
 import { OutfitsEditor } from "./OutfitsEditor.tsx";
 import { ReferencePanel } from "./ReferencePanel.tsx";
@@ -290,6 +292,7 @@ export function CharacterDetailPage() {
 }
 
 function BibleEditor({ version, onSaved }: { version: CharacterVersionRow; onSaved: () => void }) {
+  const projectId = useProjectId();
   const [bible, setBible] = useState<CharacterBible>(version.description);
   const editable = version.status === "draft";
   const { state } = useAutosave(
@@ -303,7 +306,26 @@ function BibleEditor({ version, onSaved }: { version: CharacterVersionRow; onSav
   const p = { value: bible, onChange: setBible, disabled: !editable };
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-2">
+        {editable && (
+          <DescribeImageButton
+            projectId={projectId}
+            aspect="character"
+            label="Fill from image"
+            title="Describe a character from a reference image"
+            className="btn-secondary px-2 py-1 text-xs"
+            onUse={(d: ImageDescription) => {
+              // Merge rather than replace: only fields the image actually described are written, so existing
+              // notes the model could not see survive.
+              const from = (d.character ?? {}) as Partial<CharacterBible>;
+              const filled = Object.fromEntries(
+                Object.entries(from).filter(([, v]) => (Array.isArray(v) ? v.length : String(v ?? "").trim())),
+              );
+              setBible((b) => ({ ...b, ...filled }) as CharacterBible);
+              toast.info(`Filled ${Object.keys(filled).length} field(s) from the image — review, then it autosaves`);
+            }}
+          />
+        )}
         <SaveIndicator state={state} />
       </div>
       <TextRow {...p} k="summary" label="Summary" multiline />

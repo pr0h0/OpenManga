@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Describe a reference image.** Upload a frame — from a video, a page, anything — and get back descriptions you
+  can generate from: art style, character, outfit, location, lighting and palette, composition, mood, props, era
+  and technique, each with its own prepared prompt, plus a free-text question of your own. The style, character
+  and location results come back in exactly the shape those parts of a project already accept, so they apply in
+  one click; everything else is there to copy. Available as its own **Describe** section in a project, and as a
+  "from image" button inside the art-direction and character-bible editors, which fill the form you are in rather
+  than creating anything. Uploaded images stay in the library as `source_image` assets, so a frame can also be
+  attached as a reference to a later generation. Runs on any vision-capable key and batches at half price like
+  every other text job.
+
 - **Text jobs batch too** — planning, story analysis, rewrites, page prompts, narration writing and the vision
   consistency check — on OpenAI and Google keys. A panel generated through a batch has its automatic consistency
   check batched as well, so a batched chapter does not quietly produce hundreds of interactive vision calls.

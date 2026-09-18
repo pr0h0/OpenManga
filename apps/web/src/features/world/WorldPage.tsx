@@ -1,3 +1,4 @@
+import type { ImageDescription } from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Plus, RotateCcw } from "lucide-react";
@@ -16,10 +17,12 @@ import {
   Spinner,
   StatusChip,
   Tabs,
+  toast,
   useAutosave,
 } from "../../components/ui.tsx";
 import { ReferencePanel } from "../cast/ReferencePanel.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
+import { DescribeImageButton } from "../vision/DescribeImageButton.tsx";
 
 type Tab = "locations" | "props" | "style" | "notes";
 
@@ -215,6 +218,23 @@ function StyleTab() {
               current: v{current.versionNumber} · {current.preset?.name ?? "custom"}
             </span>
           )}
+          <DescribeImageButton
+            projectId={projectId}
+            aspect="style"
+            title="Take the art style from an image"
+            onUse={(d: ImageDescription) => {
+              // Fills the editor rather than applying: the user reviews it and clicks "Apply as new version".
+              const st = d.style ?? {};
+              const lines = Object.entries(st)
+                .filter(([, v]) => (Array.isArray(v) ? v.length : String(v ?? "").trim()))
+                .map(
+                  ([k, v]) => `${k.replace(/([A-Z])/g, " $1").toLowerCase()}: ${Array.isArray(v) ? v.join(", ") : v}`,
+                );
+              setPresetKey(null);
+              setCustom(lines.join("\n"));
+              toast.info("Style description filled in — review it, then apply as a new version");
+            }}
+          />
           <button type="button" className="btn-primary" disabled={apply.isPending} onClick={() => apply.mutate()}>
             Apply as new version
           </button>

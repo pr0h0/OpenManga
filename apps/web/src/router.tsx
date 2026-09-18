@@ -177,6 +177,11 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/describe",
+    component: lazyRouteComponent(() => import("./features/vision/DescribeImagePage.tsx"), "DescribeImagePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/assets",
     component: lazyRouteComponent(() => import("./features/assets/AssetsPage.tsx"), "AssetsPage"),
   }),
