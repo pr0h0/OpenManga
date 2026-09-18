@@ -185,6 +185,14 @@ test("deleting a description leaves an image something else is using", async () 
     height: 96,
   });
   const r = await alice.post<{ job: { id: string } }>(`/api/assets/${asset.id}/describe`, { aspects: ["mood"] }, 202);
+  // Let the handler finish: deleting a row a worker is holding is refused, by design.
+  await waitFor(
+    async () => {
+      const [j] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+      return j && ["completed", "failed", "cancelled"].includes(j.status) ? j : null;
+    },
+    { label: "describe job settles", timeoutMs: 30_000 },
+  );
   await alice.del(`/api/image-descriptions/${r.job.id}`);
   const [still] = await h.deps.db.select().from(assets).where(eq(assets.id, asset.id));
   expect(still).toBeTruthy();
