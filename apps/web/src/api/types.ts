@@ -138,6 +138,7 @@ export type PromptPreview = {
     subjectVersionId: string | null;
   }[];
   characters: { name: string; versionNumber: number; hasReference: boolean }[];
+  provider: string;
   model: string;
   quality: string;
 };

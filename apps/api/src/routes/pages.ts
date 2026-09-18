@@ -57,7 +57,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -645,6 +645,8 @@ const PatchPanel = z.object({
   characterVersionIds: z.array(z.string().uuid()).max(12).optional(),
   propVersionIds: z.array(z.string().uuid()).max(12).optional(),
   promptOverride: z.string().max(32_000).nullable().optional(),
+  /** Clear-only: prepared prompt text is written by the text model, never authored by hand through this route. */
+  promptDraft: z.null().optional(),
   approvalStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),
   sceneId: z.string().uuid().nullable().optional(),
 });
@@ -792,15 +794,20 @@ pageRoutes.post("/panels/:id/split", async (c) => {
   return c.json({ panel: created }, 201);
 });
 
+const PreviewQuery = z.object({ credentialId: z.string().uuid().optional(), model: z.string().max(200).optional() });
 doc({
   method: "GET",
   path: "/api/panels/:id/prompt-preview",
   summary: "Prompt inspector before generation: compiled prompt + reference plan",
   tag: "panels",
+  query: PreviewQuery,
 });
 pageRoutes.get("/panels/:id/prompt-preview", async (c) => {
   const { panel } = await loadPanel(c, uuidParam(c, "id"), "read");
-  return c.json(await c.get("deps").planner.previewPanel(panel.id));
+  // The picked key travels in the query so the preview names the model this user's run would use, not the default.
+  const q = query(c, PreviewQuery);
+  const ai = q.credentialId || q.model ? { credentialId: q.credentialId ?? null, model: q.model ?? null } : null;
+  return c.json(await c.get("deps").planner.previewPanel(panel.id, ai, user(c).id));
 });
 
 const REGEN_OPERATIONS = [

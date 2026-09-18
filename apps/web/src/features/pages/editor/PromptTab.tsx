@@ -21,11 +21,21 @@ const OPERATIONS = [
   ["reframe", "Reframe composition"],
 ] as const;
 
+/** The picked image key as query params, so the preview reports the model this user's run would use. */
+function previewQuery(body: ReturnType<ReturnType<typeof useAiBody>>) {
+  const ai = (body as { ai?: { credentialId: string | null; model: string | null } }).ai;
+  const p = new URLSearchParams();
+  if (ai?.credentialId) p.set("credentialId", ai.credentialId);
+  if (ai?.model) p.set("model", ai.model);
+  return p.toString();
+}
+
 export function PromptInspector({ panelId, open, onClose }: { panelId: string; open: boolean; onClose: () => void }) {
   const { data: meta } = useMeta();
+  const qs = previewQuery(useAiBody("image")());
   const q = useQuery({
-    queryKey: ["prompt-preview", panelId],
-    queryFn: () => get<PromptPreview>(`/panels/${panelId}/prompt-preview`),
+    queryKey: ["prompt-preview", panelId, qs],
+    queryFn: () => get<PromptPreview>(`/panels/${panelId}/prompt-preview${qs ? `?${qs}` : ""}`),
     enabled: open,
   });
   const d = q.data;
@@ -47,7 +57,7 @@ export function PromptInspector({ panelId, open, onClose }: { panelId: string; o
             <KeyValue
               items={[
                 ["Template", `${d.template.name} v${d.template.version}`],
-                ["Model", d.model],
+                ["Model", [d.provider, d.model].filter(Boolean).join(" · ") || "no key selected"],
                 ["Quality", d.quality],
                 ["Aspect ratio", `${d.aspectRatio.toFixed(2)} : 1`],
                 [

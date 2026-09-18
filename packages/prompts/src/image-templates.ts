@@ -77,6 +77,9 @@ export function styleSection(s: StyleContext) {
     d && line("Contrast", d.contrast),
     d && line("Screentones", screenTones),
     d && line("Lighting style", d.lighting),
+    // What the style avoids. Written by every built-in preset and by the style analyst, and previously dropped on
+    // the floor: the definition said "no photoreal rendering" and nothing in the prompt ever said so.
+    d?.exclusions?.length ? `Avoid: ${d.exclusions.map(clean).filter(Boolean).join("; ")}.` : "",
     FORMAT_DIRECTIVES[s.projectType] ?? "",
     clean(s.customDescription) && `Project-specific style: ${clean(s.customDescription)}`,
     s.colorDirective,
@@ -147,7 +150,7 @@ const refKindText: Record<CharacterReferenceInput["kind"], string> = {
 
 export const characterReferenceV1: ImageTemplate<CharacterReferenceInput> = {
   name: "character-reference",
-  version: 4,
+  version: 5,
   kind: "image",
   description: "Full-resolution canonical character reference.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, CHARACTER, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, PRESENTATION, STRICT EXCLUSIONS",
@@ -199,7 +202,7 @@ export type LocationReferenceInput = {
 
 export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
   name: "location-reference",
-  version: 3,
+  version: 4,
   kind: "image",
   description: "Full-resolution canonical location/environment reference.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, LOCATION, LIGHTING, STRICT EXCLUSIONS",
@@ -240,7 +243,7 @@ export type PropReferenceInput = {
 
 export const propReferenceV1: ImageTemplate<PropReferenceInput> = {
   name: "prop-reference",
-  version: 3,
+  version: 4,
   kind: "image",
   description: "Full-resolution canonical prop reference.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, PROP, STRICT EXCLUSIONS",
@@ -272,7 +275,7 @@ export type StyleReferenceInput = { style: StyleContext; subject: string };
 
 export const styleReferenceV1: ImageTemplate<StyleReferenceInput> = {
   name: "style-reference",
-  version: 3,
+  version: 4,
   kind: "image",
   description: "Style exploration image demonstrating the project's art direction.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, SUBJECT, STRICT EXCLUSIONS",
@@ -363,7 +366,7 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 6,
+  version: 7,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
@@ -524,7 +527,7 @@ export type PanelEditInput = {
 
 export const panelEditV1: ImageTemplate<PanelEditInput> = {
   name: "panel-edit",
-  version: 3,
+  version: 4,
   kind: "image",
   description: "Targeted masked edit of an existing panel.",
   body: "ROLE / GOAL, EDIT, IDENTITY, STRICT EXCLUSIONS",
@@ -562,7 +565,7 @@ export type CoverInput = {
 
 export const coverV1: ImageTemplate<CoverInput> = {
   name: "cover",
-  version: 3,
+  version: 4,
   kind: "image",
   description: "Cover artwork without title text (title is composited by the app).",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, STORY, CHARACTERS, COMPOSITION, STRICT EXCLUSIONS",

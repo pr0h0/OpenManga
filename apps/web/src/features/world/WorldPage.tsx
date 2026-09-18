@@ -176,6 +176,22 @@ type StyleState = {
   references: Reference[];
 };
 
+/** Every definition field that reaches the prompt, in the order styleSection() renders them. */
+const STYLE_FIELDS = [
+  ["summary", "Summary"],
+  ["lineTreatment", "Lines"],
+  ["colorPolicy", "Color"],
+  ["shading", "Shading"],
+  ["detailLevel", "Detail"],
+  ["faceRendering", "Faces"],
+  ["backgroundRendering", "Backgrounds"],
+  ["motionEffects", "Motion effects"],
+  ["contrast", "Contrast"],
+  ["screenTones", "Screentones"],
+  ["lighting", "Lighting style"],
+] as const;
+type StyleField = (typeof STYLE_FIELDS)[number][0];
+
 function StyleTab() {
   const projectId = useProjectId();
   const qc = useQueryClient();
@@ -191,23 +207,56 @@ function StyleTab() {
   const current = style.data?.versions.find((v) => v.id === style.data.currentStyleId) ?? style.data?.versions[0];
   const [presetKey, setPresetKey] = useState<string | null | undefined>(undefined);
   const [custom, setCustom] = useState<string | undefined>(undefined);
+  const [edits, setEdits] = useState<Partial<Record<StyleField, string>>>({});
+  const [excl, setExcl] = useState<string | undefined>(undefined);
   const chosenKey = presetKey === undefined ? (current?.preset?.key ?? null) : presetKey;
   const customText = custom ?? current?.customDescription ?? "";
+  // A style applied from a described image lives on a project-scoped preset, which /style-presets does not list;
+  // the version query already joins it, so fall back to that rather than hiding the whole definition.
+  const chosen =
+    presets.data?.presets.find((p) => p.key === chosenKey) ??
+    (current?.preset?.key === chosenKey ? current?.preset : null);
+  const fieldValue = (k: StyleField) => edits[k] ?? chosen?.definition?.[k] ?? "";
+  const exclText = excl ?? (chosen?.definition?.exclusions ?? []).join("\n");
+  const edited = Object.keys(edits).length > 0 || excl !== undefined;
   const refresh = useCallback(() => qc.invalidateQueries({ queryKey: qk.style(projectId) }), [qc, projectId]);
   const apply = useAction(
-    () => post(`/projects/${projectId}/style`, { stylePresetKey: chosenKey, customDescription: customText }),
+    () =>
+      post(`/projects/${projectId}/style`, {
+        stylePresetKey: chosenKey,
+        customDescription: customText,
+        // Only sent when a field was touched: the endpoint mints a project-scoped preset from a definition, so
+        // sending one unchanged would fork a "Custom" copy of a built-in preset on every apply.
+        ...(edited
+          ? {
+              customDefinition: {
+                ...chosen?.definition,
+                ...edits,
+                ...(excl === undefined
+                  ? {}
+                  : {
+                      exclusions: excl
+                        .split("\n")
+                        .map((t) => t.trim())
+                        .filter(Boolean),
+                    }),
+              },
+            }
+          : {}),
+      }),
     {
       invalidate: [qk.style(projectId), qk.project(projectId)],
       success: "New style version applied",
       onSuccess: () => {
         setPresetKey(undefined);
         setCustom(undefined);
+        setEdits({});
+        setExcl(undefined);
       },
     },
   );
   if (style.isLoading || presets.isLoading) return <Spinner className="size-6" />;
   if (style.error || presets.error) return <ErrorBox error={style.error ?? presets.error} />;
-  const chosen = presets.data?.presets.find((p) => p.key === chosenKey);
   return (
     <div className="space-y-5">
       <section className="card p-4">
@@ -244,7 +293,10 @@ function StyleTab() {
             <button
               key={p.id}
               type="button"
-              onClick={() => setPresetKey(p.key)}
+              onClick={() => {
+                setPresetKey(p.key);
+                setEdits({});
+              }}
               aria-pressed={p.key === chosenKey}
               className={`rounded-lg border p-2 text-left text-sm ${p.key === chosenKey ? "border-accent-500 bg-accent-500/10" : "border-[var(--border)] hover:bg-[var(--panel-2)]"}`}
             >
@@ -262,29 +314,35 @@ function StyleTab() {
             <div className="muted text-xs">Custom description only</div>
           </button>
         </div>
-        {chosen && (
-          <dl className="mt-3 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
-            {(
-              [
-                "lineTreatment",
-                "colorPolicy",
-                "shading",
-                "detailLevel",
-                "faceRendering",
-                "backgroundRendering",
-                "motionEffects",
-                "contrast",
-                "screenTones",
-                "lighting",
-              ] as const
-            ).map((k) => (
-              <div key={k}>
-                <dt className="muted inline">{k.replace(/([A-Z])/g, " $1").toLowerCase()}: </dt>
-                <dd className="inline">{chosen.definition[k]}</dd>
-              </div>
+        <div className="mt-3">
+          <div className="mb-1 flex items-baseline gap-2">
+            <span className="label mb-0">Style definition</span>
+            <span className="muted text-xs">
+              {edited ? "Edited — applying saves it as a custom style" : "Every line below goes into the image prompt"}
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {STYLE_FIELDS.map(([k, label]) => (
+              <label key={k} className="block">
+                <span className="muted text-xs">{label}</span>
+                <textarea
+                  className="input min-h-14 text-xs"
+                  value={fieldValue(k)}
+                  onChange={(e) => setEdits((p) => ({ ...p, [k]: e.target.value }))}
+                />
+              </label>
             ))}
-          </dl>
-        )}
+            <label className="block sm:col-span-2">
+              <span className="muted text-xs">Avoid — one per line</span>
+              <textarea
+                className="input min-h-14 text-xs"
+                value={exclText}
+                placeholder="photoreal rendering&#10;3D render look"
+                onChange={(e) => setExcl(e.target.value)}
+              />
+            </label>
+          </div>
+        </div>
         <label className="mt-3 block">
           <span className="label">Project-specific style description</span>
           <textarea
