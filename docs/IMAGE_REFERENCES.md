@@ -42,6 +42,26 @@ character bible (text model) → image model → FULL RESOLUTION CANONICAL REFER
 References are never *generated* at 192×288 — the canonical file is whatever the provider returned and is never
 modified.
 
+### Outfit references are drawn from the approved design
+
+An outfit reference re-dresses the character rather than inventing them again, so generating one requires an
+**approved** (or locked) main reference on that version and attaches it as image 1; the prompt
+(`character-reference` v4, `fromBaseline`) tells the model to reproduce that figure exactly and change only the
+clothing. Without a baseline every outfit drifted into a different face and build, which is the thing references
+exist to prevent. The per-outfit generate buttons in the Outfits editor are disabled until that main reference is
+approved, and mark the outfits that already have one.
+
+### Which version a panel draws from
+
+A panel pins its own `characterVersionIds` and takes identity from `approvedReference(...)`, which accepts only
+`approved` or `locked` references — **a draft's references are never used for identity**. New panels pin the
+character's *current* version, so:
+
+- a new version does **not** become current on creation (`makeCurrent` applies only to a character that has none
+  yet, i.e. its first version);
+- a draft cannot be made current at all — it would leave new panels generating with no reference;
+- **approving** (or locking) a version is what promotes it to current.
+
 ## What is attached to a panel request
 
 `GenerationPlanner.previewPanel/enqueuePanel` (`packages/services/src/planner.ts`) fills at most

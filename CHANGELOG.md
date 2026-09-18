@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Version promotion is tied to approval.** A new character/location version no longer becomes current on
+  creation, and a draft cannot be made current at all — new panels pin the current version and take identity from
+  approved references only, so a draft as current meant generating that character with no reference. Approving a
+  version is what promotes it. A draft version can also be deleted now (never an approved one, never the last,
+  never one panels were drawn against).
+- **Outfit references are drawn from the approved design**: generating one requires an approved main reference and
+  attaches it as the first image, so every outfit keeps the same face and build. Each outfit in the editor has its
+  own generate button, marked once it has a reference.
 - **Describe a reference image.** Upload a frame — from a video, a page, anything — and get back descriptions you
   can generate from: art style, character, outfit, location, lighting and palette, composition, mood, props, era
   and technique, each with its own prepared prompt, plus a free-text question of your own. The style, character
@@ -17,7 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   "from image" button inside the art-direction and character-bible editors, which fill the form you are in rather
   than creating anything. Uploaded images stay in the library as `source_image` assets, so a frame can also be
   attached as a reference to a later generation. Runs on any vision-capable key and batches at half price like
-  every other text job.
+  every other text job. Past descriptions are kept with their image, inputs and result, listed across every project
+  you are a member of — so a style read from one reference can be applied in another project without paying to
+  read it again — and can be deleted individually along with the image they came from.
 
 - **Text jobs batch too** — planning, story analysis, rewrites, page prompts, narration writing and the vision
   consistency check — on OpenAI and Google keys. A panel generated through a batch has its automatic consistency

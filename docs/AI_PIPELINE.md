@@ -200,6 +200,19 @@ The prompt forbids identifying real people or naming a work an image might come 
 visible. Uploads are stored as `source_image` assets, so a frame can also be attached as a reference to a later
 generation. Needs a vision-capable key — DeepSeek cannot read images.
 
+**The library is cross-project, the run is not.** `GET /api/image-descriptions` lists past descriptions with their
+image, aspects, custom question and result, spanning every project the caller is a member of (`?scope=project`
+narrows it). A run bills and is access-checked against the project it happened in, because that is where the
+budget and the asset live — but reusing the answer elsewhere costs nothing, which is the point: a style read from
+one reference is exactly what you want in another project. `DELETE /api/image-descriptions/:id` removes one along
+with the image it was read from, unless a panel or reference has adopted that image meanwhile.
+
+Applying a result targets the project you are in: the style aspect becomes a new art-direction version, and the
+character and location aspects either create a new entity or add a version to an existing one. A version rather
+than an edit, so it works whatever the current version's status is and the previous description stays in history —
+and it is not made current, since approval is what promotes a version (see
+[IMAGE_REFERENCES](IMAGE_REFERENCES.md#which-version-a-panel-draws-from)).
+
 ## Provider batches (half price, up to 24h)
 
 Any image or text generation can be sent to a provider's batch API instead of running now, at half the
