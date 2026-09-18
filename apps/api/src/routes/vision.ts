@@ -1,4 +1,4 @@
-import { assets, eq } from "@openmanga/db";
+import { and, assets, desc, eq, generationJobs, inArray, projectMembers, projects, sql } from "@openmanga/db";
 import { PRIORITY } from "@openmanga/domain";
 import { imageDescribeV1 } from "@openmanga/prompts";
 import { ImageAspect } from "@openmanga/schemas";
@@ -16,7 +16,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, notFound, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -33,6 +33,21 @@ const DescribeInput = z.object({
   ai: AiChoiceInput,
 });
 
+/**
+ * Everything that can refuse the request, before anything is written. An upload that is going to be rejected for
+ * want of a key must not leave a stored image behind.
+ */
+async function checkDescribe(
+  c: Parameters<typeof projectAccess>[0],
+  projectId: string,
+  input: z.infer<typeof DescribeInput>,
+) {
+  await assertBudget(c, projectId);
+  const run = await textRun(c, input.ai);
+  assertBatchable(c, input.batch, run.provider);
+  return run;
+}
+
 /** Queues the description job for an image that is already an asset of this project. */
 async function queueDescribe(
   c: Parameters<typeof projectAccess>[0],
@@ -40,13 +55,11 @@ async function queueDescribe(
     projectId: string;
     assetId: string;
     input: z.infer<typeof DescribeInput>;
+    run: Awaited<ReturnType<typeof textRun>>;
   },
 ) {
   const deps = c.get("deps");
-  const { input } = opts;
-  await assertBudget(c, opts.projectId);
-  const run = await textRun(c, input.ai);
-  assertBatchable(c, input.batch, run.provider);
+  const { input, run } = opts;
   const batchId = input.batch ? crypto.randomUUID() : null;
   const job = await deps.db.transaction((tx) =>
     deps.jobs.createGenerationJob(
@@ -97,6 +110,8 @@ visionRoutes.post("/projects/:projectId/images/describe", async (c) => {
   if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
 
   const deps = c.get("deps");
+  // Refuse before storing: a missing key or an exhausted budget must not leave an orphan image behind.
+  const run = await checkDescribe(c, p.id, parsed.data);
   const asset = await deps.assets.store({
     projectId: p.id,
     ownerUserId: user(c).id,
@@ -108,7 +123,7 @@ visionRoutes.post("/projects/:projectId/images/describe", async (c) => {
     metadata: { uploaded: true, originalName: up.originalName, describedFor: parsed.data.aspects },
   });
   await deps.assets.ensureThumbnail(asset).catch(() => {});
-  const job = await queueDescribe(c, { projectId: p.id, assetId: asset.id, input: parsed.data });
+  const job = await queueDescribe(c, { projectId: p.id, assetId: asset.id, input: parsed.data, run });
   await recordAudit(deps.db, {
     userId: user(c).id,
     projectId: p.id,
@@ -138,6 +153,81 @@ visionRoutes.post("/assets/:id/describe", async (c) => {
   await projectAccess(c, asset.projectId, "generate");
   if (!asset.mimeType.startsWith("image/")) throw badRequest("That asset is not an image");
   const input = await body(c, DescribeInput);
-  const job = await queueDescribe(c, { projectId: asset.projectId, assetId, input });
+  const run = await checkDescribe(c, asset.projectId, input);
+  const job = await queueDescribe(c, { projectId: asset.projectId, assetId, input, run });
   return c.json({ job }, 202);
+});
+
+const HistoryQuery = z.object({
+  /** "project" limits to one project; "all" (the default) spans every project the caller is a member of. */
+  scope: z.enum(["project", "all"]).default("all"),
+  projectId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+  cursor: z
+    .string()
+    .regex(/^[^|]+\|[0-9a-f-]{36}$/)
+    .optional(),
+});
+
+doc({
+  method: "GET",
+  path: "/api/image-descriptions",
+  summary:
+    "Past image descriptions with their image, inputs and result. Spans every project you are a member of by default (?scope=project&projectId= limits it), so a style read from one reference can be applied in another project without paying to describe it again",
+  tag: "vision",
+  query: HistoryQuery,
+});
+visionRoutes.get("/image-descriptions", async (c) => {
+  const u = user(c);
+  const deps = c.get("deps");
+  const q = query(c, HistoryQuery);
+  const memberOf = deps.db
+    .select({ id: projectMembers.projectId })
+    .from(projectMembers)
+    .where(eq(projectMembers.userId, u.id));
+  if (q.scope === "project") {
+    if (!q.projectId) throw badRequest("scope=project needs a projectId");
+    await projectAccess(c, q.projectId, "read");
+  }
+  const [at, id] = q.cursor?.split("|") ?? [];
+  const rows = await deps.db
+    .select({
+      id: generationJobs.id,
+      projectId: generationJobs.projectId,
+      projectTitle: projects.title,
+      status: generationJobs.status,
+      createdAt: generationJobs.createdAt,
+      input: generationJobs.input,
+      result: generationJobs.result,
+      failureReason: generationJobs.failureReason,
+      model: generationJobs.model,
+    })
+    .from(generationJobs)
+    .innerJoin(projects, eq(projects.id, generationJobs.projectId))
+    .where(
+      and(
+        eq(generationJobs.kind, "image_describe"),
+        eq(generationJobs.userId, u.id),
+        q.scope === "project"
+          ? eq(generationJobs.projectId, q.projectId!)
+          : inArray(generationJobs.projectId, memberOf),
+        at && id ? sql`(${generationJobs.createdAt}, ${generationJobs.id}) < (${at}, ${id}::uuid)` : undefined,
+      ),
+    )
+    .orderBy(desc(generationJobs.createdAt), desc(generationJobs.id))
+    .limit(q.limit);
+  const last = rows.at(-1);
+  return c.json({
+    descriptions: rows.map((r) => ({
+      ...r,
+      assetId: (r.input as { assetId?: string }).assetId ?? null,
+      aspects: (r.input as { aspects?: string[] }).aspects ?? [],
+      custom: (r.input as { custom?: string }).custom ?? "",
+      note: (r.input as { note?: string }).note ?? "",
+      description: (r.result as { description?: unknown } | null)?.description ?? null,
+      input: undefined,
+      result: undefined,
+    })),
+    nextCursor: rows.length === q.limit && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
+  });
 });

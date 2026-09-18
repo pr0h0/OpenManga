@@ -24,17 +24,15 @@ items move when someone builds them.
 - **Multi-language narration** — one narration track per language over the same artwork.
 - **Readiness gate and preflight** before anything is spent, a per-project budget cap, batch pause on quota or auth
   failures, and an opt-in vision consistency check on generated panels.
+- **Provider batch APIs**, for image *and* text generation, at half price with results within 24h — see
+  [AI_PIPELINE](AI_PIPELINE.md#provider-batches-half-price-up-to-24h). Two things this entry predicted turned out
+  wrong when it was built: text batching came almost free rather than needing a second path (the provider is
+  swapped, so every text handler batches unchanged), and panel *edits* are still excluded — not for size limits
+  but because a full-resolution target and mask are a poor fit for a 24h wait.
+- **Describe a reference image** into reusable style, character and location descriptions.
 
 ## Next
 
-- **Provider batch APIs for image generation.** OpenAI and Gemini both batch image generation at roughly half
-  price, and bulk image generation is where the money goes on a large project. The cost is a second async path:
-  submit an input file, poll from the existing maintenance scheduler, then run the results through the normal
-  store/activate/usage path, plus per-item failures falling back to the sync path, batch expiry, safe restarts and
-  cancel/pause/readiness understanding a new "awaiting provider" state. Generations only — panel *edits* carry a
-  full-resolution target inline and do not fit the batch input size limits. Text batching saves cents and is not
-  worth a second path. Worth building when bulk image spend matters more than latency: batches can take hours,
-  against minutes on the current synchronous path.
 - **Continuous scroll cut for video.** The same renderer as the page cut with travel set to the full page overflow
   instead of the capped rate. Small, deferred with the panel cut.
 

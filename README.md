@@ -49,6 +49,8 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 - **Generation**: live queue (SSE), cost/latency, retry/cancel, bulk page/scene/chapter with cost confirmation and progress, prompt & reference inspector showing exactly what was sent.
 - **Narration**: AI-written narration, segment split/merge, voices and preview, local synthesis, cache reuse, chapter playback, timeline manifest.
 - **Exports**: PNG/JPG page sequences, PDF (page size, margin, bleed, DPI, RTL), webtoon strips with chunking, narration audio package (MP3/OGG/WAV + timeline), project JSON (`schemaVersion: 1`), full ZIP package.
+- **Describe an image**: upload a reference — a frame from a video, a page you like — and extract its art style, character, outfit, location, lighting, composition, mood, props, era or technique, plus your own free-text question. Style, character and location results apply straight into the project; the upload stays in the library as a reference for later generation.
+- **Provider batches**: send image or text generation to OpenAI's or Google's batch API for **half price**, results within 24h, opt-in per run.
 - **Cost dashboard**: today/7d/30d/lifetime, provider and operation breakdowns, reference-size experiments, regeneration/acceptance rates. **Admin**: users, jobs, queues, Kokoro status, storage, errors, rate snapshots, maintenance.
 
 ## Screenshots
@@ -158,7 +160,12 @@ bun db:seed       # demo project, no API calls
 bun admin:create  # interactive admin creation
 ```
 
-### Sample projects
+## Running without any API keys
+
+Two ways to see the whole thing work before spending anything. **Importing a sample project is the better one**:
+it is real generated artwork and narration, not placeholders.
+
+### Import a sample project — real artwork, no key, no spend
 `bun db:seed` builds a demo from placeholder art, with no AI calls and no spend. To load a project with real
 artwork, import any `zip_package` export — your own, or the
 [sample projects](https://github.com/pr0h0/openmanga-samples) (one story as comic pages and as a narrated 16:9
@@ -187,6 +194,14 @@ film, browsable unpacked, importable from the release assets):
 
 Importing is also the way to move a project between installs: **Exports → ZIP package** produces exactly this
 shape.
+
+### Mock mode — walk the pipeline yourself, with fake output
+`AI_MOCK_MODE=true` uses in-process fake providers: story analysis, planning, narration and placeholder images all
+work, so you can drive the whole pipeline and the exports for free. Use this when you want to *operate* the app
+rather than look at finished work — the samples above are the better way to judge what it produces. It is refused
+in production unless `AI_MOCK_ALLOW_IN_PRODUCTION=true`. To exercise the real provider code paths instead, enable
+the `mock` compose profile and add an `openai_compatible` credential pointing at `http://mock-ai:4010/v1`.
+See [docs/TESTING.md](docs/TESTING.md).
 
 ## Kokoro setup
 Enabled by the `tts` compose profile. The first start downloads `hexgrad/Kokoro-82M` into the `kokoro-cache` volume (not re-downloaded on restart). `/readyz` reports Kokoro separately; the app stays available while it loads or if TTS is disabled (`TTS_ENABLED=false`). Voices: American/British English plus es, fr, it, pt-br, hi.
@@ -239,13 +254,6 @@ cap that asks for confirmation before going over.
 
 Narration defaults to local Kokoro; pick a cloud voice provider per run if you prefer. Model lists are the
 suggestions in the picker — any model id the provider accepts can be typed in.
-
-## Running without any API keys
-`AI_MOCK_MODE=true` uses in-process fake providers: story analysis, planning, narration and placeholder images all
-work, so you can walk the whole pipeline and the exports for free. It is refused in production unless
-`AI_MOCK_ALLOW_IN_PRODUCTION=true`. To exercise the real provider code paths instead, enable the `mock` compose
-profile and add an `openai_compatible` credential pointing at `http://mock-ai:4010/v1`.
-See [docs/TESTING.md](docs/TESTING.md).
 
 ## Backup
 ```bash

@@ -24,6 +24,8 @@ export async function readImageUpload(c: Context<AppEnv>, field = "file") {
   } catch (e) {
     if (e instanceof InvalidImageError)
       throw new ApiError(415, "unsupported_media", "Only PNG, JPEG and WebP images are allowed");
-    throw e;
+    // The magic bytes said PNG/JPEG/WebP but the decoder could not read it — a truncated or corrupt file. That
+    // is the caller's upload, not a server fault, so it must not surface as a 500.
+    throw new ApiError(415, "unsupported_media", "That image could not be read — it looks truncated or corrupt");
   }
 }

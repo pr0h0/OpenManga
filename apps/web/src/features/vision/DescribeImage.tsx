@@ -1,5 +1,5 @@
 import { IMAGE_ASPECTS, type ImageAspectKey, type ImageDescription } from "@openmanga/schemas";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Boxes,
   Check,
@@ -131,15 +131,22 @@ function ResultCard({ title, value, actions }: { title: string; value: unknown; 
  * Upload a reference image — a frame from a video, a page someone else drew — and get back descriptions that can
  * be generated from. The aspects that map onto a project entity can be applied straight into it.
  */
+export type DescribeImageHandle = {
+  show: (d: ImageDescription, from: { projectTitle: string; assetId: string | null }) => void;
+};
+
 export function DescribeImage({
   projectId,
   only,
   onUse,
+  handleRef,
 }: {
   projectId: string;
   only?: ImageAspectKey[];
   /** Set when the caller has a form to fill: results offer "Use this" instead of creating project entities. */
   onUse?: (description: ImageDescription) => void;
+  /** Lets the page display a stored description in the same result view. */
+  handleRef?: { current: DescribeImageHandle | null };
 }) {
   const offered = only ? IMAGE_ASPECTS.filter((a) => only.includes(a.key)) : IMAGE_ASPECTS;
   const [picked, setPicked] = useState<ImageAspectKey[]>(() => (only ? [...only] : ["style"]));
@@ -150,10 +157,35 @@ export function DescribeImage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [description, setDescription] = useState<ImageDescription | null>(null);
+  /** Set when the shown description came from history rather than this upload. */
+  const [reusedFrom, setReusedFrom] = useState<{ projectTitle: string; assetId: string | null } | null>(null);
   const [applying, setApplying] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
   const aiText = useAiBody("text");
+  const cast = useQuery({
+    queryKey: qk.cast(projectId),
+    queryFn: () => get<{ characters: { id: string; name: string }[] }>(`/projects/${projectId}/characters`),
+    enabled: !onUse,
+    staleTime: 60_000,
+  });
+  const world = useQuery({
+    queryKey: qk.locations(projectId),
+    queryFn: () => get<{ locations: { id: string; name: string }[] }>(`/projects/${projectId}/locations`),
+    enabled: !onUse,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!handleRef) return;
+    handleRef.current = {
+      show: (d, from) => {
+        setDescription(d);
+        setReusedFrom(from);
+        setError(null);
+      },
+    };
+  }, [handleRef]);
 
   useEffect(() => {
     if (!file) return setPreviewUrl(null);
@@ -169,6 +201,7 @@ export function DescribeImage({
     setBusy(true);
     setError(null);
     setDescription(null);
+    setReusedFrom(null);
     try {
       const form = new FormData();
       form.set("file", file);
@@ -202,7 +235,7 @@ export function DescribeImage({
     }
   };
 
-  const apply = async (kind: "style" | "character" | "location") => {
+  const apply = async (kind: "style" | "character" | "location", applyTo?: string) => {
     if (!description) return;
     setApplying(kind);
     try {
@@ -227,6 +260,16 @@ export function DescribeImage({
           body: JSON.stringify({ name, description: description.character }),
         });
         toast.success(`Character "${name}" created from the image`);
+      } else if (applyTo) {
+        await api(`/locations/${applyTo}/versions`, {
+          method: "POST",
+          body: JSON.stringify({
+            description: description.location,
+            changeNote: "From a reference image",
+            makeCurrent: true,
+          }),
+        });
+        toast.success("New location version created from the image");
       } else {
         const name = window.prompt("Name this location", description.location?.kind || "New location");
         if (!name) return;
@@ -244,21 +287,49 @@ export function DescribeImage({
     }
   };
 
-  const applyButton = (kind: "style" | "character" | "location", label: string) =>
-    onUse ? (
-      <button type="button" className="btn-secondary px-2 py-1 text-xs" onClick={() => onUse(description!)}>
-        <Wand2 className="size-3.5" /> Use this
-      </button>
-    ) : (
-      <button
-        type="button"
-        className="btn-secondary px-2 py-1 text-xs"
-        disabled={applying !== null}
-        onClick={() => apply(kind)}
-      >
-        {applying === kind ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />} {label}
-      </button>
+  const applyButton = (kind: "style" | "character" | "location", label: string) => {
+    if (onUse)
+      return (
+        <button type="button" className="btn-secondary px-2 py-1 text-xs" onClick={() => onUse(description!)}>
+          <Wand2 className="size-3.5" /> Use this
+        </button>
+      );
+    // A character or location can go either way: a brand new one, or a new version of one that already exists.
+    // A version rather than an edit, so the previous description stays in the history to compare against.
+    const existing = kind === "character" ? cast.data?.characters : kind === "location" ? world.data?.locations : null;
+    return (
+      <span className="flex items-center gap-1">
+        {existing?.length ? (
+          <select
+            className="input h-7 w-32 py-0 text-xs"
+            defaultValue=""
+            disabled={applying !== null}
+            aria-label={`Update an existing ${kind} from this image`}
+            onChange={(e) => {
+              const id = e.target.value;
+              e.target.value = "";
+              if (id) apply(kind, id);
+            }}
+          >
+            <option value="">Update existing…</option>
+            {existing.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <button
+          type="button"
+          className="btn-secondary px-2 py-1 text-xs"
+          disabled={applying !== null}
+          onClick={() => apply(kind)}
+        >
+          {applying === kind ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />} {label}
+        </button>
+      </span>
     );
+  };
 
   return (
     <div className="space-y-4">
@@ -356,7 +427,14 @@ export function DescribeImage({
 
       {description && (
         <div className="space-y-3">
-          <h2 className="font-medium">What the model saw</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-medium">What the model saw</h2>
+            {reusedFrom && (
+              <span className="chip bg-sky-500/15 text-xs text-sky-700 dark:text-sky-300">
+                reused from {reusedFrom.projectTitle} — nothing was spent
+              </span>
+            )}
+          </div>
           {description.overview && <ResultCard title="Overview" value={description.overview} />}
           <div className="grid gap-3 xl:grid-cols-2">
             {description.style && (

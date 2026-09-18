@@ -80,3 +80,63 @@ test("an image already in the project can be described without re-uploading", as
   );
   expect(r.job.targetId).toBe(asset.id);
 });
+
+test("a run that will be refused stores nothing", async () => {
+  // The probe that found this: an upload rejected for want of a key had already written the image.
+  const before = await h.deps.db.select().from(assets).where(eq(assets.projectId, projectId));
+  const png = await mockImagePng({ width: 64, height: 64, prompt: "refused" });
+  const form = new FormData();
+  form.set("file", new Blob([png.slice()], { type: "image/png" }), "refused.png");
+  form.set("aspects", JSON.stringify(["style"]));
+  // A credential id that is not this user's is refused by the resolver, after the upload is read.
+  form.set("ai", JSON.stringify({ credentialId: "00000000-0000-0000-0000-000000000000", model: null }));
+  const res = await alice.raw("POST", `/api/projects/${projectId}/images/describe`, form);
+  expect(res.status).toBeGreaterThanOrEqual(400);
+  const after = await h.deps.db.select().from(assets).where(eq(assets.projectId, projectId));
+  expect(after.length).toBe(before.length);
+});
+
+test("descriptions are listed with their image and inputs, across projects by default", async () => {
+  // A second project belonging to the same user: its description must be visible from the first, which is the
+  // whole point — a style read once should be applicable elsewhere without paying to read it again.
+  const other = await alice.post<{ project: { id: string } }>("/api/projects", { title: "Second" }, 201);
+  const png = await mockImagePng({ width: 128, height: 128, prompt: "second project" });
+  const form = new FormData();
+  form.set("file", new Blob([png.slice()], { type: "image/png" }), "other.png");
+  form.set("aspects", JSON.stringify(["style"]));
+  form.set("note", "from the other project");
+  const res = await alice.raw("POST", `/api/projects/${other.project.id}/images/describe`, form);
+  expect(res.status).toBe(202);
+  const started = (await res.json()) as { job: { id: string }; asset: { id: string } };
+  const [job] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, started.job.id));
+  await imageDescribe(h.workerDeps, job!);
+  // The handler's return value is what the runner stores; mirror that so the row looks like a finished job.
+  await h.deps.db
+    .update(generationJobs)
+    .set({ status: "completed", result: { description: { overview: "a blue square" } } })
+    .where(eq(generationJobs.id, started.job.id));
+
+  const all = await alice.get<{ descriptions: { id: string; projectId: string; assetId: string; note: string }[] }>(
+    "/api/image-descriptions",
+  );
+  const found = all.descriptions.find((d) => d.id === started.job.id)!;
+  expect(found).toBeTruthy();
+  expect(found.assetId).toBe(started.asset.id);
+  expect(found.note).toBe("from the other project");
+
+  const scoped = await alice.get<{ descriptions: { id: string }[] }>(
+    `/api/image-descriptions?scope=project&projectId=${projectId}`,
+  );
+  expect(scoped.descriptions.some((d) => d.id === started.job.id)).toBe(false);
+});
+
+test("another user's descriptions are not listed", async () => {
+  const bob = h.client();
+  await bob.post(
+    "/api/auth/register",
+    { username: "nosy", email: "nosy@example.com", password: "nosy-pass-1234" },
+    201,
+  );
+  const mine = await bob.get<{ descriptions: unknown[] }>("/api/image-descriptions");
+  expect(mine.descriptions).toHaveLength(0);
+});

@@ -104,12 +104,34 @@ A 2-hour narrated story works out at roughly **820–1,100 panels** (34–46 cha
 Images are 90–97% of the total. If a run is coming out expensive, the lever is panel count, image provider and image
 size — never the prompts.
 
-## Not yet implemented: batch APIs
+## Provider batches: half price, up to 24h
 
-Both the OpenAI and Gemini batch APIs **halve image cost**, which is where nearly all the money goes — a 400-panel
-project would drop from roughly $6 to $3. The trade-off is latency: a batch can take **up to 24 hours**, against
-minutes on the current synchronous path at 24 concurrent requests. This is **not implemented**; see
-`docs/ROADMAP.md` for the design and what it would take.
+Image and text generation can be sent to a provider's batch API instead of running now, at **50% of the
+interactive price**. A 400-panel project drops from roughly $6 to $3. The trade-off is latency: a batch targets
+**24 hours**, against minutes on the synchronous path at 24 concurrent requests — in practice the batches
+measured here returned in minutes, but nothing guarantees that.
+
+Opt in per run: **Send as a provider batch** on bulk panel generation, or `batch: true` on a generation request.
+Everything else is unchanged — the panels wait at the provider instead of generating now, and no worker slot is
+held while they do.
+
+| | batchable | why not |
+|---|---|---|
+| OpenAI | yes | |
+| Google (Gemini) | yes | |
+| DeepSeek | **no** | discounts by time of day instead — peak is 01:00–04:00 and 06:00–10:00 UTC, Mon–Fri, and off-peak is half price with no API change |
+| Anthropic | not yet | has a batch API; no implementation here, so it is not offered rather than quietly running at full price |
+| Meta, OpenRouter | **no** | no batch API |
+
+A run on a key that cannot batch falls back to generating normally rather than failing.
+
+**Batch spend is reported separately.** A batched call is recorded against a `:batch` model — `gpt-image-2:batch`
+— seeded at half the interactive rate, so the cost dashboard and the budget cap both see the real figure and you
+can compare the two prices directly.
+
+What batching does *not* change: budgets still apply, cancellation still works (the result is simply not
+activated), and a batch that expires or returns nothing for a request fails that job loudly rather than leaving
+it waiting.
 
 ## Export size
 

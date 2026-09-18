@@ -173,3 +173,54 @@ expected characters, unexpected people, headcount mismatch — and stored on `pa
 mismatches and the Panel tab shows the badge with a "check again" action (`POST /api/panels/:id/check`). DeepSeek
 cannot read images, so this needs a BYOK vision model. Text providers accept `images` on chat messages (OpenAI-style
 content parts, Anthropic image blocks).
+
+## Describe a reference image
+
+`POST /api/projects/:projectId/images/describe` (multipart: `file`, plus `aspects`, `custom`, `note`, `ai`,
+`batch` as form values) uploads an image and queues an `image_describe` job; `POST /api/assets/:id/describe`
+does the same for an image already in the project (a panel, a reference, an earlier upload). Both refuse before
+storing anything, so a request rejected for want of a key leaves no orphan image behind.
+
+The job attaches the 1024 px preview to the user message and asks `image-describe` v1 for the schema
+`ImageDescription`. Ten aspects, each with its own prompt fragment rather than one broad instruction:
+
+| aspect | returns | applies to |
+|---|---|---|
+| `style` | `StyleDefinition` | the project's art direction |
+| `character` | `CharacterBible` | a new character |
+| `location` | `LocationDescription` | a new location |
+| `outfit`, `lighting`, `composition`, `mood`, `props`, `era`, `technique` | prose + bullet details | copied by hand |
+
+The three that map onto an entity return **exactly** the shape that entity's existing endpoint already accepts, so
+applying a result is a plain `POST` of the object — there is no translation step and no write path of its own.
+Every field is optional: only the requested aspects are asked for, and a partial answer still parses. What the
+model could not see goes in `uncertain` rather than being guessed.
+
+The prompt forbids identifying real people or naming a work an image might come from; it describes only what is
+visible. Uploads are stored as `source_image` assets, so a frame can also be attached as a reference to a later
+generation. Needs a vision-capable key — DeepSeek cannot read images.
+
+## Provider batches (half price, up to 24h)
+
+Any image or text generation can be sent to a provider's batch API instead of running now, at half the
+interactive price: `batch: true` on the request, or **Send as a provider batch** on bulk panel generation.
+OpenAI and Google only; a key whose provider has no batch API falls back to generating normally. See
+[COSTS](COSTS.md#provider-batches-half-price-up-to-24h) for the pricing and the provider table.
+
+The lifecycle is two-phase, because no handler may wait hours inside a worker slot:
+
+1. **Submit.** Jobs are written but not queued. One `image_batch_submit` / `text_batch_submit` job collects them,
+   chunks them to the provider's binding limit (OpenAI: enqueued input tokens, `OPENAI_BATCH_MAX_ENQUEUED_TOKENS`
+   with 20% headroom; Gemini: the 20 MB inline payload), submits, and parks each job at `submitted`.
+2. **Poll and ingest.** A `batch-poll` scheduler (`BATCH_POLL_INTERVAL_SECONDS`) reads finished batches and feeds
+   results through the ordinary path: images finalize/activate as usual, text jobs go back on their own queue with
+   the answer attached so their handler replays it and applies it unchanged.
+
+Text batching needs no per-handler work: the provider is swapped for one that records the request on the way out
+and replays the batch's answer on the way back, so each handler's validation, appliers and usage accounting run as
+in a synchronous run. A batched answer that fails schema validation is repaired with one live call.
+
+Spend is recorded against a `:batch` model at half rate, so batch cost is visible separately and the budget cap
+sees the real figure. Each chunk's idempotency key is derived from the job ids in it and echoed in the provider's
+own metadata, so a crash between submitting and persisting finds the batch already paid for instead of buying a
+second one.

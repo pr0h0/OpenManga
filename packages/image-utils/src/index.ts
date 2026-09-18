@@ -74,13 +74,20 @@ export async function probeImage(data: Uint8Array) {
 export async function sanitizeUpload(data: Uint8Array, maxPixels = 40_000_000) {
   const { mime } = await probeImage(data);
   const img = sharp(data, { limitInputPixels: maxPixels }).rotate();
-  const out =
-    mime === "image/png"
-      ? await img.png().toBuffer({ resolveWithObject: true })
-      : mime === "image/jpeg"
-        ? await img.jpeg({ quality: 95 }).toBuffer({ resolveWithObject: true })
-        : await img.webp({ quality: 95 }).toBuffer({ resolveWithObject: true });
-  return { data: new Uint8Array(out.data), mime, width: out.info.width, height: out.info.height };
+  try {
+    const out =
+      mime === "image/png"
+        ? await img.png().toBuffer({ resolveWithObject: true })
+        : mime === "image/jpeg"
+          ? await img.jpeg({ quality: 95 }).toBuffer({ resolveWithObject: true })
+          : await img.webp({ quality: 95 }).toBuffer({ resolveWithObject: true });
+    return { data: new Uint8Array(out.data), mime, width: out.info.width, height: out.info.height };
+  } catch (e) {
+    // A header sharp can read does not mean pixels it can decode: a truncated file passes `metadata()` and then
+    // fails here. Unguarded, that reached the API as a 500 for what is simply a bad upload.
+    if (e instanceof InvalidImageError) throw e;
+    throw new InvalidImageError(`Could not re-encode the image: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export type ReferenceParams = {
