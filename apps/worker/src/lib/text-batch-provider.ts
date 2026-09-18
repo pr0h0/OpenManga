@@ -107,11 +107,15 @@ export function batchAware(
   if (collector) return new CollectingTextProvider(real, collector, job.id);
   const answer = job.parameters.batchAnswer as BatchedAnswer | undefined;
   if (!answer?.text) return real;
+  // The batch billed once, but a handler that retries replays the same answer — so the tokens are reported only
+  // on the first run, or a job that fails validation twice would charge the project two or three times over.
+  const alreadyRecorded = job.parameters.batchUsageRecorded === true;
+  const usage = alreadyRecorded ? { inputTokens: 0, outputTokens: 0, cachedTokens: 0 } : answer.usage;
   // Recorded against the ":batch" model, so the run is charged the discounted rate it was actually billed.
   return new ReplayTextProvider(
     real,
     answer.text,
-    batchCallRecord(real.provider, batchModel(real.model), answer.usage, { batch: true }),
+    batchCallRecord(real.provider, batchModel(real.model), usage, { batch: true, replayed: alreadyRecorded }),
   );
 }
 

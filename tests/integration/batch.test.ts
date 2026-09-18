@@ -1,5 +1,16 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { aiUsage, and, desc, eq, generationJobs, panels, providerBatches, sql, storyRevisions } from "@openmanga/db";
+import {
+  aiUsage,
+  and,
+  desc,
+  eq,
+  generationJobs,
+  inArray,
+  panels,
+  providerBatches,
+  sql,
+  storyRevisions,
+} from "@openmanga/db";
 import { mockImagePng } from "@openmanga/testing";
 import { imageBatchSubmit, pollProviderBatches } from "../../apps/worker/src/handlers/image-batch.ts";
 import { storyRewrite } from "../../apps/worker/src/handlers/text.ts";
@@ -330,4 +341,109 @@ test("a text job batches by collecting its own handler's request, then replaying
   // provider's here, since the harness has no real key).
   expect(usage[0]!.model.endsWith(":batch")).toBe(true);
   expect(usage[0]!.textInputTokens).toBe(1200);
+});
+
+test("a parked job is never run by the ordinary worker path", async () => {
+  // The expensive mistake: a parked panel is already paid for inside a provider batch, so running its handler
+  // would buy the same image a second time and the poller would then discard the batched one.
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({
+      projectId,
+      kind: "panel_generation",
+      queue: "image-generation",
+      status: "submitted",
+      priority: 5,
+      templateName: "panel-generation",
+      templateVersion: 6,
+      compiledPrompt: "x",
+      provider: "openai",
+      model: "gpt-image-2",
+      parameters: { batchMode: true },
+    })
+    .returning();
+  let ran = 0;
+  await runGenerationJob(
+    h.workerDeps,
+    { data: { jobId: job!.id }, queueName: "image-generation", attemptsMade: 1, opts: { attempts: 3 } } as never,
+    async () => {
+      ran++;
+      return { ok: true };
+    },
+  );
+  expect(ran).toBe(0);
+  const [after] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(after!.status).toBe("submitted");
+});
+
+test("a batch that answers only some of its requests fails the rest instead of parking them", async () => {
+  const partial = new FakeBatchProvider(await mockImagePng({ width: 32, height: 32, prompt: "p" }));
+  // Answers for the first key only, and claims success.
+  partial.pollBatch = async (hd) => ({
+    state: "succeeded",
+    counts: { total: hd.keys.length, completed: 1, failed: 0 },
+    items: [
+      {
+        key: hd.keys[0]!,
+        ok: false,
+        code: "moderation_blocked",
+        message: "rejected",
+      },
+    ],
+  });
+  h.workerDeps.resolver.imageBatch = (async () => partial) as typeof h.workerDeps.resolver.imageBatch;
+
+  const [rowA] = await h.deps.db
+    .insert(providerBatches)
+    .values({
+      projectId,
+      capability: "image",
+      provider: "openai",
+      model: "gpt-image-2",
+      handle: "batch_partial",
+      idempotencyKey: `partial-${crypto.randomUUID()}`,
+      state: "pending",
+      requestCount: 2,
+      submittedAt: new Date(),
+    })
+    .returning();
+  const made: string[] = [];
+  for (const n of [1, 2]) {
+    const [j] = await h.deps.db
+      .insert(generationJobs)
+      .values({
+        projectId,
+        kind: "panel_generation",
+        queue: "image-generation",
+        status: "submitted",
+        priority: 5,
+        templateName: "panel-generation",
+        templateVersion: 6,
+        compiledPrompt: `partial ${n}`,
+        provider: "openai",
+        model: "gpt-image-2",
+        parameters: { batchMode: true, providerBatchId: rowA!.id },
+      })
+      .returning();
+    made.push(j!.id);
+  }
+  await pollProviderBatches(h.workerDeps);
+  const after = await h.deps.db.select().from(generationJobs).where(inArray(generationJobs.id, made));
+  expect(after.every((j) => j.status === "failed")).toBe(true);
+  // The unanswered one says so rather than borrowing the other's reason.
+  expect(after.some((j) => j.failureCode === "missing_result")).toBe(true);
+  const [closed] = await h.deps.db.select().from(providerBatches).where(eq(providerBatches.id, rowA!.id));
+  expect(closed!.ingestedAt).not.toBeNull();
+});
+
+test("replaying a text answer clears the batch marker, so no sweep can resubmit it", async () => {
+  const jobs = await h.deps.db
+    .select()
+    .from(generationJobs)
+    .where(and(eq(generationJobs.kind, "story_rewrite"), eq(generationJobs.status, "completed")));
+  expect(jobs.length).toBeGreaterThan(0);
+  // After ingest the job carried its answer and was requeued; the marker that means "waiting to be submitted"
+  // must be gone, or the submit sweep would collect and pay for it all over again.
+  expect(jobs.every((j) => j.parameters.batchMode === undefined)).toBe(true);
+  expect(jobs.every((j) => Boolean(j.parameters.batchAnswer))).toBe(true);
 });

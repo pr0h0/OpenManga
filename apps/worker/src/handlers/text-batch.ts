@@ -7,13 +7,16 @@
  * so the handler runs again and its validation, appliers, events and usage accounting all happen exactly as in a
  * synchronous run. Nothing about the handlers had to be split apart to make this work.
  */
-import type { TextBatchItemResult, TextBatchRequestSpec } from "@openmanga/ai-text";
+import { batchCallRecord, type TextBatchItemResult, type TextBatchRequestSpec } from "@openmanga/ai-text";
 import { and, eq, generationJobs, inArray, providerBatches, sql } from "@openmanga/db";
-import { hashOf } from "@openmanga/domain";
+import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
+import { withBatchClaim } from "../lib/batch-claim.ts";
 import type { GenerationJob } from "../lib/runner.ts";
+import { recordTextCalls } from "../lib/runner.ts";
 import { BatchCollector, ParkedForBatch } from "../lib/text-batch-provider.ts";
+
 import { TEXT_HANDLERS } from "./text-handlers.ts";
 
 type BatchRow = typeof providerBatches.$inferSelect;
@@ -37,6 +40,18 @@ async function collectFrom(deps: WorkerDeps, job: GenerationJob): Promise<TextBa
   }
 }
 
+/** Puts jobs back on their ordinary queue and clears the batch marker, so no sweep tries to batch them again. */
+async function runSynchronously(deps: WorkerDeps, jobs: GenerationJob[]) {
+  for (const j of jobs) {
+    await deps.db
+      .update(generationJobs)
+      .set({ parameters: sql`${generationJobs.parameters} - 'batchMode'` })
+      .where(eq(generationJobs.id, j.id));
+    await deps.jobs.enqueueGeneration(j);
+  }
+  await deps.jobs.kick();
+}
+
 export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   const batchId = job.batchId ?? String(job.input.batchId ?? "");
   if (!batchId) throw new Error("text_batch_submit has no batchId");
@@ -55,8 +70,7 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
 
   const provider = await deps.resolver.textBatch(choiceOf(pending[0]!), pending[0]!.userId);
   if (!provider) {
-    for (const p of pending) await deps.jobs.enqueueGeneration(p);
-    await deps.jobs.kick();
+    await runSynchronously(deps, pending);
     deps.logger.info("text batch unavailable, running synchronously", { batchId, jobs: pending.length });
     return { submitted: 0, batches: 0, fellBack: pending.length };
   }
@@ -74,8 +88,7 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   }
   if (!specs.length) {
     // Nothing could be collected: run them the ordinary way rather than leaving them stuck.
-    for (const p of pending) await deps.jobs.enqueueGeneration(p);
-    await deps.jobs.kick();
+    await runSynchronously(deps, pending);
     return { submitted: 0, batches: 0, fellBack: pending.length };
   }
 
@@ -84,59 +97,61 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   for (const chunk of chunks) {
     const keys = chunk.map((c) => c.key);
     const idempotencyKey = `${batchId}:text:${hashOf([...keys].sort()).slice(0, 16)}`;
-    const [known] = await deps.db
-      .select()
-      .from(providerBatches)
-      .where(eq(providerBatches.idempotencyKey, idempotencyKey));
-    let handle = known
-      ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
-      : ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
-    if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
+    await withBatchClaim(deps, idempotencyKey, async () => {
+      const [known] = await deps.db
+        .select()
+        .from(providerBatches)
+        .where(eq(providerBatches.idempotencyKey, idempotencyKey));
+      let handle = known
+        ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
+        : ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
+      if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
 
-    await deps.db.transaction(async (tx) => {
-      const [row] = await tx
-        .insert(providerBatches)
-        .values({
-          projectId: job.projectId,
-          userId: job.userId,
-          batchId,
-          capability: "text",
-          provider: provider.provider,
-          model: provider.model,
-          handle: handle.handle,
-          idempotencyKey,
-          state: "pending",
-          requestCount: keys.length,
-          ownedFileIds: handle.ownedFileIds ?? [],
-          submittedAt: new Date(),
-        })
-        .onConflictDoNothing({ target: providerBatches.idempotencyKey })
-        .returning();
-      const batchRowId =
-        row?.id ??
-        (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
-      await tx
-        .update(generationJobs)
-        .set({
-          status: "submitted",
-          parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
-        })
-        .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+      await deps.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(providerBatches)
+          .values({
+            projectId: job.projectId,
+            userId: job.userId,
+            batchId,
+            capability: "text",
+            provider: provider.provider,
+            model: provider.model,
+            handle: handle.handle,
+            idempotencyKey,
+            state: "pending",
+            requestCount: keys.length,
+            ownedFileIds: handle.ownedFileIds ?? [],
+            submittedAt: new Date(),
+          })
+          .onConflictDoNothing({ target: providerBatches.idempotencyKey })
+          .returning();
+        const batchRowId =
+          row?.id ??
+          (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
+        await tx
+          .update(generationJobs)
+          .set({
+            status: "submitted",
+            parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
+          })
+          .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+      });
+      submitted += keys.length;
+      for (const key of keys) {
+        const target = byKey.get(key);
+        if (target)
+          await deps.events.publish(job.projectId, {
+            type: "job.updated",
+            jobId: key,
+            kind: target.kind,
+            status: "submitted",
+            targetType: target.targetType,
+            targetId: target.targetId,
+            batchId,
+          });
+      }
     });
-    submitted += keys.length;
-    for (const key of keys) {
-      const target = byKey.get(key);
-      if (target)
-        await deps.events.publish(job.projectId, {
-          type: "job.updated",
-          jobId: key,
-          kind: target.kind,
-          status: "submitted",
-          targetType: target.targetType,
-          targetId: target.targetId,
-          batchId,
-        });
-    }
   }
   deps.logger.info("submitted text batches", { batchId, jobs: submitted, batches: chunks.length });
   return { submitted, batches: chunks.length, fellBack: 0 };
@@ -172,6 +187,13 @@ export async function ingestTextBatch(deps: WorkerDeps, row: BatchRow, jobs: Gen
   let failed = 0;
   for (const item of status.items ?? []) {
     const job = byId.get(item.key);
+    if (job?.status === "cancel_requested" || job?.status === "cancelled") {
+      await deps.db
+        .update(generationJobs)
+        .set({ status: "cancelled", finishedAt: new Date(), failureReason: "Cancelled while waiting in a batch" })
+        .where(and(eq(generationJobs.id, job.id), inArray(generationJobs.status, ["cancel_requested", "submitted"])));
+      continue;
+    }
     if (job?.status !== "submitted") continue;
     if (item.ok) {
       await replay(deps, job, item);
@@ -181,16 +203,22 @@ export async function ingestTextBatch(deps: WorkerDeps, row: BatchRow, jobs: Gen
       failed++;
     }
   }
-  if (!status.items?.length && status.state !== "succeeded")
-    for (const job of jobs.filter((j) => j.status === "submitted")) {
-      await failText(deps, job, {
-        key: job.id,
-        ok: false,
-        code: status.state,
-        message: status.error ?? `The provider batch ${status.state}`,
-      });
-      failed++;
-    }
+  // Anything the batch did not answer for, whatever its overall state.
+  const stranded = await deps.db
+    .select()
+    .from(generationJobs)
+    .where(
+      and(sql`${generationJobs.parameters}->>'providerBatchId' = ${row.id}`, eq(generationJobs.status, "submitted")),
+    );
+  for (const job of stranded) {
+    await failText(deps, job, {
+      key: job.id,
+      ok: false,
+      code: status.state === "succeeded" ? "missing_result" : status.state,
+      message: status.error ?? `The provider batch ${status.state} without a result for this request`,
+    });
+    failed++;
+  }
   await provider
     .releaseBatch({ handle: row.handle, keys: [], idempotencyKey: row.idempotencyKey, ownedFileIds: row.ownedFileIds })
     .catch(() => {});
@@ -206,7 +234,9 @@ async function replay(deps: WorkerDeps, job: GenerationJob, item: Extract<TextBa
     .update(generationJobs)
     .set({
       status: "queued",
-      parameters: sql`${generationJobs.parameters} || ${JSON.stringify({
+      // `batchMode` is dropped here: the job is no longer waiting to be submitted, and leaving the marker would
+      // let the submit sweep pick it up again and pay for a second batch of a job that already has its answer.
+      parameters: sql`(${generationJobs.parameters} - 'batchMode') || ${JSON.stringify({
         batchAnswer: { text: item.text, usage: item.usage },
       })}::jsonb`,
     })
@@ -217,6 +247,14 @@ async function replay(deps: WorkerDeps, job: GenerationJob, item: Extract<TextBa
 }
 
 async function failText(deps: WorkerDeps, job: GenerationJob, item: Extract<TextBatchItemResult, { ok: false }>) {
+  // Billed-but-unusable is still billed: record it before failing, as the synchronous path does.
+  if (item.usage && (item.usage.inputTokens || item.usage.outputTokens))
+    await recordTextCalls(deps, job, [
+      {
+        ...batchCallRecord(job.provider ?? "", batchModel(job.model ?? ""), item.usage),
+        success: false,
+      },
+    ]).catch(() => {});
   await deps.db
     .update(generationJobs)
     .set({ status: "failed", failureCode: item.code, failureReason: item.message, finishedAt: new Date() })

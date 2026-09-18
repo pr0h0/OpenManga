@@ -42,7 +42,7 @@ import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
 import type { WorkerDeps } from "../context.ts";
 import { type GenerationJob, InputError, recordTextCalls } from "../lib/runner.ts";
-import { batchAware } from "../lib/text-batch-provider.ts";
+import { batchAware, ParkedForBatch } from "../lib/text-batch-provider.ts";
 
 const repairBuilder = (schemaName: string) => (a: { raw: string; error: string; schemaText: string }) =>
   jsonRepairV1.build({ schemaName, error: a.error, raw: a.raw, schemaText: a.schemaText });
@@ -66,6 +66,12 @@ async function structured<T>(
     buildRepairMessages: repairBuilder(schemaName),
   });
   await recordTextCalls(deps, job, r.calls);
+  // Mark a batched answer's tokens as counted, so a retry of this handler replays the text without re-billing.
+  if (job.parameters.batchAnswer && job.parameters.batchUsageRecorded !== true)
+    await deps.db
+      .update(generationJobs)
+      .set({ parameters: sql`${generationJobs.parameters} || '{"batchUsageRecorded":true}'::jsonb` })
+      .where(eq(generationJobs.id, job.id));
   const last = r.calls.at(-1);
   await deps.db
     .update(generationJobs)
@@ -105,6 +111,9 @@ export async function storyAnalysis(deps: WorkerDeps, job: GenerationJob) {
     await deps.events.publish(job.projectId, { type: "analysis.updated", analysisId, status: "completed" });
     return { analysisId, repaired: r.repaired, characters: r.data.characters.length, chapters: r.data.chapters.length };
   } catch (e) {
+    // Being collected for a batch is not a failure: the run is parked and paid for, and marking the analysis
+    // failed here would show the user a dead analysis for up to a day and invite them to pay for a second one.
+    if (e instanceof ParkedForBatch) throw e;
     await deps.db.update(storyAnalyses).set({ status: "failed" }).where(eq(storyAnalyses.id, analysisId));
     await deps.events.publish(job.projectId, { type: "analysis.updated", analysisId, status: "failed" });
     throw e;

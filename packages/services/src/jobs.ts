@@ -344,7 +344,10 @@ export class JobService {
       .where(and(eq(generationJobs.batchId, batchId), eq(generationJobs.status, "paused")))
       .returning();
     for (const job of rows) {
-      await this.republish(job.queue as QueueName, job.id, job.kind, { jobId: job.id, kind: job.kind }, job.priority);
+      // A batch-mode job must not be put back on its own queue: that runs it interactively, at twice the price
+      // the caller chose to wait for. It goes back to waiting, and the batch submitter collects it again.
+      if (job.parameters.batchMode !== true)
+        await this.republish(job.queue as QueueName, job.id, job.kind, { jobId: job.id, kind: job.kind }, job.priority);
       await this.opts.events?.publish(job.projectId, {
         type: "job.updated",
         jobId: job.id,

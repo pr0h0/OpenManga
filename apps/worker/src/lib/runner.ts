@@ -69,6 +69,12 @@ export async function runGenerationJob(
   }
   if (job.status === "completed") return job.result;
   if (job.status === "cancelled" || job.status === "paused") return;
+  // Parked in a provider batch that is already paid for. Only the batch poller may resurrect it: running the
+  // handler here would buy the same panel a second time and the poller would then discard the batched one.
+  if (job.status === "submitted") {
+    log.info("job is waiting in a provider batch; not running it");
+    return;
+  }
   if (job.status === "cancel_requested") {
     await finishCancelled(deps, job);
     return;

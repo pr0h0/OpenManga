@@ -443,11 +443,12 @@ export class GeminiTextBatchProvider implements TextBatchProvider {
   }
 
   async findByIdempotencyKey(key: string) {
-    const list = await this.api<{ batches?: { name?: string; metadata?: { displayName?: string } }[] }>(
+    const list = await this.api<{ batches?: { name?: string; displayName?: string; metadata?: { displayName?: string } }[] }>(
       "/batches?pageSize=100",
       { method: "GET" },
     );
-    const found = (list.batches ?? []).find((b) => b.metadata?.displayName === key);
+    // The field has appeared both on the batch and under metadata; checking both keeps a retry from paying twice.
+    const found = (list.batches ?? []).find((b) => (b.metadata?.displayName ?? b.displayName) === key);
     return found?.name ? { handle: found.name, keys: [], idempotencyKey: key } : null;
   }
 

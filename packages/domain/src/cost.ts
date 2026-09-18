@@ -214,7 +214,9 @@ export const DEFAULT_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = [
  * absent deliberately — it discounts by time of day (off-peak windows), not through a batch endpoint, so there
  * is nothing to submit to. Meta and OpenRouter expose no batch API.
  */
-export const BATCH_CAPABLE_PROVIDERS = new Set(["openai", "google", "anthropic"]);
+// Anthropic has a Message Batches API but no implementation here yet, so it is deliberately absent: promising a
+// discount and then quietly running the job interactively is worse than refusing to batch it.
+export const BATCH_CAPABLE_PROVIDERS = new Set(["openai", "google"]);
 
 /**
  * Batch runs are recorded against a suffixed model so their spend is priced and reported separately. The suffix

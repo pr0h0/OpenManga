@@ -1,5 +1,16 @@
 import type { ChatMessage, TextAIProvider } from "@openmanga/ai-text";
-import { characters, characterVersions, desc, eq, inArray, panelSpecs, panels, projects } from "@openmanga/db";
+import {
+  characters,
+  characterVersions,
+  desc,
+  eq,
+  generationJobs,
+  inArray,
+  panelSpecs,
+  panels,
+  projects,
+  sql,
+} from "@openmanga/db";
 import { panelCheckV1 } from "@openmanga/prompts";
 import { CharacterBible, PanelCheck } from "@openmanga/schemas";
 import type { WorkerDeps } from "../context.ts";
@@ -97,6 +108,11 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
     buildRepairMessages: undefined,
   });
   await recordTextCalls(deps, job, r.calls);
+  if (job.parameters.batchAnswer && job.parameters.batchUsageRecorded !== true)
+    await deps.db
+      .update(generationJobs)
+      .set({ parameters: sql`${generationJobs.parameters} || '{"batchUsageRecorded":true}'::jsonb` })
+      .where(eq(generationJobs.id, job.id));
   const c = r.data;
   const expectedCount = expected.length;
   const problems = [

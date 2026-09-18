@@ -327,7 +327,9 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
         kind: "image_batch_submit",
         priority,
         batchId,
-        parameters: { ai: input.ai ?? null },
+        // Without the caller's confirmation the submitter is the one job that still trips the budget gate, and
+        // pausing it converts the whole run back to interactive pricing on resume.
+        parameters: { ai: input.ai ?? null, ...(allowOverBudget ? { allowOverBudget: true } : {}) },
         input: { batchId },
       });
     });

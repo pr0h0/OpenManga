@@ -11,12 +11,14 @@
  */
 
 import type { BatchItemResult, BatchRequestSpec, ImageBatchProvider } from "@openmanga/ai-image";
-import { and, eq, generationJobs, inArray, lt, panels, providerBatches, sql } from "@openmanga/db";
+import { and, eq, generationJobs, inArray, isNull, lt, panels, providerBatches, sql } from "@openmanga/db";
 import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
+import { withBatchClaim } from "../lib/batch-claim.ts";
 import type { GenerationJob } from "../lib/runner.ts";
 import { activatePanelArt, finalizeOutput, inputsOf, loadInputFile, recordImageUsage } from "./image.ts";
+import { maybeQueuePanelCheck } from "./qa.ts";
 import { ingestTextBatch, textBatchSubmit } from "./text-batch.ts";
 
 type BatchRow = typeof providerBatches.$inferSelect;
@@ -81,62 +83,64 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   for (const chunk of chunks) {
     const keys = chunk.map((c) => c.key);
     const idempotencyKey = `${batchId}:${hashOf([...keys].sort()).slice(0, 16)}`;
-    const [known] = await deps.db
-      .select()
-      .from(providerBatches)
-      .where(eq(providerBatches.idempotencyKey, idempotencyKey));
-    let handle = known
-      ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
-      : // A crash between submitting and persisting would otherwise pay twice: ask the provider first.
-        ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
-    if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
+    await withBatchClaim(deps, idempotencyKey, async () => {
+      const [known] = await deps.db
+        .select()
+        .from(providerBatches)
+        .where(eq(providerBatches.idempotencyKey, idempotencyKey));
+      let handle = known
+        ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
+        : // A crash between submitting and persisting would otherwise pay twice: ask the provider first.
+          ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
+      if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
 
-    await deps.db.transaction(async (tx) => {
-      const [row] = await tx
-        .insert(providerBatches)
-        .values({
-          projectId: job.projectId,
-          userId: job.userId,
-          batchId,
-          capability: "image",
-          provider: provider.provider,
-          model: provider.model,
-          handle: handle.handle,
-          idempotencyKey,
-          state: "pending",
-          requestCount: keys.length,
-          ownedFileIds: handle.ownedFileIds ?? [],
-          submittedAt: new Date(),
-        })
-        .onConflictDoNothing({ target: providerBatches.idempotencyKey })
-        .returning();
-      const batchRowId =
-        row?.id ??
-        (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
-      await tx
-        .update(generationJobs)
-        .set({
-          status: "submitted",
-          provider: provider.provider,
-          model: provider.model,
-          parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
-        })
-        .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+      await deps.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(providerBatches)
+          .values({
+            projectId: job.projectId,
+            userId: job.userId,
+            batchId,
+            capability: "image",
+            provider: provider.provider,
+            model: provider.model,
+            handle: handle.handle,
+            idempotencyKey,
+            state: "pending",
+            requestCount: keys.length,
+            ownedFileIds: handle.ownedFileIds ?? [],
+            submittedAt: new Date(),
+          })
+          .onConflictDoNothing({ target: providerBatches.idempotencyKey })
+          .returning();
+        const batchRowId =
+          row?.id ??
+          (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
+        await tx
+          .update(generationJobs)
+          .set({
+            status: "submitted",
+            provider: provider.provider,
+            model: provider.model,
+            parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
+          })
+          .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+      });
+      submitted += keys.length;
+      for (const key of keys) {
+        const target = pending.find((p) => p.id === key);
+        if (target)
+          await deps.events.publish(job.projectId, {
+            type: "job.updated",
+            jobId: key,
+            kind: target.kind,
+            status: "submitted",
+            targetType: target.targetType,
+            targetId: target.targetId,
+            batchId,
+          });
+      }
     });
-    submitted += keys.length;
-    for (const key of keys) {
-      const target = pending.find((p) => p.id === key);
-      if (target)
-        await deps.events.publish(job.projectId, {
-          type: "job.updated",
-          jobId: key,
-          kind: target.kind,
-          status: "submitted",
-          targetType: target.targetType,
-          targetId: target.targetId,
-          batchId,
-        });
-    }
   }
   deps.logger.info("submitted image batches", { batchId, panels: submitted, batches: chunks.length });
   return { submitted, batches: chunks.length, fellBack: 0 };
@@ -184,17 +188,48 @@ export async function pollProviderBatches(deps: WorkerDeps) {
   const rows = await deps.db
     .select()
     .from(providerBatches)
-    .where(inArray(providerBatches.state, ["pending", "running"]));
-  const result = { polled: 0, ingested: 0, failed: 0, swept };
+    .where(
+      and(
+        isNull(providerBatches.ingestedAt),
+        // Keyed on "not yet ingested" rather than "not yet terminal": a crash, a deploy or one throwing ingest
+        // between the state write and the end of the item loop would otherwise strand the rest of the batch.
+        inArray(providerBatches.state, ["pending", "running", "succeeded", "partial", "failed", "expired"]),
+      ),
+    );
+  const result = { polled: 0, ingested: 0, failed: 0, swept, expired: 0 };
+  // A batch nothing can poll any more (the credential is gone, or the provider dropped the handle) would park its
+  // jobs indefinitely: nothing else watches "submitted". Gemini expires at 48h, so 50h is past every live batch.
+  const tooOld = new Date(Date.now() - 50 * 3600_000);
   for (const row of rows) {
     try {
       await pollOne(deps, row, result);
     } catch (e) {
       deps.logger.error("batch poll failed", { batchId: row.id, error: e instanceof Error ? e.message : String(e) });
+      if ((row.submittedAt ?? row.createdAt) < tooOld) {
+        await abandon(deps, row, `Gave up polling this batch: ${e instanceof Error ? e.message : String(e)}`);
+        result.expired++;
+      }
     }
     result.polled++;
   }
   return result;
+}
+
+/** Fails every job still parked on a row and closes it, so nothing waits on a batch that will never arrive. */
+export async function abandon(deps: WorkerDeps, row: BatchRow, reason: string) {
+  const jobs = await deps.db
+    .select()
+    .from(generationJobs)
+    .where(
+      and(sql`${generationJobs.parameters}->>'providerBatchId' = ${row.id}`, eq(generationJobs.status, "submitted")),
+    );
+  for (const job of jobs)
+    await failOne(deps, job, { key: job.id, ok: false, code: "batch_abandoned", message: reason });
+  await deps.db
+    .update(providerBatches)
+    .set({ state: "expired", failureReason: reason, ingestedAt: new Date() })
+    .where(eq(providerBatches.id, row.id));
+  deps.logger.warn("abandoned a provider batch", { batchId: row.id, jobs: jobs.length, reason });
 }
 
 async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: number; failed: number }) {
@@ -242,7 +277,11 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
       deps.logger.warn("batch returned an unknown key", { batchId: row.id, key: item.key });
       continue;
     }
-    if (job.status !== "submitted") continue; // already ingested, or cancelled meanwhile
+    if (job.status === "cancel_requested" || job.status === "cancelled") {
+      await finishCancelledBatchJob(deps, job);
+      continue;
+    }
+    if (job.status !== "submitted") continue; // already ingested by an overlapping poll
     try {
       if (item.ok) {
         await ingestOne(deps, job, item);
@@ -255,16 +294,22 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
       deps.logger.error("batch ingest failed", { jobId: job.id, error: e instanceof Error ? e.message : String(e) });
     }
   }
-  // A batch that ended without per-item results (expired, cancelled, or a provider-level failure) leaves its
-  // jobs parked forever otherwise.
-  if (!status.items?.length && status.state !== "succeeded") {
-    for (const job of jobs.filter((j) => j.status === "submitted"))
-      await failOne(deps, job, {
-        key: job.id,
-        ok: false,
-        code: status.state,
-        message: status.error ?? `The provider batch ${status.state}`,
-      });
+  // Whatever the batch did not answer for — an expired or cancelled batch still returns the requests that did
+  // finish, so a non-empty item list is no proof every key came back.
+  const stranded = await deps.db
+    .select()
+    .from(generationJobs)
+    .where(
+      and(sql`${generationJobs.parameters}->>'providerBatchId' = ${row.id}`, eq(generationJobs.status, "submitted")),
+    );
+  for (const job of stranded) {
+    await failOne(deps, job, {
+      key: job.id,
+      ok: false,
+      code: status.state === "succeeded" ? "missing_result" : status.state,
+      message: status.error ?? `The provider batch ${status.state} without a result for this request`,
+    });
+    result.failed++;
   }
   await provider
     .releaseBatch({ handle: row.handle, keys: [], idempotencyKey: row.idempotencyKey, ownedFileIds: row.ownedFileIds })
@@ -275,12 +320,46 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
     .where(eq(providerBatches.id, row.id));
 }
 
+/**
+ * A job cancelled while it was parked: the batch was already paid for, so its result is simply not activated.
+ * Without this the job sits at cancel_requested for good and its panel never leaves "queued".
+ */
+async function finishCancelledBatchJob(deps: WorkerDeps, job: GenerationJob) {
+  await deps.db
+    .update(generationJobs)
+    .set({ status: "cancelled", finishedAt: new Date(), failureReason: "Cancelled while waiting in a batch" })
+    .where(and(eq(generationJobs.id, job.id), inArray(generationJobs.status, ["cancel_requested", "submitted"])));
+  if (job.targetId) {
+    const [panel] = await deps.db.select().from(panels).where(eq(panels.id, job.targetId));
+    if (panel && (panel.status === "queued" || panel.status === "generating"))
+      await deps.db
+        .update(panels)
+        .set({ status: panel.activeArtworkAssetId ? "ready" : "planned" })
+        .where(eq(panels.id, panel.id));
+  }
+  await deps.events.publish(job.projectId, {
+    type: "job.updated",
+    jobId: job.id,
+    kind: job.kind,
+    status: "cancelled",
+    targetType: job.targetType,
+    targetId: job.targetId,
+    batchId: job.batchId,
+  });
+}
+
 async function ingestOne(deps: WorkerDeps, job: GenerationJob, item: Extract<BatchItemResult, { ok: true }>) {
   const inputs = await inputsOf(deps, job.id);
   const { asset, cancelled } = await finalizeOutput(deps, job, item.result, "panel_art", { batch: true }, null);
   // Recorded against the ":batch" model so the discounted price is what the run is charged.
   await recordImageUsage(deps, job, { ...item.result, model: batchModel(item.result.model) }, inputs);
-  if (!cancelled && job.targetId) await activatePanelArt(deps, job, job.targetId, asset.id, null);
+  if (!cancelled && job.targetId) {
+    await activatePanelArt(deps, job, job.targetId, asset.id, null);
+    // Same follow-up as the synchronous handler: without this a batched project silently loses its vision QA.
+    await maybeQueuePanelCheck(deps, job, job.targetId, asset.id).catch((e) =>
+      deps.logger.warn("panel check not queued", { jobId: job.id, error: e instanceof Error ? e.message : String(e) }),
+    );
+  }
   await deps.db
     .update(generationJobs)
     .set({
