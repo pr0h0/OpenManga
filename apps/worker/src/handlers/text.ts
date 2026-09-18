@@ -42,6 +42,7 @@ import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
 import type { WorkerDeps } from "../context.ts";
 import { type GenerationJob, InputError, recordTextCalls } from "../lib/runner.ts";
+import { batchAware } from "../lib/text-batch-provider.ts";
 
 const repairBuilder = (schemaName: string) => (a: { raw: string; error: string; schemaText: string }) =>
   jsonRepairV1.build({ schemaName, error: a.error, raw: a.raw, schemaText: a.schemaText });
@@ -54,7 +55,9 @@ async function structured<T>(
   schemaName: string,
   maxTokens = 32_000,
 ) {
-  const provider = (await deps.resolver.forJob("text", job)) as TextAIProvider;
+  // In a batch run this wrapper either collects the request and parks the job, or replays the answer the batch
+  // returned — either way the handler around it is unchanged.
+  const provider = batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);
   const r = await provider.generateStructured({
     messages,
     schema,

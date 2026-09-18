@@ -32,6 +32,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   panel_check: "text-ai",
   cover: "image-generation",
   image_batch_submit: "image-batch",
+  text_batch_submit: "image-batch",
 };
 
 export type NewGenerationInput = {

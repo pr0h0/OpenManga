@@ -19,7 +19,9 @@ export type GenerationKind =
   | "panel_check"
   | "cover"
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
-  | "image_batch_submit";
+  | "image_batch_submit"
+  /** The same for text jobs: harvests each job's request and submits them together. */
+  | "text_batch_submit";
 
 export const generationJobs = pgTable(
   "generation_jobs",

@@ -7,7 +7,15 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, assertBudget, textRun } from "../lib/ai.ts";
+import {
+  AiChoiceInput,
+  assertBatchable,
+  assertBudget,
+  BatchInput,
+  batchParameters,
+  queueTextBatchSubmit,
+  textRun,
+} from "../lib/ai.ts";
 import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
@@ -191,6 +199,8 @@ chapterRoutes.delete("/chapters/:id", async (c) => {
 const PlanInput = z.object({
   replace: z.boolean().default(false),
   targetPages: z.number().int().min(1).max(60).optional(),
+  /** Send to the provider's batch API: half price, result within 24h instead of now. */
+  batch: BatchInput,
   ai: AiChoiceInput,
 });
 doc({
@@ -231,22 +241,30 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
     );
   await assertBudget(c, p.id);
   const run = await textRun(c, input.ai);
+  assertBatchable(c, input.batch, run.provider);
+  const batchId = input.batch ? crypto.randomUUID() : null;
   const job = await deps.db.transaction((tx) =>
-    deps.jobs.createGenerationJob(tx, {
-      projectId: p.id,
-      userId: user(c).id,
-      kind: "chapter_plan",
-      priority: PRIORITY.single,
-      targetType: "chapter",
-      targetId: id,
-      templateName: p.settings.format === "film" ? shotPlanningV2.name : chapterPlanningV5.name,
-      templateVersion: p.settings.format === "film" ? shotPlanningV2.version : chapterPlanningV5.version,
-      provider: run.provider,
-      model: run.model,
-      parameters: run.parameters,
-      input: { chapterId: id, replace: input.replace, targetPages: input.targetPages ?? null },
-    }),
+    deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: p.id,
+        userId: user(c).id,
+        kind: "chapter_plan",
+        priority: PRIORITY.single,
+        targetType: "chapter",
+        targetId: id,
+        batchId,
+        templateName: p.settings.format === "film" ? shotPlanningV2.name : chapterPlanningV5.name,
+        templateVersion: p.settings.format === "film" ? shotPlanningV2.version : chapterPlanningV5.version,
+        provider: run.provider,
+        model: run.model,
+        parameters: { ...run.parameters, ...batchParameters(input.batch) },
+        input: { chapterId: id, replace: input.replace, targetPages: input.targetPages ?? null },
+      },
+      { enqueue: !input.batch },
+    ),
   );
+  if (batchId) await queueTextBatchSubmit(c, { projectId: p.id, batchId, ai: input.ai });
   await deps.jobs.kick();
   return c.json({ job }, 202);
 });

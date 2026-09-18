@@ -4,6 +4,7 @@ import { panelCheckV1 } from "@openmanga/prompts";
 import { CharacterBible, PanelCheck } from "@openmanga/schemas";
 import type { WorkerDeps } from "../context.ts";
 import { type GenerationJob, InputError, recordTextCalls } from "../lib/runner.ts";
+import { batchAware } from "../lib/text-batch-provider.ts";
 
 /** Queue an automatic consistency check for a panel's new artwork when the project opted in. */
 export async function maybeQueuePanelCheck(deps: WorkerDeps, job: GenerationJob, panelId: string, assetId: string) {
@@ -18,21 +19,36 @@ export async function maybeQueuePanelCheck(deps: WorkerDeps, job: GenerationJob,
     deps.logger.warn("consistency check skipped: no credential configured", { projectId: job.projectId });
     return null;
   }
-  return deps.db.transaction((tx) =>
-    deps.jobs.createGenerationJob(tx, {
-      projectId: job.projectId,
-      userId: job.userId,
-      kind: "panel_check",
-      priority: 8,
-      batchId: null,
-      targetType: "panel",
-      targetId: panelId,
-      templateName: panelCheckV1.name,
-      templateVersion: panelCheckV1.version,
-      parameters: { ai: { credentialId: cc.credentialId, model: cc.model || null }, assetId },
-      input: { panelId, assetId, sourceJobId: job.id },
-    }),
+  // A panel generated through a provider batch has its check batched too: a chapter of batched panels would
+  // otherwise generate hundreds of interactive vision calls at full price behind the scenes.
+  const batched = job.parameters.batchMode === true;
+  const batchId = batched ? (job.batchId ?? null) : null;
+  const created = await deps.db.transaction((tx) =>
+    deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: job.projectId,
+        userId: job.userId,
+        kind: "panel_check",
+        priority: 8,
+        batchId,
+        targetType: "panel",
+        targetId: panelId,
+        templateName: panelCheckV1.name,
+        templateVersion: panelCheckV1.version,
+        parameters: {
+          ai: { credentialId: cc.credentialId, model: cc.model || null },
+          assetId,
+          ...(batched ? { batchMode: true } : {}),
+        },
+        input: { panelId, assetId, sourceJobId: job.id },
+      },
+      { enqueue: !batched },
+    ),
   );
+  // Batched checks are picked up by the submit sweep in the batch poller, since they are created one panel at a
+  // time as each batch is ingested rather than all at once by a route.
+  return created;
 }
 
 /**
@@ -72,7 +88,7 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
   const messages: ChatMessage[] = [...panelCheckV1.build({ expected, beat: spec?.spec.beat ?? pn.storyBeat })];
   messages[1] = { ...messages[1]!, images: [image] };
 
-  const provider = (await deps.resolver.forJob("text", job)) as TextAIProvider;
+  const provider = batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);
   const r = await provider.generateStructured({
     messages,
     schema: PanelCheck,

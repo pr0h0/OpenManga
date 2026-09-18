@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Text jobs batch too** — planning, story analysis, rewrites, page prompts, narration writing and the vision
+  consistency check — on OpenAI and Google keys. A panel generated through a batch has its automatic consistency
+  check batched as well, so a batched chapter does not quietly produce hundreds of interactive vision calls.
+  Nothing about the handlers changed to make this work: the provider is swapped for one that collects the request
+  on the way out and replays the batch's answer on the way back, so each handler's own validation and appliers
+  run exactly as in a synchronous run. A batched answer that fails schema validation is repaired with one live
+  call rather than waiting another day.
 - Bulk panel generation can be sent to an image provider's **batch API**: half price, results within 24h (often
   sooner). Opt in per run — the panels wait at the provider instead of generating now, and nothing holds a worker
   slot meanwhile. OpenAI and Google keys only; DeepSeek discounts by time of day rather than through a batch

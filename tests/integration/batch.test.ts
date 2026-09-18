@@ -1,4 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { aiUsage, and, desc, eq, generationJobs, panels, providerBatches, sql, storyRevisions } from "@openmanga/db";
+import { mockImagePng } from "@openmanga/testing";
+import { imageBatchSubmit, pollProviderBatches } from "../../apps/worker/src/handlers/image-batch.ts";
+import { storyRewrite } from "../../apps/worker/src/handlers/text.ts";
+import { textBatchSubmit } from "../../apps/worker/src/handlers/text-batch.ts";
+import { runGenerationJob } from "../../apps/worker/src/lib/runner.ts";
 import type {
   BatchHandle,
   BatchItemResult,
@@ -6,9 +12,7 @@ import type {
   BatchStatus,
   ImageBatchProvider,
 } from "../../packages/ai-image/src/batch.ts";
-import { aiUsage, and, eq, generationJobs, panels, providerBatches, sql } from "@openmanga/db";
-import { mockImagePng } from "@openmanga/testing";
-import { imageBatchSubmit, pollProviderBatches } from "../../apps/worker/src/handlers/image-batch.ts";
+import type { TextBatchHandle, TextBatchProvider, TextBatchRequestSpec } from "../../packages/ai-text/src/batch.ts";
 import { startHarness, type TestClient } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -216,4 +220,114 @@ test("polling ingests the finished batch: art activated, failures reported, spen
   expect(batches.every((b) => b.ingestedAt !== null)).toBe(true);
   expect(batches.every((b) => b.ownedFileIds.length === 0)).toBe(true);
   expect(fake.released).toBe(2);
+});
+
+/** A text batch provider that answers with a fixed, valid StoryRewrite payload. */
+class FakeTextBatch implements TextBatchProvider {
+  readonly provider = "openai";
+  readonly model = "gpt-5-mini";
+  submitted: TextBatchRequestSpec[][] = [];
+  polls = new Map<string, number>();
+  chunk(reqs: TextBatchRequestSpec[]) {
+    return [reqs];
+  }
+  async submitBatch(reqs: TextBatchRequestSpec[], idempotencyKey: string) {
+    this.submitted.push(reqs);
+    return { handle: "tbatch_1", keys: reqs.map((r) => r.key), idempotencyKey, ownedFileIds: [] };
+  }
+  async pollBatch(h: TextBatchHandle) {
+    const seen = (this.polls.get(h.handle) ?? 0) + 1;
+    this.polls.set(h.handle, seen);
+    if (seen <= 1) return { state: "running" as const, counts: { total: h.keys.length, completed: 0, failed: 0 } };
+    return {
+      state: "succeeded" as const,
+      counts: { total: h.keys.length, completed: h.keys.length, failed: 0 },
+      items: h.keys.map((key) => ({
+        key,
+        ok: true as const,
+        text: JSON.stringify({ content: "A rewritten story, batched.", notes: "tightened the opening" }),
+        finishReason: "stop",
+        usage: { inputTokens: 1200, outputTokens: 300, cachedTokens: 0 },
+      })),
+    };
+  }
+  async cancelBatch() {}
+  async releaseBatch() {}
+  async findByIdempotencyKey() {
+    return null;
+  }
+}
+
+test("a text job batches by collecting its own handler's request, then replaying the answer", async () => {
+  const fakeText = new FakeTextBatch();
+  h.workerDeps.resolver.textBatch = (async () => fakeText) as typeof h.workerDeps.resolver.textBatch;
+  h.deps.resolver.textBatch = h.workerDeps.resolver.textBatch;
+
+  await alice.post(
+    `/api/projects/${projectId}/story/revisions`,
+    { content: "A clockmaker repairs a clock that runs backwards.", inputKind: "story" },
+    201,
+  );
+  const story = await alice.get<{ latest: { id: string } }>(`/api/projects/${projectId}/story`);
+  const r = await alice.post<{ job: { id: string; batchId: string | null } }>(
+    `/api/story-revisions/${story.latest.id}/rewrite`,
+    { instruction: "Tighten the opening paragraph", batch: true },
+    202,
+  );
+  expect(r.job.batchId).toBeTruthy();
+
+  // Written, not queued, and marked as part of a batch run.
+  const [created] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+  expect(created!.status).toBe("queued");
+  expect(created!.parameters.batchMode).toBe(true);
+  expect(await h.deps.queue.has("text-ai", created!.id)).toBe(false);
+
+  const [submitJob] = await h.deps.db
+    .select()
+    .from(generationJobs)
+    .where(and(eq(generationJobs.kind, "text_batch_submit"), eq(generationJobs.batchId, r.job.batchId!)));
+  const out = await textBatchSubmit(h.workerDeps, submitJob!);
+  expect(out).toEqual({ submitted: 1, batches: 1, fellBack: 0 });
+  // The collector captured the handler's own messages — no handler rewriting involved.
+  expect(fakeText.submitted[0]![0]!.key).toBe(r.job.id);
+
+  const [parked] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+  expect(parked!.status).toBe("submitted");
+
+  await pollProviderBatches(h.workerDeps); // running
+  expect((await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id)))[0]!.status).toBe(
+    "submitted",
+  );
+
+  await pollProviderBatches(h.workerDeps); // succeeded -> requeued with the answer attached
+  const [requeued] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+  expect(requeued!.status).toBe("queued");
+  expect((requeued!.parameters.batchAnswer as { text: string }).text).toContain("batched");
+
+  // The handler now runs for real and applies the batched answer: a new story revision.
+  await runGenerationJob(
+    h.workerDeps,
+    { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
+    (job) => storyRewrite(h.workerDeps, job),
+  );
+  const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+  expect(done!.status).toBe("completed");
+  const revisions = await h.deps.db
+    .select()
+    .from(storyRevisions)
+    .where(eq(storyRevisions.projectId, projectId))
+    .orderBy(desc(storyRevisions.revisionNumber));
+  expect(revisions[0]!.content).toBe("A rewritten story, batched.");
+  expect(revisions[0]!.source).toBe("ai_rewrite");
+
+  // Billed at the discounted rate: recorded against the ":batch" model.
+  const usage = await h.deps.db
+    .select()
+    .from(aiUsage)
+    .where(and(eq(aiUsage.projectId, projectId), eq(aiUsage.operation, "story_rewrite")));
+  expect(usage).toHaveLength(1);
+  // The ":batch" suffix is what routes the row to the half-price rate snapshot (the base name is the mock
+  // provider's here, since the harness has no real key).
+  expect(usage[0]!.model.endsWith(":batch")).toBe(true);
+  expect(usage[0]!.textInputTokens).toBe(1200);
 });

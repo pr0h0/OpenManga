@@ -172,6 +172,7 @@ export async function runStructured<T>(p: TextAIProvider, req: StructuredRequest
 }
 
 export { AnthropicTextProvider } from "./anthropic.ts";
+export * from "./batch.ts";
 export { DeepSeekTextProvider } from "./deepseek.ts";
 export { FakeTextAIProvider } from "./fake.ts";
 export { MetaMuseTextProvider, type OpenAIChatOptions, OpenAIChatTextProvider } from "./meta.ts";

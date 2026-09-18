@@ -47,7 +47,16 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, assertBudget, checkImageChoice, textRun } from "../lib/ai.ts";
+import {
+  AiChoiceInput,
+  assertBatchable,
+  assertBudget,
+  BatchInput,
+  batchParameters,
+  checkImageChoice,
+  queueTextBatchSubmit,
+  textRun,
+} from "../lib/ai.ts";
 import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
@@ -520,26 +529,34 @@ doc({
 });
 pageRoutes.post("/pages/:id/prepare-prompts", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "generate");
-  const { ai } = await body(c, z.object({ ai: AiChoiceInput }));
+  const { ai, batch } = await body(c, z.object({ ai: AiChoiceInput, batch: BatchInput }));
   const deps = c.get("deps");
   await assertBudget(c, project.id);
   const run = await textRun(c, ai);
+  assertBatchable(c, batch, run.provider);
+  const promptsBatchId = batch ? crypto.randomUUID() : null;
   const job = await deps.db.transaction((tx) =>
-    deps.jobs.createGenerationJob(tx, {
-      projectId: project.id,
-      userId: user(c).id,
-      kind: "page_prompts",
-      priority: PRIORITY.single,
-      targetType: "page",
-      targetId: page.id,
-      templateName: panelPromptsV3.name,
-      templateVersion: panelPromptsV3.version,
-      provider: run.provider,
-      model: run.model,
-      parameters: run.parameters,
-      input: { pageId: page.id },
-    }),
+    deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: project.id,
+        userId: user(c).id,
+        kind: "page_prompts",
+        priority: PRIORITY.single,
+        targetType: "page",
+        targetId: page.id,
+        batchId: promptsBatchId,
+        templateName: panelPromptsV3.name,
+        templateVersion: panelPromptsV3.version,
+        provider: run.provider,
+        model: run.model,
+        parameters: { ...run.parameters, ...batchParameters(batch) },
+        input: { pageId: page.id },
+      },
+      { enqueue: !batch },
+    ),
   );
+  if (promptsBatchId) await queueTextBatchSubmit(c, { projectId: project.id, batchId: promptsBatchId, ai });
   await deps.jobs.kick();
   return c.json({ job }, 202);
 });
@@ -1289,7 +1306,7 @@ pageRoutes.post("/panels/:id/review/dismiss", async (c) => {
   return c.json({ ok: true });
 });
 
-const CheckInput = z.object({ ai: AiChoiceInput });
+const CheckInput = z.object({ ai: AiChoiceInput, batch: BatchInput });
 doc({
   method: "POST",
   path: "/api/panels/:id/check",
@@ -1299,7 +1316,7 @@ doc({
 });
 pageRoutes.post("/panels/:id/check", async (c) => {
   const { panel, project } = await loadPanel(c, uuidParam(c, "id"), "generate");
-  const { ai } = await body(c, CheckInput);
+  const { ai, batch } = await body(c, CheckInput);
   if (!panel.activeArtworkAssetId) throw conflict("Panel has no artwork to check");
   const cc = project.settings.consistencyCheck;
   // The project's own vision key wins: it was picked for this job, while `ai` is whatever the page's text picker
@@ -1308,22 +1325,30 @@ pageRoutes.post("/panels/:id/check", async (c) => {
   await assertBudget(c, project.id);
   const run = await textRun(c, choice ?? null);
   const deps = c.get("deps");
+  assertBatchable(c, batch, run.provider);
+  const checkBatchId = batch ? crypto.randomUUID() : null;
   const job = await deps.db.transaction((tx) =>
-    deps.jobs.createGenerationJob(tx, {
-      projectId: project.id,
-      userId: user(c).id,
-      kind: "panel_check",
-      priority: PRIORITY.single,
-      targetType: "panel",
-      targetId: panel.id,
-      templateName: panelCheckV1.name,
-      templateVersion: panelCheckV1.version,
-      provider: run.provider,
-      model: run.model,
-      parameters: { ...run.parameters, assetId: panel.activeArtworkAssetId },
-      input: { panelId: panel.id, assetId: panel.activeArtworkAssetId },
-    }),
+    deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: project.id,
+        userId: user(c).id,
+        kind: "panel_check",
+        priority: PRIORITY.single,
+        targetType: "panel",
+        targetId: panel.id,
+        batchId: checkBatchId,
+        templateName: panelCheckV1.name,
+        templateVersion: panelCheckV1.version,
+        provider: run.provider,
+        model: run.model,
+        parameters: { ...run.parameters, assetId: panel.activeArtworkAssetId, ...batchParameters(batch) },
+        input: { panelId: panel.id, assetId: panel.activeArtworkAssetId },
+      },
+      { enqueue: !batch },
+    ),
   );
+  if (checkBatchId) await queueTextBatchSubmit(c, { projectId: project.id, batchId: checkBatchId, ai: choice ?? null });
   await deps.jobs.kick();
   return c.json({ job }, 202);
 });

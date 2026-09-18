@@ -7,6 +7,8 @@ import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts
 import { runMaintenance } from "./handlers/maintenance.ts";
 import { panelCheck } from "./handlers/qa.ts";
 import { chapterPlan, narrationText, pagePrompts, storyAnalysis, storyRewrite } from "./handlers/text.ts";
+import { textBatchSubmit } from "./handlers/text-batch.ts";
+import { TEXT_HANDLERS } from "./handlers/text-handlers.ts";
 import { processTts } from "./handlers/tts.ts";
 import { type GenerationJob, runGenerationJob } from "./lib/runner.ts";
 
@@ -14,6 +16,7 @@ const GENERATION_HANDLERS: Record<
   GenerationKind,
   (deps: WorkerDeps, job: GenerationJob) => Promise<Record<string, unknown>>
 > = {
+  ...(TEXT_HANDLERS as Record<string, (deps: WorkerDeps, job: GenerationJob) => Promise<Record<string, unknown>>>),
   story_analysis: storyAnalysis,
   story_rewrite: storyRewrite,
   chapter_plan: chapterPlan,
@@ -28,6 +31,7 @@ const GENERATION_HANDLERS: Record<
   panel_check: panelCheck,
   cover: coverGeneration,
   image_batch_submit: imageBatchSubmit,
+  text_batch_submit: textBatchSubmit,
 };
 
 export function generationProcessor(deps: WorkerDeps) {

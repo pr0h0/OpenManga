@@ -1,4 +1,4 @@
-import { PROVIDER_CATALOG, ProviderError, type ProviderKind } from "@openmanga/domain";
+import { BATCH_CAPABLE_PROVIDERS, PROVIDER_CATALOG, ProviderError, type ProviderKind } from "@openmanga/domain";
 import { projectBudget } from "@openmanga/services";
 import type { Context } from "hono";
 import { z } from "zod";
@@ -119,4 +119,46 @@ export async function assertBudget(c: Context<AppEnv>, projectId: string, extraU
       b,
     );
   return b;
+}
+
+/**
+ * Per-run opt-in to a provider batch for a text job: half price, results within 24h. Batching is refused for a
+ * provider without a batch API rather than silently ignored, since the caller is choosing to wait for a discount.
+ */
+export const BatchInput = z.boolean().default(false);
+
+export function assertBatchable(c: Context<AppEnv>, batch: boolean, provider: string) {
+  if (!batch) return;
+  const deps = c.get("deps");
+  // Demo mode has no real provider; the submitter falls back to running the job normally.
+  if (!BATCH_CAPABLE_PROVIDERS.has(provider) && !deps.config.AI_MOCK_MODE)
+    throw badRequest(
+      `${provider} has no batch API, so this run cannot be batched. Run it normally, or pick an OpenAI or Google key.`,
+    );
+}
+
+/** Parameters fragment marking a job as part of a batch run (it is written but not queued). */
+export const batchParameters = (batch: boolean) => (batch ? { batchMode: true as const } : {});
+
+/**
+ * Queues the collector that turns this run's parked text jobs into one provider submission. Call once per run,
+ * after the jobs themselves are created, inside or after their transaction.
+ */
+export async function queueTextBatchSubmit(
+  c: Context<AppEnv>,
+  opts: { projectId: string; batchId: string; ai: AiChoiceInput; priority?: number },
+) {
+  const deps = c.get("deps");
+  await deps.db.transaction(async (tx) => {
+    await deps.jobs.createGenerationJob(tx, {
+      projectId: opts.projectId,
+      userId: user(c).id,
+      kind: "text_batch_submit",
+      priority: opts.priority ?? 5,
+      batchId: opts.batchId,
+      parameters: { ai: opts.ai ?? null },
+      input: { batchId: opts.batchId },
+    });
+  });
+  await deps.jobs.kick();
 }

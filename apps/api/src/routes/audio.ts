@@ -32,7 +32,16 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, assertBudget, textRun, ttsRun } from "../lib/ai.ts";
+import {
+  AiChoiceInput,
+  assertBatchable,
+  assertBudget,
+  BatchInput,
+  batchParameters,
+  queueTextBatchSubmit,
+  textRun,
+  ttsRun,
+} from "../lib/ai.ts";
 import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { rateLimit } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
@@ -379,6 +388,7 @@ const GenerateNarration = z.object({
   /** Overrides the project's narrationWordsPerPanel for this run. */
   wordsPerPanel: z.number().int().min(5).max(80).optional(),
   language: z.string().trim().min(2).max(16).optional(),
+  batch: BatchInput,
   ai: AiChoiceInput,
 });
 doc({
@@ -391,26 +401,34 @@ doc({
 audioRoutes.post("/chapters/:id/narration/generate", async (c) => {
   const chapterId = uuidParam(c, "id");
   const project = await entityAccess(c, "chapter", chapterId, "generate");
-  const { ai, ...input } = await body(c, GenerateNarration);
+  const { ai, batch, ...input } = await body(c, GenerateNarration);
   const deps = c.get("deps");
   await assertBudget(c, project.id);
   const run = await textRun(c, ai);
+  assertBatchable(c, batch, run.provider);
+  const narrationBatchId = batch ? crypto.randomUUID() : null;
   const job = await deps.db.transaction((tx) =>
-    deps.jobs.createGenerationJob(tx, {
-      projectId: project.id,
-      userId: user(c).id,
-      kind: "narration_text",
-      priority: PRIORITY.single,
-      targetType: "chapter",
-      targetId: chapterId,
-      templateName: narrationV4.name,
-      templateVersion: narrationV4.version,
-      provider: run.provider,
-      model: run.model,
-      parameters: run.parameters,
-      input: { chapterId, ...input },
-    }),
+    deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: project.id,
+        userId: user(c).id,
+        kind: "narration_text",
+        priority: PRIORITY.single,
+        targetType: "chapter",
+        targetId: chapterId,
+        batchId: narrationBatchId,
+        templateName: narrationV4.name,
+        templateVersion: narrationV4.version,
+        provider: run.provider,
+        model: run.model,
+        parameters: { ...run.parameters, ...batchParameters(batch) },
+        input: { chapterId, ...input },
+      },
+      { enqueue: !batch },
+    ),
   );
+  if (narrationBatchId) await queueTextBatchSubmit(c, { projectId: project.id, batchId: narrationBatchId, ai });
   await deps.jobs.kick();
   return c.json({ job }, 202);
 });

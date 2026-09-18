@@ -11,12 +11,13 @@
  */
 
 import type { BatchItemResult, BatchRequestSpec, ImageBatchProvider } from "@openmanga/ai-image";
-import { and, eq, generationJobs, inArray, panels, providerBatches, sql } from "@openmanga/db";
+import { and, eq, generationJobs, inArray, lt, panels, providerBatches, sql } from "@openmanga/db";
 import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import type { GenerationJob } from "../lib/runner.ts";
 import { activatePanelArt, finalizeOutput, inputsOf, loadInputFile, recordImageUsage } from "./image.ts";
+import { ingestTextBatch, textBatchSubmit } from "./text-batch.ts";
 
 type BatchRow = typeof providerBatches.$inferSelect;
 
@@ -141,13 +142,50 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   return { submitted, batches: chunks.length, fellBack: 0 };
 }
 
+/**
+ * Submits text jobs that were parked for a batch but never handed to a submitter — the automatic consistency
+ * checks, which are created one at a time as panels are ingested. Grouped by run so each becomes one submission.
+ */
+async function sweepUnsubmittedTextJobs(deps: WorkerDeps) {
+  const waiting = await deps.db
+    .select()
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.status, "queued"),
+        sql`${generationJobs.parameters}->>'batchMode' = 'true'`,
+        sql`${generationJobs.queue} = 'text-ai'`,
+        sql`${generationJobs.batchId} is not null`,
+        // A moment's grace so a run still creating its jobs is submitted once, not once per job.
+        lt(generationJobs.createdAt, new Date(Date.now() - 60_000)),
+      ),
+    )
+    .limit(500);
+  const byBatch = new Map<string, (typeof waiting)[number]>();
+  for (const job of waiting) if (job.batchId && !byBatch.has(job.batchId)) byBatch.set(job.batchId, job);
+  let submitted = 0;
+  for (const [batchId, sample] of byBatch) {
+    try {
+      const out = await textBatchSubmit(deps, { ...sample, input: { batchId } });
+      submitted += out.submitted;
+    } catch (e) {
+      deps.logger.error("text batch sweep failed", {
+        batchId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return submitted;
+}
+
 /** Polls every unfinished batch and ingests the ones that are done. Called from the scheduler. */
 export async function pollProviderBatches(deps: WorkerDeps) {
+  const swept = await sweepUnsubmittedTextJobs(deps).catch(() => 0);
   const rows = await deps.db
     .select()
     .from(providerBatches)
     .where(inArray(providerBatches.state, ["pending", "running"]));
-  const result = { polled: 0, ingested: 0, failed: 0 };
+  const result = { polled: 0, ingested: 0, failed: 0, swept };
   for (const row of rows) {
     try {
       await pollOne(deps, row, result);
@@ -164,6 +202,12 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
     .select()
     .from(generationJobs)
     .where(sql`${generationJobs.parameters}->>'providerBatchId' = ${row.id}`);
+  if (row.capability === "text" && jobs.length) {
+    const out = await ingestTextBatch(deps, row, jobs);
+    result.ingested += out.ingested;
+    result.failed += out.failed;
+    return;
+  }
   if (!jobs.length) {
     await deps.db
       .update(providerBatches)

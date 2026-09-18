@@ -13,9 +13,12 @@ import {
   AnthropicTextProvider,
   DeepSeekTextProvider,
   FakeTextAIProvider,
+  GeminiTextBatchProvider,
   MetaMuseTextProvider,
   OpenAIChatTextProvider,
+  OpenAITextBatchProvider,
   type TextAIProvider,
+  type TextBatchProvider,
 } from "@openmanga/ai-text";
 import {
   ElevenLabsTTSProvider,
@@ -216,6 +219,31 @@ export function byokImageBatch(
   }
 }
 
+/** The batch twin of `byokText`. Null when the provider has no batch API (DeepSeek discounts by hour instead). */
+export function byokTextBatch(
+  kind: ProviderKind,
+  cred: { apiKey: string; baseUrl: string | null },
+  model: string,
+  c: AppConfig,
+): TextBatchProvider | null {
+  const base = cred.baseUrl ?? providerCatalog(kind)?.baseUrl ?? "";
+  const common = { apiKey: cred.apiKey, model, timeoutMs: c.AI_TEXT_TIMEOUT_MS };
+  switch (kind) {
+    case "openai":
+      return new OpenAITextBatchProvider({
+        ...common,
+        baseUrl: base,
+        maxEnqueuedTokens: c.OPENAI_BATCH_MAX_ENQUEUED_TOKENS,
+      });
+    case "google":
+      // The synchronous path uses Gemini's OpenAI-compatibility layer, which has no batch endpoint; batching
+      // goes to the native API, where the same model is addressed by its bare name.
+      return new GeminiTextBatchProvider({ ...common, baseUrl: base });
+    default:
+      return null;
+  }
+}
+
 /**
  * Builds the provider for a run. Instances are cached per credential revision + model so concurrency limiters
  * and rate-limit cooldowns are shared across jobs using the same key.
@@ -267,6 +295,16 @@ export class ProviderResolver {
     const chosen = choice.model?.trim() || providerCatalog(cred.kind)?.imageModels[0];
     if (!chosen) return null;
     return byokImageBatch(cred.kind, cred, chosen, this.config, this.logger);
+  }
+
+  /** Batch text provider for a choice, or null when batching is impossible (no key, or no batch API). */
+  async textBatch(choice: AiChoice | null | undefined, userId: string | null): Promise<TextBatchProvider | null> {
+    if (!choice?.credentialId || this.config.AI_MOCK_MODE) return null;
+    const cred = await this.credentials.resolve(choice.credentialId, userId);
+    if (!providerSupports(cred.kind, "text")) return null;
+    const chosen = choice.model?.trim() || providerCatalog(cred.kind)?.textModels[0];
+    if (!chosen) return null;
+    return byokTextBatch(cred.kind, cred, chosen, this.config);
   }
 
   /** Reads the choice stored on a job (parameters.ai) and resolves it for the job's user. */

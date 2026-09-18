@@ -8,7 +8,15 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, assertBudget, textRun } from "../lib/ai.ts";
+import {
+  AiChoiceInput,
+  assertBatchable,
+  assertBudget,
+  BatchInput,
+  batchParameters,
+  queueTextBatchSubmit,
+  textRun,
+} from "../lib/ai.ts";
 import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
@@ -173,10 +181,12 @@ doc({
 });
 storyRoutes.post("/story-revisions/:id/analyze", async (c) => {
   const { rev, project } = await revisionWithAccess(c, uuidParam(c, "id"), "generate");
-  const { ai } = await body(c, z.object({ ai: AiChoiceInput }));
+  const { ai, batch } = await body(c, z.object({ ai: AiChoiceInput, batch: BatchInput }));
   const deps = c.get("deps");
   await assertBudget(c, project.id);
   const run = await textRun(c, ai);
+  assertBatchable(c, batch, run.provider);
+  const analysisBatchId = batch ? crypto.randomUUID() : null;
   const result = await deps.db.transaction(async (tx) => {
     await tx
       .update(storyRevisions)
@@ -186,28 +196,38 @@ storyRoutes.post("/story-revisions/:id/analyze", async (c) => {
       .insert(storyAnalyses)
       .values({ projectId: project.id, storyRevisionId: rev.id })
       .returning();
-    const job = await deps.jobs.createGenerationJob(tx, {
-      projectId: project.id,
-      userId: user(c).id,
-      kind: "story_analysis",
-      priority: PRIORITY.single,
-      targetType: "story_analysis",
-      targetId: analysis!.id,
-      templateName: storyAnalysisV2.name,
-      templateVersion: storyAnalysisV2.version,
-      provider: run.provider,
-      model: run.model,
-      parameters: run.parameters,
-      input: { storyRevisionId: rev.id, analysisId: analysis!.id },
-    });
+    const job = await deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: project.id,
+        userId: user(c).id,
+        kind: "story_analysis",
+        priority: PRIORITY.single,
+        targetType: "story_analysis",
+        targetId: analysis!.id,
+        batchId: analysisBatchId,
+        templateName: storyAnalysisV2.name,
+        templateVersion: storyAnalysisV2.version,
+        provider: run.provider,
+        model: run.model,
+        parameters: { ...run.parameters, ...batchParameters(batch) },
+        input: { storyRevisionId: rev.id, analysisId: analysis!.id },
+      },
+      { enqueue: !batch },
+    );
     await tx.update(storyAnalyses).set({ generationJobId: job.id }).where(eq(storyAnalyses.id, analysis!.id));
     return { analysis: { ...analysis!, generationJobId: job.id }, job };
   });
+  if (analysisBatchId) await queueTextBatchSubmit(c, { projectId: project.id, batchId: analysisBatchId, ai });
   await deps.jobs.kick();
   return c.json(result, 202);
 });
 
-const RewriteInput = z.object({ instruction: z.string().trim().min(3).max(4000), ai: AiChoiceInput });
+const RewriteInput = z.object({
+  instruction: z.string().trim().min(3).max(4000),
+  batch: BatchInput,
+  ai: AiChoiceInput,
+});
 doc({
   method: "POST",
   path: "/api/story-revisions/:id/rewrite",
@@ -217,26 +237,34 @@ doc({
 });
 storyRoutes.post("/story-revisions/:id/rewrite", async (c) => {
   const { rev, project } = await revisionWithAccess(c, uuidParam(c, "id"), "generate");
-  const { instruction, ai } = await body(c, RewriteInput);
+  const { instruction, ai, batch } = await body(c, RewriteInput);
   const deps = c.get("deps");
   await assertBudget(c, project.id);
   const run = await textRun(c, ai);
+  assertBatchable(c, batch, run.provider);
+  const rewriteBatchId = batch ? crypto.randomUUID() : null;
   const job = await deps.db.transaction((tx) =>
-    deps.jobs.createGenerationJob(tx, {
-      projectId: project.id,
-      userId: user(c).id,
-      kind: "story_rewrite",
-      priority: PRIORITY.single,
-      targetType: "story_revision",
-      targetId: rev.id,
-      templateName: storyRewriteV1.name,
-      templateVersion: storyRewriteV1.version,
-      provider: run.provider,
-      model: run.model,
-      parameters: run.parameters,
-      input: { storyRevisionId: rev.id, instruction },
-    }),
+    deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: project.id,
+        userId: user(c).id,
+        kind: "story_rewrite",
+        priority: PRIORITY.single,
+        targetType: "story_revision",
+        targetId: rev.id,
+        batchId: rewriteBatchId,
+        templateName: storyRewriteV1.name,
+        templateVersion: storyRewriteV1.version,
+        provider: run.provider,
+        model: run.model,
+        parameters: { ...run.parameters, ...batchParameters(batch) },
+        input: { storyRevisionId: rev.id, instruction },
+      },
+      { enqueue: !batch },
+    ),
   );
+  if (rewriteBatchId) await queueTextBatchSubmit(c, { projectId: project.id, batchId: rewriteBatchId, ai });
   await deps.jobs.kick();
   return c.json({ job }, 202);
 });
