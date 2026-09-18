@@ -34,7 +34,7 @@ adminRoutes.get("/overview", async (c) => {
     (select count(*)::int from projects) as projects,
     (select count(*)::int from generation_jobs) as "generationJobs",
     (select count(*)::int from generation_jobs where status = 'failed') as "failedJobs",
-    (select count(*)::int from generation_jobs where status in ('queued','processing')) as "activeJobs",
+    (select count(*)::int from generation_jobs where status in ('queued','submitted','processing')) as "activeJobs",
     (select count(*)::int from audio_jobs where status = 'failed') as "failedAudioJobs",
     (select count(*)::int from export_jobs where status = 'failed') as "failedExports",
     (select count(*)::int from outbox where status = 'pending') as "outboxPending",

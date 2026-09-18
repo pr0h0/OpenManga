@@ -14,6 +14,8 @@ export const QUEUES = [
   "tts",
   "export",
   "maintenance",
+  /** Submits provider batches: one job collects many panels into one submission, then parks them. */
+  "image-batch",
 ] as const;
 export type QueueName = (typeof QUEUES)[number];
 

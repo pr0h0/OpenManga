@@ -44,6 +44,8 @@ export const panelStatus = pgEnum("panel_status", [
 
 export const jobStatus = pgEnum("job_status", [
   "queued",
+  /** Handed to a provider's async batch API and waiting for it; no worker slot is held. */
+  "submitted",
   "processing",
   "completed",
   "failed",

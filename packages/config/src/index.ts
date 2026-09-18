@@ -101,6 +101,14 @@ const EnvSchema = z.object({
   /** Page clips a video export renders/encodes in parallel (each ffmpeg is roughly one core at veryfast). */
   VIDEO_ENCODE_CONCURRENCY: int(4),
   /**
+   * Per-model ceiling on input tokens queued in OpenAI batches at once. Org-specific (the Platform settings page
+   * shows yours), so it is configured rather than assumed; a batch past the ceiling is rejected whole, and the
+   * submitter keeps 20% headroom under this figure.
+   */
+  OPENAI_BATCH_MAX_ENQUEUED_TOKENS: int(1_000_000),
+  /** Poll interval for submitted provider batches. They target 24h, so there is nothing to gain from seconds. */
+  BATCH_POLL_INTERVAL_SECONDS: int(300),
+  /**
    * How long a job may go without touching its row before maintenance calls it stalled. Measured from the last
    * write, not from the start, so long work that reports progress is never failed for taking its time — it has to
    * exceed the quietest stretch of a healthy run (the longest is a video export's two-pass loudnorm).

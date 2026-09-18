@@ -99,6 +99,7 @@ export function BulkGenerateButton({
 }) {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [onlyMissing, setOnlyMissing] = useState(true);
+  const [batch, setBatch] = useState(false);
   const [busy, setBusy] = useState(false);
   const invalidateBatches = useInvalidateBatches(projectId);
   const aiImage = useAiBody("image");
@@ -107,7 +108,12 @@ export function BulkGenerateButton({
     setBusy(true);
     try {
       setEstimate(
-        await post<Estimate>(`/projects/${projectId}/generations/bulk`, { ...aiImage(), scope, onlyMissing: missing }),
+        await post<Estimate>(`/projects/${projectId}/generations/bulk`, {
+          ...aiImage(),
+          scope,
+          onlyMissing: missing,
+          batch,
+        }),
       );
     } catch (e) {
       toast.error(e);
@@ -120,13 +126,17 @@ export function BulkGenerateButton({
     try {
       const r = await post<{ batchId: string | null; jobs: unknown[]; failures?: { error: string }[] }>(
         `/projects/${projectId}/generations/bulk`,
-        { ...aiImage(), scope, onlyMissing, confirm: true },
+        { ...aiImage(), scope, onlyMissing, confirm: true, batch },
       );
       setEstimate(null);
       if (!r.batchId) toast.info("Nothing to generate");
       else {
         await invalidateBatches();
-        toast.success(`Queued ${r.jobs.length} panel generation${r.jobs.length === 1 ? "" : "s"}`);
+        toast.success(
+          batch
+            ? `Sent ${r.jobs.length} panel${r.jobs.length === 1 ? "" : "s"} to a provider batch — results within 24h`
+            : `Queued ${r.jobs.length} panel generation${r.jobs.length === 1 ? "" : "s"}`,
+        );
       }
       if (r.failures?.length) toast.error(`${r.failures.length} panel(s) could not be queued: ${r.failures[0]!.error}`);
     } catch (e) {
@@ -184,6 +194,27 @@ export function BulkGenerateButton({
                     until you add one in Account → AI providers.
                   </p>
                 )}
+                <label className="flex items-start gap-2 rounded-md bg-[var(--panel-2)] p-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={batch}
+                    disabled={busy}
+                    onChange={async (e) => {
+                      setBatch(e.target.checked);
+                      // Re-price immediately: the batch rate is half, and some providers cannot batch at all.
+                      setEstimate(null);
+                      await ask();
+                    }}
+                  />
+                  <span>
+                    <strong>Send as a provider batch</strong> — half price, results within 24h (often sooner).
+                    <span className="muted">
+                      {" "}
+                      Panels wait at the provider instead of generating now. OpenAI and Google keys only.
+                    </span>
+                  </span>
+                </label>
                 {estimate.preflight && <PreflightNotes preflight={estimate.preflight} />}
                 {estimate.provider && (
                   <p className="muted text-xs">

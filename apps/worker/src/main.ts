@@ -36,6 +36,8 @@ const workers = [
     lockDuration: 30 * 60_000,
   }),
   createWorker("asset-processing", redis, assetProcessor(deps), { concurrency: 2 }),
+  // One at a time, with a long lock: a submit reads every panel's references and uploads them.
+  createWorker("image-batch", redis, gen, { concurrency: 1, lockDuration: 30 * 60_000 }),
   createWorker("maintenance", redis, maintenanceProcessor(deps), { concurrency: 1 }),
 ];
 for (const w of workers) {
@@ -74,6 +76,12 @@ await maintenance.upsertJobScheduler(
   "hourly-cleanup",
   { every: 3600_000 },
   { name: "cleanup", data: {}, opts: { priority: 10, attempts: 1 } },
+);
+
+await maintenance.upsertJobScheduler(
+  "batch-poll",
+  { every: config.BATCH_POLL_INTERVAL_SECONDS * 1000 },
+  { name: "batch-poll", data: {}, opts: { priority: 9, attempts: 1 } },
 );
 
 log.info("worker started", {

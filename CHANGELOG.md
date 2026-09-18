@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Bulk panel generation can be sent to an image provider's **batch API**: half price, results within 24h (often
+  sooner). Opt in per run — the panels wait at the provider instead of generating now, and nothing holds a worker
+  slot meanwhile. OpenAI and Google keys only; DeepSeek discounts by time of day rather than through a batch
+  endpoint, and Meta and OpenRouter have none. Batches are chunked to stay under the provider's binding limit
+  (OpenAI's enqueued-token ceiling, configurable as `OPENAI_BATCH_MAX_ENQUEUED_TOKENS`; Gemini's payload size),
+  estimated per request rather than by counting requests. Batch spend is recorded against a `:batch` model at
+  half the interactive rate, so the cost dashboard separates it.
+
 ### Fixed
 
 - Maintenance failed healthy long-running jobs after two hours of wall clock, whatever they were doing. A

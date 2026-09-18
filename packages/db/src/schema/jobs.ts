@@ -17,7 +17,9 @@ export type GenerationKind =
   | "panel_generation"
   | "panel_edit"
   | "panel_check"
-  | "cover";
+  | "cover"
+  /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
+  | "image_batch_submit";
 
 export const generationJobs = pgTable(
   "generation_jobs",
@@ -306,4 +308,48 @@ export const errorEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("error_events_created_idx").on(t.createdAt)],
+);
+
+/**
+ * One submission to a provider's async batch API, covering many generation jobs. A row is written before the
+ * jobs are parked so a worker that dies mid-submit can find the batch it already paid for (by `idempotencyKey`,
+ * which is echoed in the provider's own metadata) instead of submitting it again.
+ */
+export const providerBatches = pgTable(
+  "provider_batches",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The user-initiated bulk run this submission belongs to (generation_jobs.batch_id). */
+    batchId: uuid("batch_id"),
+    capability: text("capability").$type<"image" | "text">().notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    /** The provider's handle: an OpenAI batch id, or a Gemini `batches/...` name. */
+    handle: text("handle").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    state: text("state")
+      .$type<"pending" | "running" | "succeeded" | "partial" | "failed" | "expired" | "cancelled">()
+      .notNull()
+      .default("pending"),
+    requestCount: integer("request_count").notNull().default(0),
+    completedCount: integer("completed_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    /** Files uploaded for this batch that we own and delete once it is ingested (OpenAI references). */
+    ownedFileIds: jsonb("owned_file_ids").$type<string[]>().notNull().default([]),
+    failureReason: text("failure_reason"),
+    submittedAt: ts("submitted_at"),
+    polledAt: ts("polled_at"),
+    ingestedAt: ts("ingested_at"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("provider_batches_idempotency_idx").on(t.idempotencyKey),
+    index("provider_batches_state_idx").on(t.state, t.polledAt),
+    index("provider_batches_project_idx").on(t.projectId, t.createdAt),
+  ],
 );

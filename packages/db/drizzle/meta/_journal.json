@@ -64,6 +64,13 @@
       "when": 1789602414832,
       "tag": "0008_usage_quantities",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789705078626,
+      "tag": "0009_provider_batches",
+      "breakpoints": true
     }
   ]
 }

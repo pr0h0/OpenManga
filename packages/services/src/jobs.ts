@@ -31,6 +31,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   panel_edit: "image-edit",
   panel_check: "text-ai",
   cover: "image-generation",
+  image_batch_submit: "image-batch",
 };
 
 export type NewGenerationInput = {
@@ -73,7 +74,12 @@ export class JobService {
   ) {}
 
   /** Job row + inputs + outbox entry in ONE transaction. */
-  async createGenerationJob(tx: DbOrTx, j: NewGenerationJob) {
+  /**
+   * `opts.enqueue: false` writes the job and its inputs without an outbox row, so no worker picks it up. Used by
+   * batch runs: the panels are collected into one provider submission by a single batch job, and running them
+   * synchronously in the meantime is exactly what the caller is paying half price to avoid.
+   */
+  async createGenerationJob(tx: DbOrTx, j: NewGenerationJob, opts: { enqueue?: boolean } = {}) {
     const queue = QUEUE_FOR_KIND[j.kind];
     const inputs = j.inputs ?? [];
     const [job] = await tx
@@ -118,13 +124,14 @@ export class JobService {
         })),
       );
     }
-    await addToOutbox(tx, {
-      queue,
-      jobName: j.kind,
-      jobId: job!.id,
-      payload: { jobId: job!.id, kind: j.kind },
-      priority: j.priority,
-    });
+    if (opts.enqueue !== false)
+      await addToOutbox(tx, {
+        queue,
+        jobName: j.kind,
+        jobId: job!.id,
+        payload: { jobId: job!.id, kind: j.kind },
+        priority: j.priority,
+      });
     return job!;
   }
 
@@ -193,6 +200,20 @@ export class JobService {
     return job!;
   }
 
+  /**
+   * Enqueues a job that was created with `enqueue: false` — the fallback when a batch run cannot be batched
+   * after all (the key's provider has no batch API), so its panels run the ordinary way instead of waiting.
+   */
+  async enqueueGeneration(job: { id: string; queue: string; kind: GenerationKind; priority: number }) {
+    await addToOutbox(this.db, {
+      queue: job.queue as QueueName,
+      jobName: job.kind,
+      jobId: job.id,
+      payload: { jobId: job.id, kind: job.kind },
+      priority: job.priority,
+    });
+  }
+
   /** Publish outbox promptly after commit; the worker loop is the safety net. */
   async kick() {
     await this.opts.dispatcher?.flush().catch(() => 0);
@@ -250,7 +271,9 @@ export class JobService {
         return "cancelled";
       }
     }
-    if (job.status === "queued" || job.status === "processing") {
+    // "submitted" included: the provider batch keeps running (it is already paid for), but the result is not
+    // activated when it arrives — the ingest skips any job no longer in `submitted`.
+    if (job.status === "queued" || job.status === "submitted" || job.status === "processing") {
       await this.db
         .update(generationJobs)
         .set({ status: "cancel_requested", cancelRequestedAt: new Date() })
@@ -366,7 +389,15 @@ export class JobService {
         priority: generationJobs.priority,
       })
       .from(generationJobs)
-      .where(and(eq(generationJobs.status, "queued"), lt(generationJobs.createdAt, before)));
+      .where(
+        and(
+          eq(generationJobs.status, "queued"),
+          lt(generationJobs.createdAt, before),
+          // A batch run's panels are deliberately not on a queue: they wait for one provider submission to
+          // collect them. Republishing them here would run each one synchronously at full price.
+          sql`coalesce(${generationJobs.parameters}->>'batchMode', 'false') <> 'true'`,
+        ),
+      );
     for (const j of gens) {
       if (await this.opts.queue.has(j.queue as QueueName, j.id)) continue;
       await this.republish(j.queue as QueueName, j.id, j.kind, { jobId: j.id, kind: j.kind }, j.priority);

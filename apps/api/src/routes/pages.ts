@@ -827,7 +827,8 @@ pageRoutes.post("/panels/:id/generate", async (c) => {
       and(
         eq(generationJobs.targetId, panel.id),
         eq(generationJobs.kind, "panel_generation"),
-        inArray(generationJobs.status, ["queued", "processing"]),
+        // "submitted" counts as in flight: the panel is waiting in a provider batch we have already paid for.
+        inArray(generationJobs.status, ["queued", "submitted", "processing"]),
       ),
     )
     .limit(1);

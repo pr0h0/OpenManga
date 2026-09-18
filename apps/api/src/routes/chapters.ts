@@ -160,7 +160,7 @@ chapterRoutes.delete("/chapters/:id", async (c) => {
   const [busy] = await db.execute<{ n: number }>(sql`
     select (
       (select count(*) from generation_jobs g
-        where g.status in ('queued','processing','cancel_requested')
+        where g.status in ('queued','submitted','processing','cancel_requested')
           and (g.target_id = ${id}
             or g.target_id in (select pn.id from panels pn join pages pg on pg.id = pn.page_id where pg.chapter_id = ${id})
             or g.target_id in (select pg.id from pages pg where pg.chapter_id = ${id})))
@@ -219,7 +219,7 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
       and(
         eq(generationJobs.kind, "chapter_plan"),
         eq(generationJobs.targetId, id),
-        inArray(generationJobs.status, ["queued", "processing", "paused"]),
+        inArray(generationJobs.status, ["queued", "submitted", "processing", "paused"]),
       ),
     )
     .limit(1);

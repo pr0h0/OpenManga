@@ -89,6 +89,8 @@ const STATUS_STYLE: Record<string, string> = {
   processing: "bg-sky-500/15 text-sky-600 dark:text-sky-300",
   generating: "bg-sky-500/15 text-sky-600 dark:text-sky-300",
   queued: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  /** Waiting in a provider's batch: paid for, arriving within 24h. */
+  submitted: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
   pending: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
   "prompt-ready": "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300",
   failed: "bg-red-500/15 text-red-600 dark:text-red-300",
@@ -106,9 +108,12 @@ const STATUS_STYLE: Record<string, string> = {
 export function StatusChip({ status, label }: { status: string; label?: string }) {
   const spinning = status === "processing" || status === "generating";
   return (
-    <span className={clsx("chip", STATUS_STYLE[status] ?? STATUS_STYLE.draft)}>
+    <span
+      className={clsx("chip", STATUS_STYLE[status] ?? STATUS_STYLE.draft)}
+      title={status === "submitted" ? "Waiting in a provider batch — results arrive within 24h" : undefined}
+    >
       {spinning && <Loader2 className="size-3 animate-spin" />}
-      {label ?? status.replace(/_/g, " ")}
+      {label ?? (status === "submitted" ? "in batch" : status.replace(/_/g, " "))}
     </span>
   );
 }

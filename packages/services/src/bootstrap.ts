@@ -10,7 +10,7 @@ import {
   stylePresets,
   users,
 } from "@openmanga/db";
-import { BUILTIN_STYLE_PRESETS, DEFAULT_RATE_SNAPSHOTS } from "@openmanga/domain";
+import { BATCH_RATE_SNAPSHOTS, BUILTIN_STYLE_PRESETS, DEFAULT_RATE_SNAPSHOTS } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 import { allTemplateRecords } from "@openmanga/prompts";
 
@@ -44,7 +44,7 @@ export async function bootstrapReferenceData(db: Database, config: AppConfig, lo
   }
 
   const existingRates = await db.select().from(providerRateSnapshots);
-  for (const r of DEFAULT_RATE_SNAPSHOTS) {
+  for (const r of [...DEFAULT_RATE_SNAPSHOTS, ...BATCH_RATE_SNAPSHOTS]) {
     if (existingRates.some((e) => e.provider === r.provider && e.model === r.model)) continue;
     await db.insert(providerRateSnapshots).values({
       provider: r.provider,

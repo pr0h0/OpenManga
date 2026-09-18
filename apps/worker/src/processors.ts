@@ -3,6 +3,7 @@ import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
 import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
+import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
 import { runMaintenance } from "./handlers/maintenance.ts";
 import { panelCheck } from "./handlers/qa.ts";
 import { chapterPlan, narrationText, pagePrompts, storyAnalysis, storyRewrite } from "./handlers/text.ts";
@@ -26,6 +27,7 @@ const GENERATION_HANDLERS: Record<
   panel_edit: panelEdit,
   panel_check: panelCheck,
   cover: coverGeneration,
+  image_batch_submit: imageBatchSubmit,
 };
 
 export function generationProcessor(deps: WorkerDeps) {
@@ -49,4 +51,6 @@ export function assetProcessor(deps: WorkerDeps) {
     if (job.name === "prompt_ref") await deps.assets.ensurePromptReference(asset, deps.assets.referenceParams());
   };
 }
-export const maintenanceProcessor = (deps: WorkerDeps) => () => runMaintenance(deps);
+/** The maintenance queue hosts two schedulers: the hourly cleanup, and the provider-batch poll. */
+export const maintenanceProcessor = (deps: WorkerDeps) => (job: Job) =>
+  job.name === "batch-poll" ? pollProviderBatches(deps) : runMaintenance(deps);

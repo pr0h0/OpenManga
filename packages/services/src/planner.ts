@@ -487,6 +487,11 @@ export class GenerationPlanner {
       ai?: AiChoice | null;
       /** The caller confirmed going over the project budget; the worker must not pause this job for it. */
       allowOverBudget?: boolean;
+      /**
+       * Part of a provider-batch run: the job is written but not queued, so nothing generates it synchronously
+       * while the batch submitter collects it. `batchMode` also keeps the queue reconciler from republishing it.
+       */
+      batchMode?: boolean;
     },
   ) {
     const run = await this.imageRun(opts.ai, userId);
@@ -498,40 +503,45 @@ export class GenerationPlanner {
       inputs.push(await this.derivativeInput(r.asset, r.role, r.label, r.subjectVersionId, ctx.settings, run.provider));
     const size = this.sizeString(ctx.input.panel.aspectRatio);
     const job = await this.db.transaction(async (tx) => {
-      const j = await this.jobs.createGenerationJob(tx, {
-        projectId: ctx.panel.projectId,
-        userId,
-        kind: "panel_generation",
-        priority: opts.priority,
-        batchId: opts.batchId,
-        targetType: "panel",
-        targetId: panelId,
-        templateName: override?.trim() ? "panel-generation-user-edited" : panelGenerationV1.name,
-        templateVersion: panelGenerationV1.version,
-        compiledPrompt: prompt,
-        provider: run.provider,
-        model: run.model,
-        parameters: {
-          ai: run.ai,
-          quality: ctx.settings.imageQuality ?? this.image?.quality ?? "low",
-          aspectRatio: ctx.input.panel.aspectRatio,
-          requestedSize: size,
-          referenceCount: inputs.length,
-          regenerationOf: opts.regenerationOf ?? null,
-          operation: opts.operation ?? null,
-          parentAssetId: ctx.panel.activeArtworkAssetId,
-          ...(opts.allowOverBudget ? { allowOverBudget: true } : {}),
+      const j = await this.jobs.createGenerationJob(
+        tx,
+        {
+          projectId: ctx.panel.projectId,
+          userId,
+          kind: "panel_generation",
+          priority: opts.priority,
+          batchId: opts.batchId,
+          targetType: "panel",
+          targetId: panelId,
+          templateName: override?.trim() ? "panel-generation-user-edited" : panelGenerationV1.name,
+          templateVersion: panelGenerationV1.version,
+          compiledPrompt: prompt,
+          provider: run.provider,
+          model: run.model,
+          parameters: {
+            ai: run.ai,
+            quality: ctx.settings.imageQuality ?? this.image?.quality ?? "low",
+            aspectRatio: ctx.input.panel.aspectRatio,
+            requestedSize: size,
+            referenceCount: inputs.length,
+            regenerationOf: opts.regenerationOf ?? null,
+            operation: opts.operation ?? null,
+            parentAssetId: ctx.panel.activeArtworkAssetId,
+            ...(opts.allowOverBudget ? { allowOverBudget: true } : {}),
+            ...(opts.batchMode ? { batchMode: true } : {}),
+          },
+          input: {
+            pageId: ctx.page.id,
+            characterVersionIds: ctx.panel.characterVersionIds,
+            locationVersionId: ctx.panel.locationVersionId,
+            propVersionIds: ctx.panel.propVersionIds,
+            styleId: (await this.styleContext(ctx.panel.projectId)).styleId,
+            promptInput: ctx.input,
+          },
+          inputs,
         },
-        input: {
-          pageId: ctx.page.id,
-          characterVersionIds: ctx.panel.characterVersionIds,
-          locationVersionId: ctx.panel.locationVersionId,
-          propVersionIds: ctx.panel.propVersionIds,
-          styleId: (await this.styleContext(ctx.panel.projectId)).styleId,
-          promptInput: ctx.input,
-        },
-        inputs,
-      });
+        { enqueue: !opts.batchMode },
+      );
       await tx.update(panels).set({ status: "queued" }).where(eq(panels.id, panelId));
       return j;
     });

@@ -22,7 +22,7 @@ import { maybeQueuePanelCheck } from "./qa.ts";
 type Input = typeof generationInputs.$inferSelect;
 
 /** Load the exact bytes that were planned: small derivatives for refs, full resolution for target/mask. */
-async function loadInputFile(deps: WorkerDeps, input: Input): Promise<ImageInputFile> {
+export async function loadInputFile(deps: WorkerDeps, input: Input): Promise<ImageInputFile> {
   if (!input.assetId) throw new InputError(`Input ${input.label} has no asset`);
   const asset = await deps.assets.get(input.assetId);
   if (!asset) throw new InputError(`Reference asset for ${input.label} was deleted`);
@@ -46,7 +46,7 @@ async function loadInputFile(deps: WorkerDeps, input: Input): Promise<ImageInput
 const imageProviderFor = (deps: WorkerDeps, job: GenerationJob) =>
   deps.resolver.forJob("image", job) as Promise<ImageAIProvider>;
 
-async function recordImageUsage(deps: WorkerDeps, job: GenerationJob, r: ImageResult, inputs: Input[]) {
+export async function recordImageUsage(deps: WorkerDeps, job: GenerationJob, r: ImageResult, inputs: Input[]) {
   const refs = inputs.filter((i) => i.variantId);
   await deps.usage.record({
     provider: r.provider,
@@ -76,7 +76,7 @@ async function recordImageUsage(deps: WorkerDeps, job: GenerationJob, r: ImageRe
   });
 }
 
-async function finalizeOutput(
+export async function finalizeOutput(
   deps: WorkerDeps,
   job: GenerationJob,
   r: ImageResult,
@@ -126,7 +126,7 @@ async function finalizeOutput(
   return { asset, cancelled };
 }
 
-async function inputsOf(deps: WorkerDeps, jobId: string) {
+export async function inputsOf(deps: WorkerDeps, jobId: string) {
   return deps.db
     .select()
     .from(generationInputs)
@@ -234,7 +234,7 @@ async function contentPolicyFallback(deps: WorkerDeps, job: GenerationJob, faile
   return !alt || (alt.provider === failed.provider && alt.model === failed.model) ? null : alt;
 }
 
-async function activatePanelArt(
+export async function activatePanelArt(
   deps: WorkerDeps,
   job: GenerationJob,
   panelId: string,

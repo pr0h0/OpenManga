@@ -11,7 +11,7 @@
  * Both are 50% of the interactive price and target 24h; Gemini expires a job that is still pending at 48h.
  */
 import { classifyFetchError, classifyHttpStatus, ProviderError, refuseRedirect } from "@openmanga/domain/browser";
-import { probeImage } from "@openmanga/image-utils";
+import { chooseImageDimensions, probeImage, type SizeOption } from "@openmanga/image-utils";
 import type { Logger } from "@openmanga/logger";
 import { geminiAspectFor } from "./gemini.ts";
 import type { ImageInputFile, ImageResult, ImageUsage } from "./index.ts";
@@ -26,8 +26,7 @@ export type BatchReferenceFile = ImageInputFile & { id: string };
 export type BatchRequestSpec = {
   key: string;
   prompt: string;
-  /** Provider-resolved output size, as the synchronous path would have asked for it. */
-  size: { width: number; height: number };
+  /** The provider resolves this to a concrete size the same way the synchronous path does. */
   aspectRatio: number;
   quality: string;
   references: BatchReferenceFile[];
@@ -110,6 +109,11 @@ export function chunkByBudget<T>(items: T[], budgets: { limit: number; cost: (it
   return chunks;
 }
 
+const sizeStringFor = (aspectRatio: number, sizes: SizeOption[]) => {
+  const s = chooseImageDimensions(aspectRatio, sizes);
+  return `${s.width}x${s.height}`;
+};
+
 const extFor = (mime: string) => (mime === "image/webp" ? "webp" : mime === "image/jpeg" ? "jpg" : "png");
 
 type OpenAIBatchOpts = {
@@ -117,6 +121,8 @@ type OpenAIBatchOpts = {
   baseUrl: string;
   model: string;
   timeoutMs: number;
+  /** Output size menu, as the synchronous provider has: the nearest aspect to the panel wins. */
+  sizes: SizeOption[];
   /** Per-model enqueued input-token ceiling for batches; org-specific, so configured rather than assumed. */
   maxEnqueuedTokens: number;
   logger?: Logger;
@@ -214,7 +220,7 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
             body: {
               model: this.model,
               prompt: r.prompt,
-              size: `${r.size.width}x${r.size.height}`,
+              size: sizeStringFor(r.aspectRatio, this.opts.sizes),
               quality: r.quality,
               n: 1,
               output_format: "png",

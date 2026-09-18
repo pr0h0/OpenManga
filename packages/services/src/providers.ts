@@ -1,8 +1,11 @@
 import {
   FakeImageAIProvider,
+  GeminiImageBatchProvider,
   GeminiImageProvider,
   type ImageAIProvider,
+  type ImageBatchProvider,
   MetaImageProvider,
+  OpenAIImageBatchProvider,
   OpenAIImageProvider,
   OpenRouterImageProvider,
 } from "@openmanga/ai-image";
@@ -181,6 +184,39 @@ function byokImage(
 }
 
 /**
+ * The batch twin of `byokImage`: null when the provider has no batch API (Meta, OpenRouter, and any custom
+ * OpenAI-compatible endpoint, which may or may not implement /v1/batches — we do not assume it does).
+ */
+export function byokImageBatch(
+  kind: ProviderKind,
+  cred: { apiKey: string; baseUrl: string | null },
+  model: string,
+  c: AppConfig,
+  logger?: Logger,
+): ImageBatchProvider | null {
+  const common = {
+    apiKey: cred.apiKey,
+    model,
+    baseUrl: cred.baseUrl ?? providerCatalog(kind)?.baseUrl ?? "",
+    timeoutMs: c.AI_IMAGE_TIMEOUT_MS,
+    logger,
+  };
+  switch (kind) {
+    case "openai":
+      return new OpenAIImageBatchProvider({
+        ...common,
+        sizes: c.imageSizes,
+        maxEnqueuedTokens: c.OPENAI_BATCH_MAX_ENQUEUED_TOKENS,
+      });
+    case "google":
+      // Mirrors the synchronous path: 1K is what every Gemini image run here asks for.
+      return new GeminiImageBatchProvider({ ...common, imageSize: "1K" });
+    default:
+      return null;
+  }
+}
+
+/**
  * Builds the provider for a run. Instances are cached per credential revision + model so concurrency limiters
  * and rate-limit cooldowns are shared across jobs using the same key.
  */
@@ -218,6 +254,19 @@ export class ProviderResolver {
   /** Narration voice provider; null only when the server default (Kokoro) is disabled and no key is chosen. */
   tts(choice: AiChoice | null | undefined, userId: string | null) {
     return this.resolve("tts", choice, userId) as Promise<TTSProvider | null>;
+  }
+
+  /**
+   * Batch provider for a run's choice, or null when batching is not possible: no key (mock mode), or a provider
+   * without a batch API. Callers fall back to the synchronous path rather than failing.
+   */
+  async imageBatch(choice: AiChoice | null | undefined, userId: string | null): Promise<ImageBatchProvider | null> {
+    if (!choice?.credentialId || this.config.AI_MOCK_MODE) return null;
+    const cred = await this.credentials.resolve(choice.credentialId, userId);
+    if (!providerSupports(cred.kind, "image")) return null;
+    const chosen = choice.model?.trim() || providerCatalog(cred.kind)?.imageModels[0];
+    if (!chosen) return null;
+    return byokImageBatch(cred.kind, cred, chosen, this.config, this.logger);
   }
 
   /** Reads the choice stored on a job (parameters.ai) and resolves it for the job's user. */

@@ -11,7 +11,13 @@ import {
   panels,
   sql,
 } from "@openmanga/db";
-import { estimateImageBatchUsd, PRIORITY, providerSupports } from "@openmanga/domain";
+import {
+  BATCH_CAPABLE_PROVIDERS,
+  batchModel,
+  estimateImageBatchUsd,
+  PRIORITY,
+  providerSupports,
+} from "@openmanga/domain";
 import { generationPreflight, projectBudget, recordAudit } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -212,6 +218,11 @@ const BulkInput = z.object({
   scope: Scope,
   onlyMissing: z.boolean().default(true),
   confirm: z.boolean().default(false),
+  /**
+   * Send the panels to the provider's batch API instead of generating them now: half price, and the results
+   * arrive within 24h (often much sooner). Refused for a provider without a batch API.
+   */
+  batch: z.boolean().default(false),
   ai: AiChoiceInput,
 });
 
@@ -252,7 +263,13 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
   );
   ids = ids.filter((id) => eligible.some((r) => r.id === id));
   const chosen = await checkImageChoice(c, input.ai);
-  const rate = await deps.usage.rateFor(chosen.provider, chosen.model);
+  // Demo mode has no real provider, so a batch run there simply falls back to generating normally.
+  if (input.batch && !BATCH_CAPABLE_PROVIDERS.has(chosen.provider) && !deps.config.AI_MOCK_MODE)
+    throw badRequest(
+      `${chosen.provider} has no batch API, so this run cannot be batched. Generate it normally, or pick an OpenAI or Google key.`,
+    );
+  // Batch spend is recorded against the ":batch" model, which is priced at half; estimate from the same row.
+  const rate = await deps.usage.rateFor(chosen.provider, input.batch ? batchModel(chosen.model) : chosen.model);
   const estimate = {
     count: ids.length,
     skipped: rows.length - ids.length,
@@ -266,6 +283,7 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
     },
     estimatedUsd: estimateImageBatchUsd(ids.length, chosen.provider === "google" ? 1120 : 400, rate),
     provider: { provider: chosen.provider, model: chosen.model },
+    batch: input.batch,
     rateSnapshot: rate ? { provider: rate.provider, model: rate.model, effectiveFrom: rate.effectiveFrom } : null,
   };
   const budget = await projectBudget(deps.db, p.id);
@@ -287,11 +305,32 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
   const failures: { panelId: string; error: string }[] = [];
   for (const id of ids) {
     try {
-      jobs.push(await deps.planner.enqueuePanel(id, user(c).id, { priority, batchId, ai: input.ai, allowOverBudget }));
+      jobs.push(
+        await deps.planner.enqueuePanel(id, user(c).id, {
+          priority,
+          batchId,
+          ai: input.ai,
+          allowOverBudget,
+          batchMode: input.batch,
+        }),
+      );
     } catch (e) {
       failures.push({ panelId: id, error: e instanceof Error ? e.message : String(e) });
     }
   }
+  // The panels above were written but not queued; this job collects them into provider batches and parks them.
+  if (input.batch && jobs.length)
+    await deps.db.transaction(async (tx) => {
+      await deps.jobs.createGenerationJob(tx, {
+        projectId: p.id,
+        userId: user(c).id,
+        kind: "image_batch_submit",
+        priority,
+        batchId,
+        parameters: { ai: input.ai ?? null },
+        input: { batchId },
+      });
+    });
   await deps.jobs.kick();
   await recordAudit(deps.db, {
     userId: user(c).id,
@@ -372,7 +411,7 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
     from generation_jobs
     where project_id = ${p.id} and batch_id is not null
     group by batch_id
-    having count(*) filter (where status in ('queued', 'processing', 'cancel_requested', 'paused')) > 0
+    having count(*) filter (where status in ('queued', 'submitted', 'processing', 'cancel_requested', 'paused')) > 0
       or max(finished_at) > now() - interval '15 minutes'
     order by min(created_at)`);
   const list = [...batches];
@@ -513,7 +552,10 @@ generationRoutes.post("/generations/batches/:batchId/cancel", async (c) => {
     .select()
     .from(generationJobs)
     .where(
-      and(eq(generationJobs.batchId, batchId), inArray(generationJobs.status, ["queued", "processing", "paused"])),
+      and(
+        eq(generationJobs.batchId, batchId),
+        inArray(generationJobs.status, ["queued", "submitted", "processing", "paused"]),
+      ),
     );
   if (!jobs.length) return c.json({ cancelled: 0 });
   await projectAccess(c, jobs[0]!.projectId, "generate");

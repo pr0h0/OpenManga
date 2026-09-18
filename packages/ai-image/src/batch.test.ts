@@ -16,7 +16,6 @@ const ref = (kb: number, id = "var-1") => ({
 const spec = (key: string, refs = 3, prompt = "draw a panel"): BatchRequestSpec => ({
   key,
   prompt,
-  size: { width: 1024, height: 1024 },
   aspectRatio: 1,
   quality: "low",
   references: Array.from({ length: refs }, (_, i) => ref(20, `${key}-var-${i + 1}`)),
@@ -43,6 +42,7 @@ const openai = (fetchFn: typeof fetch, maxEnqueuedTokens = 1_000_000) =>
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-image-2",
     timeoutMs: 1000,
+    sizes: [{ width: 1024, height: 1024 }],
     maxEnqueuedTokens,
     fetch: fetchFn,
   });

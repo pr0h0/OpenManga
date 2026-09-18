@@ -209,6 +209,38 @@ export const DEFAULT_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = [
   },
 ];
 
+/**
+ * Providers with an asynchronous batch API: submit many requests, collect within 24h, pay half. DeepSeek is
+ * absent deliberately — it discounts by time of day (off-peak windows), not through a batch endpoint, so there
+ * is nothing to submit to. Meta and OpenRouter expose no batch API.
+ */
+export const BATCH_CAPABLE_PROVIDERS = new Set(["openai", "google", "anthropic"]);
+
+/**
+ * Batch runs are recorded against a suffixed model so their spend is priced and reported separately. The suffix
+ * is applied at the single point where usage is recorded; everything upstream (catalogs, model validation, the
+ * job's own provider/model columns) keeps the plain name.
+ */
+export const BATCH_MODEL_SUFFIX = ":batch";
+export const batchModel = (model: string) => (isBatchModel(model) ? model : `${model}${BATCH_MODEL_SUFFIX}`);
+export const isBatchModel = (model: string) => model.endsWith(BATCH_MODEL_SUFFIX);
+export const baseModel = (model: string) => (isBatchModel(model) ? model.slice(0, -BATCH_MODEL_SUFFIX.length) : model);
+
+/** Half-price twin of every batch-capable rate, derived so a new model or a price change needs no second edit. */
+export const BATCH_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = DEFAULT_RATE_SNAPSHOTS.filter((r) =>
+  BATCH_CAPABLE_PROVIDERS.has(r.provider),
+).map((r) => ({
+  ...r,
+  model: batchModel(r.model),
+  textInputRate: r.textInputRate / 2,
+  cachedInputRate: r.cachedInputRate / 2,
+  textOutputRate: r.textOutputRate / 2,
+  imageInputRate: r.imageInputRate / 2,
+  imageOutputRate: r.imageOutputRate / 2,
+  ...(r.imageUnitRate === undefined ? {} : { imageUnitRate: r.imageUnitRate / 2 }),
+  ...(r.characterRate === undefined ? {} : { characterRate: r.characterRate / 2 }),
+}));
+
 /** Rough pre-flight estimate for confirmation dialogs (not used for accounting). */
 export function estimateImageBatchUsd(count: number, perImageOutputTokens = 400, rate?: RateSnapshot | null) {
   if (!rate) return null;
