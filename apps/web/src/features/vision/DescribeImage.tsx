@@ -249,6 +249,18 @@ export function DescribeImage({
           },
         });
         toast.success("Project art style set from the image");
+      } else if (kind === "character" && applyTo) {
+        // A new version rather than an edit: it works whatever the current version's status is, and the previous
+        // description stays in the character's version history to compare against or revert to.
+        await api(`/characters/${applyTo}/versions`, {
+          method: "POST",
+          body: {
+            description: description.character,
+            changeNote: "From a reference image",
+            makeCurrent: true,
+          },
+        });
+        toast.success("New character version created from the image");
       } else if (kind === "character") {
         const name = window.prompt(
           "Name this character",

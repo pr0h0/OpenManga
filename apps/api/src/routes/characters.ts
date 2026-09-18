@@ -233,6 +233,10 @@ characterRoutes.patch("/characters/:id", async (c) => {
       .from(characterVersions)
       .where(and(eq(characterVersions.id, input.currentVersionId), eq(characterVersions.characterId, id)));
     if (!v) throw notFound("Version");
+    // New panels pin the current version and take their identity reference from it, and a draft's references are
+    // never used for identity — so a draft as current would generate that character with no reference at all.
+    if (v.status === "draft")
+      throw conflict("A draft cannot be the current version. Approve it first, which makes it current.");
   }
   const [row] = await db.update(characters).set(input).where(eq(characters.id, id)).returning();
   return c.json({ character: row });
@@ -249,6 +253,58 @@ characterRoutes.delete("/characters/:id", async (c) => {
     action: "character.trash",
     targetType: "character",
     targetId: id,
+    requestId: c.get("requestId"),
+  });
+  return c.json({ ok: true });
+});
+
+doc({
+  method: "DELETE",
+  path: "/api/character-versions/:id",
+  summary: "Delete a draft version. Refused for approved/locked versions, the only version, or one panels still use",
+  tag: "characters",
+});
+characterRoutes.delete("/character-versions/:id", async (c) => {
+  const id = uuidParam(c, "id");
+  const p = await entityAccess(c, "character_version", id, "write");
+  const { db } = c.get("deps");
+  const [v] = await db.select().from(characterVersions).where(eq(characterVersions.id, id));
+  if (!v) throw notFound("Version");
+  // Only a draft: an approved or locked version is part of the record that panels were drawn against.
+  if (v.status !== "draft") throw conflict(`Only a draft version can be deleted; this one is ${v.status}`);
+  const siblings = await db
+    .select({ id: characterVersions.id, n: characterVersions.versionNumber })
+    .from(characterVersions)
+    .where(eq(characterVersions.characterId, v.characterId))
+    .orderBy(desc(characterVersions.versionNumber));
+  if (siblings.length < 2) throw conflict("A character keeps at least one version");
+  const [used] = await db
+    .select({ id: panels.id })
+    .from(panels)
+    .where(sql`${panels.characterVersionIds} @> ${JSON.stringify([id])}::jsonb`)
+    .limit(1);
+  if (used) throw conflict("Panels were drawn against this version; migrate them first");
+  const [ch] = await db.select().from(characters).where(eq(characters.id, v.characterId));
+  await db.transaction(async (tx) => {
+    // Hand "current" to the newest surviving version rather than leaving the character pointing at nothing.
+    if (ch?.currentVersionId === id) {
+      const next = siblings.find((s) => s.id !== id)!;
+      await tx.update(characters).set({ currentVersionId: next.id }).where(eq(characters.id, v.characterId));
+    }
+    // Anything descended from it keeps its history readable by re-parenting onto this version's parent.
+    await tx
+      .update(characterVersions)
+      .set({ parentVersionId: v.parentVersionId })
+      .where(eq(characterVersions.parentVersionId, id));
+    await tx.delete(characterVersions).where(eq(characterVersions.id, id));
+  });
+  await recordAudit(db, {
+    userId: user(c).id,
+    projectId: p.id,
+    action: "character_version.delete",
+    targetType: "character_version",
+    targetId: id,
+    metadata: { versionNumber: v.versionNumber },
     requestId: c.get("requestId"),
   });
   return c.json({ ok: true });
@@ -329,6 +385,9 @@ characterRoutes.post("/character-versions/:id/status", async (c) => {
       throw conflict("This version already has generated panels. Create a new version instead of reopening it.");
   }
   const [row] = await db.update(characterVersions).set({ status }).where(eq(characterVersions.id, id)).returning();
+  // Approval is the promotion: a version becomes the one new panels pin only once it is fit to draw from.
+  if (status === "approved" || status === "locked")
+    await db.update(characters).set({ currentVersionId: id }).where(eq(characters.id, v.characterId));
   if (status === "locked")
     await db
       .update(referenceAssets)
@@ -391,7 +450,11 @@ characterRoutes.post("/characters/:id/versions", async (c) => {
         createdByUserId: user(c).id,
       })
       .returning();
-    if (input.makeCurrent) await tx.update(characters).set({ currentVersionId: v!.id }).where(eq(characters.id, id));
+    // Deliberately not automatic: a new version starts as a draft, and a draft must not become current (see
+    // the PATCH guard). Approving it is what promotes it. `makeCurrent` is honoured only for a character that
+    // has no current version at all, which is the first version of a new character.
+    if (input.makeCurrent && !ch.currentVersionId)
+      await tx.update(characters).set({ currentVersionId: v!.id }).where(eq(characters.id, id));
     return v!;
   });
   await recordAudit(db, {

@@ -152,7 +152,7 @@ export function CharacterDetailPage() {
             <h2 className="mb-2 text-sm font-semibold">Versions</h2>
             <ul className="space-y-1">
               {versions.map((v) => (
-                <li key={v.id}>
+                <li key={v.id} className="group relative">
                   <button
                     type="button"
                     onClick={() => setSelected(v.id)}
@@ -169,6 +169,28 @@ export function CharacterDetailPage() {
                       {v.panelCount} panel{v.panelCount === 1 ? "" : "s"} · {v.changeNote || "—"}
                     </div>
                   </button>
+                  {v.status === "draft" && versions.length > 1 && v.panelCount === 0 && (
+                    <button
+                      type="button"
+                      aria-label={`Delete draft v${v.versionNumber}`}
+                      title="Delete this draft version"
+                      className="btn-ghost absolute top-1 right-1 p-1 text-red-500 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!window.confirm(`Delete draft v${v.versionNumber}?`)) return;
+                        try {
+                          await del(`/character-versions/${v.id}`);
+                          if (selected === v.id) setSelected(null);
+                          await refresh();
+                          toast.success(`Deleted v${v.versionNumber}`);
+                        } catch (err) {
+                          toast.error(err);
+                        }
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

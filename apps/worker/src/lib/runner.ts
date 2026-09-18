@@ -296,7 +296,10 @@ async function finishCancelled(deps: WorkerDeps, job: GenerationJob) {
   await publishJob(deps, row!);
 }
 
-export async function publishJob(deps: WorkerDeps, j: GenerationJob) {
+export async function publishJob(deps: WorkerDeps, j: GenerationJob | undefined) {
+  // The row can be gone by the time we publish: a deleted description, a project removed mid-run. Every caller
+  // reaches here through an `update(...).returning()` that then yields nothing, so guard once, here.
+  if (!j) return;
   await deps.events.publish(j.projectId, {
     type: "job.updated",
     jobId: j.id,

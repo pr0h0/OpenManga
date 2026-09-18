@@ -16,7 +16,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -230,4 +230,49 @@ visionRoutes.get("/image-descriptions", async (c) => {
     })),
     nextCursor: rows.length === q.limit && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
   });
+});
+
+doc({
+  method: "DELETE",
+  path: "/api/image-descriptions/:id",
+  summary: "Remove a description from the library, with the image it was read from",
+  tag: "vision",
+});
+visionRoutes.delete("/image-descriptions/:id", async (c) => {
+  const id = uuidParam(c, "id");
+  const deps = c.get("deps");
+  const [job] = await deps.db.select().from(generationJobs).where(eq(generationJobs.id, id));
+  if (job?.kind !== "image_describe") throw notFound("Description");
+  await projectAccess(c, job.projectId, "write");
+  if (job.userId && job.userId !== user(c).id) throw notFound("Description");
+  // Mid-flight is the only state worth refusing: the handler is holding this row. A job that has not started
+  // (or is parked in a provider batch) is cancelled first, so binning a stuck item is possible.
+  if (job.status === "processing") throw conflict("That description is running; wait for it to finish or cancel it");
+  if (job.status === "queued" || job.status === "submitted") await deps.jobs.cancelGeneration(job.id);
+
+  const assetId = (job.input as { assetId?: string }).assetId;
+  await deps.db.delete(generationJobs).where(eq(generationJobs.id, id));
+  // The uploaded image goes with it, unless something else adopted it in the meantime — a reference on a version,
+  // a panel's artwork, or another description still pointing at it.
+  if (assetId) {
+    const [asset] = await deps.db.select().from(assets).where(eq(assets.id, assetId));
+    const [stillUsed] = asset
+      ? await deps.db.execute<{ n: number }>(sql`select (
+          (select count(*) from reference_assets where asset_id = ${assetId})
+          + (select count(*) from panels where active_artwork_asset_id = ${assetId})
+          + (select count(*) from generation_jobs where kind = 'image_describe' and input->>'assetId' = ${assetId})
+        )::int as n`)
+      : [];
+    if (asset && asset.type === "source_image" && (stillUsed?.n ?? 0) === 0)
+      await deps.assets.hardDelete(asset).catch(() => {});
+  }
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: job.projectId,
+    action: "image.describe.delete",
+    targetType: "asset",
+    targetId: assetId,
+    requestId: c.get("requestId"),
+  });
+  return c.json({ ok: true });
 });

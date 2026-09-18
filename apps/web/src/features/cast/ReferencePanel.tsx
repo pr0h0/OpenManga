@@ -40,6 +40,15 @@ export function ReferencePanel({
   const kinds = KINDS[subject];
   const [kind, setKind] = useState(kinds[0]!);
   const [outfitId, setOutfitId] = useState("");
+  /** Outfits that already have a reference, so the dropdown says which are still to do. */
+  const outfitsWithReference = new Set(
+    (references ?? []).map((r) => r.outfitId).filter((x): x is string => Boolean(x)),
+  );
+  /** An outfit reference is drawn from the approved design, so that has to exist before any outfit can be run. */
+  const hasApprovedIdentity = (references ?? []).some(
+    (r) => !r.outfitId && (r.status === "approved" || r.status === "locked"),
+  );
+  const needsBaseline = subject === "character" && kind === "outfit" && !hasApprovedIdentity;
   const [extra, setExtra] = useState("");
   const [pending, setPending] = useState<Pending[]>([]);
   const [viewing, setViewing] = useState<Reference | null>(null);
@@ -133,6 +142,7 @@ export function ReferencePanel({
               {outfits.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.name}
+                  {outfitsWithReference.has(o.id) ? " ✓" : ""}
                 </option>
               ))}
             </select>
@@ -151,7 +161,12 @@ export function ReferencePanel({
         <button
           type="button"
           className="btn-primary"
-          disabled={superseded || generate.isPending}
+          disabled={superseded || generate.isPending || needsBaseline}
+          title={
+            needsBaseline
+              ? "Generate and approve a main reference first — outfits are drawn from it so the face stays the same"
+              : undefined
+          }
           onClick={() => generate.mutate()}
         >
           {generate.isPending ? <Spinner /> : <Sparkles className="size-4" />} Generate

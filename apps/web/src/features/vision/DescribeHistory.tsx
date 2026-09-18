@@ -1,9 +1,9 @@
 import type { ImageDescription } from "@openmanga/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { History, Loader2 } from "lucide-react";
+import { History, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { assetUrl, get } from "../../api/client.ts";
-import { clsx, EmptyState, ErrorBox, fmt, Spinner } from "../../components/ui.tsx";
+import { assetUrl, del, get } from "../../api/client.ts";
+import { clsx, EmptyState, ErrorBox, fmt, Spinner, toast } from "../../components/ui.tsx";
 
 type Row = {
   id: string;
@@ -25,6 +25,7 @@ type Row = {
  */
 export function DescribeHistory({ projectId, onReuse }: { projectId: string; onReuse: (row: Row) => void }) {
   const [scope, setScope] = useState<"all" | "project">("all");
+  const [removing, setRemoving] = useState<string | null>(null);
   const q = useQuery({
     queryKey: ["image-descriptions", scope, scope === "project" ? projectId : "all"],
     queryFn: () =>
@@ -66,35 +67,54 @@ export function DescribeHistory({ projectId, onReuse }: { projectId: string; onR
         <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {rows.map((r) => (
             <li key={r.id}>
-              <button
-                type="button"
-                onClick={() => onReuse(r)}
-                className="card flex w-full items-start gap-3 p-2 text-left hover:border-accent-500"
-              >
-                {r.assetId ? (
-                  <img
-                    src={assetUrl(r.assetId, "thumbnail")}
-                    alt=""
-                    className="size-16 shrink-0 rounded object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <span className="flex size-16 shrink-0 items-center justify-center rounded bg-[var(--panel-2)]">
-                    <Loader2 className="size-4" />
+              <div className="card group relative flex items-start gap-3 p-2">
+                <button type="button" onClick={() => onReuse(r)} className="flex w-full items-start gap-3 text-left">
+                  {r.assetId ? (
+                    <img
+                      src={assetUrl(r.assetId, "thumbnail")}
+                      alt=""
+                      className="size-16 shrink-0 rounded object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="flex size-16 shrink-0 items-center justify-center rounded bg-[var(--panel-2)]">
+                      <Loader2 className="size-4" />
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm">{r.description?.overview || r.note || "Description"}</span>
+                    <span className="muted block text-xs">
+                      {r.aspects.join(", ") || "overview"}
+                      {r.custom ? " · custom question" : ""}
+                    </span>
+                    <span className="muted block text-xs">
+                      {r.projectId !== projectId && <strong className="text-[var(--fg)]">{r.projectTitle} · </strong>}
+                      {fmt.ago(r.createdAt)}
+                    </span>
                   </span>
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm">{r.description?.overview || r.note || "Description"}</span>
-                  <span className="muted block text-xs">
-                    {r.aspects.join(", ") || "overview"}
-                    {r.custom ? " · custom question" : ""}
-                  </span>
-                  <span className="muted block text-xs">
-                    {r.projectId !== projectId && <strong className="text-[var(--fg)]">{r.projectTitle} · </strong>}
-                    {fmt.ago(r.createdAt)}
-                  </span>
-                </span>
-              </button>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Delete this description"
+                  title="Delete this description and the image it was read from"
+                  className="btn-ghost absolute top-1 right-1 p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                  disabled={removing === r.id}
+                  onClick={async () => {
+                    if (!window.confirm("Delete this description and the image it was read from?")) return;
+                    setRemoving(r.id);
+                    try {
+                      await del(`/image-descriptions/${r.id}`);
+                      await q.refetch();
+                    } catch (e) {
+                      toast.error(e);
+                    } finally {
+                      setRemoving(null);
+                    }
+                  }}
+                >
+                  {removing === r.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                </button>
+              </div>
             </li>
           ))}
         </ul>

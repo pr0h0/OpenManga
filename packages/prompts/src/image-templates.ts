@@ -128,6 +128,8 @@ export type CharacterReferenceInput = {
   immutableTraits: string[];
   outfit?: { name: string; description: string } | null;
   kind: "portrait" | "full_body" | "multi_angle" | "expression_sheet" | "outfit";
+  /** The approved identity reference is attached as image 1: this one only re-dresses that same figure. */
+  fromBaseline?: boolean;
   extraInstruction?: string;
 };
 
@@ -145,7 +147,7 @@ const refKindText: Record<CharacterReferenceInput["kind"], string> = {
 
 export const characterReferenceV1: ImageTemplate<CharacterReferenceInput> = {
   name: "character-reference",
-  version: 3,
+  version: 4,
   kind: "image",
   description: "Full-resolution canonical character reference.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, CHARACTER, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, PRESENTATION, STRICT EXCLUSIONS",
@@ -168,6 +170,9 @@ export const characterReferenceV1: ImageTemplate<CharacterReferenceInput> = {
         b.props.length ? line("Carried props", b.props.join(", ")) : "",
       ]),
       section("PRESENTATION", [
+        i.fromBaseline
+          ? "Reference image 1 is this character's approved design. Reproduce that same person exactly — face, hair, build, skin and every immutable trait — and change only the clothing described under WARDROBE. Same framing and neutral presentation as the reference."
+          : "",
         "Plain light neutral background filling the whole canvas.",
         "Even, soft studio lighting so colors, hair and facial features read clearly; no dramatic shadows across the face.",
         "Single character only, entirely inside the frame (no cropped head, hands or feet for full-body views).",

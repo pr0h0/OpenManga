@@ -564,6 +564,8 @@ export class GenerationPlanner {
     let prompt: string;
     let label: string;
     let templateName: string;
+    /** The approved identity reference an outfit reference is drawn from. */
+    let baseline: AssetRecord | null = null;
     const input: Record<string, unknown> = { subject, versionId, kind, outfitId: opts.outfitId ?? null };
     if (subject === "character") {
       const [r] = await this.db
@@ -583,7 +585,20 @@ export class GenerationPlanner {
       let outfit: { name: string; description: string } | null = null;
       if (opts.outfitId) {
         const [o] = await this.db.select().from(characterOutfits).where(eq(characterOutfits.id, opts.outfitId));
-        outfit = o ? { name: o.name, description: o.description } : null;
+        if (!o) throw new PlanningError(404, "Outfit not found");
+        if (o.characterId !== r.c.id) throw new PlanningError(400, "That outfit belongs to another character");
+        outfit = { name: o.name, description: o.description };
+      }
+      // An outfit reference re-dresses the approved design rather than inventing the character again: without a
+      // baseline, each outfit would drift into a different face and build, which is the thing references exist
+      // to prevent.
+      if (kind === "outfit") {
+        baseline = await this.approvedReference("character", versionId);
+        if (!baseline)
+          throw new PlanningError(
+            409,
+            "Generate and approve this character's main reference first — an outfit reference is drawn from it so the face and build stay identical.",
+          );
       }
       prompt = characterReferenceV1.compile({
         style,
@@ -593,6 +608,7 @@ export class GenerationPlanner {
         immutableTraits: r.v.immutableTraits,
         kind: refKind,
         outfit,
+        fromBaseline: Boolean(baseline),
         extraInstruction: opts.extraInstruction,
       });
       label = `${r.c.name} v${r.v.versionNumber} ${kind}`;
@@ -646,6 +662,18 @@ export class GenerationPlanner {
     input.sourceFingerprint = await versionFingerprint(this.db, subject, versionId);
     const project = await this.project(projectId);
     const aspectRatio = REFERENCE_ASPECT[kind] ?? 1;
+    const inputs: NewGenerationInput[] = baseline
+      ? [
+          await this.derivativeInput(
+            baseline,
+            "character_ref",
+            "approved character design",
+            versionId,
+            project.settings,
+            run.provider,
+          ),
+        ]
+      : [];
     const job = await this.db.transaction((tx) =>
       this.jobs.createGenerationJob(tx, {
         projectId,
@@ -668,7 +696,7 @@ export class GenerationPlanner {
           fullResolution: true,
         },
         input,
-        inputs: [],
+        inputs,
       }),
     );
     return job;
