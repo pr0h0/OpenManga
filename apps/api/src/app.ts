@@ -19,6 +19,7 @@ import { storyRoutes } from "./routes/stories.ts";
 import { healthRoutes, miscRoutes } from "./routes/system.ts";
 import { usageRoutes } from "./routes/usage.ts";
 import { videoRoutes } from "./routes/video.ts";
+import { visionRoutes } from "./routes/vision.ts";
 import { worldRoutes } from "./routes/world.ts";
 
 export function createApp(deps: Deps) {
@@ -67,6 +68,7 @@ export function createApp(deps: Deps) {
     exportRoutes,
     videoRoutes,
     importRoutes,
+    visionRoutes,
     miscRoutes,
     aiRoutes,
   ])

@@ -18,6 +18,8 @@ export type GenerationKind =
   | "panel_edit"
   | "panel_check"
   | "cover"
+  /** Describe an uploaded reference image as reusable style / character / location descriptions. */
+  | "image_describe"
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
   | "image_batch_submit"
   /** The same for text jobs: harvests each job's request and submits them together. */

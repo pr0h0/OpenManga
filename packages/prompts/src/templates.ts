@@ -1,5 +1,6 @@
 import {
   ChapterPlan,
+  ImageDescription,
   NarrationDraft,
   NarrationDraftV2,
   PanelCheck,
@@ -473,6 +474,71 @@ export const jsonRepairV1 = defineTextTemplate<{ schemaName: string; error: stri
   },
 });
 
+/** One prepared instruction per aspect, so a ticked box asks a sharp question instead of a vague one. */
+const IMAGE_ASPECT_PROMPTS: Record<string, string> = {
+  style:
+    "style: how the image is drawn, not what it shows. Line treatment and weight, colour policy, shading method, level of detail, how faces and backgrounds are rendered, motion effects, contrast, screen tones, and the lighting approach. Put anything the style clearly avoids in exclusions.",
+  character:
+    "character: the most prominent figure, as a reusable character bible — build, face, eyes, hair, skin, distinctive features, wardrobe, accessories and default expression. Describe what is visible; leave a field empty rather than inventing it.",
+  outfit:
+    "outfit: the clothing in its own right — garments and layers, fabrics and their weight, fastenings, footwear, accessories, condition and wear. Enough to redraw the outfit on another figure.",
+  location:
+    "location: the setting behind and around the subject — what kind of place it is, architecture, layout, palette, lighting, atmosphere and the features that identify it.",
+  lighting:
+    "lighting: key light direction, quality and colour, fill and shadow behaviour, contrast ratio, time of day, and the palette the image is built from with its dominant and accent colours.",
+  composition:
+    "composition: shot type and camera angle, how the frame is divided, where the subject sits, depth cues and lens character, and where the eye is led.",
+  mood: "mood: the feeling the image carries and the specific visual choices that create it.",
+  props: "props: notable objects, weapons, furniture and set dressing, and how they are used or worn.",
+  era: "era: the period and cultural setting the image suggests, and the concrete visual cues that place it.",
+  technique:
+    "technique: the apparent medium and process — ink, paint, digital brushwork, cel shading, 3D render, halftone or screen tone, grain, and any print or camera artefacts.",
+};
+
+export const imageDescribeV1 = defineTextTemplate<{
+  aspects: string[];
+  custom: string;
+  /** Free-text note from the caller about what the image is, e.g. "frame from a trailer". */
+  note: string;
+}>({
+  name: "image-describe",
+  version: 1,
+  description: "Describe a reference image as reusable style / character / location / setting descriptions",
+  system: [
+    templateHeader("image-describe", 1),
+    "You describe a single reference image so its qualities can be reused in new artwork. You are given the image and a list of aspects to report on.",
+    "Report only the aspects you were asked for; leave every other field of the schema absent.",
+    "Describe what is actually visible. Where the image does not show something, leave the field empty and name it in `uncertain` — a confident guess is worse than an admitted gap.",
+    "Write in plain, concrete visual language that another artist could work from. No prose flourishes, no interpretation of story or intent beyond what the image supports.",
+    "Never identify or name real people, and do not name the work an image might come from; describe only what is visible.",
+    DATA_RULE,
+    schemaInstructions("ImageDescription", ImageDescription),
+  ].join("\n\n"),
+  build(i) {
+    const asked = i.aspects
+      .map((a) => IMAGE_ASPECT_PROMPTS[a])
+      .filter(Boolean)
+      .map((line, n) => `${n + 1}. ${line}`)
+      .join("\n");
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          "Describe the attached image. Always fill `overview`.",
+          asked ? `Report these aspects:\n${asked}` : "Report the overview only.",
+          i.custom.trim()
+            ? `Also answer this request from the caller, in \`custom\`:\n${untrusted("caller_request", i.custom)}`
+            : "",
+          i.note.trim() ? `Context the caller gave about the image:\n${untrusted("caller_note", i.note)}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ];
+  },
+});
+
 export const TEXT_TEMPLATES = [
   storyAnalysisV1,
   storyAnalysisV2,
@@ -493,4 +559,5 @@ export const TEXT_TEMPLATES = [
   panelCheckV1,
   storyRewriteV1,
   jsonRepairV1,
+  imageDescribeV1,
 ];

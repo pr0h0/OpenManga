@@ -28,6 +28,8 @@ export const assetType = pgEnum("asset_type", [
   "cover",
   "thumbnail",
   "prompt_reference",
+  /** An image the user uploaded to describe or reuse, not attached to any version. */
+  "source_image",
   "export",
   "audio",
 ]);

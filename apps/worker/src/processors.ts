@@ -6,7 +6,14 @@ import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from
 import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
 import { runMaintenance } from "./handlers/maintenance.ts";
 import { panelCheck } from "./handlers/qa.ts";
-import { chapterPlan, narrationText, pagePrompts, storyAnalysis, storyRewrite } from "./handlers/text.ts";
+import {
+  chapterPlan,
+  imageDescribe,
+  narrationText,
+  pagePrompts,
+  storyAnalysis,
+  storyRewrite,
+} from "./handlers/text.ts";
 import { textBatchSubmit } from "./handlers/text-batch.ts";
 import { TEXT_HANDLERS } from "./handlers/text-handlers.ts";
 import { processTts } from "./handlers/tts.ts";
@@ -29,6 +36,7 @@ const GENERATION_HANDLERS: Record<
   panel_generation: panelGeneration,
   panel_edit: panelEdit,
   panel_check: panelCheck,
+  image_describe: imageDescribe,
   cover: coverGeneration,
   image_batch_submit: imageBatchSubmit,
   text_batch_submit: textBatchSubmit,

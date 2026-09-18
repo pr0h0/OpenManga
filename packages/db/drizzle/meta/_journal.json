@@ -71,6 +71,13 @@
       "when": 1789705078626,
       "tag": "0009_provider_batches",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789730594278,
+      "tag": "0010_source_image_asset",
+      "breakpoints": true
     }
   ]
 }

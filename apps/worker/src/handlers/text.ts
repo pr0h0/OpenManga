@@ -29,6 +29,7 @@ import {
 import { LAYOUT_TEMPLATES, languageName, segmentNarration } from "@openmanga/domain";
 import {
   chapterPlanningV5,
+  imageDescribeV1,
   jsonRepairV1,
   narrationV4,
   panelPromptsV3,
@@ -36,7 +37,14 @@ import {
   storyAnalysisV2,
   storyRewriteV1,
 } from "@openmanga/prompts";
-import { ChapterPlan, narrationDraftFor, PanelPromptDraft, StoryAnalysis, StoryRewrite } from "@openmanga/schemas";
+import {
+  ChapterPlan,
+  ImageDescription,
+  narrationDraftFor,
+  PanelPromptDraft,
+  StoryAnalysis,
+  StoryRewrite,
+} from "@openmanga/schemas";
 import { applyChapterPlan, applyNarrationPauses } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
@@ -470,4 +478,34 @@ export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
   });
   await deps.events.publish(job.projectId, { type: "narration.updated", chapterId });
   return { chapterId, language, lines: created, repaired: r.repaired };
+}
+
+/**
+ * Describes an uploaded reference image as reusable descriptions. The result deliberately reuses the exact
+ * shapes the style, character and location endpoints already accept, so "use this as the project style" is a
+ * plain POST of the object rather than a translation step.
+ */
+export async function imageDescribe(deps: WorkerDeps, job: GenerationJob) {
+  const assetId = String(job.input.assetId);
+  const asset = await deps.assets.get(assetId);
+  if (!asset) throw new InputError("The image no longer exists");
+  if (asset.projectId !== job.projectId) throw new InputError("That image belongs to another project");
+  // A preview is plenty to describe from and keeps the request (and its bill) small; canonical bytes are the
+  // fallback for anything sharp cannot resize.
+  const preview = await deps.assets.ensureResized(asset, "preview");
+  const image = preview
+    ? { mime: preview.mimeType, data: await deps.assets.readVariant(preview) }
+    : { mime: asset.mimeType, data: await deps.assets.read(asset) };
+
+  const aspects = Array.isArray(job.input.aspects) ? (job.input.aspects as string[]) : [];
+  const messages: ChatMessage[] = [
+    ...imageDescribeV1.build({
+      aspects,
+      custom: String(job.input.custom ?? ""),
+      note: String(job.input.note ?? ""),
+    }),
+  ];
+  messages[1] = { ...messages[1]!, images: [image] };
+  const r = await structured(deps, job, messages, ImageDescription, "ImageDescription", 16_000);
+  return { assetId, aspects, repaired: r.repaired, description: r.data };
 }
