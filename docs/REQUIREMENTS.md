@@ -20,7 +20,7 @@ Desktop; running the services directly on the host OS is not supported.
 | --- | --- | --- |
 | PostgreSQL | **17** (`postgres:17-alpine`) | `docker-compose.yml` |
 | Redis | **7** (`redis:7-alpine`), AOF on, `maxmemory-policy noeviction` | `docker-compose.yml` |
-| Bun | **1.3** (`oven/bun:1.3-debian`); CI pins `1.3.14` | `deploy/docker/*.Dockerfile`, `.github/workflows/ci.yml` |
+| Bun | **1.4** (`oven/bun:1.4-debian`); CI pins `1.4.2` | `deploy/docker/*.Dockerfile`, `.github/workflows/ci.yml` |
 | nginx | **1.27-alpine** | `deploy/docker/nginx.Dockerfile` |
 | ffmpeg | Debian package in the app image | `deploy/docker/app.Dockerfile` |
 | Python (Kokoro only) | **3.11-slim** with CPU-only `torch==2.5.1` | `services/kokoro/Dockerfile` |

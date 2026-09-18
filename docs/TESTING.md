@@ -12,7 +12,7 @@ service, which speaks the real provider wire formats.
 | Deployment smoke | `bun scripts/smoke.ts http://nginx` | a running stack |
 
 Run them inside a container to keep the host clean: `./scripts/bunx.sh <cmd>` mounts the repo into
-`oven/bun:1.3-debian`, joins the `openmanga_internal` network when it exists, and caches installs in the
+`oven/bun:1.4-debian`, joins the `openmanga_internal` network when it exists, and caches installs in the
 `openmanga-bun-cache` volume (`OM_ENV_FILE` and `OM_DOCKER_ARGS` are passed through).
 
 ## Unit
@@ -87,7 +87,7 @@ export kinds, CDN authorization (401 unauthenticated, 200 with a variant, 404 on
 accounting.
 
 ```bash
-docker run --rm --network openmanga_edge -v "$PWD":/repo -w /repo oven/bun:1.3-debian bun scripts/smoke.ts http://nginx
+docker run --rm --network openmanga_edge -v "$PWD":/repo -w /repo oven/bun:1.4-debian bun scripts/smoke.ts http://nginx
 ```
 
 Because there are no server provider keys, the AI steps need a source: either the server runs with `AI_MOCK_MODE=true`,

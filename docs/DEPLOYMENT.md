@@ -69,7 +69,7 @@ do is leave mock mode: set `AI_MOCK_MODE=false` (the default) and drop `mock` fr
 Verify with the smoke test — it spends a few cents when you give it a real key:
 
 ```bash
-docker run --rm --network openmanga_edge -v "$PWD":/repo -w /repo oven/bun:1.3-debian \
+docker run --rm --network openmanga_edge -v "$PWD":/repo -w /repo oven/bun:1.4-debian \
   env SMOKE_API_KEY=… SMOKE_PROVIDER=openai bun scripts/smoke.ts https://your-domain
 ```
 
