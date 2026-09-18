@@ -242,11 +242,11 @@ export function DescribeImage({
       if (kind === "style") {
         await api(`/projects/${projectId}/style`, {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             stylePresetKey: null,
             customDefinition: description.style,
             customDescription: description.style?.summary ?? description.overview,
-          }),
+          },
         });
         toast.success("Project art style set from the image");
       } else if (kind === "character") {
@@ -257,17 +257,17 @@ export function DescribeImage({
         if (!name) return;
         await api(`/projects/${projectId}/characters`, {
           method: "POST",
-          body: JSON.stringify({ name, description: description.character }),
+          body: { name, description: description.character },
         });
         toast.success(`Character "${name}" created from the image`);
       } else if (applyTo) {
         await api(`/locations/${applyTo}/versions`, {
           method: "POST",
-          body: JSON.stringify({
+          body: {
             description: description.location,
             changeNote: "From a reference image",
             makeCurrent: true,
-          }),
+          },
         });
         toast.success("New location version created from the image");
       } else {
@@ -275,7 +275,7 @@ export function DescribeImage({
         if (!name) return;
         await api(`/projects/${projectId}/locations`, {
           method: "POST",
-          body: JSON.stringify({ name, description: description.location }),
+          body: { name, description: description.location },
         });
         toast.success(`Location "${name}" created from the image`);
       }

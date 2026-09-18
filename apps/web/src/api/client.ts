@@ -50,6 +50,11 @@ async function request<T>(
   init: { method?: string; body?: unknown; signal?: AbortSignal; raw?: boolean; overBudget?: boolean },
 ): Promise<T> {
   const method = init.method ?? "GET";
+  // This helper serialises the body itself. A string here means the caller stringified it too, which the server
+  // parses back to a string and rejects with "expected object, received string" — a confusing error a long way
+  // from its cause, so fail at the call site instead. Checked before anything else happens.
+  if (typeof init.body === "string")
+    throw new Error(`${path}: pass the object to api(), not JSON.stringify(...) — it is serialised here`);
   const headers: Record<string, string> = init.overBudget ? { "x-allow-over-budget": "1" } : {};
   let body: BodyInit | undefined;
   if (method !== "GET") {
@@ -62,6 +67,9 @@ async function request<T>(
     headers["content-type"] = init.body.type || "application/octet-stream";
     body = init.body;
   } else if (init.body !== undefined) {
+    // This helper serialises the body itself. A string here means the caller stringified it too, which the
+    // server parses back to a string and rejects with "expected object, received string" — a confusing error a
+    // long way from its cause, so fail loudly at the call site instead.
     headers["content-type"] = "application/json";
     body = JSON.stringify(init.body);
   }
