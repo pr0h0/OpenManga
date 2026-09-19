@@ -11,13 +11,15 @@ export type BatchInfo = {
   batchId: string;
   createdAt: string;
   finishedAt: string | null;
-  state: "queued" | "running" | "paused" | "finished";
+  state: "queued" | "running" | "submitted" | "paused" | "finished";
   pauseReason?: string | null;
   progress: {
     total: number;
     completed: number;
     generating: number;
     queued: number;
+    /** Handed to the provider's batch API; it returns them together, so there is no per-panel progress. */
+    submitted?: number;
     failed: number;
     cancelled: number;
     paused?: number;
@@ -63,6 +65,7 @@ function statusLine(b: BatchInfo) {
       ? `Queued — waiting for ${b.queuedAhead} image${b.queuedAhead === 1 ? "" : "s"} ahead`
       : "Queued — starting shortly";
   if (b.state === "running") return `Generating — ${p.generating} in progress`;
+  if (b.state === "submitted") return `Sent as a provider batch — ${p.submitted ?? 0} waiting, results arrive together`;
   if (b.state === "paused") return b.pauseReason ?? "Paused";
   return p.failed ? `Finished with ${p.failed} failed` : "Finished";
 }
@@ -97,7 +100,7 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
           <Pause className="mt-0.5 size-4 shrink-0 text-amber-500" />
         ) : batch.state === "queued" ? (
           <Clock className="mt-0.5 size-4 shrink-0 text-amber-500" />
-        ) : batch.state === "running" ? (
+        ) : batch.state === "running" || batch.state === "submitted" ? (
           <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-sky-500" />
         ) : (
           <span className={clsx("mt-1.5 size-2 shrink-0 rounded-full", p.failed ? "bg-red-500" : "bg-emerald-500")} />
@@ -167,6 +170,7 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
       <div className="muted mt-1 flex flex-wrap justify-between gap-x-2 text-xs">
         <span>
           {p.completed} / {p.total} completed · {p.generating} generating · {p.queued} queued
+          {p.submitted ? ` · ${p.submitted} in provider batch` : ""}
           {p.failed ? ` · ${p.failed} failed` : ""}
           {p.cancelled ? ` · ${p.cancelled} cancelled` : ""}
           {p.paused ? ` · ${p.paused} paused` : ""}

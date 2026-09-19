@@ -75,6 +75,22 @@ test("an OpenAI batch is chunked to stay under the enqueued-token ceiling", () =
   expect(chunks.flat().map((r) => r.key)).toEqual(reqs.map((r) => r.key));
 });
 
+test("a selection mixing panels with and without references splits by shape", () => {
+  // Interleaved, the way a bulk generate arrives when some panels have approved references and some do not.
+  const reqs = [spec("r0", 2), spec("b0", 0), spec("r1", 2), spec("b1", 0), spec("r2", 2)];
+  const chunks = openai(fakeFetch([]).fn).chunk(reqs);
+  expect(chunks.length).toBe(2);
+  // A batch names one endpoint, so no chunk may carry both shapes — submitBatch rejects that, and the rejection
+  // is not retryable, so it used to strand every panel behind it.
+  for (const c of chunks) expect(new Set(c.map((r) => r.references.length > 0)).size).toBe(1);
+  expect(
+    chunks
+      .flat()
+      .map((r) => r.key)
+      .sort(),
+  ).toEqual(["b0", "b1", "r0", "r1", "r2"]);
+});
+
 test("a reference shared by many panels is uploaded once and reused", async () => {
   let n = 0;
   const { fn, calls } = fakeFetch([

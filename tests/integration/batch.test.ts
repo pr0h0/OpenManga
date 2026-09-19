@@ -181,6 +181,17 @@ test("a batch run writes its panels unqueued, then parks them on the provider", 
   const batches = await h.deps.db.select().from(providerBatches).where(eq(providerBatches.projectId, projectId));
   expect(batches).toHaveLength(2);
   expect(batches.every((b) => b.state === "pending" && b.capability === "image")).toBe(true);
+
+  // Parked work is still in flight. Reporting it as finished stopped the UI polling and showed "1/139 finished"
+  // while the provider still held every panel.
+  const view = await alice.get<{ batches: { batchId: string; state: string; progress: Record<string, number> }[] }>(
+    `/api/projects/${projectId}/generations/batches`,
+  );
+  const mine = view.batches.find((b) => b.batchId === r.batchId);
+  expect(mine?.state).toBe("submitted");
+  expect(mine?.progress.submitted).toBe(3);
+  const one = await alice.get<{ progress: Record<string, number> }>(`/api/generations/batches/${r.batchId}`);
+  expect(one.progress.submitted).toBe(3);
 });
 
 test("re-running the submit job submits nothing further", async () => {
