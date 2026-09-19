@@ -152,7 +152,8 @@ export async function runStructured<T>(p: TextAIProvider, req: StructuredRequest
       messages: req.buildRepairMessages({ raw: first.text, error: r1.error, schemaText }),
       json: true,
       maxTokens: req.maxTokens,
-      temperature: 0,
+      // No temperature: reasoning models (GPT-5, Muse Spark) reject anything but their default and answer 400,
+      // which failed every repair and took the whole job down with it. Providers pick their own JSON default.
       signal: req.signal,
     });
   } catch (e) {

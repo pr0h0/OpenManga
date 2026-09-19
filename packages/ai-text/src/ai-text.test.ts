@@ -68,6 +68,25 @@ describe("FakeTextAIProvider structured pipeline", () => {
     expect(r.calls.map((c) => c.purpose)).toEqual(["primary", "repair"]);
   });
 
+  test("the repair call sends no temperature", async () => {
+    // Reasoning models answer 400 to any non-default temperature, which failed every repair and killed the job.
+    const seen: (number | undefined)[] = [];
+    class Recording extends FakeTextAIProvider {
+      override generateText(req: Parameters<FakeTextAIProvider["generateText"]>[0]) {
+        seen.push(req.temperature);
+        return super.generateText(req);
+      }
+    }
+    const r = await new Recording().generateStructured({
+      messages: msgs(`${STORY} [[mock:repairable]]`),
+      schema: StoryAnalysis,
+      schemaName: "StoryAnalysis",
+      buildRepairMessages: repair,
+    });
+    expect(r.repaired).toBe(true);
+    expect(seen).toEqual([undefined, undefined]);
+  });
+
   test("unrepairable output fails clearly with call records", async () => {
     try {
       await p.generateStructured({
