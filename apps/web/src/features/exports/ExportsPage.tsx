@@ -490,6 +490,11 @@ export function ExportsPage() {
                         ? "Project import"
                         : (KINDS.find((k) => k.value === j.kind)?.label ?? j.kind)}
                     </span>
+                    {j.chapter && (
+                      <span className="rounded bg-[var(--panel-2)] px-1.5 py-0.5 text-xs" title={j.chapter.title}>
+                        Ch. {j.chapter.order} — {j.chapter.title}
+                      </span>
+                    )}
                     <StatusChip status={j.status} />
                     <span className="muted text-xs">{fmt.ago(j.createdAt)}</span>
                     {(j.status === "queued" || j.status === "processing") && (

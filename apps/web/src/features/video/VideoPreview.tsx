@@ -516,28 +516,32 @@ export function VideoPreview({
           )}
 
           <ol className="max-h-56 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs">
-            {timeline.timed.map((s, i) => (
-              <li key={s.shot.key}>
-                <button
-                  type="button"
-                  className={`flex w-full gap-3 px-2 py-1.5 text-left hover:bg-[var(--panel-2)] ${i === current ? "bg-accent-600/15" : ""}`}
-                  onClick={() => seek(s.startMs + 1)}
-                >
-                  <span className="w-44 shrink-0 font-medium">{s.shot.label}</span>
-                  <span className="muted w-24 shrink-0 tabular-nums">
-                    {mmss(s.startMs)} · {(s.holdMs / 1000).toFixed(1)}s
-                  </span>
-                  {o.cut === "panel" && s.shot.panel && (
-                    <span className="muted w-14 shrink-0">
-                      {kenBurnsPullsOut(s.shot.panel.shotType) ? "zoom out" : "zoom in"}
+            {timeline.timed.map((s, i) => {
+              const narration = s.shot.segments.map((x) => x.text).join(" ");
+              return (
+                <li key={s.shot.key}>
+                  <button
+                    type="button"
+                    className={`flex w-full gap-3 px-2 py-1.5 text-left hover:bg-[var(--panel-2)] ${i === current ? "bg-accent-600/15" : ""}`}
+                    onClick={() => seek(s.startMs + 1)}
+                  >
+                    <span className="w-44 shrink-0 font-medium">{s.shot.label}</span>
+                    <span className="muted w-24 shrink-0 tabular-nums">
+                      {mmss(s.startMs)} · {(s.holdMs / 1000).toFixed(1)}s
                     </span>
-                  )}
-                  <span className="muted truncate">
-                    {s.shot.segments.map((x) => x.text).join(" ") || "— no narration —"}
-                  </span>
-                </button>
-              </li>
-            ))}
+                    {o.cut === "panel" && s.shot.panel && (
+                      <span className="muted w-14 shrink-0">
+                        {kenBurnsPullsOut(s.shot.panel.shotType) ? "zoom out" : "zoom in"}
+                      </span>
+                    )}
+                    {/* Truncated to keep the row one line; the title shows the whole narration on hover. */}
+                    <span className="muted truncate" title={narration || undefined}>
+                      {narration || "— no narration —"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           </ol>
         </div>
       )}

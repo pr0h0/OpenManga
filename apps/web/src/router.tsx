@@ -1,4 +1,4 @@
-import { skipToken, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   createRootRoute,
   createRoute,
@@ -37,10 +37,12 @@ function DocumentTitle() {
     .map((m) => (m.staticData as { title?: string } | undefined)?.title)
     .find(Boolean);
   const projectId = matches.map((m) => (m.params as { projectId?: string }).projectId).find(Boolean);
-  // skipToken: this only observes the cache entry ProjectLayout already fills, and never fetches on its own.
-  const { data } = useQuery<ProjectOverview>({
+  // The same key and fetcher as useProject, so the two observers share one request. It must be a real queryFn:
+  // an observer carrying skipToken can become the one a refetch uses, and then every refetch of this key rejects
+  // with "Missing queryFn" — which is what an invalidation from any job event used to do to the whole project.
+  const { data } = useQuery({
     queryKey: qk.project(projectId ?? ""),
-    queryFn: skipToken,
+    queryFn: () => get<ProjectOverview>(`/projects/${projectId}`),
     enabled: Boolean(projectId),
   });
   const title = data?.project?.title;
