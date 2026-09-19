@@ -99,7 +99,7 @@ describe("panel prompt compilation", () => {
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
-    expect(panelGenerationV1.version).toBe(6);
+    expect(panelGenerationV1.version).toBe(7);
     expect(p.startsWith("Create one cinematic 16:9 film frame")).toBe(true);
     expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
     expect(p).not.toContain("panel,");
@@ -319,6 +319,19 @@ describe("colour mode and project format (findings 16 Sept 2026)", () => {
     expect(p).not.toContain("Black and white with grey tones.");
     expect(p).not.toContain("Gradient and texture tones.");
     expect(p).not.toMatch(/monochrome|grey tones|screentone/i);
+  });
+
+  test("exclusions reach the prompt, and an empty list adds no line", () => {
+    expect(
+      styleSection({
+        presetName: "Seinen",
+        definition: { ...bw, exclusions: ["photoreal rendering", " 3D render look "] },
+        customDescription: "",
+        colorDirective: "Full color artwork.",
+        projectType: "manhwa",
+      }),
+    ).toContain("Avoid: photoreal rendering; 3D render look.");
+    expect(compiled("Full color artwork.")).not.toContain("Avoid:");
   });
 
   test("a monochrome project keeps them", () => {

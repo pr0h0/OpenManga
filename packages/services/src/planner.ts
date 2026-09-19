@@ -448,8 +448,14 @@ export class GenerationPlanner {
     return prev?.panel.activeArtworkAssetId ? this.assetsSvc.get(prev.panel.activeArtworkAssetId) : null;
   }
 
-  async previewPanel(panelId: string) {
+  /**
+   * `ai` is the caller's own picked key, so the inspector names the model that a generation started right now
+   * would use. Resolution failures (no key chosen yet, key deleted) leave the model blank rather than failing a
+   * read-only preview.
+   */
+  async previewPanel(panelId: string, ai?: AiChoice | null, userId?: string | null) {
     const ctx = await this.panelContext(panelId);
+    const run = await this.imageRun(ai, userId ?? null).catch(() => null);
     return {
       template: { name: panelGenerationV1.name, version: panelGenerationV1.version },
       compiledPrompt: ctx.panel.promptOverride?.trim() ? ctx.panel.promptOverride : ctx.compiledPrompt,
@@ -470,7 +476,8 @@ export class GenerationPlanner {
         versionNumber: c.versionNumber,
         hasReference: Boolean(c.referenceImageIndex),
       })),
-      model: this.image?.model ?? "",
+      provider: run?.provider ?? this.image?.provider ?? "",
+      model: run?.model ?? this.image?.model ?? "",
       quality: ctx.settings.imageQuality ?? this.image?.quality ?? "low",
     };
   }
