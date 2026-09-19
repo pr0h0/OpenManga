@@ -2,6 +2,7 @@ import {
   and,
   assets,
   audioJobs,
+  chapters,
   desc,
   eq,
   exportJobs,
@@ -182,9 +183,18 @@ exportRoutes.get("/projects/:projectId/exports", async (c) => {
           ),
         )
     : [];
+  // Which chapter an export covers is otherwise invisible in the history: every video of a project looks alike.
+  const chapterIds = [...new Set(jobs.map((j) => j.chapterId).filter((x): x is string => Boolean(x)))];
+  const chapterRows = chapterIds.length
+    ? await db
+        .select({ id: chapters.id, title: chapters.title, order: chapters.order })
+        .from(chapters)
+        .where(inArray(chapters.id, chapterIds))
+    : [];
   return c.json({
     jobs: jobs.map((j) => ({
       ...j,
+      chapter: chapterRows.find((ch) => ch.id === j.chapterId) ?? null,
       files: files
         .filter((f) => f.e.exportJobId === j.id)
         .map((f) => ({ ...f.e, byteSize: f.byteSize, mimeType: f.mimeType })),

@@ -232,11 +232,20 @@ async function buildExport(
   dir: string,
 ): Promise<OutFile[]> {
   const base = safeName(project.title);
-  const chapterTitle = opts.chapterId
-    ? ((await deps.db.select({ t: chapters.title }).from(chapters).where(eq(chapters.id, opts.chapterId)))[0]?.t ??
-      "chapter")
+  const [chapter] = opts.chapterId
+    ? await deps.db
+        .select({ title: chapters.title, order: chapters.order })
+        .from(chapters)
+        .where(eq(chapters.id, opts.chapterId))
+    : [];
+  // Printed on the PDF cover, so it stays the plain title.
+  const chapterTitle = opts.chapterId ? (chapter?.title ?? "chapter") : "project";
+  // Filenames lead with the number instead: chapter titles repeat across a series, and a downloaded file has to
+  // identify itself on disk long after the page that produced it is closed.
+  const scope = opts.chapterId
+    ? `ch${String(chapter?.order ?? 0).padStart(2, "0")}_${safeName(chapterTitle)}`
     : "project";
-  const prefix = `${base}_${safeName(chapterTitle)}`;
+  const prefix = `${base}_${scope}`;
 
   switch (job.kind) {
     case "png_pages":

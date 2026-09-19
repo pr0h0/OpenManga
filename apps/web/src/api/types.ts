@@ -198,7 +198,11 @@ export type TtsStatus = {
   voices: Voice[];
 };
 
-export type ExportListItem = ExportJobRow & { files: (ExportRow & { byteSize: number; mimeType: string })[] };
+export type ExportListItem = ExportJobRow & {
+  /** Null for project-wide exports; set for anything scoped to one chapter. */
+  chapter: { id: string; title: string; order: number } | null;
+  files: (ExportRow & { byteSize: number; mimeType: string })[];
+};
 
 export type UsageSummary = {
   windows: Record<"today" | "7d" | "30d" | "lifetime", { costUsd: number; calls: number }>;

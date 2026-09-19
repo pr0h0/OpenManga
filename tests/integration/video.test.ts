@@ -106,6 +106,13 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     const f = done.files[0]!;
     expect(f.mimeType).toBe("video/mp4");
     expect(f.fileName).toContain("page-cut_720p.mp4");
+    // The chapter number and title are in the name, so two chapters' videos cannot be confused on disk.
+    expect(f.fileName).toContain("_ch01_");
+    // ...and in the history, where every video of a project otherwise looks identical.
+    const listed = await u.get<{ jobs: { id: string; chapter: { order: number } | null }[] }>(
+      `/api/projects/${projectId}/exports`,
+    );
+    expect(listed.jobs.find((x) => x.id === ex.job.id)?.chapter?.order).toBe(1);
     const res = await u.raw("GET", `/cdn/a/${f.assetId}`);
     const buf = new Uint8Array(await res.arrayBuffer());
     expect(new TextDecoder().decode(buf.slice(4, 8))).toBe("ftyp");
