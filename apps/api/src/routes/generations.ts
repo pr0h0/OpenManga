@@ -395,6 +395,7 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
     completed: number;
     generating: number;
     queued: number;
+    submitted: number;
     failed: number;
     cancelled: number;
     paused: number;
@@ -406,6 +407,8 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       count(*) filter (where status = 'completed')::int as completed,
       count(*) filter (where status = 'processing')::int as generating,
       count(*) filter (where status = 'queued')::int as queued,
+      -- Parked in a provider batch: still in flight, and the reason a fully-submitted batch used to read "finished".
+      count(*) filter (where status = 'submitted')::int as submitted,
       count(*) filter (where status = 'failed')::int as failed,
       count(*) filter (where status in ('cancelled', 'cancel_requested'))::int as cancelled,
       count(*) filter (where status = 'paused')::int as paused,
@@ -453,18 +456,29 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       ahead = r?.n ?? 0;
     }
     const where = [...places].filter((x) => x.batch_id === b.batch_id);
-    const active = b.queued + b.generating + b.paused > 0;
+    const active = b.queued + b.generating + b.submitted + b.paused > 0;
     out.push({
       batchId: b.batch_id,
       createdAt: b.created_at,
       finishedAt: active ? null : b.finished_at,
-      state: active ? (b.generating > 0 ? "running" : b.queued > 0 ? "queued" : "paused") : "finished",
+      // Submitted work outranks queued in the label: the provider holds it, so "queued — starting shortly" would
+      // promise something this server does not control.
+      state: active
+        ? b.generating > 0
+          ? "running"
+          : b.submitted > 0
+            ? "submitted"
+            : b.queued > 0
+              ? "queued"
+              : "paused"
+        : "finished",
       pauseReason: b.pause_reason,
       progress: {
         total: b.total,
         completed: b.completed,
         generating: b.generating,
         queued: b.queued,
+        submitted: b.submitted,
         failed: b.failed,
         cancelled: b.cancelled,
         paused: b.paused,
@@ -496,7 +510,8 @@ generationRoutes.get("/generations/batches/:batchId", async (c) => {
   await projectAccess(c, first.projectId, "read");
   const [row] = await db.execute<Record<string, number>>(sql`select count(*)::int as total,
     count(*) filter (where status='completed')::int as completed, count(*) filter (where status='processing')::int as generating,
-    count(*) filter (where status='queued')::int as queued, count(*) filter (where status='failed')::int as failed,
+    count(*) filter (where status='queued')::int as queued, count(*) filter (where status='submitted')::int as submitted,
+    count(*) filter (where status='failed')::int as failed,
     count(*) filter (where status in ('cancelled','cancel_requested'))::int as cancelled from generation_jobs where batch_id = ${batchId}`);
   return c.json({ batchId, progress: row });
 });

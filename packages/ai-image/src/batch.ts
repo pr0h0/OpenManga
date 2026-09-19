@@ -138,13 +138,20 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
   }
 
   chunk(reqs: BatchRequestSpec[]) {
-    return chunkByBudget(reqs, [
+    const budgets = [
       // 20% headroom: the estimate is per-request and the whole batch is rejected if the queue limit is passed.
       { limit: Math.floor(this.opts.maxEnqueuedTokens * 0.8), cost: estimateInputTokens },
       { limit: 50_000, cost: () => 1 },
       // 200 MB input file; the JSONL carries only ids, so this is generous, but keep it honest.
-      { limit: 180 * 1024 * 1024, cost: (r) => r.prompt.length + 512 },
-    ]);
+      { limit: 180 * 1024 * 1024, cost: (r: BatchRequestSpec) => r.prompt.length + 512 },
+    ];
+    // Split by shape before budget. A batch names one endpoint — /v1/images/edits for requests carrying
+    // references, /v1/images/generations for those without — so a selection holding both has to become two
+    // batches. submitBatch rejects a mixed one, and since that failure is not retryable it strands every panel in
+    // the batch behind it: a bulk generate spanning panels with and without approved references used to die here.
+    return [reqs.filter((r) => r.references.length > 0), reqs.filter((r) => r.references.length === 0)]
+      .filter((group) => group.length > 0)
+      .flatMap((group) => chunkByBudget(group, budgets));
   }
 
   private async api<T>(path: string, init: RequestInit & { form?: FormData }): Promise<T> {
