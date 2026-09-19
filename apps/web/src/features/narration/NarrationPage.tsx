@@ -75,13 +75,20 @@ export function NarrationPage() {
     enabled: Boolean(chapterId) && showTimeline,
   });
 
-  useEffect(
-    () =>
-      onProjectEvent((e) => {
-        if (e.type === "audio.updated" || e.type === "narration.updated") doc.refetch();
-      }),
-    [doc.refetch],
-  );
+  // Synthesising a chapter emits one event per line, so refetching per event meant a request per line. One
+  // trailing refetch per burst shows the same result.
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const off = onProjectEvent((e) => {
+      if (e.type !== "audio.updated" && e.type !== "narration.updated") return;
+      clearTimeout(t);
+      t = setTimeout(() => doc.refetch(), 600);
+    });
+    return () => {
+      clearTimeout(t);
+      off();
+    };
+  }, [doc.refetch]);
 
   const settings = overview?.project.settings;
   const [voice, setVoice] = useState<string>();

@@ -108,7 +108,10 @@ function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
     case "chapter.updated":
       inv(qk.chapters(projectId));
       inv(qk.chapter(String(e.chapterId)));
-      inv(["page"]);
+      // Replanning replaces a chapter's pages, so every cached page document is suspect — but a shots grid can
+      // hold a hundred of them, and refetching the lot at once is what tripped the rate limit. Mark them stale
+      // and let each refetch when something actually mounts it; the page list above refetches immediately.
+      qc.invalidateQueries({ queryKey: ["page"], refetchType: "none" });
       break;
     case "audio.updated":
     case "narration.updated":
