@@ -153,7 +153,8 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
         disabled={filter === "trash"}
         aria-label={`Open ${p.title}`}
       >
-        <AssetImage assetId={p.thumbnailAssetId} alt={`${p.title} thumbnail`} className="aspect-[4/3] w-full" />
+        {/* Covers are portrait, so a landscape crop cut most of one away. 3:4 shows the whole cover. */}
+        <AssetImage assetId={p.thumbnailAssetId} alt={`${p.title} thumbnail`} className="aspect-[3/4] w-full" />
       </button>
       <div className="p-3">
         <div className="flex items-start gap-2">
