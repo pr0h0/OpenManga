@@ -152,6 +152,27 @@ describe("full production flow (mock AI)", () => {
     expect(saved.revision.revisionNumber).toBe(2);
   });
 
+  test("an earlier style version can be made current again", async () => {
+    type Styles = { currentStyleId: string; versions: { id: string; versionNumber: number; status: string }[] };
+    const first = await alice.get<Styles>(`/api/projects/${projectId}/style`);
+    const original = first.currentStyleId;
+    expect(original).toBeTruthy();
+    // Applying a style always mints a new version, which is why going back used to mean retyping the old one.
+    await alice.post(`/api/projects/${projectId}/style`, { stylePresetKey: null, customDescription: "moodier" }, 201);
+    const after = await alice.get<Styles>(`/api/projects/${projectId}/style`);
+    expect(after.currentStyleId).not.toBe(original);
+    expect(after.versions.find((v) => v.id === original)!.status).toBe("superseded");
+
+    await alice.post(`/api/project-styles/${original}/make-current`);
+    const back = await alice.get<Styles>(`/api/projects/${projectId}/style`);
+    expect(back.currentStyleId).toBe(original);
+    expect(back.versions.find((v) => v.id === original)!.status).toBe("approved");
+    // The version it replaced is stood down rather than deleted, so this is reversible both ways.
+    expect(back.versions.find((v) => v.id === after.currentStyleId)!.status).toBe("superseded");
+    // Restore what the rest of the suite expects.
+    await alice.post(`/api/project-styles/${after.currentStyleId}/make-current`);
+  });
+
   test("cast: edit, generate full-res reference, approve -> small derivative", async () => {
     const cast = await alice.get<{ characters: { id: string; name: string; currentVersionId: string }[] }>(
       `/api/projects/${projectId}/characters`,

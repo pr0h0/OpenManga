@@ -220,6 +220,10 @@ function StyleTab() {
   const exclText = excl ?? (chosen?.definition?.exclusions ?? []).join("\n");
   const edited = Object.keys(edits).length > 0 || excl !== undefined;
   const refresh = useCallback(() => qc.invalidateQueries({ queryKey: qk.style(projectId) }), [qc, projectId]);
+  const makeCurrent = useAction((id: string) => post(`/project-styles/${id}/make-current`), {
+    invalidate: [qk.style(projectId), qk.project(projectId)],
+    success: "Style version restored",
+  });
   const apply = useAction(
     () =>
       post(`/projects/${projectId}/style`, {
@@ -373,6 +377,19 @@ function StyleTab() {
               <span>{v.preset?.name ?? "custom"}</span>
               <span className="muted truncate">{v.customDescription}</span>
               <span className="muted ml-auto text-xs">{fmt.date(v.createdAt)}</span>
+              {v.id === style.data?.currentStyleId ? (
+                <span className="muted text-xs">current</span>
+              ) : (
+                // Applying a style always minted a new version, so comparing two meant retyping one by hand.
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  disabled={makeCurrent.isPending}
+                  onClick={() => makeCurrent.mutate(v.id)}
+                >
+                  Make current
+                </button>
+              )}
             </li>
           ))}
         </ul>

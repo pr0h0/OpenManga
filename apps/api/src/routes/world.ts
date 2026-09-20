@@ -397,6 +397,43 @@ worldRoutes.post("/projects/:projectId/style", async (c) => {
   return c.json({ style: row }, 201);
 });
 
+doc({
+  method: "POST",
+  path: "/api/project-styles/:id/make-current",
+  summary: "Switch the project back to an earlier style version",
+  tag: "styles",
+});
+worldRoutes.post("/project-styles/:id/make-current", async (c) => {
+  const id = uuidParam(c, "id");
+  const { db } = c.get("deps");
+  const [target] = await db.select().from(projectStyles).where(eq(projectStyles.id, id));
+  if (!target) throw notFound("Style version");
+  const p = await projectAccess(c, target.projectId, "write");
+  if (p.currentStyleId === target.id) return c.json({ style: target });
+  // Setting a style always minted a new version, so comparing two looks meant retyping one from scratch. Older
+  // versions were kept and shown all along; this just points the project back at one.
+  const row = await db.transaction(async (tx) => {
+    if (p.currentStyleId)
+      await tx.update(projectStyles).set({ status: "superseded" }).where(eq(projectStyles.id, p.currentStyleId));
+    const [restored] = await tx
+      .update(projectStyles)
+      .set({ status: "approved" })
+      .where(eq(projectStyles.id, target.id))
+      .returning();
+    await tx.update(projects).set({ currentStyleId: target.id }).where(eq(projects.id, p.id));
+    return restored!;
+  });
+  await recordAudit(db, {
+    userId: user(c).id,
+    projectId: p.id,
+    action: "style.make_current",
+    targetId: row.id,
+    metadata: { versionNumber: row.versionNumber },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ style: row });
+});
+
 mountReferenceEndpoints(worldRoutes, "style", "project-styles", async (c, id, action) => {
   const [s] = await c.get("deps").db.select().from(projectStyles).where(eq(projectStyles.id, id));
   if (!s) throw notFound("Style");
