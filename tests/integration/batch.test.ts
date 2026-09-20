@@ -24,7 +24,7 @@ import type {
   ImageBatchProvider,
 } from "../../packages/ai-image/src/batch.ts";
 import type { TextBatchHandle, TextBatchProvider, TextBatchRequestSpec } from "../../packages/ai-text/src/batch.ts";
-import { startHarness, type TestClient } from "./harness.ts";
+import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
 let alice: TestClient;
@@ -327,11 +327,28 @@ test("a text job batches by collecting its own handler's request, then replaying
   expect((requeued!.parameters.batchAnswer as { text: string }).text).toContain("batched");
 
   // The handler now runs for real and applies the batched answer: a new story revision.
-  await runGenerationJob(
-    h.workerDeps,
-    { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
-    (job) => storyRewrite(h.workerDeps, job),
-  );
+  //
+  // The poll above republished this job, and the harness runs a live text worker, so driving it here as well can
+  // run the handler twice — two revisions and two usage rows, which is what made this test flaky in CI. Claim the
+  // queue entry first: if it is still waiting, this is the only runner; if the worker already took it, let that
+  // run stand and wait for it instead of racing it.
+  const claimed = await h.deps.queue.removeWaiting("text-ai", r.job.id);
+  // Not claimed and not in Redis at all means nothing else will run it, so drive it here rather than wait forever.
+  const workerHasIt = !claimed && (await h.deps.queue.has("text-ai", r.job.id));
+  if (!workerHasIt)
+    await runGenerationJob(
+      h.workerDeps,
+      { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
+      (job) => storyRewrite(h.workerDeps, job),
+    );
+  else
+    await waitFor(
+      async () => {
+        const [j] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+        return j?.status === "completed" ? j : null;
+      },
+      { label: "worker finished the replayed job" },
+    );
   const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
   expect(done!.status).toBe("completed");
   const revisions = await h.deps.db
