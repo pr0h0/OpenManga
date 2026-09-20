@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, ChevronUp, Clock, Loader2, Pause, Play, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock, Loader2, Pause, Play, RefreshCw, X } from "lucide-react";
 import { useState } from "react";
 import { create } from "zustand";
 import { get, post } from "../../api/client.ts";
@@ -75,6 +75,7 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
   const dismiss = useDismissed((s) => s.dismiss);
   const [cancelling, setCancelling] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [polling, setPolling] = useState(false);
   const p = batch.progress;
   const act = async (action: "pause" | "resume") => {
     setToggling(true);
@@ -119,6 +120,31 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
             onClick={() => act("resume")}
           >
             {toggling ? <Spinner className="size-3" /> : <Play className="size-3" />} Resume
+          </button>
+        )}
+        {(p.submitted ?? 0) > 0 && (
+          // Results sit at the provider until the scheduled sweep picks them up, which can be minutes after they
+          // are ready. This asks for that sweep now.
+          <button
+            type="button"
+            className="btn-ghost px-2 py-1 text-xs"
+            disabled={polling}
+            aria-label="Check the provider for results now"
+            title="Check the provider for finished results now"
+            onClick={async () => {
+              setPolling(true);
+              try {
+                await post(`/generations/batches/${batch.batchId}/poll`);
+                toast.success("Checking the provider for results");
+                await invalidate();
+              } catch (e) {
+                toast.error(e);
+              } finally {
+                setPolling(false);
+              }
+            }}
+          >
+            {polling ? <Spinner className="size-3" /> : <RefreshCw className="size-3" />}
           </button>
         )}
         {(batch.state === "queued" || batch.state === "running") && (p.queued ?? 0) > 0 && (

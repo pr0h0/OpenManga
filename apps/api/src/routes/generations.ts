@@ -558,6 +558,28 @@ generationRoutes.post("/generations/batches/:batchId/resume", async (c) => {
 
 doc({
   method: "POST",
+  path: "/api/generations/batches/:batchId/poll",
+  summary: "Ask the worker to poll provider batches now instead of waiting for the next scheduled sweep",
+  tag: "generations",
+});
+generationRoutes.post("/generations/batches/:batchId/poll", async (c) => {
+  const batchId = uuidParam(c, "batchId");
+  await batchProject(c, batchId);
+  const { db, queue } = c.get("deps");
+  const [waiting] = await db.execute<{ n: number }>(sql`
+    select count(*)::int as n from provider_batches pb
+    where pb.batch_id = ${batchId} and pb.ingested_at is null`);
+  // The sweep is global, not per batch: one poll covers every outstanding batch, so repeated clicks (and several
+  // people watching the same run) collapse into one pass rather than stacking provider calls. The id is bucketed
+  // by time rather than fixed — completed jobs are retained for days, and a fixed id would be refused as a
+  // duplicate long after it ran, quietly disabling the button.
+  const bucket = Math.floor(Date.now() / 10_000);
+  await queue.enqueue("maintenance", "batch-poll", {}, { jobId: `batch-poll-now-${bucket}`, priority: 1, attempts: 1 });
+  return c.json({ queued: true, outstanding: waiting?.n ?? 0 });
+});
+
+doc({
+  method: "POST",
   path: "/api/generations/batches/:batchId/cancel",
   summary: "Cancel all not-yet-started jobs of a batch",
   tag: "generations",

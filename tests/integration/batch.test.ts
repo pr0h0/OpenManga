@@ -475,3 +475,14 @@ test("replaying a text answer clears the batch marker, so no sweep can resubmit 
   expect(jobs.every((j) => j.parameters.batchMode === undefined)).toBe(true);
   expect(jobs.every((j) => Boolean(j.parameters.batchAnswer))).toBe(true);
 });
+
+test("asking to poll now queues the sweep instead of waiting for the schedule", async () => {
+  // Enqueuing runs a real sweep in this harness, so this sits after the ingestion test rather than before it.
+  const [job] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.kind, "panel_generation"));
+  const poll = await alice.post<{ queued: boolean; outstanding: number }>(
+    `/api/generations/batches/${job!.batchId}/poll`,
+  );
+  expect(poll.queued).toBe(true);
+  // Everything has been ingested by this point, so there is nothing left outstanding to report.
+  expect(poll.outstanding).toBe(0);
+});
