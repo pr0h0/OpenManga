@@ -141,3 +141,49 @@ describe("stalled-job sweep", () => {
     expect(row!.status).toBe("processing");
   });
 });
+
+describe("batch submitter died", () => {
+  // Seen in production: three submit jobs failed on an unretryable error and 143 panels sat at `queued` with
+  // nothing left to hand them to a provider. The batch looked idle rather than broken.
+  const insertBatch = async (submitStatus: "failed" | "queued") => {
+    const batchId = crypto.randomUUID();
+    const mk = async (
+      kind: "panel_generation" | "image_batch_submit",
+      status: "queued" | "failed",
+      batchMode: boolean,
+    ) => {
+      const [row] = await h.deps.db
+        .insert(generationJobs)
+        .values({
+          projectId,
+          batchId,
+          kind,
+          status,
+          queue: "image-generation",
+          targetType: "panel",
+          parameters: batchMode ? { batchMode: true } : {},
+          input: {},
+        })
+        .returning();
+      return row!.id;
+    };
+    return {
+      panel: await mk("panel_generation", "queued", true),
+      submit: await mk("image_batch_submit", submitStatus, false),
+    };
+  };
+
+  test("its panels are failed with a reason; a batch still waiting to submit is untouched", async () => {
+    const dead = await insertBatch("failed");
+    const pending = await insertBatch("queued");
+    await runMaintenance(h.workerDeps);
+    const rows = await h.deps.db
+      .select()
+      .from(generationJobs)
+      .where(inArray(generationJobs.id, [dead.panel, pending.panel]));
+    const failed = rows.find((r) => r.id === dead.panel)!;
+    expect(failed.status).toBe("failed");
+    expect(failed.failureCode).toBe("batch_submit_failed");
+    expect(rows.find((r) => r.id === pending.panel)!.status).toBe("queued");
+  });
+});

@@ -145,6 +145,37 @@ export async function runMaintenance(deps: WorkerDeps) {
       })
       .where(inArray(generationJobs.id, stuck));
   result.stalledJobs = stuck.length;
+
+  // Panels whose batch submitter died. A batched panel is left `queued` on purpose — only the submitter hands it
+  // to the provider — so if that job failed for good, nothing will ever move it and the batch reads as idle
+  // rather than broken. The stalled sweep above cannot see them: they are `queued`, not `processing`.
+  const stranded = await deps.db.execute<{ id: string }>(sql`
+    select j.id from generation_jobs j
+    join generation_jobs s
+      on s.batch_id = j.batch_id and s.kind in ('image_batch_submit', 'text_batch_submit') and s.status = 'failed'
+    where j.status = 'queued' and (j.parameters->>'batchMode')::boolean is true
+      and j.kind not in ('image_batch_submit', 'text_batch_submit')
+      and not exists (
+        select 1 from generation_jobs r
+        where r.batch_id = j.batch_id and r.kind in ('image_batch_submit', 'text_batch_submit')
+          and r.status in ('queued', 'processing')
+      )
+    limit 2000`);
+  const strandedIds = [...stranded].map((r) => r.id);
+  if (strandedIds.length) {
+    for (const id of strandedIds) await deps.queue.removeWaiting("image-generation", id).catch(() => false);
+    await deps.db
+      .update(generationJobs)
+      .set({
+        status: "failed",
+        failureCode: "batch_submit_failed",
+        failureReason: "The batch this panel was waiting in could not be submitted. Retry it.",
+        finishedAt: now,
+      })
+      .where(inArray(generationJobs.id, strandedIds));
+  }
+  result.strandedBatchJobs = strandedIds.length;
+
   const stuckAudio = await abandoned(audioJobs, () => "tts");
   if (stuckAudio.length)
     await deps.db
