@@ -123,6 +123,23 @@ export const ChapterPlan = z.object({
 });
 export type ChapterPlan = z.infer<typeof ChapterPlan>;
 
+/**
+ * A chapter plan is one response per chapter, and a feature-length chapter does not fit: production runs hit
+ * "output was truncated at the max token limit (64000)" on OpenAI and DeepSeek alike, and no model choice fixes
+ * it. These two split the same plan into an outline and then one response per scene, each comfortably bounded.
+ */
+export const SceneOutline = PlannedScene.omit({ pages: true });
+export type SceneOutline = z.infer<typeof SceneOutline>;
+
+export const ChapterOutline = ChapterPlan.omit({ scenes: true }).extend({
+  scenes: z.array(SceneOutline).min(1),
+});
+export type ChapterOutline = z.infer<typeof ChapterOutline>;
+
+/** One scene's pages, planned against the outline so the rest of the chapter is still in view. */
+export const ScenePages = z.object({ pages: z.array(PlannedPage).min(1) });
+export type ScenePages = z.infer<typeof ScenePages>;
+
 /** DeepSeek-written descriptive sections for panel image prompts. */
 export const PanelPromptDraft = z.object({
   panels: z.array(

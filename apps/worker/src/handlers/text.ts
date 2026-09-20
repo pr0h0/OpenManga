@@ -28,20 +28,26 @@ import {
 } from "@openmanga/db";
 import { LAYOUT_TEMPLATES, languageName, segmentNarration } from "@openmanga/domain";
 import {
+  chapterOutlineV1,
   chapterPlanningV5,
   imageDescribeV1,
   jsonRepairV1,
   narrationV4,
   panelPromptsV3,
+  scenePagesV1,
+  sceneShotsV1,
+  shotOutlineV1,
   shotPlanningV2,
   storyAnalysisV2,
   storyRewriteV1,
 } from "@openmanga/prompts";
 import {
+  ChapterOutline,
   ChapterPlan,
   ImageDescription,
   narrationDraftFor,
   PanelPromptDraft,
+  ScenePages,
   StoryAnalysis,
   StoryRewrite,
 } from "@openmanga/schemas";
@@ -49,7 +55,13 @@ import { applyChapterPlan, applyNarrationPauses } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
 import type { WorkerDeps } from "../context.ts";
-import { type GenerationJob, InputError, recordTextCalls } from "../lib/runner.ts";
+import {
+  type GenerationJob,
+  InputError,
+  isCancelRequested,
+  JobCancelledError,
+  recordTextCalls,
+} from "../lib/runner.ts";
 import { batchAware, ParkedForBatch } from "../lib/text-batch-provider.ts";
 
 const repairBuilder = (schemaName: string) => (a: { raw: string; error: string; schemaText: string }) =>
@@ -263,6 +275,56 @@ async function projectArtDirection(deps: WorkerDeps, projectId: string) {
   };
 }
 
+/** Outline first, then one response per scene, assembled into the plan `applyChapterPlan` already takes. */
+async function planByScene(
+  deps: WorkerDeps,
+  job: GenerationJob,
+  i: { film: boolean; data: Record<string, unknown>; chapterText: string },
+): Promise<ChapterPlan> {
+  const layoutTemplates = LAYOUT_TEMPLATES.filter((t) => !i.film || t.key === "full-page").map((t) => ({
+    key: t.key,
+    name: t.name,
+    panels: t.frames.length,
+  }));
+  const target = typeof job.input.targetPages === "number" ? job.input.targetPages : undefined;
+  const base = { projectData: i.data, chapterText: i.chapterText, layoutTemplates };
+  const outline = await structured(
+    deps,
+    job,
+    (i.film ? shotOutlineV1 : chapterOutlineV1).build({ ...base, targetPages: target }),
+    ChapterOutline,
+    "ChapterOutline",
+    16_000,
+  );
+  const pagesTemplate = i.film ? sceneShotsV1 : scenePagesV1;
+  const scenes: ChapterPlan["scenes"] = [];
+  for (const [sceneIndex, scene] of outline.data.scenes.entries()) {
+    if (await isCancelRequested(deps, job.id)) throw new JobCancelledError();
+    const r = await structured(
+      deps,
+      job,
+      pagesTemplate.build({
+        ...base,
+        outline: outline.data,
+        sceneIndex,
+        // Spread the requested page count over the scenes; without a target each scene picks its own length.
+        targetPages: target ? Math.max(1, Math.round(target / outline.data.scenes.length)) : undefined,
+      }),
+      ScenePages,
+      "ScenePages",
+      32_000,
+    );
+    scenes.push({ ...scene, pages: r.data.pages });
+    deps.logger.info("planned a scene", {
+      jobId: job.id,
+      scene: sceneIndex + 1,
+      of: outline.data.scenes.length,
+      pages: r.data.pages.length,
+    });
+  }
+  return { ...outline.data, scenes };
+}
+
 export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
   const chapterId = String(job.input.chapterId);
   const { chapter, data } = await projectPlanningData(deps, job.projectId, chapterId);
@@ -282,8 +344,15 @@ export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
     })),
     targetPages: typeof job.input.targetPages === "number" ? job.input.targetPages : undefined,
   });
-  const r = await structured(deps, job, messages, ChapterPlan, "ChapterPlan", 64_000);
-  const applied = await applyChapterPlan(deps.db, chapterId, r.data, { replace: Boolean(job.input.replace) });
+  // A feature-length chapter does not fit in one response: production runs truncated at the 64k output cap on
+  // every provider tried. Interactive runs plan the scenes first and then one scene's pages at a time, so each
+  // call is bounded and a scene that comes back malformed is re-asked alone. Batched runs keep the single call:
+  // the batch wrapper parks the job on its first provider call, so a loop would need one 24h round trip per
+  // scene to finish a chapter.
+  const plan = job.parameters.batchMode
+    ? (await structured(deps, job, messages, ChapterPlan, "ChapterPlan", 64_000)).data
+    : await planByScene(deps, job, { film, data, chapterText: chapter.sourceExcerpt || chapter.summary });
+  const applied = await applyChapterPlan(deps.db, chapterId, plan, { replace: Boolean(job.input.replace) });
   await deps.events.publish(job.projectId, { type: "chapter.updated", chapterId });
   // Planning the same script twice can return very different densities, so report what this plan achieved
   // against its source: a caller re-planning a chapter can compare runs instead of eyeballing the result.
@@ -298,7 +367,7 @@ export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
   };
   if (density.targetMissed)
     deps.logger.warn("chapter plan missed the requested page count", { chapterId, ...density, pages: applied.pages });
-  return { chapterId, repaired: r.repaired, ...applied, scenes: r.data.scenes.length, ...density };
+  return { chapterId, ...applied, scenes: plan.scenes.length, ...density };
 }
 
 export async function pagePrompts(deps: WorkerDeps, job: GenerationJob) {

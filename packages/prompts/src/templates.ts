@@ -1,10 +1,13 @@
 import {
+  ChapterOutline,
   ChapterPlan,
   ImageDescription,
   NarrationDraft,
   NarrationDraftV2,
   PanelCheck,
   PanelPromptDraft,
+  type SceneOutline,
+  ScenePages,
   StoryAnalysis,
   StoryRewrite,
 } from "@openmanga/schemas";
@@ -539,6 +542,79 @@ export const imageDescribeV1 = defineTextTemplate<{
   },
 });
 
+/**
+ * A chapter's plan does not fit in one response once the chapter is long: production runs truncated at the 64k
+ * output cap on every provider. These two passes split it — scenes first, then one response per scene — so each
+ * call is bounded and a scene that comes back malformed is re-asked on its own instead of losing the chapter.
+ */
+const OUTLINE_PASS =
+  "OUTLINE PASS: plan the scenes only. Do not plan pages or panels now — each scene's pages are planned in a second pass that receives this outline, so spend the detail on scene purpose, progression and continuity.";
+
+const PAGE_PASS =
+  "PAGE PASS: you are planning the pages of ONE scene. The whole chapter's scene outline is given for context so the pages you write lead into the next scene; plan pages for the named scene only, and nothing else.";
+
+/** The outline pass of a planning template: same direction, scenes without pages. */
+function outlinePass<T extends typeof chapterPlanningV5>(base: T, name: string) {
+  return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+    name,
+    version: 1,
+    description: `${base.description} Scene outline only.`,
+    system: base.system
+      // The header names the template in the prompt itself, so it has to be restamped: mocks and log analysis
+      // route on it, and leaving the base name made this pass indistinguishable from a full plan.
+      .replace(templateHeader(base.name, base.version), templateHeader(name, 1))
+      .replace(
+        schemaInstructions("ChapterPlan", ChapterPlan),
+        [OUTLINE_PASS, schemaInstructions("ChapterOutline", ChapterOutline)].join("\n\n"),
+      ),
+    build(i) {
+      return chapterPlanningV1.build.call(this, i);
+    },
+  });
+}
+
+/** The page pass: one scene at a time, with the outline as its brief. */
+function pagePass<T extends typeof chapterPlanningV5>(base: T, name: string) {
+  return defineTextTemplate<
+    Parameters<typeof chapterPlanningV1.build>[0] & {
+      outline: { scenes: SceneOutline[] };
+      sceneIndex: number;
+    }
+  >({
+    name,
+    version: 1,
+    description: `${base.description} One scene's pages.`,
+    system: base.system
+      .replace(templateHeader(base.name, base.version), templateHeader(name, 1))
+      .replace(
+        schemaInstructions("ChapterPlan", ChapterPlan),
+        [PAGE_PASS, schemaInstructions("ScenePages", ScenePages)].join("\n\n"),
+      ),
+    build(i) {
+      const scene = i.outline.scenes[i.sceneIndex]!;
+      return [
+        { role: "system", content: this.system },
+        {
+          role: "user",
+          content: [
+            `Available layout templates: ${JSON.stringify(i.layoutTemplates)}`,
+            i.targetPages ? `Target about ${i.targetPages} pages for this scene.` : "Choose a natural page count.",
+            `Plan the pages of scene ${i.sceneIndex + 1} of ${i.outline.scenes.length}: ${JSON.stringify(scene.title)}.`,
+            untrusted("scene_outline", JSON.stringify(i.outline.scenes)),
+            untrusted("project_data", JSON.stringify(i.projectData)),
+            untrusted("story_content", i.chapterText),
+          ].join("\n\n"),
+        },
+      ];
+    },
+  });
+}
+
+export const chapterOutlineV1 = outlinePass(chapterPlanningV5, "chapter-outline");
+export const shotOutlineV1 = outlinePass(shotPlanningV2, "shot-outline");
+export const scenePagesV1 = pagePass(chapterPlanningV5, "scene-pages");
+export const sceneShotsV1 = pagePass(shotPlanningV2, "scene-shots");
+
 export const TEXT_TEMPLATES = [
   storyAnalysisV1,
   storyAnalysisV2,
@@ -560,4 +636,8 @@ export const TEXT_TEMPLATES = [
   storyRewriteV1,
   jsonRepairV1,
   imageDescribeV1,
+  chapterOutlineV1,
+  shotOutlineV1,
+  scenePagesV1,
+  sceneShotsV1,
 ];

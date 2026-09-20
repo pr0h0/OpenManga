@@ -359,6 +359,11 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "story-analysis": "story-analysis-v1",
     "page-planning": "page-planning-v1",
     "shot-planning": "page-planning-v1",
+    // Split planning: the outline drops the pages, the page pass returns one scene's worth.
+    "chapter-outline": "chapter-outline-v1",
+    "shot-outline": "chapter-outline-v1",
+    "scene-pages": "scene-pages-v1",
+    "scene-shots": "scene-pages-v1",
     "panel-prompts": "panel-prompts-v1",
     "story-rewrite": "story-rewrite-v1",
     "json-repair": "json-repair-v1",
@@ -375,6 +380,19 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     case "shot-planning-v1": {
       const keys = [...user.matchAll(/"key":"([a-z0-9-]+)"/g)].map((m) => m[1]!);
       return mockChapterPlan((data[0] ?? {}) as ProjectData, story, keys);
+    }
+    case "chapter-outline-v1": {
+      const keys = [...user.matchAll(/"key":"([a-z0-9-]+)"/g)].map((m) => m[1]!);
+      const plan = mockChapterPlan((data[0] ?? {}) as ProjectData, story, keys);
+      return { ...plan, scenes: plan.scenes.map(({ pages: _pages, ...scene }) => scene) };
+    }
+    case "scene-pages-v1": {
+      const keys = [...user.matchAll(/"key":"([a-z0-9-]+)"/g)].map((m) => m[1]!);
+      const plan = mockChapterPlan((data[0] ?? {}) as ProjectData, story, keys);
+      // "Plan the pages of scene 2 of 5: ..." — the same generator ran for the outline, so the index lines up.
+      const n = Number(user.match(/pages of scene (\d+) of /)?.[1] ?? 1);
+      const scene = plan.scenes[Math.min(n, plan.scenes.length) - 1] ?? plan.scenes[0]!;
+      return { pages: scene.pages };
     }
     case "panel-prompts-v1":
     case "panel-prompts-v2":
