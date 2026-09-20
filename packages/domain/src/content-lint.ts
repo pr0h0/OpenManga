@@ -157,3 +157,19 @@ export function panelDistressRisk(i: PanelRiskInput): string[] {
   if (angle) reasons.push(`${angle} camera`);
   return light && (mood || angle) ? ["lone figure", ...reasons] : [];
 }
+
+/**
+ * Categories a provider named when it refused on content policy, e.g. OpenAI's
+ * `safety_violations=[self-harm]`. A named category is a verdict about the prompt's content and repeats on every
+ * identical retry; an unnamed refusal ("the prompt triggered our content management policy") is the
+ * probabilistic filter, which a plain retry often clears. Callers use the distinction to decide whether
+ * retrying is worth anything.
+ */
+export function policyCategories(providerMessage: string | null | undefined): string[] {
+  const listed = /safety_violations\s*=\s*\[([^\]]*)\]/i.exec(providerMessage ?? "");
+  if (!listed) return [];
+  return listed[1]!
+    .split(",")
+    .map((c) => c.trim().replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean);
+}

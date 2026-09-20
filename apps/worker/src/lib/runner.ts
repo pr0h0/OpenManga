@@ -1,6 +1,6 @@
 import { StructuredOutputError, type TextCallRecord } from "@openmanga/ai-text";
 import { asc, eq, generationJobs, generationOutputs, panels, sql } from "@openmanga/db";
-import { ProviderError } from "@openmanga/domain";
+import { ProviderError, policyCategories } from "@openmanga/domain";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { projectBudget, recordError } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
@@ -198,7 +198,12 @@ export async function runGenerationJob(
     // retry (the filter is nondeterministic, and the repair path just needs another sample), so they use their
     // attempt budget instead of failing the job on the first try.
     const RETRY_ANYWAY: string[] = ["content_policy", "invalid_json", "invalid_response"];
-    const retryable = (e instanceof ProviderError && e.retryable) || RETRY_ANYWAY.includes(code);
+    // ...except when the provider named what it objected to. `safety_violations=[self-harm]` is a verdict on the
+    // prompt, not a sampling accident: it repeats identically on every attempt, so retrying only spends the
+    // budget and the money three times over to arrive at the same refusal.
+    const categories = code === "content_policy" ? policyCategories(e instanceof Error ? e.message : String(e)) : [];
+    const retryable =
+      (e instanceof ProviderError && e.retryable) || (RETRY_ANYWAY.includes(code) && categories.length === 0);
     const attemptsLeft = bullJob.attemptsMade + 1 < (bullJob.opts.attempts ?? 1);
     const requestId = e instanceof ProviderError ? e.requestId : undefined;
     log.error("generation failed", {
@@ -206,6 +211,7 @@ export async function runGenerationJob(
       code,
       retryable,
       attemptsLeft,
+      ...(categories.length ? { policyCategories: categories } : {}),
       error: e instanceof Error ? e.message : String(e),
       providerRequestId: requestId,
     });

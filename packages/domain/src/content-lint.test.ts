@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { lintCharacter, lintText, panelDistressRisk, softenText } from "./content-lint.ts";
+import { lintCharacter, lintText, panelDistressRisk, policyCategories, softenText } from "./content-lint.ts";
 import { segmentNarration } from "./narration.ts";
 
 test("lints the harm vocabulary from the production run, once per span", () => {
@@ -54,4 +54,20 @@ test("distress grammar needs a lone figure plus underlighting and mood or angle"
 
 test("narration segments use the configured pause", () => {
   expect(segmentNarration("One line.", 400, 250)).toEqual([{ text: "One line.", pauseAfterMs: 250 }]);
+});
+
+test("a named safety category is a verdict; an unnamed refusal is the probabilistic filter", () => {
+  expect(
+    policyCategories(
+      "OpenAI HTTP 400: Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com and include the request ID req_92c4. safety_violations=[self-harm].",
+    ),
+  ).toEqual(["self-harm"]);
+  expect(policyCategories("safety_violations=[violence, self-harm]")).toEqual(["violence", "self-harm"]);
+  // Meta/Azure refuse without naming anything: worth another sample, so no categories.
+  expect(
+    policyCategories(
+      "Meta HTTP 400: The response was filtered due to the prompt triggering our content management policy.",
+    ),
+  ).toEqual([]);
+  expect(policyCategories(null)).toEqual([]);
 });
