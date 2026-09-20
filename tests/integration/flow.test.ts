@@ -290,6 +290,23 @@ describe("full production flow (mock AI)", () => {
     expect(page.panels.find((p) => p.id === panelId)!.activeArtworkAssetId).toBe(artworkAssetId);
   });
 
+  test("a prop attached to a panel reaches the compiled prompt", async () => {
+    // The API and the prompt always supported props; nothing in the editor could attach one, so this path only
+    // ever ran through AI planning.
+    const created = await alice.post<{ prop: { id: string; currentVersionId: string } }>(
+      `/api/projects/${projectId}/props`,
+      { name: "Brass Compass", description: { summary: "a dented brass compass with a cracked glass face" } },
+      201,
+    );
+    await alice.patch(`/api/panels/${panelId}`, { propVersionIds: [created.prop.currentVersionId] });
+    const preview = await alice.get<{ compiledPrompt: string }>(`/api/panels/${panelId}/prompt-preview`);
+    expect(preview.compiledPrompt).toContain("Brass Compass");
+    // Detaching removes it again.
+    await alice.patch(`/api/panels/${panelId}`, { propVersionIds: [] });
+    const after = await alice.get<{ compiledPrompt: string }>(`/api/panels/${panelId}/prompt-preview`);
+    expect(after.compiledPrompt).not.toContain("Brass Compass");
+  });
+
   test("regenerate with edited prompt creates a new version; activate/revert", async () => {
     const r = await alice.post<{ job: Job }>(
       `/api/panels/${panelId}/generate`,

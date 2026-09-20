@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, Copy, Lock, Move, SplitSquareHorizontal, SplitSquar
 import { useEffect, useState } from "react";
 import { get, patch, post, put } from "../../../api/client.ts";
 import { qk, useAction } from "../../../api/hooks.ts";
-import type { EditorPanel, LocationCard, PageDocument } from "../../../api/types.ts";
+import type { EditorPanel, LocationCard, PageDocument, PropCard } from "../../../api/types.ts";
 import { clsx, Field, StatusChip, TagInput } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
 import { useProjectId } from "../../project/ProjectLayout.tsx";
@@ -130,6 +130,11 @@ export function PanelTab({
     queryKey: qk.locations(projectId),
     queryFn: () => get<{ locations: LocationCard[] }>(`/projects/${projectId}/locations`),
     select: (r) => r.locations,
+  });
+  const props = useQuery({
+    queryKey: qk.props(projectId),
+    queryFn: () => get<{ props: PropCard[] }>(`/projects/${projectId}/props`),
+    select: (r) => r.props,
   });
   const inv = [qk.page(data.page.id), qk.panel(panel.id)];
 
@@ -391,6 +396,40 @@ export function PanelTab({
               </option>
             ))}
           </select>
+        </Field>
+
+        {/*
+          The API and the prompt have always taken props; only the editor never sent them, so a prop reached a
+          panel exactly once — when AI planning put it there — and could never be added or removed by hand.
+        */}
+        <Field label="Props" hint="Attached props are described in the prompt and their references are sent.">
+          <div className="flex flex-wrap gap-1">
+            {props.data?.map((p) => {
+              const attached = p.currentVersionId ? panel.propVersionIds.includes(p.currentVersionId) : false;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={!p.currentVersionId}
+                  aria-pressed={attached}
+                  onClick={() =>
+                    patchPanel.mutate({
+                      propVersionIds: attached
+                        ? panel.propVersionIds.filter((v) => v !== p.currentVersionId)
+                        : [...panel.propVersionIds, p.currentVersionId!],
+                    })
+                  }
+                  className={clsx(
+                    "chip border",
+                    attached ? "border-accent-500 bg-accent-600/15" : "border-[var(--border)]",
+                  )}
+                >
+                  {p.name}
+                </button>
+              );
+            })}
+            {!props.data?.length && <span className="muted text-xs">No props in this project yet.</span>}
+          </div>
         </Field>
 
         {(["composition", "foreground", "midground", "background", "lighting", "emotion", "action"] as const).map(
