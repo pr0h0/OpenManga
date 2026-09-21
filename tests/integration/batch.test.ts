@@ -184,12 +184,22 @@ test("a batch run writes its panels unqueued, then parks them on the provider", 
 
   // Parked work is still in flight. Reporting it as finished stopped the UI polling and showed "1/139 finished"
   // while the provider still held every panel.
-  const view = await alice.get<{ batches: { batchId: string; state: string; progress: Record<string, number> }[] }>(
-    `/api/projects/${projectId}/generations/batches`,
-  );
+  const view = await alice.get<{
+    batches: {
+      batchId: string;
+      state: string;
+      ingesting: boolean;
+      polledAtLeastOnce: boolean;
+      progress: Record<string, number>;
+    }[];
+  }>(`/api/projects/${projectId}/generations/batches`);
   const mine = view.batches.find((b) => b.batchId === r.batchId);
   expect(mine?.state).toBe("submitted");
   expect(mine?.progress.submitted).toBe(3);
+  // Freshly submitted: not checked yet, and nothing to download. Without these the card could only say
+  // "waiting", which made a working poll look like it had done nothing while it downloaded for over a minute.
+  expect(mine?.polledAtLeastOnce).toBe(false);
+  expect(mine?.ingesting).toBe(false);
   const one = await alice.get<{ progress: Record<string, number> }>(`/api/generations/batches/${r.batchId}`);
   expect(one.progress.submitted).toBe(3);
 });

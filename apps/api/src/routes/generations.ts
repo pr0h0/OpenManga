@@ -441,6 +441,19 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       sql`, `,
     )})
     group by g.batch_id, pg.chapter_id, ch.title, ch."order"`);
+  // Whether the provider has already answered and the worker is downloading. Ingesting 100 images measured 72s,
+  // and with only "waiting" on screen a poll that was working looked like it had done nothing at all.
+  const ingesting = await db.execute<{ batch_id: string; answered: number; polled: number }>(sql`
+    select batch_id,
+      count(*) filter (where state in ('succeeded', 'partial'))::int as answered,
+      count(*) filter (where polled_at is not null)::int as polled
+    from provider_batches
+    where ingested_at is null and batch_id in (${sql.join(
+      ids.map((i) => sql`${i}`),
+      sql`, `,
+    )})
+    group by batch_id`);
+  const ingestingBy = new Map([...ingesting].map((r) => [r.batch_id, r]));
   // The image queue is shared by every project on this server, so position counts all queued image jobs ahead.
   const [global] = await db.execute<{ queued: number; generating: number }>(sql`
     select count(*) filter (where status = 'queued')::int as queued, count(*) filter (where status = 'processing')::int as generating
@@ -487,6 +500,10 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       chapters: where.map((w) => ({ id: w.chapter_id, title: w.chapter_title, order: w.chapter_order })),
       pageIds: where.flatMap((w) => w.page_ids),
       pageOrders: where.flatMap((w) => w.page_orders).sort((a, b2) => a - b2),
+      /** The provider answered and the worker is storing the results; the panels land together when it finishes. */
+      ingesting: (ingestingBy.get(b.batch_id)?.answered ?? 0) > 0,
+      /** At least one of this batch's provider submissions has been checked at least once. */
+      polledAtLeastOnce: (ingestingBy.get(b.batch_id)?.polled ?? 0) > 0,
     });
   }
   return c.json({ batches: out, imageQueue: global ?? { queued: 0, generating: 0 } });

@@ -25,6 +25,10 @@ export type BatchInfo = {
     paused?: number;
   };
   queuedAhead: number;
+  /** The provider answered and the worker is storing the results; they land together when it finishes. */
+  ingesting?: boolean;
+  /** Whether this batch has been checked at the provider at least once. */
+  polledAtLeastOnce?: boolean;
   chapters: { id: string; title: string; order: number }[];
   pageIds: string[];
   pageOrders: number[];
@@ -130,12 +134,21 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
             className="btn-ghost px-2 py-1 text-xs"
             disabled={polling}
             aria-label="Check the provider for results now"
-            title="Check the provider for finished results now"
+            title="Check the provider for finished results now. Downloading a large batch takes a minute or two."
             onClick={async () => {
               setPolling(true);
               try {
-                await post(`/generations/batches/${batch.batchId}/poll`);
-                toast.success("Checking the provider for results");
+                const r = await post<{ queued: boolean; outstanding: number }>(
+                  `/generations/batches/${batch.batchId}/poll`,
+                );
+                // The check runs in the worker and finishes long after this request does — ingesting 100 images
+                // measured 72s. Saying only "checking" made a working poll look like it had done nothing, and a
+                // second press during that window looked like a no-op. The count says which case you are in.
+                toast.success(
+                  r.outstanding === 0
+                    ? "Nothing is waiting at the provider for this batch"
+                    : `Checking ${r.outstanding} batch${r.outstanding === 1 ? "" : "es"} at the provider — panels appear as they are downloaded, which takes a minute or two for a large one`,
+                );
                 await invalidate();
               } catch (e) {
                 toast.error(e);
