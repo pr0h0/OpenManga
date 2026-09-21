@@ -349,10 +349,7 @@ projectRoutes.delete("/:projectId", async (c) => {
   // Both levels, collected before the rows go: a derivative's key lives on asset_variants, which cascades away
   // with the asset, so deleting only assets.storage_key left every thumbnail and prompt reference on disk with
   // nothing left in the database to find it by. One project's worth measured 1.2 GB of unreachable files.
-  const files = await deps.db
-    .select({ key: assets.storageKey })
-    .from(assets)
-    .where(eq(assets.projectId, p.id));
+  const files = await deps.db.select({ key: assets.storageKey }).from(assets).where(eq(assets.projectId, p.id));
   const derivatives = await deps.db
     .select({ key: assetVariants.storageKey })
     .from(assetVariants)
