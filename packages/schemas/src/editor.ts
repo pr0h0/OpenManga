@@ -130,6 +130,13 @@ export const FILM_PAGE = { pageWidth: 1920, pageHeight: 1080, pageMargin: 0, pag
  * not by making this taller: a 1:4 page asked the model for 1:4 art, got 9:16 back and squeezed it 2x.
  */
 export const VERTICAL_PAGE = { pageWidth: 800, pageHeight: 1200, pageMargin: 0, pageGutter: 0 } as const;
+/**
+ * A strip letters itself by default. Auto-placement is off everywhere else because a comic page is composed
+ * around its balloons and a planner guess lands badly on a multi-panel layout — but a strip panel is one
+ * full-width frame, so there is only one place a balloon can go, and a webtoon read without its speech is not
+ * the format. Owners can still turn it off in settings; this only chooses what a new strip starts with.
+ */
+export const VERTICAL_LETTERING = { autoPlace: true } as const;
 
 /**
  * How a panel meets the panel before it in a vertical strip. The leading edge belongs to the later panel, so a

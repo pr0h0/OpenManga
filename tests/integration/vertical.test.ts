@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { asc, assets, eq, pages, panels } from "@openmanga/db";
+import { asc, assets, dialogueLines, eq, inArray, pages, panels } from "@openmanga/db";
 import { stripLayout } from "@openmanga/domain";
 import { sharp } from "@openmanga/image-utils";
 import { type PanelSeam, STRIP_HEIGHT_RATIOS } from "@openmanga/schemas";
@@ -14,6 +14,7 @@ const STORY = `A courier named Sefu runs packages across the rooftops of a flood
 Tonight the package is a sealed jar that hums when it is near water.
 He takes the long way, over the market roofs, because the canals have eyes.
 Halfway across, the jar goes quiet, and every light below him goes out at once.
+"Not tonight," Sefu says, to the jar and to the dark both.
 Sefu stops running and looks down at the black water waiting between the buildings.`;
 
 beforeAll(async () => {
@@ -24,7 +25,9 @@ beforeAll(async () => {
     { username: "strip", email: "strip@example.com", password: "strip-pass-1234" },
     201,
   );
-  const p = await alice.post<{ project: { id: string; settings: { format: string; pageWidth: number } } }>(
+  const p = await alice.post<{
+    project: { id: string; settings: { format: string; pageWidth: number; lettering?: { autoPlace?: boolean } } };
+  }>(
     "/api/projects",
     { title: "Rooftop Courier", projectType: "manhwa", format: "vertical", story: { content: STORY } },
     201,
@@ -33,6 +36,16 @@ beforeAll(async () => {
   // A strip starts with no gutter and no margin: spacing belongs to the seam, not to every frame.
   expect(p.project.settings.format).toBe("vertical");
   expect(p.project.settings.pageWidth).toBe(800);
+  // A strip letters itself: one full-width frame has only one place a balloon can go, and a webtoon read with
+  // its speech left off is not the format.
+  expect(p.project.settings.lettering?.autoPlace).toBe(true);
+  // And only a strip: a comic page is composed around its balloons, so auto-placement stays off there.
+  const comic = await alice.post<{ project: { settings: { lettering?: { autoPlace?: boolean } } } }>(
+    "/api/projects",
+    { title: "Still A Comic", projectType: "manga", story: { content: STORY } },
+    201,
+  );
+  expect(comic.project.settings.lettering?.autoPlace ?? false).toBe(false);
 
   const story = await alice.get<{ latest: { id: string } }>(`/api/projects/${projectId}/story`);
   const an = await alice.post<{ job: { id: string } }>(`/api/story-revisions/${story.latest.id}/analyze`, {}, 202);
@@ -76,6 +89,19 @@ test("a strip plans one panel per page, with pacing on the page and the seam on 
   const heights = new Set(rows.map((r) => r.page.height));
   expect(heights.size).toBeGreaterThan(1);
   for (const height of heights) expect(allowed.has(height)).toBe(true);
+
+  // Speech is placed, not merely planned: auto-placement is what turns a planned line into a balloon on the
+  // page, and it is off by default everywhere else.
+  const lines = await h.deps.db
+    .select()
+    .from(dialogueLines)
+    .where(
+      inArray(
+        dialogueLines.panelId,
+        rows.map((r) => r.panel.id),
+      ),
+    );
+  expect(lines.length).toBeGreaterThan(0);
 
   // The planner authors the transition into each panel.
   const kinds = new Set(rows.map((r) => r.panel.seam?.kind).filter(Boolean));
