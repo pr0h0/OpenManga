@@ -124,7 +124,12 @@ export type LetteringDefaults = z.infer<typeof LetteringDefaults>;
 export const ProjectFormat = z.enum(["comic", "film", "vertical"]);
 export type ProjectFormat = z.infer<typeof ProjectFormat>;
 export const FILM_PAGE = { pageWidth: 1920, pageHeight: 1080, pageMargin: 0, pageGutter: 0 } as const;
-export const VERTICAL_PAGE = { pageWidth: 800, pageHeight: 3200, pageMargin: 0, pageGutter: 0 } as const;
+/**
+ * 2:3 per panel, which is the aspect every image provider offers exactly, so a strip panel is generated at its
+ * real shape instead of being stretched into it. Panel height is varied per page (pages carry their own height),
+ * not by making this taller: a 1:4 page asked the model for 1:4 art, got 9:16 back and squeezed it 2x.
+ */
+export const VERTICAL_PAGE = { pageWidth: 800, pageHeight: 1200, pageMargin: 0, pageGutter: 0 } as const;
 
 /**
  * How a panel meets the panel before it in a vertical strip. The leading edge belongs to the later panel, so a
