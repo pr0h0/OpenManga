@@ -22,6 +22,8 @@ type Estimate = {
     unpricedCalls: number;
   };
   provider?: { provider: string; model: string };
+  /** Which mode this price was calculated for; the dialog will not show it against the other one. */
+  batch?: boolean;
   preflight?: Preflight;
   credentials?: { text: boolean; image: boolean; mockMode: boolean };
 };
@@ -104,7 +106,9 @@ export function BulkGenerateButton({
   const invalidateBatches = useInvalidateBatches(projectId);
   const aiImage = useAiBody("image");
 
-  const ask = async (missing = onlyMissing) => {
+  // Both toggles pass their new value in: state set in the same handler is not visible to this closure yet, so
+  // reading `batch` here priced the run against the previous setting and left the estimate a click behind.
+  const ask = async (missing = onlyMissing, asBatch = batch) => {
     setBusy(true);
     try {
       setEstimate(
@@ -112,7 +116,7 @@ export function BulkGenerateButton({
           ...aiImage(),
           scope,
           onlyMissing: missing,
-          batch,
+          batch: asBatch,
         }),
       );
     } catch (e) {
@@ -182,9 +186,12 @@ export function BulkGenerateButton({
                 <p>
                   Estimated cost:{" "}
                   <strong>
-                    {estimate.estimatedUsd === null
-                      ? "unknown (no rate snapshot)"
-                      : `≈ ${fmt.usd(estimate.estimatedUsd)}`}
+                    {/* The response says which mode it priced, so a price is never shown against the other one. */}
+                    {estimate.batch !== batch
+                      ? "re-pricing…"
+                      : estimate.estimatedUsd === null
+                        ? "unknown (no rate snapshot)"
+                        : `≈ ${fmt.usd(estimate.estimatedUsd)}`}
                   </strong>
                   <span className="muted"> — rough estimate; actual provider usage is recorded per job.</span>
                 </p>
@@ -200,11 +207,12 @@ export function BulkGenerateButton({
                     className="mt-0.5"
                     checked={batch}
                     disabled={busy}
-                    onChange={async (e) => {
+                    onChange={(e) => {
                       setBatch(e.target.checked);
                       // Re-price immediately: the batch rate is half, and some providers cannot batch at all.
-                      setEstimate(null);
-                      await ask();
+                      // The old estimate stays on screen while that runs — clearing it closed the whole dialog,
+                      // and a re-price that fails (a provider with no batch API) left nothing but a toast.
+                      void ask(onlyMissing, e.target.checked);
                     }}
                   />
                   <span>
