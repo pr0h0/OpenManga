@@ -85,6 +85,13 @@
       "when": 1789979531858,
       "tag": "0011_user_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790020296388,
+      "tag": "0012_panel_seam",
+      "breakpoints": true
     }
   ]
 }

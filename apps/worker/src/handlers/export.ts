@@ -42,12 +42,12 @@ import { extForMime, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
 import {
-  chunkBlocks,
+  chunkStrip,
   loadRenderPage,
   renderCover,
   renderPageImage,
+  renderStrip,
   renderWebtoonBlocks,
-  stackVertical,
 } from "@openmanga/services";
 import { withTempDir } from "@openmanga/storage";
 import { PDFDocument, ReadingDirection } from "pdf-lib";
@@ -305,10 +305,12 @@ async function buildExport(
         blocks.push(...(await renderWebtoonBlocks(page, width)));
         await progress(((i + 1) / ids.length) * 0.8);
       }
-      const chunks = opts.webtoon.split ? chunkBlocks(blocks, maxH, gap) : [blocks];
+      // Seam-aware: a vertical project authors what happens between panels, so chunking has to respect blends
+      // and stacking has to honour them. With no seams this produces the same strip as the old uniform stack.
+      const chunks = opts.webtoon.split ? chunkStrip(blocks, maxH, { gap }) : [blocks];
       const zip = chunks.length > 1 ? new ZipWriter(join(dir, "webtoon.zip")) : null;
       for (const [i, chunk] of chunks.entries()) {
-        const strip = await stackVertical(chunk, width, gap);
+        const strip = await renderStrip(chunk, width, gap);
         const data =
           opts.webtoon.format === "jpg"
             ? new Uint8Array(

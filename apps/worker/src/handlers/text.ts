@@ -36,10 +36,13 @@ import {
   panelPromptsV3,
   scenePagesV1,
   sceneShotsV1,
+  sceneStripV1,
   shotOutlineV1,
   shotPlanningV2,
   storyAnalysisV2,
   storyRewriteV1,
+  stripOutlineV1,
+  stripPlanningV1,
 } from "@openmanga/prompts";
 import {
   ChapterOutline,
@@ -47,6 +50,7 @@ import {
   ImageDescription,
   narrationDraftFor,
   PanelPromptDraft,
+  type ProjectFormat,
   ScenePages,
   StoryAnalysis,
   StoryRewrite,
@@ -279,9 +283,11 @@ async function projectArtDirection(deps: WorkerDeps, projectId: string) {
 async function planByScene(
   deps: WorkerDeps,
   job: GenerationJob,
-  i: { film: boolean; data: Record<string, unknown>; chapterText: string },
+  i: { format: ProjectFormat; data: Record<string, unknown>; chapterText: string },
 ): Promise<ChapterPlan> {
-  const layoutTemplates = LAYOUT_TEMPLATES.filter((t) => !i.film || t.key === "full-page").map((t) => ({
+  // Film shots and vertical strip panels are one frame per page, so only the full-page template applies.
+  const oneFrame = i.format === "film" || i.format === "vertical";
+  const layoutTemplates = LAYOUT_TEMPLATES.filter((t) => !oneFrame || t.key === "full-page").map((t) => ({
     key: t.key,
     name: t.name,
     panels: t.frames.length,
@@ -291,12 +297,15 @@ async function planByScene(
   const outline = await structured(
     deps,
     job,
-    (i.film ? shotOutlineV1 : chapterOutlineV1).build({ ...base, targetPages: target }),
+    (i.format === "film" ? shotOutlineV1 : i.format === "vertical" ? stripOutlineV1 : chapterOutlineV1).build({
+      ...base,
+      targetPages: target,
+    }),
     ChapterOutline,
     "ChapterOutline",
     16_000,
   );
-  const pagesTemplate = i.film ? sceneShotsV1 : scenePagesV1;
+  const pagesTemplate = i.format === "film" ? sceneShotsV1 : i.format === "vertical" ? sceneStripV1 : scenePagesV1;
   const scenes: ChapterPlan["scenes"] = [];
   for (const [sceneIndex, scene] of outline.data.scenes.entries()) {
     if (await isCancelRequested(deps, job.id)) throw new JobCancelledError();
@@ -333,11 +342,14 @@ export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
     .select({ settings: projects.settings })
     .from(projects)
     .where(eq(projects.id, job.projectId));
-  const film = proj?.settings.format === "film";
-  const messages = (film ? shotPlanningV2 : chapterPlanningV5).build({
+  const format: ProjectFormat = proj?.settings.format ?? "comic";
+  const oneFrame = format === "film" || format === "vertical";
+  const messages = (
+    format === "film" ? shotPlanningV2 : format === "vertical" ? stripPlanningV1 : chapterPlanningV5
+  ).build({
     projectData: data,
     chapterText: chapter.sourceExcerpt || chapter.summary,
-    layoutTemplates: LAYOUT_TEMPLATES.filter((t) => !film || t.key === "full-page").map((t) => ({
+    layoutTemplates: LAYOUT_TEMPLATES.filter((t) => !oneFrame || t.key === "full-page").map((t) => ({
       key: t.key,
       name: t.name,
       panels: t.frames.length,
@@ -351,7 +363,7 @@ export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
   // scene to finish a chapter.
   const plan = job.parameters.batchMode
     ? (await structured(deps, job, messages, ChapterPlan, "ChapterPlan", 64_000)).data
-    : await planByScene(deps, job, { film, data, chapterText: chapter.sourceExcerpt || chapter.summary });
+    : await planByScene(deps, job, { format, data, chapterText: chapter.sourceExcerpt || chapter.summary });
   const applied = await applyChapterPlan(deps.db, chapterId, plan, { replace: Boolean(job.input.replace) });
   await deps.events.publish(job.projectId, { type: "chapter.updated", chapterId });
   // Planning the same script twice can return very different densities, so report what this plan achieved

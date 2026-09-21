@@ -1,4 +1,4 @@
-import type { Bubble, Frame, ImageTransform, PanelSpec, SfxStyle } from "@openmanga/schemas";
+import type { Bubble, Frame, ImageTransform, PanelSeam, PanelSpec, SfxStyle } from "@openmanga/schemas";
 import { bigint, boolean, index, integer, jsonb, pgTable, real, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
 import {
@@ -178,6 +178,8 @@ export const panels = pgTable(
     review: jsonb("review").$type<{ reason: string; message: string; at: string } & Record<string, unknown>>(),
     promptOverride: text("prompt_override"),
     promptDraft: jsonb("prompt_draft").$type<Record<string, unknown>>(),
+    /** Vertical strips only: how this panel meets the one before it. Null = the project's plain gap. */
+    seam: jsonb("seam").$type<PanelSeam>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

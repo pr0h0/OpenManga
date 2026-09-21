@@ -41,7 +41,17 @@ import {
   templateFrames,
 } from "@openmanga/domain";
 import { panelCheckV1, panelPromptsV3 } from "@openmanga/prompts";
-import { asPatch, Bubble, CameraAngle, Frame, ImageTransform, PanelSpec, SfxStyle, ShotType } from "@openmanga/schemas";
+import {
+  asPatch,
+  Bubble,
+  CameraAngle,
+  Frame,
+  ImageTransform,
+  PanelSeam,
+  PanelSpec,
+  SfxStyle,
+  ShotType,
+} from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -645,6 +655,8 @@ const PatchPanel = z.object({
   characterVersionIds: z.array(z.string().uuid()).max(12).optional(),
   propVersionIds: z.array(z.string().uuid()).max(12).optional(),
   promptOverride: z.string().max(32_000).nullable().optional(),
+  /** Vertical strips: how this panel meets the one before it. Null clears it back to the project's plain gap. */
+  seam: PanelSeam.nullable().optional(),
   /** Clear-only: prepared prompt text is written by the text model, never authored by hand through this route. */
   promptDraft: z.null().optional(),
   approvalStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),

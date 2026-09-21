@@ -12,5 +12,6 @@ export * from "./preflight.ts";
 export * from "./providers.ts";
 export * from "./readiness.ts";
 export * from "./staleness.ts";
+export * from "./strip.ts";
 export * from "./usage.ts";
 export * from "./video-plan.ts";

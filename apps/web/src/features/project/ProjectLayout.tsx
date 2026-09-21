@@ -53,9 +53,9 @@ const NAV = [
   { to: "/projects/$projectId/settings", label: "Settings", icon: Settings },
 ] as const;
 
-/** Film projects call pages "Shots": each page is one full-frame shot. */
+/** Film projects call pages "Shots" and vertical ones "Strip": each page is one frame of a continuous column. */
 const navLabel = (label: string, format: string | undefined) =>
-  format === "film" && label === "Pages" ? "Shots" : label;
+  label !== "Pages" ? label : format === "film" ? "Shots" : format === "vertical" ? "Strip" : label;
 
 type SearchResult = {
   characters: { id: string; name: string }[];

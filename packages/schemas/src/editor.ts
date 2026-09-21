@@ -115,10 +115,40 @@ export const LetteringDefaults = z.object({
 });
 export type LetteringDefaults = z.infer<typeof LetteringDefaults>;
 
-/** Film projects: every page is one full-frame 16:9 shot rendered as a narrated Ken Burns video. */
-export const ProjectFormat = z.enum(["comic", "film"]);
+/**
+ * "comic": pages read one at a time. "film": every page is one full-frame 16:9 shot rendered as a narrated Ken
+ * Burns video. "vertical": one continuous scrolling strip, where what happens *between* panels is authored — see
+ * PanelSeam. A vertical project starts with no gutter and no margin, because spacing belongs to the seam rather
+ * than being baked into every frame.
+ */
+export const ProjectFormat = z.enum(["comic", "film", "vertical"]);
 export type ProjectFormat = z.infer<typeof ProjectFormat>;
 export const FILM_PAGE = { pageWidth: 1920, pageHeight: 1080, pageMargin: 0, pageGutter: 0 } as const;
+export const VERTICAL_PAGE = { pageWidth: 800, pageHeight: 3200, pageMargin: 0, pageGutter: 0 } as const;
+
+/**
+ * How a panel meets the panel before it in a vertical strip. The leading edge belongs to the later panel, so a
+ * scene change is authored on the panel that opens the new scene.
+ *
+ * Until this existed every seam in a strip was the same project-wide gap, which is what made an exported strip
+ * read as a stack of separate pictures rather than one continuous scene.
+ */
+export const PanelSeam = z.object({
+  /**
+   * gap: background between the panels. butt: none, for continuous action. bleed: the panel overlaps the one
+   * before it with a hard edge. dissolve: the same overlap, blended through a vertical gradient. fade: both
+   * edges fade into a flat colour, for a scene or time break.
+   */
+  kind: z.enum(["gap", "butt", "bleed", "dissolve", "fade"]).default("gap"),
+  /** Pixels at the strip's own width: the gap, the overlap depth, or the fade band. Absent = the project gap. */
+  size: z.number().int().min(0).max(2000).optional(),
+  /** fade only; defaults to the strip background. */
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+});
+export type PanelSeam = z.infer<typeof PanelSeam>;
 
 /**
  * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the

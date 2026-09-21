@@ -318,11 +318,13 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
             sc.beats.map((b, i) => ({ projectId: project.id, sceneId: scene!.id, order: i + 1, description: b })),
           );
 
-      // Film projects: one full-frame shot per page, whatever the model grouped together.
-      const plannedPages =
-        project.settings.format === "film"
-          ? sc.pages.flatMap((pg) => pg.panels.map((pp) => ({ ...pg, panels: [pp], layoutTemplate: "full-page" })))
-          : sc.pages;
+      // One panel per page for film (each is a shot) and for vertical strips, where the strip discards page
+      // geometry anyway: one panel per page leaves each panel's height free and makes the seam between two
+      // panels unambiguous, instead of some seams being gutters inside a page and others page boundaries.
+      const oneFramePerPage = project.settings.format === "film" || project.settings.format === "vertical";
+      const plannedPages = oneFramePerPage
+        ? sc.pages.flatMap((pg) => pg.panels.map((pp) => ({ ...pg, panels: [pp], layoutTemplate: "full-page" })))
+        : sc.pages;
       for (const pg of plannedPages) {
         const n = pg.panels.length;
         const tpl = layoutByKey(pg.layoutTemplate);

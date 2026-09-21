@@ -144,11 +144,14 @@ export function NewProjectWizard() {
               hint={
                 details.format === "film"
                   ? "Every page is one full-frame 16:9 shot, planned as a shot list and exported as a narrated Ken Burns video. Can't be changed once pages exist."
-                  : "Comic pages with 1–5 panels, lettering and page/PDF/webtoon exports."
+                  : details.format === "vertical"
+                    ? "One continuous scrolling column, one full-width panel at a time, with dialogue and captions. You author what happens between panels — a gap, no gap, an overlap or a fade. Can't be changed once pages exist."
+                    : "Comic pages with 1–5 panels, lettering and page/PDF/webtoon exports."
               }
             >
               <select className="input" value={details.format} onChange={setD("format")}>
                 <option value="comic">Comic pages</option>
+                <option value="vertical">Vertical scroll (manhwa strip)</option>
                 <option value="film">Narrated video (16:9 shots)</option>
               </select>
             </Field>

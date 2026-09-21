@@ -24,7 +24,7 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { asPatch, FILM_PAGE, ProjectFormat, ProjectSettings } from "@openmanga/schemas";
+import { asPatch, FILM_PAGE, ProjectFormat, ProjectSettings, VERTICAL_PAGE } from "@openmanga/schemas";
 import { recordAudit, UNPRICED_USAGE } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import { Hono } from "hono";
@@ -162,7 +162,7 @@ projectRoutes.post("/", async (c) => {
       narrationSpeed: c.get("deps").config.KOKORO_DEFAULT_SPEED,
       imageQuality: c.get("deps").config.IMAGE_QUALITY === "auto" ? "low" : c.get("deps").config.IMAGE_QUALITY,
       format: input.format,
-      ...(input.format === "film" ? FILM_PAGE : {}),
+      ...(input.format === "film" ? FILM_PAGE : input.format === "vertical" ? VERTICAL_PAGE : {}),
     });
     const [p] = await tx
       .insert(projects)
@@ -275,6 +275,7 @@ projectRoutes.patch("/:projectId", async (c) => {
         "The project format can't change once pages exist: comic panels and 16:9 shots need different plans and artwork. Create a new project instead.",
       );
     if (settings.format === "film") Object.assign(settings, FILM_PAGE);
+    if (settings.format === "vertical") Object.assign(settings, VERTICAL_PAGE);
   }
   const [row] = await c
     .get("deps")

@@ -12,8 +12,9 @@ import {
 } from "@openmanga/db";
 import { bubbleGeometry, layoutBubbleText, readingOrder } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
-import type { Bubble, Frame, ImageTransform, SfxStyle } from "@openmanga/schemas";
+import type { Bubble, Frame, ImageTransform, PanelSeam, SfxStyle } from "@openmanga/schemas";
 import type { AssetStorage } from "@openmanga/storage";
+import { featherMask, type StripBlock, stripLayout } from "./strip.ts";
 
 export type RenderPanel = {
   id: string;
@@ -21,6 +22,8 @@ export type RenderPanel = {
   frame: Frame;
   imageTransform: ImageTransform;
   art: Uint8Array | null;
+  /** Vertical strips: how this panel meets the one before it. Ignored by paged rendering. */
+  seam?: PanelSeam | null;
 };
 export type RenderText = { id: string; panelId: string | null; text: string; bubble: Bubble };
 export type RenderSfx = { id: string; panelId: string | null; text: string; style: SfxStyle };
@@ -76,6 +79,7 @@ export async function loadRenderPage(
         frame: p.frame,
         imageTransform: p.imageTransform,
         art: bytes?.byteLength ? bytes : null,
+        seam: p.seam,
       };
     }),
     bubbles: [
@@ -221,9 +225,9 @@ export async function renderPageImage(
   return { data: new Uint8Array(data), width, height, mime: format === "png" ? "image/png" : "image/jpeg" };
 }
 
-/** Webtoon: each panel becomes a full-width strip block with its own lettering, stacked with gaps. */
-export async function renderWebtoonBlocks(p: RenderPage, width: number) {
-  const blocks: { data: Uint8Array; height: number }[] = [];
+/** Webtoon: each panel becomes a full-width strip block with its own lettering, carrying its seam forward. */
+export async function renderWebtoonBlocks(p: RenderPage, width: number): Promise<StripBlock[]> {
+  const blocks: StripBlock[] = [];
   const centerIn = (fr: Frame, x: number, y: number) =>
     x >= fr.x && x <= fr.x + fr.width && y >= fr.y && y <= fr.y + fr.height;
   for (const panel of readingOrder(p.panels, "vertical")) {
@@ -266,7 +270,7 @@ export async function renderWebtoonBlocks(p: RenderPage, width: number) {
     // lettering sizes were authored in page pixels; scale them with the panel
     const { data: png } = await rasterize(sub, 1, { borders: false, fontScale: k });
     const data = new Uint8Array(png);
-    blocks.push({ data, height });
+    blocks.push({ data, height, seam: panel.seam ?? null });
   }
   return blocks;
 }
@@ -323,6 +327,55 @@ export async function stackVertical(
     .png()
     .toBuffer();
   return { data: new Uint8Array(out), height: total };
+}
+
+/**
+ * Stacks panel blocks into one strip, honouring each block's seam: a plain gap, no gap at all, an overlap with a
+ * hard or blended edge, or a fade through a flat colour. The arithmetic lives in stripLayout; this only paints.
+ */
+export async function renderStrip(blocks: StripBlock[], width: number, gap: number, background = "#ffffff") {
+  const layout = stripLayout(blocks, { gap, background });
+  const height = Math.max(1, layout.height);
+  assertCanvasSize(width, height, "This webtoon strip");
+  const feathers = new Map(layout.feathers.map((f) => [f.index, f]));
+  type Layer = {
+    input: Buffer | { create: { width: number; height: number; channels: 4; background: string } };
+    top: number;
+    left: number;
+    blend?: "over";
+  };
+  const composites: Layer[] = [];
+  // Bands go down first: a faded edge has to dissolve into the colour, not into whatever is behind the strip.
+  for (const band of layout.bands) {
+    const top = Math.max(0, band.top);
+    const h = Math.max(1, Math.min(band.height, height - top));
+    composites.push({
+      input: { create: { width, height: h, channels: 4, background: band.color } },
+      top,
+      left: 0,
+    });
+  }
+  for (const place of layout.placements) {
+    const block = blocks[place.index]!;
+    const f = feathers.get(place.index);
+    const input = f
+      ? Buffer.from(
+          await sharp(block.data)
+            .ensureAlpha()
+            // dest-in keeps the panel only where the ramp is opaque, which is how its edge becomes translucent.
+            .composite([{ input: Buffer.from(featherMask(width, block.height, f.top, f.bottom)), blend: "dest-in" }])
+            .png()
+            .toBuffer(),
+        )
+      : Buffer.from(block.data);
+    composites.push({ input, top: Math.max(0, place.top), left: 0 });
+  }
+  const out = await sharp({ create: { width, height, channels: 4, background }, limitInputPixels: false })
+    .composite(composites)
+    .flatten({ background })
+    .png()
+    .toBuffer();
+  return { data: new Uint8Array(out), height };
 }
 
 /** Split blocks into platform-safe chunks at block boundaries. */

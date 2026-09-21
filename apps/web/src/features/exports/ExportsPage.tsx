@@ -71,7 +71,9 @@ export function ExportsPage() {
   });
 
   const [chosenKind, setKind] = useState<Kind>();
-  const kind: Kind = chosenKind ?? (overview?.project.settings.format === "film" ? "video_panels" : "pdf");
+  // A strip's natural export is the stitched webtoon image, not a PDF of pages that do not exist as pages.
+  const format = overview?.project.settings.format;
+  const kind: Kind = chosenKind ?? (format === "film" ? "video_panels" : format === "vertical" ? "webtoon" : "pdf");
   const [chapterId, setChapterId] = useState("");
   const [scale, setScale] = useState(1);
   const [jpgQuality, setJpgQuality] = useState(90);
