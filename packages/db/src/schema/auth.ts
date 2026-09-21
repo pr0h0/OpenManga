@@ -1,3 +1,4 @@
+import type { UserSettings } from "@openmanga/schemas";
 import { boolean, index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { createdAt, id, ts, updatedAt, userRole, userStatus } from "./common.ts";
 
@@ -9,6 +10,8 @@ export const users = pgTable(
     email: text("email").notNull(),
     displayName: text("display_name"),
     role: userRole("role").notNull().default("user"),
+    /** Per-account preferences that seed new projects; see UserSettings in @openmanga/schemas. */
+    settings: jsonb("settings").$type<UserSettings>().notNull().default({}),
     status: userStatus("status").notNull().default("active"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

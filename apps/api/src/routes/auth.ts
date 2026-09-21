@@ -1,5 +1,6 @@
 import { AuthError, RegisterInput } from "@openmanga/auth";
-import { and, desc, devEmails, eq, isNull, sessions } from "@openmanga/db";
+import { and, desc, devEmails, eq, isNull, sessions, users } from "@openmanga/db";
+import { UserSettings } from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -101,6 +102,33 @@ authRoutes.post("/logout-all", requireUser, async (c) => {
 
 doc({ method: "GET", path: "/api/auth/me", summary: "Current user", tag: "auth" });
 authRoutes.get("/me", (c) => c.json({ user: c.get("user") }));
+
+const PatchSettings = z.object({
+  /** Empty string clears the preference, so new projects fall back to the server default again. */
+  narrationVoice: z.string().trim().max(64).optional(),
+});
+doc({
+  method: "PATCH",
+  path: "/api/auth/settings",
+  summary: "Account preferences that seed new projects (narration voice)",
+  tag: "auth",
+  body: PatchSettings,
+});
+authRoutes.patch("/settings", requireUser, async (c) => {
+  const u = user(c);
+  const input = await body(c, PatchSettings);
+  const { db } = c.get("deps");
+  // Merged rather than replaced, and an empty value deletes the key instead of storing "" as a voice id.
+  const next: Record<string, unknown> = { ...u.settings };
+  for (const [k, v] of Object.entries(input)) {
+    if (v === undefined) continue;
+    if (v === "") delete next[k];
+    else next[k] = v;
+  }
+  const settings = UserSettings.parse(next);
+  const [row] = await db.update(users).set({ settings }).where(eq(users.id, u.id)).returning();
+  return c.json({ settings: row!.settings });
+});
 
 doc({ method: "GET", path: "/api/auth/sessions", summary: "List active sessions", tag: "auth" });
 authRoutes.get("/sessions", requireUser, async (c) => {

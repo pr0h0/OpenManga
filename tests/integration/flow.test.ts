@@ -107,6 +107,34 @@ describe("full production flow (mock AI)", () => {
   let panelId = "";
   let artworkAssetId = "";
 
+  test("the account default narration voice seeds new projects", async () => {
+    const before = await alice.get<{ user: { settings: { narrationVoice?: string } } }>("/api/auth/me");
+    expect(before.user.settings.narrationVoice).toBeUndefined();
+
+    await alice.patch("/api/auth/settings", { narrationVoice: "am_adam" });
+    const me = await alice.get<{ user: { settings: { narrationVoice?: string } } }>("/api/auth/me");
+    expect(me.user.settings.narrationVoice).toBe("am_adam");
+
+    const made = await alice.post<{ project: { id: string; settings: { narrationVoice: string } } }>(
+      "/api/projects",
+      { title: "Voice default", projectType: "manhwa" },
+      201,
+    );
+    expect(made.project.settings.narrationVoice).toBe("am_adam");
+
+    // Changing the preference never reaches a project that already exists: each keeps its own copy.
+    await alice.patch("/api/auth/settings", { narrationVoice: "bf_emma" });
+    const unchanged = await alice.get<{ project: { settings: { narrationVoice: string } } }>(
+      `/api/projects/${made.project.id}`,
+    );
+    expect(unchanged.project.settings.narrationVoice).toBe("am_adam");
+
+    // An empty value clears it, so new projects fall back to the server default again.
+    await alice.patch("/api/auth/settings", { narrationVoice: "" });
+    const cleared = await alice.get<{ user: { settings: { narrationVoice?: string } } }>("/api/auth/me");
+    expect(cleared.user.settings.narrationVoice).toBeUndefined();
+  });
+
   test("create project with story", async () => {
     const r = await alice.post<{ project: { id: string; readingDirection: string } }>(
       "/api/projects",

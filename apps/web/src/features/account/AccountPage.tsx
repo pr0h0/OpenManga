@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { get, post } from "../../api/client.ts";
-import { useMe } from "../../api/hooks.ts";
+import { get, patch, post } from "../../api/client.ts";
+import { qk, useAction, useMe } from "../../api/hooks.ts";
+import type { TtsStatus } from "../../api/types.ts";
 import { ErrorBox, Field, fmt, PageHeader, Spinner, toast } from "../../components/ui.tsx";
 import { ProviderKeys } from "../ai/AiPicker.tsx";
 
@@ -15,6 +16,53 @@ type Session = {
   userAgent: string | null;
   current: boolean;
 };
+
+/**
+ * Account preferences that seed new projects. A project copies the voice at creation and owns it from then on, so
+ * changing this never reaches a project that already exists — that is what the project's own settings are for.
+ */
+function NarrationDefaults() {
+  const { data: me } = useMe();
+  const tts = useQuery({ queryKey: ["tts-status"], queryFn: () => get<TtsStatus>("/tts/status") });
+  const saved = me?.settings?.narrationVoice ?? "";
+  const [voice, setVoice] = useState<string>();
+  const value = voice ?? saved;
+  const save = useAction((narrationVoice: string) => patch("/auth/settings", { narrationVoice }), {
+    invalidate: [qk.me],
+    success: "Default narration voice saved",
+    onSuccess: () => setVoice(undefined),
+  });
+  const voices = tts.data?.voices ?? [];
+  return (
+    <section className="card space-y-3 p-4">
+      <h2 className="font-medium">Narration</h2>
+      <Field
+        label="Default voice for new projects"
+        hint="Projects created from now on start with this voice. Existing projects keep the voice they were created with."
+      >
+        <select
+          className="input"
+          value={value}
+          disabled={save.isPending}
+          onChange={(e) => {
+            setVoice(e.target.value);
+            save.mutate(e.target.value);
+          }}
+        >
+          <option value="">Server default</option>
+          {/* A saved voice the server no longer offers stays selectable rather than silently switching. */}
+          {saved && !voices.some((v) => v.id === saved) && <option value={saved}>{saved} (unavailable)</option>}
+          {voices.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name} {v.language ? `· ${v.language}` : ""}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {!tts.data?.enabled && <p className="muted text-xs">Speech synthesis is disabled on this server.</p>}
+    </section>
+  );
+}
 
 export function AccountPage() {
   const { data: me } = useMe();
@@ -43,6 +91,7 @@ export function AccountPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
       <PageHeader title="Account" subtitle={me ? `${me.username} · ${me.email} · ${me.role}` : undefined} />
+      <NarrationDefaults />
       <ProviderKeys />
       <form onSubmit={change} className="card space-y-3 p-4">
         <h2 className="font-medium">Change password</h2>

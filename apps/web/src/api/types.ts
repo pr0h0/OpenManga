@@ -38,7 +38,7 @@ import type { PanelSpec } from "@openmanga/schemas";
 
 export type * from "@openmanga/db/types";
 
-export type SessionUser = Pick<UserRow, "id" | "username" | "email" | "displayName" | "role" | "status">;
+export type SessionUser = Pick<UserRow, "id" | "username" | "email" | "displayName" | "role" | "status" | "settings">;
 
 export type ProjectListItem = ProjectRow & {
   stats: { chapters: number; panels: number; generations: number; estimatedSpendUsd: number };

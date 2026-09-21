@@ -155,7 +155,9 @@ projectRoutes.post("/", async (c) => {
       // A cap new projects start with so a runaway batch asks first; owners can raise or clear it in settings.
       // Written here rather than as a ProjectSettings default, which would also cap projects that predate it.
       budgetUsd: 5,
-      narrationVoice: c.get("deps").config.KOKORO_DEFAULT_VOICE,
+      // The account preference wins over the server default, and each project keeps its own copy from then on:
+      // changing the preference later never reaches a project that already exists.
+      narrationVoice: u.settings.narrationVoice || c.get("deps").config.KOKORO_DEFAULT_VOICE,
       narrationSpeed: c.get("deps").config.KOKORO_DEFAULT_SPEED,
       imageQuality: c.get("deps").config.IMAGE_QUALITY === "auto" ? "low" : c.get("deps").config.IMAGE_QUALITY,
       format: input.format,

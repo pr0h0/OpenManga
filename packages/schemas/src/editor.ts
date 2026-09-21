@@ -120,6 +120,16 @@ export const ProjectFormat = z.enum(["comic", "film"]);
 export type ProjectFormat = z.infer<typeof ProjectFormat>;
 export const FILM_PAGE = { pageWidth: 1920, pageHeight: 1080, pageMargin: 0, pageGutter: 0 } as const;
 
+/**
+ * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
+ * server default still applies and a project created before the preference existed is untouched.
+ */
+export const UserSettings = z.object({
+  /** Kokoro voice id used for new projects' narration. */
+  narrationVoice: z.string().trim().max(64).optional(),
+});
+export type UserSettings = z.infer<typeof UserSettings>;
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
   pageWidth: z.number().int().min(256).max(8000).default(1600),

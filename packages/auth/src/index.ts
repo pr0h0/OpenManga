@@ -75,6 +75,8 @@ export type SessionUser = {
   displayName: string | null;
   role: "user" | "admin";
   status: "active" | "disabled";
+  /** Account preferences that seed new projects. Typed from the column so auth needs no schema dependency. */
+  settings: (typeof users.$inferSelect)["settings"];
 };
 
 export class AuthService {
@@ -254,5 +256,13 @@ export class AuthService {
 }
 
 export function toSessionUser(u: typeof users.$inferSelect): SessionUser {
-  return { id: u.id, username: u.username, email: u.email, displayName: u.displayName, role: u.role, status: u.status };
+  return {
+    id: u.id,
+    username: u.username,
+    email: u.email,
+    displayName: u.displayName,
+    role: u.role,
+    status: u.status,
+    settings: u.settings ?? {},
+  };
 }
