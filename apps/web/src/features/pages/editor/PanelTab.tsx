@@ -7,7 +7,7 @@ import { qk, useAction } from "../../../api/hooks.ts";
 import type { EditorPanel, LocationCard, PageDocument, PropCard } from "../../../api/types.ts";
 import { clsx, Field, StatusChip, TagInput } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
-import { useProjectId } from "../../project/ProjectLayout.tsx";
+import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { useEditor } from "./store.ts";
 
@@ -155,6 +155,8 @@ export function PanelTab({
   });
 
   const attached = detail.data?.characters ?? [];
+  const isStrip = useProject().data?.project.settings.format === "vertical";
+  const seam = panel.seam ?? undefined;
   // Prepared text outranks the spec fields in the compiled prompt (intent over the beat, action, expression,
   // composition and lighting), so an edit here looks ignored until it is discarded. Continuity merges instead.
   const draft = (panel.promptDraft ?? null) as Record<string, unknown> | null;
@@ -402,6 +404,59 @@ export function PanelTab({
           The API and the prompt have always taken props; only the editor never sent them, so a prop reached a
           panel exactly once — when AI planning put it there — and could never be added or removed by hand.
         */}
+        {isStrip && (
+          // Vertical strips only: the seam belongs to the panel that follows it, so a scene change is authored on
+          // the panel that opens the new scene. The first panel of a strip ignores its own seam.
+          <Field
+            label="Seam above this panel"
+            hint="How this panel meets the one before it in the scrolling strip. Size is in strip pixels; blank uses the project gap."
+          >
+            <div className="grid grid-cols-2 gap-1.5">
+              <select
+                className="input text-xs"
+                aria-label="Seam kind"
+                value={seam?.kind ?? "gap"}
+                onChange={(e) => {
+                  const kind = e.target.value as NonNullable<EditorPanel["seam"]>["kind"];
+                  patchPanel.mutate({ seam: kind === "gap" && !seam?.size ? null : { ...seam, kind } });
+                }}
+              >
+                <option value="gap">Gap — separate beats</option>
+                <option value="butt">No gap — continuous action</option>
+                <option value="bleed">Overlap — hard edge</option>
+                <option value="dissolve">Overlap — blended</option>
+                <option value="fade">Fade through a colour</option>
+              </select>
+              <input
+                className="input text-xs"
+                type="number"
+                min={0}
+                max={2000}
+                step={10}
+                aria-label="Seam size in pixels"
+                placeholder="size (px)"
+                value={seam?.size ?? ""}
+                onChange={(e) => {
+                  const size = e.target.value === "" ? undefined : Math.max(0, Number(e.target.value));
+                  patchPanel.mutate({ seam: { kind: seam?.kind ?? "gap", ...seam, size } });
+                }}
+              />
+            </div>
+            {seam?.kind === "fade" && (
+              <input
+                className="input mt-1.5 text-xs"
+                aria-label="Fade colour"
+                placeholder="#000000 (defaults to the strip background)"
+                value={seam.color ?? ""}
+                onChange={(e) => {
+                  const color = e.target.value.trim();
+                  patchPanel.mutate({ seam: { ...seam, color: /^#[0-9a-fA-F]{6}$/.test(color) ? color : undefined } });
+                }}
+              />
+            )}
+          </Field>
+        )}
+
         <Field label="Props" hint="Attached props are described in the prompt and their references are sent.">
           <div className="flex flex-wrap gap-1">
             {props.data?.map((p) => {
