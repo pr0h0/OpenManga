@@ -328,14 +328,14 @@ test("a text job batches by collecting its own handler's request, then replaying
 
   // The handler now runs for real and applies the batched answer: a new story revision.
   //
-  // The poll above republished this job, and the harness runs a live text worker, so driving it here as well can
-  // run the handler twice — two revisions and two usage rows, which is what made this test flaky in CI. Claim the
-  // queue entry first: if it is still waiting, this is the only runner; if the worker already took it, let that
-  // run stand and wait for it instead of racing it.
-  const claimed = await h.deps.queue.removeWaiting("text-ai", r.job.id);
-  // Not claimed and not in Redis at all means nothing else will run it, so drive it here rather than wait forever.
-  const workerHasIt = !claimed && (await h.deps.queue.has("text-ai", r.job.id));
-  if (!workerHasIt)
+  // The poll above republished this job and the harness runs a live text worker, so driving it here as well can
+  // run the handler twice — two revisions and two usage rows. Take the queue entry away first, then let the job
+  // row decide who runs it: `queued` means nothing has started and this is the only runner, anything else means
+  // the worker already has it (or finished it) and the run to wait for is that one. Redis alone is not enough to
+  // decide — a job the worker has already completed is gone from Redis, which reads the same as never queued.
+  await h.deps.queue.removeWaiting("text-ai", r.job.id).catch(() => false);
+  const [claim] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+  if (claim?.status === "queued")
     await runGenerationJob(
       h.workerDeps,
       { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
