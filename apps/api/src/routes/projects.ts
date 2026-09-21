@@ -1,6 +1,7 @@
 import {
   and,
   assets,
+  assetVariants,
   auditEvents,
   chapters,
   characterAliases,
@@ -345,14 +346,25 @@ projectRoutes.delete("/:projectId", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "delete");
   if (!p.deletedAt) throw badRequest("Move the project to trash before deleting it permanently");
   const deps = c.get("deps");
-  const files = await deps.db.select().from(assets).where(eq(assets.projectId, p.id));
+  // Both levels, collected before the rows go: a derivative's key lives on asset_variants, which cascades away
+  // with the asset, so deleting only assets.storage_key left every thumbnail and prompt reference on disk with
+  // nothing left in the database to find it by. One project's worth measured 1.2 GB of unreachable files.
+  const files = await deps.db
+    .select({ key: assets.storageKey })
+    .from(assets)
+    .where(eq(assets.projectId, p.id));
+  const derivatives = await deps.db
+    .select({ key: assetVariants.storageKey })
+    .from(assetVariants)
+    .innerJoin(assets, eq(assets.id, assetVariants.assetId))
+    .where(eq(assets.projectId, p.id));
   await deps.db.delete(projects).where(eq(projects.id, p.id));
-  for (const a of files) await deps.assets.storage.delete(a.storageKey).catch(() => {});
+  for (const { key } of [...files, ...derivatives]) await deps.assets.storage.delete(key).catch(() => {});
   await recordAudit(deps.db, {
     userId: user(c).id,
     projectId: p.id,
     action: "project.delete_permanent",
-    metadata: { title: p.title, files: files.length },
+    metadata: { title: p.title, files: files.length, derivatives: derivatives.length },
     requestId: c.get("requestId"),
   });
   return c.json({ ok: true });

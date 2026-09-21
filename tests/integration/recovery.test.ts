@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { assets, eq, exportJobs, generationJobs, generationOutputs, inArray, sql } from "@openmanga/db";
+import { assets, assetVariants, eq, exportJobs, generationJobs, generationOutputs, inArray, sql } from "@openmanga/db";
 import { runMaintenance } from "../../apps/worker/src/handlers/maintenance.ts";
 import { runGenerationJob } from "../../apps/worker/src/lib/runner.ts";
 import { startHarness, type TestClient } from "./harness.ts";
@@ -185,5 +185,50 @@ describe("batch submitter died", () => {
     expect(failed.status).toBe("failed");
     expect(failed.failureCode).toBe("batch_submit_failed");
     expect(rows.find((r) => r.id === pending.panel)!.status).toBe("queued");
+  });
+});
+
+describe("permanently deleting a project", () => {
+  // The leak this covers: only assets.storage_key was deleted, so every derivative (thumbnails, prompt
+  // references) stayed on disk with nothing left in the database pointing at it. Measured at 1.2 GB of
+  // unreachable files on one instance.
+  test("takes both the asset files and their derivatives with it", async () => {
+    const p = await alice.post<{ project: { id: string } }>("/api/projects", { title: "Leak check" }, 201);
+    const mainKey = "panel_art/de/ad/leakcheck-main.png";
+    const derivedKey = "thumbnail/de/ad/leakcheck-thumb.webp";
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    await h.deps.assets.storage.put(mainKey, bytes);
+    await h.deps.assets.storage.put(derivedKey, bytes);
+    const [asset] = await h.deps.db
+      .insert(assets)
+      .values({
+        projectId: p.project.id,
+        type: "panel_art",
+        storageKey: mainKey,
+        mimeType: "image/png",
+        byteSize: bytes.byteLength,
+        sha256: "deadbeef",
+      })
+      .returning();
+    await h.deps.db.insert(assetVariants).values({
+      assetId: asset!.id,
+      variant: "thumbnail",
+      storageKey: derivedKey,
+      mimeType: "image/webp",
+      byteSize: bytes.byteLength,
+      cacheKey: "leakcheck-cache",
+      width: 2,
+      height: 2,
+      sha256: "deadbeef",
+    });
+    expect(await h.deps.assets.storage.exists(mainKey)).toBe(true);
+    expect(await h.deps.assets.storage.exists(derivedKey)).toBe(true);
+
+    // Permanent deletion requires the trash step first, as the endpoint insists.
+    await alice.post(`/api/projects/${p.project.id}/status`, { action: "trash" });
+    await alice.raw("DELETE", `/api/projects/${p.project.id}`);
+
+    expect(await h.deps.assets.storage.exists(mainKey)).toBe(false);
+    expect(await h.deps.assets.storage.exists(derivedKey)).toBe(false);
   });
 });
