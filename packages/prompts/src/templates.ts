@@ -560,9 +560,11 @@ export const stripPlanningV1 = defineTextTemplate<Parameters<typeof chapterPlann
       PLAN_PAGES_V5,
       [
         'STRIP: every page is exactly ONE full-width panel with layoutTemplate "full-page". Use page purpose for what the panel is for and pacing for its rhythm.',
-        'HEIGHT IS YOUR PACING: a panel\'s height is how long the reader spends on it. Ask for a short, wide panel for a quick cut or a reaction, a tall panel for a fall, a reveal, a landscape or a slow moment. Say which you want in visualEmphasis (for example "short wide beat" or "tall vertical drop").',
+        'HEIGHT IS PACING: set each panel\'s `height` to how long the reader should spend on it. "short" is a wide beat that reads fast (a reaction, a cut-in, an establishing sliver), "normal" is the default, "tall" holds a moment (a reveal, a landscape, a slow turn), "very-tall" is for a fall, a drop, a long climb or one image the reader scrolls through.',
+        'SEAMS: set each panel\'s `seam` to how it meets the panel above it. "butt" for the same action continuing with no break. "dissolve" when two moments should merge softly, "bleed" for an overlap with a hard edge. "fade" with a dark `color` for a change of scene, place or time. "gap" for an ordinary beat change, which is what you get if you say nothing. The first panel of a chapter needs no seam.',
+        "Do not put a gap between every panel: a column of separate pictures is exactly what this format is not. Most seams inside one action should be butt, bleed or dissolve, and gaps should mark a change of beat.",
         "CONTINUITY: consecutive panels inside one action should read as the same moment continuing — keep the camera, the light and the background consistent across them, and let the action advance by a small step rather than cutting elsewhere. Start a new scene only when the story changes place or time.",
-        "A fight or chase is a run of such panels: a few beats of contact, then a panel that jumps the action forward (name what changed in continuityRequirements), not one panel per punch.",
+        "A fight or chase is a run of such panels: a few beats of contact joined with butt or dissolve seams, then a panel that jumps the action forward (name what changed in continuityRequirements), not one panel per punch.",
       ].join(" "),
     ),
   build(i) {

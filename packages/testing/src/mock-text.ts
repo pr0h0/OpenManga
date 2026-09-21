@@ -191,6 +191,9 @@ const ANGLES = ["eye-level", "low", "eye-level", "high", "over-shoulder", "eye-l
 /** Deterministic chapter plan: 1-2 scenes, 2 pages/scene, 3-4 panels/page, dialogue from quotes. */
 const stripHeadings = (t: string) => t.replace(/^\s*(?:chapter|episode|part)\s+[\w\d]+[^\n]*$/gim, "");
 
+const STRIP_HEIGHTS = ["normal", "short", "tall", "normal", "very-tall"] as const;
+const STRIP_SEAMS = ["gap", "butt", "dissolve", "fade", "bleed"] as const;
+
 export function mockChapterPlan(projectData: ProjectData, chapterText: string, templateKeys: string[]): ChapterPlan {
   const sents = sentences(stripHeadings(chapterText));
   const chars = projectData.characters ?? [];
@@ -241,6 +244,10 @@ export function mockChapterPlan(projectData: ProjectData, chapterText: string, t
             dialogueIds: [],
             narrationIds: [],
             sfxIds: [],
+            // Vertical strips read these; paged and film projects ignore them. Varied deterministically so a
+            // test sees real pacing and real transitions rather than one repeated value.
+            height: STRIP_HEIGHTS[(k + pi) % STRIP_HEIGHTS.length]!,
+            seam: { kind: STRIP_SEAMS[(k + pi) % STRIP_SEAMS.length]! },
           },
           dialogue: quote
             ? [{ speaker, text: quote.slice(0, 120), kind: s.includes("!") ? ("shout" as const) : ("normal" as const) }]

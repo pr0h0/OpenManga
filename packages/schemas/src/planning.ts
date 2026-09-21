@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PanelSeam, StripPanelHeight } from "./editor.ts";
 
 const str = z.string().trim();
 const optStr = z.string().trim().optional().default("");
@@ -61,6 +62,14 @@ export const PanelSpec = z.object({
   dialogueIds: strList,
   narrationIds: strList,
   sfxIds: strList,
+  /**
+   * Vertical strips only, both ignored by paged and film projects.
+   *
+   * `height` is pacing: how long the reader spends on this panel. `seam` is the transition into it, so a scene
+   * change is authored on the panel that opens the new scene.
+   */
+  height: StripPanelHeight.optional(),
+  seam: PanelSeam.optional(),
 });
 export type PanelSpec = z.infer<typeof PanelSpec>;
 

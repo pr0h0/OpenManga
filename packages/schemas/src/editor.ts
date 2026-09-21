@@ -156,6 +156,23 @@ export const PanelSeam = z.object({
 export type PanelSeam = z.infer<typeof PanelSeam>;
 
 /**
+ * How tall a strip panel is, as pacing rather than pixels: a wide establishing beat reads fast, a very tall panel
+ * holds the reader on one moment. The ratios are of the strip's width, and the two most common ones are shapes
+ * every image provider offers exactly, so the art is generated at the shape it is shown at.
+ */
+export const StripPanelHeight = z.enum(["short", "normal", "tall", "very-tall"]);
+export type StripPanelHeight = z.infer<typeof StripPanelHeight>;
+export const STRIP_HEIGHT_RATIOS: Record<StripPanelHeight, number> = {
+  short: 0.75,
+  normal: 1.5,
+  tall: 1.8,
+  "very-tall": 3,
+};
+/** The authoring page height for a strip panel of this pacing, at a given strip width. */
+export const stripPageHeight = (width: number, height: StripPanelHeight = "normal") =>
+  Math.round(width * STRIP_HEIGHT_RATIOS[height]);
+
+/**
  * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
  * server default still applies and a project created before the preference existed is untouched.
  */
