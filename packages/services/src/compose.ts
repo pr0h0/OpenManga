@@ -10,11 +10,17 @@ import {
   panels,
   soundEffects,
 } from "@openmanga/db";
-import { bubbleGeometry, layoutBubbleText, readingOrder } from "@openmanga/domain";
+import {
+  bubbleGeometry,
+  featherMask,
+  layoutBubbleText,
+  readingOrder,
+  type StripBlock,
+  stripLayout,
+} from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
 import type { Bubble, Frame, ImageTransform, PanelSeam, SfxStyle } from "@openmanga/schemas";
 import type { AssetStorage } from "@openmanga/storage";
-import { featherMask, type StripBlock, stripLayout } from "./strip.ts";
 
 export type RenderPanel = {
   id: string;

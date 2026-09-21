@@ -1,7 +1,12 @@
 import type { PanelSeam } from "@openmanga/schemas";
 
-/** One panel, already rasterised at the strip's width. `seam` describes how it meets the block before it. */
-export type StripBlock = { data: Uint8Array; height: number; seam?: PanelSeam | null };
+/**
+ * Anything the layout needs to know about a block: how tall it is, and how it meets the block before it. The
+ * reader passes image URLs and the export passes pixels, so the arithmetic is deliberately blind to both.
+ */
+export type SeamedBlock = { height: number; seam?: PanelSeam | null };
+/** A block with its pixels, as the export stitches them. */
+export type StripBlock = SeamedBlock & { data: Uint8Array };
 
 export type StripLayout = {
   /** Where each block's top edge sits. Blocks may overlap, so these are not cumulative heights. */
@@ -22,7 +27,7 @@ export type StripLayout = {
  * sum of its parts, a fade band with nothing behind it, a chunk boundary cutting a dissolve in half), and it is
  * worth checking without rendering anything.
  */
-export function stripLayout(blocks: StripBlock[], opts: { gap: number; background?: string }): StripLayout {
+export function stripLayout(blocks: SeamedBlock[], opts: { gap: number; background?: string }): StripLayout {
   const layout: StripLayout = { placements: [], bands: [], feathers: [], height: 0, breakable: [] };
   let cursor = 0;
   for (const [index, block] of blocks.entries()) {
@@ -69,11 +74,11 @@ export function stripLayout(blocks: StripBlock[], opts: { gap: number; backgroun
  * Splits a strip into files no taller than `maxHeight`, cutting only where a seam allows it. A run of blended
  * panels that is itself taller than the limit goes out oversized rather than torn in half.
  */
-export function chunkStrip(blocks: StripBlock[], maxHeight: number, opts: { gap: number }): StripBlock[][] {
+export function chunkStrip<T extends SeamedBlock>(blocks: T[], maxHeight: number, opts: { gap: number }): T[][] {
   if (blocks.length === 0) return [];
   const layout = stripLayout(blocks, opts);
   const breakable = new Set(layout.breakable);
-  const chunks: StripBlock[][] = [];
+  const chunks: T[][] = [];
   let start = 0;
   let lastBreak = 0;
   for (let i = 1; i < blocks.length; i++) {

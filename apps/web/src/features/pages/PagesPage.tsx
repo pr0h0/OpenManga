@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { ArrowDown, ArrowUp, LayoutGrid, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, LayoutGrid, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { assetUrl, del, get, patch, post } from "../../api/client.ts";
 import { qk, useAction, useMeta } from "../../api/hooks.ts";
@@ -16,7 +16,7 @@ import {
   StatusChip,
 } from "../../components/ui.tsx";
 import { ActiveBatches } from "../generation/BatchStatus.tsx";
-import { useProjectId } from "../project/ProjectLayout.tsx";
+import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { BulkGenerateButton, LayoutThumb } from "./BulkGenerate.tsx";
 
 /**
@@ -95,6 +95,7 @@ export function PagesPage() {
     enabled: Boolean(chapterId),
   });
   const { data: meta } = useMeta();
+  const isStrip = useProject().data?.project.settings.format === "vertical";
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const inv = [qk.chapter(chapterId ?? ""), qk.chapters(projectId)];
@@ -180,6 +181,16 @@ export function PagesPage() {
                 label="Generate chapter"
                 className="btn-secondary"
               />
+            )}
+            {isStrip && chapterId && (
+              <Link
+                to="/projects/$projectId/read"
+                params={{ projectId }}
+                search={{ chapterId }}
+                className="btn-secondary"
+              >
+                <BookOpen className="size-4" /> Read strip
+              </Link>
             )}
             <button type="button" className="btn-primary" onClick={() => setAdding(true)} disabled={!chapterId}>
               <Plus className="size-4" /> Add page

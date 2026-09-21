@@ -215,6 +215,13 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/read",
+    validateSearch: chapterSearch,
+    staticData: { title: "Read" },
+    component: lazyRouteComponent(() => import("./features/pages/StripReader.tsx"), "StripReaderPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/generation",
     staticData: { title: "Generation" },
     component: lazyRouteComponent(() => import("./features/generation/GenerationPage.tsx"), "GenerationPage"),
