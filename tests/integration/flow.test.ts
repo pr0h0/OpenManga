@@ -563,6 +563,21 @@ describe("full production flow (mock AI)", () => {
       },
       { label: "tts" },
     );
+    // Project-wide synthesis progress: the editor shows one chapter, this is how a run across several is watched.
+    const prog = await alice.get<{
+      language: string;
+      chapters: { id: string; segments: number; withAudio: number; queued: number; processing: number }[];
+      totals: { chapters: number; segments: number; withAudio: number; queued: number; processing: number };
+    }>(`/api/projects/${projectId}/narration/progress`);
+    const mine = prog.chapters.find((ch) => ch.id === chapterId)!;
+    expect(mine.segments).toBeGreaterThan(0);
+    // Everything finished above, so every segment has audio and nothing is left running.
+    expect(mine.withAudio).toBe(mine.segments);
+    expect(prog.totals.withAudio).toBe(prog.totals.segments);
+    expect(prog.totals.queued + prog.totals.processing).toBe(0);
+    // Chapters with no narration in this language are left out rather than listed as 0/0.
+    expect(prog.chapters.every((ch) => ch.segments > 0)).toBe(true);
+
     const tl = await alice.get<{ segments: { startMs: number; durationMs: number }[]; totalDurationMs: number }>(
       `/api/chapters/${chapterId}/narration/timeline`,
     );

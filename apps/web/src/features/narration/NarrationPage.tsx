@@ -12,6 +12,7 @@ import { JsonBlock } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { ChapterPlayer } from "./ChapterPlayer.tsx";
 import { LineEditor } from "./LineEditor.tsx";
+import { SynthesisProgress } from "./SynthesisProgress.tsx";
 
 function TtsBanner({ status }: { status: TtsStatus | undefined }) {
   if (!status) return null;
@@ -208,6 +209,7 @@ export function NarrationPage() {
           </select>
         }
       />
+      <SynthesisProgress projectId={projectId} language={lang} />
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
         <label className="flex items-center gap-2">
           Narration language

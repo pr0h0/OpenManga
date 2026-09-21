@@ -42,7 +42,7 @@ import {
   textRun,
   ttsRun,
 } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { rateLimit } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 
@@ -725,6 +725,72 @@ audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
   });
   await deps.jobs.kick();
   return c.json({ batchId, queued, total: segs.length, skippedOverCap }, 202);
+});
+
+const ProgressQuery = z.object({ language: z.string().trim().min(2).max(16).optional() });
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/narration/progress",
+  summary: "Synthesis progress per chapter: segments, how many have audio, and what is still running",
+  tag: "narration",
+  query: ProgressQuery,
+});
+audioRoutes.get("/projects/:projectId/narration/progress", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const language = query(c, ProgressQuery).language || p.language;
+  // One query for the whole project: synthesis runs chapter by chapter but is watched across all of them, and a
+  // request per chapter would be a dozen round trips for a screen that polls.
+  const rows = await c.get("deps").db.execute<{
+    id: string;
+    title: string;
+    order: number;
+    lines: number;
+    segments: number;
+    with_audio: number;
+    queued: number;
+    processing: number;
+    failed: number;
+  }>(sql`
+    select ch.id, ch.title, ch."order",
+      count(distinct nl.id)::int as lines,
+      count(ns.id)::int as segments,
+      count(ns.id) filter (where ns.active_audio_asset_id is not null)::int as with_audio,
+      count(aj.id) filter (where aj.status = 'queued')::int as queued,
+      count(aj.id) filter (where aj.status = 'processing')::int as processing,
+      count(aj.id) filter (where aj.status = 'failed')::int as failed
+    from chapters ch
+    left join narration_lines nl on nl.chapter_id = ch.id and nl.language = ${language}
+    left join narration_segments ns on ns.narration_line_id = nl.id
+    left join audio_jobs aj on aj.segment_id = ns.id
+    where ch.project_id = ${p.id}
+    group by ch.id, ch.title, ch."order"
+    having count(ns.id) > 0
+    order by ch."order"`);
+  const chapters = [...rows].map((r) => ({
+    id: r.id,
+    title: r.title,
+    order: r.order,
+    lines: r.lines,
+    segments: r.segments,
+    withAudio: r.with_audio,
+    queued: r.queued,
+    processing: r.processing,
+    failed: r.failed,
+  }));
+  const sum = (k: "segments" | "withAudio" | "queued" | "processing" | "failed") =>
+    chapters.reduce((n, ch) => n + ch[k], 0);
+  return c.json({
+    language,
+    chapters,
+    totals: {
+      chapters: chapters.length,
+      segments: sum("segments"),
+      withAudio: sum("withAudio"),
+      queued: sum("queued"),
+      processing: sum("processing"),
+      failed: sum("failed"),
+    },
+  });
 });
 
 doc({
