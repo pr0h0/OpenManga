@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
-## [0.5.0] — 2026-09-21
+## [0.5.0] — 2026-09-22
 
 Upgrading: pull the new images and restart. One migration (`0012_panel_seam`) runs automatically and adds a
 nullable column, so existing projects are untouched and nothing needs doing per project. Comic and film projects
@@ -34,6 +34,11 @@ behave exactly as before; the new format is only offered to projects created as 
   rest had finished, stalled or failed without opening each one.
 - **An account can set the narration voice new projects start with**, instead of every project defaulting to the
   same built-in voice and having to be changed by hand.
+- **A vertical strip letters itself.** A strip was planned with dialogue, captions and sound effects and then drew
+  none of them, because auto-placement is what turns a planned line into a balloon on the page and it is off by
+  default for every format. It is now on for new strips only: a comic page is composed around its balloons and a
+  planner's guess lands badly on a multi-panel layout, while a strip panel is one full-width frame with only one
+  place a balloon can go. Comic and film are unchanged, and a strip's owner can still turn it off in settings.
 
 ### Fixed
 
@@ -46,9 +51,15 @@ behave exactly as before; the new format is only offered to projects created as 
   the *previous* state of the checkbox, because the re-price read the value from a stale closure — so the
   estimate was always one click behind. Two things that made it worse are fixed with it: the dialog no longer
   closes on every toggle, and a figure is shown only when it matches the current setting.
-- **A replayed batch job decides who runs it from its own row, not from Redis.** Absence from the queue was read
-  as "nobody will run this", but a job that has already finished is equally absent, so a replay could run the
-  handler twice and bill twice.
+- **A generation job is claimed rather than merely announced, so it can never run twice.** The runner read a
+  job's status, checked every guard against what it read, and then marked the row `processing` unconditionally —
+  so two runners that both saw `queued` both passed the guards and both called the provider: two charges and two
+  usage rows for one job. This is the shared runner, so it affected every kind of generation, not only the batch
+  replay where it was noticed (a batch poller republishes a parked job while a worker may still hold it).
+  Claiming is now a compare-and-swap on the status and attempt count that were read; the runner that loses the
+  race returns without spending money or an attempt. The crash-recovery path got the matching guard from the
+  other side: a job found mid-run with nothing to recover is only taken over once its previous runner cannot
+  still be alive, rather than immediately.
 - **A batch check says what it is actually doing.** Reported as "manual poll doesn't fetch results" — it did,
   and took 72 seconds to do it, because ingesting 100 panels means downloading and storing 100 images. For that
   whole minute the toast said only "checking the provider for results", so a working poll looked idle and a
