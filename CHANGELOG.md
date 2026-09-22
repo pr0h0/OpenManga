@@ -25,6 +25,11 @@ behave exactly as before; the new format is only offered to projects created as 
   planning also picks each panel's height, so pacing and transitions come out of the same pass that writes the
   dialogue. A strip is planned from **page** planning rather than shot planning, so speech, captions and sound
   effects carry over: only the geometry changes.
+- **A seam takes its room from the panels it joins**, rather than one number for the whole chapter. A gap is 8%
+  of the shorter panel it sits between, a fade band 10%, an overlap 15% — so spacing follows the pacing instead
+  of holding a fixed rhythm down a chapter whose panels vary from short beats to full-screen drops. Setting a
+  seam's size by hand still overrides the ratio. Panels with no seam at all keep the project gutter, which is
+  what a comic or film webtoon export stacks with, so those exports are byte-for-byte unchanged.
 - **A chapter can be read as one continuous column in the app** (`/read`), stacking the same page renders the
   editor produces — so lettering is already composed in — positioned by the same arithmetic the export uses.
   What you scroll is what gets stitched; the integration test asserts the exported image's real pixel height
