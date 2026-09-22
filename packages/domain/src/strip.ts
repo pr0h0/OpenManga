@@ -1,4 +1,4 @@
-import type { PanelSeam } from "@openmanga/schemas";
+import { type PanelSeam, STRIP_SEAM_RATIOS } from "@openmanga/schemas";
 
 /**
  * Anything the layout needs to know about a block: how tall it is, and how it meets the block before it. The
@@ -41,15 +41,17 @@ export function stripLayout(blocks: SeamedBlock[], opts: { gap: number; backgrou
     } else if (kind === "butt") {
       layout.breakable.push(index);
     } else if (kind === "gap") {
-      cursor += size ?? opts.gap;
+      // An authored gap scales with the panels it joins; an absent seam keeps the project gutter, which is what
+      // a comic or film webtoon export stacks with and must not change.
+      cursor += size ?? (seam ? Math.round(room * STRIP_SEAM_RATIOS.gap) : opts.gap);
       layout.breakable.push(index);
     } else if (kind === "bleed" || kind === "dissolve") {
-      const overlap = Math.max(1, Math.min(size ?? Math.round(room * 0.15), room - 1));
+      const overlap = Math.max(1, Math.min(size ?? Math.round(room * STRIP_SEAM_RATIOS.overlap), room - 1));
       cursor -= overlap;
       // dissolve ramps the incoming edge in; bleed keeps a hard edge and simply sits on top.
       if (kind === "dissolve") layout.feathers.push({ index, top: overlap, bottom: 0 });
     } else if (kind === "fade") {
-      const band = Math.max(1, Math.min(size ?? opts.gap * 2, room - 1));
+      const band = Math.max(1, Math.min(size ?? Math.round(room * STRIP_SEAM_RATIOS.fade), room - 1));
       // Paint the colour across both faded edges and the space between them, then fade each edge into it.
       layout.bands.push({
         top: cursor - band,

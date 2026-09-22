@@ -175,6 +175,23 @@ export const STRIP_HEIGHT_RATIOS: Record<StripPanelHeight, number> = {
   tall: 1.8,
   "very-tall": 3,
 };
+/**
+ * How much room an authored seam takes, as a fraction of the shorter of the two panels it joins — so spacing
+ * scales with the art rather than being one number for the whole chapter. A project-wide gutter made every seam
+ * in a strip identical, which reads as a fixed rhythm no matter how the panels are paced.
+ *
+ * Only an explicitly authored seam uses these. A block with no seam keeps the project gutter, which is what a
+ * comic or film webtoon export stacks with, so those are unaffected.
+ */
+export const STRIP_SEAM_RATIOS = {
+  /** Background between two panels: a beat change. */
+  gap: 0.08,
+  /** The flat band a scene break fades through; painted three times this tall, across both faded edges. */
+  fade: 0.1,
+  /** How far a bleed or dissolve overlaps its neighbour. */
+  overlap: 0.15,
+} as const;
+
 /** The authoring page height for a strip panel of this pacing, at a given strip width. */
 export const stripPageHeight = (width: number, height: StripPanelHeight = "normal") =>
   Math.round(width * STRIP_HEIGHT_RATIOS[height]);
