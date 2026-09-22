@@ -85,3 +85,35 @@ test("the feather mask ramps only the edges asked for", () => {
   expect(topOnly).toContain('<stop offset="1" stop-color="#fff" stop-opacity="1"/>');
   expect(topOnly).not.toContain('stop-opacity="0"/></linearGradient>');
 });
+
+test("an authored gap scales with the panels it joins, so spacing is not one number per chapter", () => {
+  // Same seam, different neighbours: the shorter panel decides, so a tight beat sits closer than a long one.
+  const short = stripLayout([block(400), block(400, { kind: "gap" })], { gap: 40 });
+  const tall = stripLayout([block(2000), block(2000, { kind: "gap" })], { gap: 40 });
+  expect(short.placements[1]!.top).toBe(400 + Math.round(400 * 0.08));
+  expect(tall.placements[1]!.top).toBe(2000 + Math.round(2000 * 0.08));
+  // The point of the change: two gaps in one strip are no longer the same height.
+  expect(short.placements[1]!.top - 400).not.toBe(tall.placements[1]!.top - 2000);
+  // And it is bigger than the flat gutter it replaces, which is what made a strip read as separate pictures.
+  expect(tall.placements[1]!.top - 2000).toBeGreaterThan(40);
+});
+
+test("a block with no seam still uses the project gutter, so comic and film exports are untouched", () => {
+  // The same two blocks: authored gap scales, absent seam does not. This is the whole compatibility guarantee.
+  const authored = stripLayout([block(1000), block(1000, { kind: "gap" })], { gap: 40 });
+  const absent = stripLayout([block(1000), block(1000)], { gap: 40 });
+  expect(absent.placements[1]!.top).toBe(1040);
+  expect(authored.placements[1]!.top).toBe(1080);
+});
+
+test("an authored size still wins over the ratio", () => {
+  expect(tops([block(1000), block(1000, { kind: "gap", size: 12 })])).toEqual([0, 1012]);
+  expect(stripLayout([block(1000), block(1000, { kind: "fade", size: 30 })], { gap: 40 }).bands[0]!.height).toBe(90);
+});
+
+test("a fade band scales with its panels too", () => {
+  const l = stripLayout([block(1000), block(1000, { kind: "fade" })], { gap: 40 });
+  const band = Math.round(1000 * 0.1);
+  expect(l.bands[0]!.height).toBe(band * 3);
+  expect(l.placements[1]!.top).toBe(1000 + band);
+});
