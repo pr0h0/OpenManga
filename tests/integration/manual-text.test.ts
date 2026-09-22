@@ -106,3 +106,58 @@ test("a job that is not a manual run has no prompt to answer", async () => {
   const res = await alice.raw("GET", `/api/generations/${real.job.id}/manual`);
   expect(res.status).toBe(409);
 });
+
+test("pasting a provider's own answer into another project produces the same result", async () => {
+  // The claim under test: a pasted answer is not a second-class input. So run one project through the provider,
+  // take the exact answer it gave, paste it into a second project, and compare what each produced.
+  const mk = async (title: string) => {
+    const p = await alice.post<{ project: { id: string } }>("/api/projects", { title, story: { content: STORY } }, 201);
+    const s = await alice.get<{ latest: { id: string } }>(`/api/projects/${p.project.id}/story`);
+    return { projectId: p.project.id, revisionId: s.latest.id };
+  };
+  const shape = async (projectId: string) => {
+    const [analysis] = await h.deps.db.select().from(storyAnalyses).where(eq(storyAnalyses.projectId, projectId));
+    await alice.post(`/api/story-analyses/${analysis!.id}/apply`, {});
+    const cast = await alice.get<{ characters: { name: string; role: string }[] }>(
+      `/api/projects/${projectId}/characters`,
+    );
+    const chapters = await alice.get<{ chapters: { order: number; title: string }[] }>(
+      `/api/projects/${projectId}/chapters`,
+    );
+    return {
+      result: analysis!.result,
+      characters: cast.characters.map((c) => `${c.role}:${c.name}`).sort(),
+      chapters: chapters.chapters.map((c) => `${c.order}:${c.title}`).sort(),
+    };
+  };
+
+  // A: the ordinary path, answered by the provider.
+  const a = await mk("Answered by the provider");
+  const aJob = await alice.post<{ job: { id: string } }>(`/api/story-revisions/${a.revisionId}/analyze`, {}, 202);
+  await waitFor(
+    async () => {
+      const [row] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, aJob.job.id));
+      return row?.status === "completed" ? row : null;
+    },
+    { label: "provider-answered analysis", timeoutMs: 30_000 },
+  );
+  const first = await shape(a.projectId);
+
+  // B: the same story, keyless, answered by pasting exactly what A's provider returned.
+  const b = await mk("Answered by hand");
+  const bJob = await alice.post<{ job: { id: string } }>(
+    `/api/story-revisions/${b.revisionId}/analyze`,
+    { ai: { manual: true } },
+    202,
+  );
+  jobId = bJob.job.id;
+  await waitForStatus("awaiting_input", "second project parked");
+  await alice.post(`/api/generations/${bJob.job.id}/manual`, { text: JSON.stringify(first.result) }, 202);
+  await waitForStatus("completed", "second project finished from the paste");
+  const second = await shape(b.projectId);
+
+  expect(second.result).toEqual(first.result);
+  expect(second.characters).toEqual(first.characters);
+  expect(second.chapters).toEqual(first.chapters);
+  expect(second.characters.length).toBeGreaterThan(0);
+});
