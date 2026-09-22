@@ -987,6 +987,52 @@ pageRoutes.post("/panels/:id/edit", async (c) => {
   return c.json({ job }, 202);
 });
 
+doc({
+  method: "POST",
+  path: "/api/panels/:id/artwork/upload",
+  summary: "Upload your own artwork for a panel (multipart: file) — fills the same slot generation would",
+  tag: "panels",
+});
+pageRoutes.post("/panels/:id/artwork/upload", async (c) => {
+  const { panel, project } = await loadPanel(c, uuidParam(c, "id"), "write");
+  if (panel.approvalStatus === "locked") throw conflict("Panel is locked");
+  const up = await readImageUpload(c);
+  const deps = c.get("deps");
+  const asset = await deps.assets.store({
+    projectId: project.id,
+    ownerUserId: user(c).id,
+    type: "panel_art",
+    data: up.data,
+    mimeType: up.mime,
+    width: up.width,
+    height: up.height,
+    // `panelId` is what makes this artwork *for this panel*: the version list and the activate route both key on
+    // it, and nothing else distinguishes an uploaded asset from a generated one. `generationJobId` stays null,
+    // which is why the version list joins the job table left rather than inner.
+    metadata: { panelId: panel.id, uploaded: true, originalName: up.originalName },
+  });
+  // Uploading is the whole point of the route, so the panel shows it immediately. Earlier versions stay in the
+  // history and can be brought back with the ordinary activate route.
+  await deps.db.update(panels).set({ activeArtworkAssetId: asset.id, status: "ready" }).where(eq(panels.id, panel.id));
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: project.id,
+    action: "panel.upload_artwork",
+    targetType: "panel",
+    targetId: panel.id,
+    metadata: { assetId: asset.id, bytes: up.data.byteLength, originalName: up.originalName },
+    requestId: c.get("requestId"),
+  });
+  return c.json(
+    {
+      asset: { id: asset.id, width: asset.width, height: asset.height },
+      activeAssetId: asset.id,
+      versions: await artworkVersions(deps.db, panel.id, project.id),
+    },
+    201,
+  );
+});
+
 doc({ method: "GET", path: "/api/panels/:id/versions", summary: "Artwork version history", tag: "panels" });
 pageRoutes.get("/panels/:id/versions", async (c) => {
   const { panel } = await loadPanel(c, uuidParam(c, "id"), "read");

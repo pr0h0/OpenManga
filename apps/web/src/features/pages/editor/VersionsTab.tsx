@@ -1,11 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, Columns2, Trash2 } from "lucide-react";
+import { CheckCircle2, Columns2, ImagePlus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { assetUrl, del, get, post } from "../../../api/client.ts";
+import { api, assetUrl, del, get, post } from "../../../api/client.ts";
 import { qk, useAction } from "../../../api/hooks.ts";
 import type { ArtworkVersion, EditorPanel } from "../../../api/types.ts";
-import { AssetImage, clsx, EmptyState, ErrorBox, fmt, Modal, Spinner } from "../../../components/ui.tsx";
+import { AssetImage, clsx, EmptyState, ErrorBox, fmt, Modal, Spinner, toast } from "../../../components/ui.tsx";
 import { useProjectId } from "../../project/ProjectLayout.tsx";
 
 export function VersionsTab({ panel, pageId }: { panel: EditorPanel; pageId: string }) {
@@ -16,6 +16,8 @@ export function VersionsTab({ panel, pageId }: { panel: EditorPanel; pageId: str
   });
   const [compare, setCompare] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const qc = useQueryClient();
   const inv = [qk.panel(panel.id), qk.page(pageId)];
   const activate = useAction((assetId: string) => post(`/panels/${panel.id}/versions/${assetId}/activate`), {
     invalidate: inv,
@@ -26,24 +28,66 @@ export function VersionsTab({ panel, pageId }: { panel: EditorPanel; pageId: str
     success: "Version moved to trash",
   });
 
+  const upload = async (file: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      await api(`/panels/${panel.id}/artwork/upload`, { method: "POST", body: form });
+      toast.success("Artwork uploaded");
+      for (const key of inv) qc.invalidateQueries({ queryKey: key });
+      await q.refetch();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setUploading(false);
+    }
+  };
+  // Uploading is how a panel gets artwork without a provider key at all, so it has to be reachable before any
+  // version exists — not only alongside a list of generated ones.
+  const uploadButton = (
+    <label className={clsx("btn-secondary cursor-pointer", uploading && "pointer-events-none opacity-50")}>
+      {uploading ? <Spinner /> : <ImagePlus className="size-4" />} Upload artwork
+      <input
+        type="file"
+        className="sr-only"
+        accept="image/png,image/jpeg,image/webp"
+        disabled={uploading}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) upload(f);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+
   if (q.isLoading) return <Spinner />;
   if (q.error) return <ErrorBox error={q.error} onRetry={() => q.refetch()} />;
   const versions = q.data?.versions ?? [];
   if (!versions.length)
-    return <EmptyState title="No artwork yet">Generate the panel to create its first version.</EmptyState>;
+    return (
+      <div className="space-y-3">
+        <EmptyState title="No artwork yet">Generate the panel, or upload your own image.</EmptyState>
+        <div className="flex justify-center">{uploadButton}</div>
+      </div>
+    );
   const byId = new Map(versions.map((v) => [v.assetId, v]));
   const toggle = (id: string) => setCompare((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c.slice(-1), id]));
 
   return (
     <div className="space-y-2 text-sm">
-      <button
-        type="button"
-        className="btn-secondary w-full"
-        disabled={compare.length !== 2}
-        onClick={() => setOpen(true)}
-      >
-        <Columns2 className="size-4" /> Compare selected ({compare.length}/2)
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="btn-secondary flex-1"
+          disabled={compare.length !== 2}
+          onClick={() => setOpen(true)}
+        >
+          <Columns2 className="size-4" /> Compare selected ({compare.length}/2)
+        </button>
+        {uploadButton}
+      </div>
       <ul className="space-y-2">
         {versions.map((v) => {
           const active = q.data?.activeAssetId === v.assetId;

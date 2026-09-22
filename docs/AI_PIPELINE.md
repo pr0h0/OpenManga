@@ -213,6 +213,27 @@ than an edit, so it works whatever the current version's status is and the previ
 and it is not made current, since approval is what promotes a version (see
 [IMAGE_REFERENCES](IMAGE_REFERENCES.md#which-version-a-panel-draws-from)).
 
+## Bring your own artwork
+
+`POST /api/panels/:id/artwork/upload` (multipart: `file`) puts an image you already have into the slot generation
+would have filled. PNG, JPEG or WebP, validated and re-encoded by the same upload path references use, so a
+truncated or mislabelled file is refused with a 415 rather than becoming a broken panel.
+
+Nothing downstream can tell the difference, and that is deliberate. An uploaded image is stored as a `panel_art`
+asset whose `metadata.panelId` names the panel — which is the only thing that makes any asset a version of a
+panel — and the panel's `activeArtworkAssetId` is pointed at it. Its `generationJobId` is simply null, which is
+why the version list joins the job table on the left: an uploaded version appears in the history beside generated
+ones, can be compared with them, superseded, trashed, or brought back with the ordinary
+`POST /api/panels/:id/versions/:assetId/activate`. Lettering, page render, webtoon stitching, PDF and video
+export all read the active artwork and never ask where it came from.
+
+The upload activates immediately, since that is the point of uploading. A locked panel refuses it, exactly as it
+refuses generation.
+
+In the app it is the **Upload artwork** button in the panel editor's Versions tab, offered whether or not the
+panel has any artwork yet — a panel with no versions is precisely the case where you have no key and a picture of
+your own.
+
 ## Provider batches (half price, up to 24h)
 
 Any image or text generation can be sent to a provider's batch API instead of running now, at half the
