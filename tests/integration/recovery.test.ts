@@ -68,7 +68,11 @@ describe("job redelivery", () => {
     expect(stored).toBeTruthy();
   });
 
-  test("a job with no output still runs its handler", async () => {
+  test("a job with no output still runs its handler once its runner is gone", async () => {
+    // Aged on purpose: a redelivery only arrives after the queue's lock expires, so a crashed run's row has been
+    // quiet for minutes by the time it comes back. A row written seconds ago means the opposite — its runner is
+    // still working — which is the case the test below covers.
+    const longAgo = new Date(Date.now() - 60 * 60_000);
     const [job] = await h.deps.db
       .insert(generationJobs)
       .values({
@@ -82,6 +86,8 @@ describe("job redelivery", () => {
         compiledPrompt: "x",
         provider: "fake",
         model: "fake",
+        startedAt: longAgo,
+        updatedAt: longAgo,
       })
       .returning();
     let handlerCalls = 0;
@@ -97,6 +103,41 @@ describe("job redelivery", () => {
     const [after] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
     expect(after!.status).toBe("completed");
     expect(await h.deps.db.execute(sql`select 1`)).toBeTruthy();
+  });
+
+  test("a job whose runner is still working is left alone", async () => {
+    // The other half of the same decision. Re-running here is how one job became two provider calls and two
+    // usage rows: a batch poller republishing a job a worker already holds looks exactly like a redelivery,
+    // except the row was written moments ago rather than left behind by a dead process.
+    const [job] = await h.deps.db
+      .insert(generationJobs)
+      .values({
+        projectId,
+        kind: "panel_generation",
+        queue: "image-generation",
+        status: "processing",
+        priority: 5,
+        templateName: "panel-generation",
+        templateVersion: 6,
+        compiledPrompt: "x",
+        provider: "fake",
+        model: "fake",
+        startedAt: new Date(),
+      })
+      .returning();
+    let handlerCalls = 0;
+    await runGenerationJob(
+      h.workerDeps,
+      { data: { jobId: job!.id }, queueName: "image-generation", attemptsMade: 1, opts: { attempts: 3 } } as never,
+      async () => {
+        handlerCalls++;
+        return { ok: true };
+      },
+    );
+    expect(handlerCalls).toBe(0);
+    // Left as it was for the runner that holds it, rather than failed or completed on its behalf.
+    const [after] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+    expect(after!.status).toBe("processing");
   });
 });
 

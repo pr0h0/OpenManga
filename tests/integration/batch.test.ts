@@ -338,29 +338,23 @@ test("a text job batches by collecting its own handler's request, then replaying
 
   // The handler now runs for real and applies the batched answer: a new story revision.
   //
-  // The poll above republished this job and the harness runs a live text worker, so driving it here as well can
-  // run the handler twice — two revisions and two usage rows. Take the queue entry away first, then let the job
-  // row decide who runs it: `queued` means nothing has started and this is the only runner, anything else means
-  // the worker already has it (or finished it) and the run to wait for is that one. Redis alone is not enough to
-  // decide — a job the worker has already completed is gone from Redis, which reads the same as never queued.
-  await h.deps.queue.removeWaiting("text-ai", r.job.id).catch(() => false);
-  const [claim] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
-  if (claim?.status === "queued")
-    await runGenerationJob(
-      h.workerDeps,
-      { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
-      (job) => storyRewrite(h.workerDeps, job),
-    );
-  else
-    await waitFor(
-      async () => {
-        const [j] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
-        return j?.status === "completed" ? j : null;
-      },
-      { label: "worker finished the replayed job" },
-    );
-  const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
-  expect(done!.status).toBe("completed");
+  // The poll above republished this job and the harness runs a live text worker, so this drives the same job the
+  // worker is about to pick up. Both are allowed to try: claiming a job is a compare-and-swap on the status and
+  // attempt count that were read, so exactly one runner proceeds and the other returns without calling the
+  // provider. Whoever wins, the answer is applied once — which is what the usage assertion below is really for.
+  await runGenerationJob(
+    h.workerDeps,
+    { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
+    (job) => storyRewrite(h.workerDeps, job),
+  );
+  const done = await waitFor(
+    async () => {
+      const [j] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+      return j?.status === "completed" ? j : null;
+    },
+    { label: "the replayed job finished" },
+  );
+  expect(done.status).toBe("completed");
   const revisions = await h.deps.db
     .select()
     .from(storyRevisions)
@@ -495,4 +489,40 @@ test("asking to poll now queues the sweep instead of waiting for the schedule", 
   expect(poll.queued).toBe(true);
   // Everything has been ingested by this point, so there is nothing left outstanding to report.
   expect(poll.outstanding).toBe(0);
+});
+
+test("two runners racing the same job run its handler once", async () => {
+  // The failure this guards against was a double charge, not a crash: a batch poller republishing a parked job
+  // while a worker still held it meant two handlers, two provider calls and two usage rows for one job. Driving
+  // the runner twice reproduces that directly rather than waiting for CI to lose the race by chance.
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({ projectId, kind: "story_rewrite", queue: "text-ai", status: "queued" })
+    .returning();
+  let calls = 0;
+  const handler = async () => {
+    calls += 1;
+    await new Promise((r) => setTimeout(r, 60));
+    return { ran: true };
+  };
+  const delivery = {
+    data: { jobId: job!.id },
+    queueName: "text-ai",
+    attemptsMade: 1,
+    opts: { attempts: 3 },
+  } as never;
+  await Promise.all([
+    runGenerationJob(h.workerDeps, delivery, handler),
+    runGenerationJob(h.workerDeps, delivery, handler),
+  ]);
+  expect(calls).toBe(1);
+
+  const [after] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(after!.status).toBe("completed");
+  // One claim, so one attempt: a losing runner must not even count against the retry budget.
+  expect(after!.attempts).toBe(1);
+
+  // And a redelivery after the work is done stays done instead of running again.
+  await runGenerationJob(h.workerDeps, delivery, handler);
+  expect(calls).toBe(1);
 });

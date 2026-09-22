@@ -1,5 +1,5 @@
 import { StructuredOutputError, type TextCallRecord } from "@openmanga/ai-text";
-import { asc, eq, generationJobs, generationOutputs, panels, sql } from "@openmanga/db";
+import { and, asc, eq, generationJobs, generationOutputs, panels, sql } from "@openmanga/db";
 import { ProviderError, policyCategories } from "@openmanga/domain";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { projectBudget, recordError } from "@openmanga/services";
@@ -8,6 +8,12 @@ import type { WorkerDeps } from "../context.ts";
 export type GenerationJob = typeof generationJobs.$inferSelect;
 
 export class JobCancelledError extends Error {}
+
+/**
+ * How quiet a `processing` row has to be before another runner may take it over. Tied to the queue's lock
+ * duration (`apps/worker/src/main.ts`), which is the soonest BullMQ will redeliver a job whose runner died.
+ */
+const RECLAIM_AFTER_MS = 10 * 60_000;
 
 /** Final/visible failure message: never a stack trace. */
 export function userFacingError(e: unknown): { code: string; message: string } {
@@ -111,6 +117,15 @@ export async function runGenerationJob(
       });
       return done!.result;
     }
+    // Nothing to recover from, so this would re-run the work. Only take the job over once its previous runner
+    // cannot still be alive: BullMQ renews a running job's lock and redelivers only after it expires (ten minutes
+    // on the shortest queue here), so a row written moments ago belongs to a runner that is still working. A
+    // second arrival that fast is a duplicate delivery, not a recovery, and running it buys the same work twice.
+    const quietMs = Date.now() - (job.updatedAt ?? job.startedAt ?? new Date(0)).getTime();
+    if (quietMs < RECLAIM_AFTER_MS) {
+      log.info("job is already running elsewhere; not running it twice", { kind: job.kind, quietMs });
+      return;
+    }
   }
 
   if (job.batchId && !(job.parameters as { allowOverBudget?: boolean } | null)?.allowOverBudget) {
@@ -128,6 +143,11 @@ export async function runGenerationJob(
     }
   }
 
+  // Claim the job, rather than simply announcing that we are running it. Everything above this line was read
+  // from a row that any other runner could also have read: a batch poller republishing a parked job, a stalled-job
+  // reclaim, a manual replay. Two readers both seeing "queued" used to mean two handlers, two provider calls and
+  // two usage rows for one job. The compare-and-swap is on the exact (status, attempts) that were read, so only
+  // the first writer proceeds and the loser leaves the work to whoever won.
   const [started] = await deps.db
     .update(generationJobs)
     .set({
@@ -135,9 +155,19 @@ export async function runGenerationJob(
       startedAt: job.startedAt ?? new Date(),
       attempts: sql`${generationJobs.attempts} + 1`,
     })
-    .where(eq(generationJobs.id, jobId))
+    .where(
+      and(
+        eq(generationJobs.id, jobId),
+        eq(generationJobs.status, job.status),
+        eq(generationJobs.attempts, job.attempts),
+      ),
+    )
     .returning();
-  await publishJob(deps, started!);
+  if (!started) {
+    log.info("another runner claimed this job first; not running it twice", { kind: job.kind });
+    return;
+  }
+  await publishJob(deps, started);
   if (job.targetType === "panel" && job.targetId) {
     await deps.db.update(panels).set({ status: "generating" }).where(eq(panels.id, job.targetId));
     await deps.events.publish(job.projectId, {
