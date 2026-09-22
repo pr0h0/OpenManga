@@ -15,6 +15,11 @@ export const AiChoiceInput = z
       .nullable()
       .optional(),
     model: z.string().trim().max(200).nullable().optional(),
+    /**
+     * Run without any provider: the job compiles its prompt, parks, and waits for an answer to be pasted in.
+     * Text only — an image cannot be produced by pasting, and is uploaded to the panel instead.
+     */
+    manual: z.boolean().optional(),
   })
   .nullable()
   .optional();
@@ -33,6 +38,10 @@ export const credentialsRequired = () =>
 /** Resolves (and validates) a text choice into the provider/model columns and job parameters. */
 export async function textRun(c: Context<AppEnv>, ai: AiChoiceInput) {
   const deps = c.get("deps");
+  // A keyless run resolves no provider because it has none: the job compiles its prompt, parks, and waits for an
+  // answer. Recorded on the job so the worker and every retry keep taking the same route.
+  if (ai?.manual)
+    return { provider: "manual", model: "manual", parameters: { manual: true as const, ai: { manual: true } } };
   if (isDefault(ai)) {
     if (!deps.providers.text) throw credentialsRequired();
     return { provider: deps.providers.text.provider, model: deps.providers.text.model, parameters: {} };

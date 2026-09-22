@@ -27,7 +27,14 @@ type AiOptions = {
   mockMode: boolean;
   credentials: Credential[];
 };
-type Choice = { credentialId: string | null; provider?: ProviderKind | null; model: string; voice?: string };
+type Choice = {
+  credentialId: string | null;
+  provider?: ProviderKind | null;
+  model: string;
+  voice?: string;
+  /** Text only: run with no provider at all and answer the prompt by hand. */
+  manual?: boolean;
+};
 
 export const aiOptionsKey = ["ai-options"] as const;
 export const useAiOptions = () =>
@@ -73,6 +80,9 @@ export function effectiveCredential(cap: AiCapability, c: Choice, o: AiOptions |
  */
 export function aiBody(cap: AiCapability, o: AiOptions | undefined) {
   const c = useAiChoices.getState()[cap];
+  // Manual answers nothing about a provider, so it has to short-circuit before any credential is considered:
+  // the whole point is that there is no key to fall back to.
+  if (cap === "text" && c.manual) return { ai: { manual: true } };
   const valid = effectiveCredential(cap, c, o)?.id ?? null;
   if (!valid && !c.model.trim()) return {};
   const body: { ai: { credentialId: string | null; model: string | null }; voice?: string } = {
@@ -90,6 +100,7 @@ export function useAiBody(cap: AiCapability) {
 }
 
 function choiceLabel(cap: AiCapability, c: Choice, o: AiOptions | undefined) {
+  if (cap === "text" && c.manual) return "Paste it yourself · no key";
   const cred = effectiveCredential(cap, c, o);
   if (cred) {
     const cat = providerCatalog(cred.kind);
@@ -149,9 +160,15 @@ export function ModelPicker({ cap }: { cap: AiCapability }) {
       <Field label={cap === "text" ? "Text provider" : cap === "image" ? "Image provider" : "Voice provider"}>
         <select
           className="input"
-          value={cred?.id ?? ""}
+          value={choice.manual ? "manual" : (cred?.id ?? "")}
           onChange={(e) =>
-            setChoice(cap, { credentialId: e.target.value || null, provider: null, model: "", voice: "" })
+            setChoice(cap, {
+              credentialId: e.target.value === "manual" ? null : e.target.value || null,
+              provider: null,
+              model: "",
+              voice: "",
+              manual: e.target.value === "manual",
+            })
           }
         >
           <option value="">
@@ -168,6 +185,8 @@ export function ModelPicker({ cap }: { cap: AiCapability }) {
               {c.label} — {providerCatalog(c.kind)?.label} {c.keyHint}
             </option>
           ))}
+          {/* Text only: an image cannot be pasted back as text, so a panel takes an upload instead. */}
+          {cap === "text" && <option value="manual">Paste it yourself — no key needed</option>}
         </select>
       </Field>
       {(cap !== "tts" || cred) && (

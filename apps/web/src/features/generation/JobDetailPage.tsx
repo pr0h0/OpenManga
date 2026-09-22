@@ -1,14 +1,84 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { ExternalLink, RotateCcw, XCircle } from "lucide-react";
+import { Check, ExternalLink, RotateCcw, Upload, XCircle } from "lucide-react";
+import { useState } from "react";
 import { assetUrl, get, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
 import type { JobDetail } from "../../api/types.ts";
-import { AssetImage, ErrorBox, fmt, KeyValue, PageHeader, Spinner, StatusChip } from "../../components/ui.tsx";
+import { AssetImage, ErrorBox, fmt, KeyValue, PageHeader, Spinner, StatusChip, toast } from "../../components/ui.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 import { CopyButton, JsonBlock, kindLabel } from "./shared.tsx";
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+
+/**
+ * The other half of a keyless run: the prompt is above, this is where the answer comes back. Held to exactly the
+ * schema a provider's answer is, so a rejected paste explains itself and can simply be pasted again.
+ */
+function ManualAnswer({
+  jobId,
+  lastError,
+  onSubmitted,
+}: {
+  jobId: string;
+  lastError: string | null;
+  onSubmitted: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const send = async (answer: string) => {
+    if (!answer.trim()) return;
+    setBusy(true);
+    try {
+      await post(`/generations/${jobId}/manual`, { text: answer.trim() });
+      toast.success("Answer submitted — checking it against the schema");
+      setText("");
+      onSubmitted();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card border-amber-500/40 p-4">
+      <h2 className="mb-1 font-medium">Waiting for your answer</h2>
+      <p className="muted mb-3 text-sm">
+        Copy the compiled prompt below into any chat, then paste the reply here. It is checked against the same schema a
+        provider's answer is, so nothing is applied until it fits.
+      </p>
+      {lastError && (
+        <p className="mb-3 rounded-lg bg-red-500/10 p-2 font-mono text-xs break-words text-red-500">{lastError}</p>
+      )}
+      <textarea
+        className="input min-h-40 font-mono text-xs"
+        placeholder="Paste the model's reply — JSON, optionally inside a code fence"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" className="btn-primary" disabled={busy || !text.trim()} onClick={() => send(text)}>
+          {busy ? <Spinner /> : <Check className="size-4" />} Submit answer
+        </button>
+        <label className="btn-secondary cursor-pointer">
+          <Upload className="size-4" /> Upload a file
+          <input
+            type="file"
+            className="sr-only"
+            accept=".json,.txt,application/json,text/plain"
+            disabled={busy}
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) await send(await f.text());
+            }}
+          />
+        </label>
+      </div>
+    </section>
+  );
+}
 
 export function JobDetailPage() {
   const projectId = useProjectId();
@@ -165,6 +235,10 @@ export function JobDetailPage() {
           </div>
         </section>
       </div>
+
+      {job.status === "awaiting_input" && (
+        <ManualAnswer jobId={job.id} lastError={job.failureReason} onSubmitted={() => q.refetch()} />
+      )}
 
       <section className="card p-4">
         <div className="mb-2 flex items-center justify-between">

@@ -59,6 +59,7 @@ import { applyChapterPlan, applyNarrationPauses } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
 import type { WorkerDeps } from "../context.ts";
+import { isManual, manualProvider, ParkedForManualInput } from "../lib/manual-provider.ts";
 import {
   type GenerationJob,
   InputError,
@@ -80,8 +81,11 @@ async function structured<T>(
   maxTokens = 32_000,
 ) {
   // In a batch run this wrapper either collects the request and parks the job, or replays the answer the batch
-  // returned — either way the handler around it is unchanged.
-  const provider = batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);
+  // returned — either way the handler around it is unchanged. A manual run is the same shape with a person in
+  // the provider's place, and resolves no credential because it has none to resolve.
+  const provider = isManual(job)
+    ? manualProvider(job)
+    : batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);
   const r = await provider.generateStructured({
     messages,
     schema,
@@ -137,7 +141,8 @@ export async function storyAnalysis(deps: WorkerDeps, job: GenerationJob) {
   } catch (e) {
     // Being collected for a batch is not a failure: the run is parked and paid for, and marking the analysis
     // failed here would show the user a dead analysis for up to a day and invite them to pay for a second one.
-    if (e instanceof ParkedForBatch) throw e;
+    // Being parked for a pasted answer is the same: the analysis is waiting on a person, not broken.
+    if (e instanceof ParkedForBatch || e instanceof ParkedForManualInput) throw e;
     await deps.db.update(storyAnalyses).set({ status: "failed" }).where(eq(storyAnalyses.id, analysisId));
     await deps.events.publish(job.projectId, { type: "analysis.updated", analysisId, status: "failed" });
     throw e;

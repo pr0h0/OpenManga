@@ -4,6 +4,7 @@ import { ProviderError, policyCategories } from "@openmanga/domain";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { projectBudget, recordError } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
+import { isManual, MANUAL_PROVIDER, ParkedForManualInput } from "./manual-provider.ts";
 
 export type GenerationJob = typeof generationJobs.$inferSelect;
 
@@ -203,6 +204,46 @@ export async function runGenerationJob(
   } catch (e) {
     if (e instanceof JobCancelledError) {
       await finishCancelled(deps, started!);
+      return;
+    }
+    // Not a failure: the handler built its prompt and there is no provider to send it to, so the job waits for a
+    // person. Nothing was spent and nothing is retried — posting the answer requeues it to finish normally.
+    if (e instanceof ParkedForManualInput) {
+      const [parked] = await deps.db
+        .update(generationJobs)
+        .set({
+          status: "awaiting_input",
+          compiledPrompt: e.messages
+            .map((m) => `### ${m.role}\n${m.content}`)
+            .join("\n\n")
+            .slice(0, 200_000),
+          provider: MANUAL_PROVIDER,
+          model: MANUAL_PROVIDER,
+          failureCode: null,
+          failureReason: null,
+        })
+        .where(eq(generationJobs.id, jobId))
+        .returning();
+      await publishJob(deps, parked!);
+      log.info("job parked for a pasted answer", { kind: job.kind });
+      return;
+    }
+    // A pasted answer that does not satisfy the schema is a typo, not a dead job: park it again with the
+    // validation error attached and drop the bad answer, so the next paste is a fresh attempt rather than a
+    // retry of the same text. Nothing was spent, so there is no budget reason to fail it either.
+    if (isManual(job) && e instanceof StructuredOutputError) {
+      const [reparked] = await deps.db
+        .update(generationJobs)
+        .set({
+          status: "awaiting_input",
+          failureCode: "invalid_json",
+          failureReason: e.message,
+          parameters: sql`${generationJobs.parameters} - 'manualAnswer'`,
+        })
+        .where(eq(generationJobs.id, jobId))
+        .returning();
+      await publishJob(deps, reparked!);
+      log.info("pasted answer rejected; waiting for another", { kind: job.kind, error: e.message });
       return;
     }
     if (e instanceof StructuredOutputError) await recordTextCalls(deps, started!, e.calls).catch(() => {});

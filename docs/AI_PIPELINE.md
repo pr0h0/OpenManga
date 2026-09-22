@@ -20,7 +20,9 @@ Narration synthesis and exports are separate job families (`audio_jobs` on the `
 `AI_MOCK_MODE` (in-process fakes, the zero-key demo) and local Kokoro TTS. A run without a credential is refused with
 422 `credentials_required`; preflight and the bulk-estimate endpoint report whether the caller has a usable text and
 image key. The content-filter fallback and the vision consistency check are opt-in and must name one of the user's own
-credentials. Timeouts and concurrency for whichever provider a run picks come from `AI_TEXT_TIMEOUT_MS`,
+credentials. A text run can opt out of providers entirely with `ai: {manual: true}`: the job compiles its prompt, parks
+as `awaiting_input`, and finishes from an answer pasted back in — validated against the same schema, billed nothing.
+See [WITHOUT_API_KEYS](WITHOUT_API_KEYS.md). Timeouts and concurrency for whichever provider a run picks come from `AI_TEXT_TIMEOUT_MS`,
 `AI_TEXT_MAX_CONCURRENCY`, `AI_IMAGE_TIMEOUT_MS` and `AI_IMAGE_MAX_CONCURRENCY`. Image quality defaults to
 `IMAGE_QUALITY=low` and the output size menu to `IMAGE_SIZES`.
 

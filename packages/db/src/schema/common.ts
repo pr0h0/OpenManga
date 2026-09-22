@@ -48,6 +48,12 @@ export const jobStatus = pgEnum("job_status", [
   "queued",
   /** Handed to a provider's async batch API and waiting for it; no worker slot is held. */
   "submitted",
+  /**
+   * Parked for a person: the prompt is compiled and waiting for an answer to be pasted in. Reached only by a run
+   * with no provider key, and left by posting the answer, which requeues the job to finish exactly as an API run
+   * would. No worker slot is held and nothing expires it.
+   */
+  "awaiting_input",
   "processing",
   "completed",
   "failed",

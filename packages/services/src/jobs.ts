@@ -206,11 +206,19 @@ export class JobService {
    * Enqueues a job that was created with `enqueue: false` — the fallback when a batch run cannot be batched
    * after all (the key's provider has no batch API), so its panels run the ordinary way instead of waiting.
    */
-  async enqueueGeneration(job: { id: string; queue: string; kind: GenerationKind; priority: number }) {
+  async enqueueGeneration(
+    job: { id: string; queue: string; kind: GenerationKind; priority: number },
+    /**
+     * Overrides the queue's own dedupe key. The queue dedupes by job id, so a job that has already run once
+     * cannot be handed back under the same key — the add is silently dropped. A job being resumed (a pasted
+     * answer) passes something distinct per attempt, which still collapses an accidental double submit.
+     */
+    dedupeKey?: string,
+  ) {
     await addToOutbox(this.db, {
       queue: job.queue as QueueName,
       jobName: job.kind,
-      jobId: job.id,
+      jobId: dedupeKey ?? job.id,
       payload: { jobId: job.id, kind: job.kind },
       priority: job.priority,
     });
