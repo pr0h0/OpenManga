@@ -27,7 +27,7 @@ narrated video.</strong></p>
 </p>
 
 <p align="center">
-  <a href="docs/images/chapter-pages.png"><img alt="Pages of a planned chapter, every panel generated against the same canonical references" src="docs/images/chapter-pages.png" width="900"></a>
+  <a href="docs/images/chapter-pages.webp"><img alt="Pages of a planned chapter, every panel generated against the same canonical references" src="docs/images/chapter-pages.webp" width="900"></a>
 </p>
 
 A self-hosted production tool for consistent AI-generated manhwa, manga, webtoons and illustrated recaps. It is not "story → giant prompt → comic.png": the story becomes structured state (cast, world, chapters, scenes, pages, panel specs), canonical references pin identity, panels are generated cheaply and versioned, and lettering, layout, narration and exports are deterministic.
@@ -40,10 +40,12 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
   plus a one-time model download from HuggingFace for local TTS on first boot.
 
 ## Features
-- **Project wizard**: details, format (comic pages or 16:9 video shots), style preset, story input (story/chapter/outline/screenplay/idea), AI analysis, editable review, apply.
+- **Project wizard**: details, format (comic pages, 16:9 video shots, or a vertical scrolling strip), style preset, story input (story/chapter/outline/screenplay/idea), AI analysis, editable review, apply.
+- **Three formats**: comic pages; **film** — one 16:9 shot per page, rendered as a narrated Ken Burns video; and **vertical strip** — one scrolling column where each panel's height is its pacing and the seam between panels (gap, butt, bleed, dissolve, fade) is authored, read in the app exactly as it exports.
+- **No API key required**: every text step can be answered by pasting a reply from any chat, validated exactly as a provider's answer is, and any panel can take artwork you upload — see [Running without any API keys](#running-without-any-api-keys).
 - **Story**: autosaved editor, immutable revision history, AI rewrite into new revisions, analyses per revision.
 - **Cast**: character bibles with aliases, outfits and versions (draft → approved → locked → superseded); reference generation (portrait, full body, turnaround, expression sheet, outfit) or upload; approval creates the small prompt derivative; explicit panel migration between versions.
-- **World**: locations and props with versions and references, style presets + custom style versions + style references, world notes.
+- **World**: locations and props with versions and references — draw every missing one in a single run, optionally as a half-price provider batch — style presets + custom style versions + style references, world notes.
 - **Chapters**: AI planning into scenes (continuity state), beats, pages (deterministic layout templates) and panel specs with auto-placed dialogue; chapter/scene memory editors.
 - **Page editor** (Konva): drag/resize/rotate panels, bubbles, SFX and narration boxes; zoom/pan; undo/redo; keyboard shortcuts; template swap, add/duplicate/split/reorder; crop and focal point; prompt inspector; generate/regenerate with operations; version compare/activate/revert; mask painting for targeted edits.
 - **Generation**: live queue (SSE), cost/latency, retry/cancel, bulk page/scene/chapter with cost confirmation and progress, prompt & reference inspector showing exactly what was sent.
@@ -54,22 +56,44 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 - **Cost dashboard**: today/7d/30d/lifetime, provider and operation breakdowns, reference-size experiments, regeneration/acceptance rates. **Admin**: users, jobs, queues, Kokoro status, storage, errors, rate snapshots, maintenance.
 
 ## Screenshots
-The chapter-pages view is at the top of this page. The rest of the studio:
+
+From a live instance, with real projects. Click any image for full size.
+
+### From story to pages
 
 | | |
 |---|---|
-| [![Project overview](docs/images/project-overview.png)](docs/images/project-overview.png) | [![Cast](docs/images/cast.png)](docs/images/cast.png) |
-| **Overview** — pipeline state, spend against the project budget, readiness before export. | **Cast** — characters, approved reference versions and how many panels use each. |
-| [![Character bible](docs/images/character-bible.png)](docs/images/character-bible.png) | [![World](docs/images/world.png)](docs/images/world.png) |
-| **Character bible** — the appearance version that is the identity source of truth; approved versions are read-only. | **World** — recurring locations and props with their own references and versions. |
-| [![Narration](docs/images/narration.png)](docs/images/narration.png) | [![Project cost](docs/images/cost.png)](docs/images/cost.png) |
-| **Narration** — text first, then local Kokoro speech per segment, with pauses and per-segment voices. | **Cost** — spend per provider and per operation, images against text, with local TTS at $0. |
-| [![Video preview](docs/images/video-preview.png)](docs/images/video-preview.png) | |
-| **Video preview** — the panel cut with its Ken Burns move and narration timing, in the browser, before committing to a render. | |
+| [![Projects](docs/images/projects.webp)](docs/images/projects.webp) | [![Project overview](docs/images/project-overview.webp)](docs/images/project-overview.webp) |
+| **Projects** — every story with its cover, format, chapters and spend. | **Overview** — pipeline state, spend against the project budget, readiness before export. |
+| [![Chapters](docs/images/chapters.webp)](docs/images/chapters.webp) | [![Page editor](docs/images/page-editor.webp)](docs/images/page-editor.webp) |
+| **Chapters** — planned into scenes, pages and panels, with narration coverage per chapter. | **Page editor** — panels, speech bubbles and captions on the canvas; the panel's spec, cast and seam beside it. |
 
-Also: [chapters](docs/images/chapters.png) (planned scenes, pages and panel counts),
-[assets](docs/images/assets.png) (every canonical file and its derivatives) and the
-[project list](docs/images/projects.png).
+### The same characters and places, every panel
+
+| | |
+|---|---|
+| [![Cast](docs/images/cast.webp)](docs/images/cast.webp) | [![Character bible](docs/images/character-bible.webp)](docs/images/character-bible.webp) |
+| **Cast** — characters, approved reference versions and how many panels use each. | **Character bible** — the appearance version that is the identity source of truth; approved versions are read-only. |
+| [![World](docs/images/world.webp)](docs/images/world.webp) | [![Assets](docs/images/assets.webp)](docs/images/assets.webp) |
+| **World** — recurring locations and props with their own references; *Generate all* draws every missing one at once. | **Assets** — every canonical file and its derivatives, here filtered to approved character references. |
+
+### Comic, film or vertical strip
+
+| | |
+|---|---|
+| [![Film shots](docs/images/film-shots.webp)](docs/images/film-shots.webp) | [![Vertical strip reader](docs/images/vertical-reader.webp)](docs/images/vertical-reader.webp) |
+| **Film** — a chapter as 16:9 shots, one per page, rendered as a narrated video. | **Vertical strip** — the chapter as one scrolling column, seams and lettering included, exactly as it exports. |
+| [![Video preview](docs/images/video-preview.webp)](docs/images/video-preview.webp) | [![Exports](docs/images/exports.webp)](docs/images/exports.webp) |
+| **Video preview** — the cut with its camera moves and narration timing, in the browser, before committing to a render. | **Exports** — narrated videos, PDFs, webtoon strips and packages, chapter by chapter. |
+
+### Narration, queue and cost
+
+| | |
+|---|---|
+| [![Narration](docs/images/narration.webp)](docs/images/narration.webp) | [![Generation queue](docs/images/generation.webp)](docs/images/generation.webp) |
+| **Narration** — text first, then local Kokoro speech per segment, with progress across every chapter. | **Generation** — the live queue: every job, its cost and latency, and exactly what was sent. |
+| [![Project cost](docs/images/cost.webp)](docs/images/cost.webp) | |
+| **Cost** — spend per provider and per operation, images against text, with local TTS at $0. | |
 
 ## Architecture
 Bun monorepo (`apps/web`, `apps/api`, `apps/worker`, `apps/mock-ai`, `packages/*`, `services/kokoro`) running in
@@ -164,8 +188,19 @@ bun admin:create  # interactive admin creation
 
 ## Running without any API keys
 
-Two ways to see the whole thing work before spending anything. **Importing a sample project is the better one**:
-it is real generated artwork and narration, not placeholders.
+**Run the real pipeline by hand.** Pick *Paste it yourself — no key needed* as the text provider and every step —
+analysis, chapter planning, panel prompts, narration — stops at a prompt you copy into any chat you already use.
+Paste the reply back and it is checked against exactly the schema a provider's answer is, field by field, before
+anything is applied. Artwork works the same way: any panel takes an image you upload. Narration speech is local.
+The full walk-through is [WITHOUT_API_KEYS](docs/WITHOUT_API_KEYS.md); every answer's shape is in
+[ANSWER_FORMATS](docs/ANSWER_FORMATS.md).
+
+<p align="center">
+  <a href="docs/images/paste-answer.webp"><img alt="A job waiting for a pasted answer, with the answer's format explained field by field" src="docs/images/paste-answer.webp" width="760"></a>
+</p>
+
+Or just look around first — two ways to see the whole thing before spending anything. **Importing a sample project
+is the better one**: it is real generated artwork and narration, not placeholders.
 
 ### Import a sample project — real artwork, no key, no spend
 `bun db:seed` builds a demo from placeholder art, with no AI calls and no spend. To load a project with real
