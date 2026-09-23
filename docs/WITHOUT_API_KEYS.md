@@ -89,7 +89,11 @@ hand, because that job will get its own.
 
 ## What the answer has to look like
 
-Whatever the prompt asked for. The prompt always ends with the schema, so the reliable instruction to a chat is
+**[ANSWER_FORMATS](ANSWER_FORMATS.md) is the full reference**: every answer the app can ask for, as a TypeScript
+interface with each field explained, typed exactly, marked optional or required, and given an example value — plus
+a complete example of each. The job page shows the same interface for the question in front of you.
+
+In short: whatever the prompt asked for. The prompt always ends with the schema, so the reliable instruction to a chat is
 simply *"answer with JSON matching this schema"* — which is what the prompt already says. Fences and surrounding
 prose are tolerated: the extractor recovers JSON from code fences, trailing commas and cut-off responses before
 giving up.

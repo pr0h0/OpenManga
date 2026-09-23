@@ -19,6 +19,7 @@ import {
   PRIORITY,
   providerSupports,
 } from "@openmanga/domain";
+import { ANSWER_FIELD_DOCS, renderInterface, schemaFromPrompt } from "@openmanga/schemas";
 import { generationPreflight, projectBudget, recordAudit } from "@openmanga/services";
 import { mockTextCompletion } from "@openmanga/testing";
 import type { Context } from "hono";
@@ -242,6 +243,13 @@ function exampleAnswer(job: { status: string; compiledPrompt: string | null }) {
   }
 }
 
+/** The commented interface for the schema a parked job's prompt asks for, or null for one it does not know. */
+function answerFormat(job: { compiledPrompt: string | null }) {
+  const found = job.compiledPrompt ? schemaFromPrompt(job.compiledPrompt) : null;
+  const docs = found ? ANSWER_FIELD_DOCS[found.name as keyof typeof ANSWER_FIELD_DOCS] : undefined;
+  return found && docs ? { name: found.name, interface: renderInterface(found.name, found.schema, docs) } : null;
+}
+
 const notManual = () => conflict("This job runs against a provider, so there is no prompt to answer by hand.");
 
 doc({
@@ -274,6 +282,11 @@ generationRoutes.get("/generations/:id/manual", async (c) => {
      * and it is placeholder content, not a real reading of anything.
      */
     example: exampleAnswer(job),
+    /**
+     * The answer's shape as a TypeScript interface: every field explained, typed exactly and given an example
+     * value. Rendered from the schema in the job's own prompt, so it is exact for this question.
+     */
+    format: answerFormat(job),
     /** How many answers this job has taken so far; a plan asks one question per scene. */
     answered: Array.isArray(job.parameters.manualAnswers) ? job.parameters.manualAnswers.length : 0,
   });

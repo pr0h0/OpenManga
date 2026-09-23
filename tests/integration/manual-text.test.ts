@@ -57,9 +57,16 @@ test("a keyless run parks with the prompt a provider would have been sent", asyn
   // Nothing was sent anywhere, so the run is recorded against no provider and holds no worker slot.
   expect(parked.provider).toBe("manual");
 
-  const view = await alice.get<ManualView>(`/api/generations/${jobId}/manual`);
+  const view = await alice.get<ManualView & { format: { name: string; interface: string } | null }>(
+    `/api/generations/${jobId}/manual`,
+  );
   expect(view.awaitingAnswer).toBe(true);
   expect(view.lastError).toBeNull();
+  // The answer's shape comes with it: the schema the prompt names, as an interface with every field explained.
+  expect(view.format?.name).toBe("StoryAnalysis");
+  expect(view.format?.interface).toContain("interface StoryAnalysis {");
+  expect(view.format?.interface).toContain("@example");
+  expect(view.format?.interface).not.toContain("(no description)");
   // The prompt is the handler's own, so it carries the schema the answer has to satisfy — which is the part that
   // makes pasting into an ordinary chat work at all.
   expect(view.prompt.length).toBeGreaterThan(200);
