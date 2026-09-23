@@ -17,7 +17,14 @@ import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { withBatchClaim } from "../lib/batch-claim.ts";
 import type { GenerationJob } from "../lib/runner.ts";
-import { activatePanelArt, finalizeOutput, inputsOf, loadInputFile, recordImageUsage } from "./image.ts";
+import {
+  activatePanelArt,
+  attachReference,
+  finalizeOutput,
+  inputsOf,
+  loadInputFile,
+  recordImageUsage,
+} from "./image.ts";
 import { maybeQueuePanelCheck } from "./qa.ts";
 import { ingestTextBatch, textBatchSubmit } from "./text-batch.ts";
 
@@ -26,6 +33,12 @@ type BatchRow = typeof providerBatches.$inferSelect;
 const choiceOf = (job: { parameters: Record<string, unknown> }) => (job.parameters.ai as AiChoice | undefined) ?? null;
 
 /** Rebuilds the batch provider for a stored batch from one of its jobs, since the key lives with the user. */
+/**
+ * Image jobs a provider batch can carry. Each is fully compiled when it is written — prompt, aspect, quality and
+ * input images are on the row — which is all a batch request is made of.
+ */
+const BATCHABLE_IMAGE_KINDS = ["panel_generation", "location_reference", "prop_reference"] as const;
+
 async function providerFor(deps: WorkerDeps, job: GenerationJob): Promise<ImageBatchProvider | null> {
   return deps.resolver.imageBatch(choiceOf(job), job.userId);
 }
@@ -61,7 +74,7 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
     .where(
       and(
         eq(generationJobs.batchId, batchId),
-        eq(generationJobs.kind, "panel_generation"),
+        inArray(generationJobs.kind, [...BATCHABLE_IMAGE_KINDS]),
         eq(generationJobs.status, "queued"),
       ),
     );
@@ -350,9 +363,16 @@ async function finishCancelledBatchJob(deps: WorkerDeps, job: GenerationJob) {
 
 async function ingestOne(deps: WorkerDeps, job: GenerationJob, item: Extract<BatchItemResult, { ok: true }>) {
   const inputs = await inputsOf(deps, job.id);
-  const { asset, cancelled } = await finalizeOutput(deps, job, item.result, "panel_art", { batch: true }, null);
   // Recorded against the ":batch" model so the discounted price is what the run is charged.
-  await recordImageUsage(deps, job, { ...item.result, model: batchModel(item.result.model) }, inputs);
+  const usage = () => recordImageUsage(deps, job, { ...item.result, model: batchModel(item.result.model) }, inputs);
+  if (job.kind !== "panel_generation") {
+    // A reference: the same finishing step as a direct run, so it lands as a draft reference on its version.
+    await usage();
+    const { asset, cancelled } = await attachReference(deps, job, item.result);
+    return finishIngested(deps, job, asset.id, item.result, cancelled);
+  }
+  const { asset, cancelled } = await finalizeOutput(deps, job, item.result, "panel_art", { batch: true }, null);
+  await usage();
   if (!cancelled && job.targetId) {
     await activatePanelArt(deps, job, job.targetId, asset.id, null);
     // Same follow-up as the synchronous handler: without this a batched project silently loses its vision QA.
@@ -360,12 +380,23 @@ async function ingestOne(deps: WorkerDeps, job: GenerationJob, item: Extract<Bat
       deps.logger.warn("panel check not queued", { jobId: job.id, error: e instanceof Error ? e.message : String(e) }),
     );
   }
+  await finishIngested(deps, job, asset.id, item.result, cancelled);
+}
+
+/** Closes a batched job once its image has been stored, whatever kind of image it was. */
+async function finishIngested(
+  deps: WorkerDeps,
+  job: GenerationJob,
+  assetId: string,
+  result: { width: number; height: number },
+  cancelled: boolean,
+) {
   await deps.db
     .update(generationJobs)
     .set({
       status: cancelled ? "cancelled" : "completed",
       finishedAt: new Date(),
-      result: { assetId: asset.id, width: item.result.width, height: item.result.height, batch: true },
+      result: { assetId, width: result.width, height: result.height, batch: true },
     })
     .where(eq(generationJobs.id, job.id));
   await deps.events.publish(job.projectId, {

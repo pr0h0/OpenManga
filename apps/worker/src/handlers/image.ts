@@ -321,8 +321,6 @@ const SUBJECT_ASSET: Record<string, AssetType> = {
 
 /** Canonical references are generated at full provider resolution and never downscaled. */
 export async function referenceGeneration(deps: WorkerDeps, job: GenerationJob) {
-  const subject = String(job.input.subject) as "character" | "location" | "prop" | "style";
-  const versionId = String(job.input.versionId);
   const kind = String(job.input.kind) as ReferenceKind;
   if (!job.compiledPrompt) throw new InputError("Job has no compiled prompt");
   const r = await (await imageProviderFor(deps, job)).generate({
@@ -333,6 +331,20 @@ export async function referenceGeneration(deps: WorkerDeps, job: GenerationJob) 
     label: String(job.parameters.label ?? kind),
   });
   await recordImageUsage(deps, job, r, []);
+  const out = await attachReference(deps, job, r);
+  if (out.cancelled) throw new JobCancelledError();
+  return { assetId: out.asset.id, referenceId: out.referenceId, width: out.asset.width, height: out.asset.height };
+}
+
+/**
+ * Everything that happens once a reference image exists: store it, add it to the version as a draft reference —
+ * primary if it is the first — and tell the page. Shared by a direct run and a provider batch, so a reference that
+ * came back in a batch is indistinguishable from one generated on the spot.
+ */
+export async function attachReference(deps: WorkerDeps, job: GenerationJob, r: ImageResult) {
+  const subject = String(job.input.subject) as "character" | "location" | "prop" | "style";
+  const versionId = String(job.input.versionId);
+  const kind = String(job.input.kind) as ReferenceKind;
   const { asset, cancelled } = await finalizeOutput(
     deps,
     job,
@@ -341,7 +353,7 @@ export async function referenceGeneration(deps: WorkerDeps, job: GenerationJob) 
     { subject, subjectVersionId: versionId, referenceKind: kind, canonical: true },
     null,
   );
-  if (cancelled) throw new JobCancelledError();
+  if (cancelled) return { asset, cancelled, referenceId: null };
   const col =
     subject === "character"
       ? referenceAssets.characterVersionId
@@ -377,7 +389,7 @@ export async function referenceGeneration(deps: WorkerDeps, job: GenerationJob) 
     subjectVersionId: versionId,
     assetId: asset.id,
   });
-  return { assetId: asset.id, referenceId: ref!.id, width: asset.width, height: asset.height };
+  return { asset, cancelled, referenceId: ref!.id };
 }
 
 export async function coverGeneration(deps: WorkerDeps, job: GenerationJob) {
