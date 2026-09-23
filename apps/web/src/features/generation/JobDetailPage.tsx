@@ -18,10 +18,14 @@ const str = (v: unknown) => (typeof v === "string" && v ? v : null);
 function ManualAnswer({
   jobId,
   lastError,
+  attachments,
+  answered,
   onSubmitted,
 }: {
   jobId: string;
   lastError: string | null;
+  attachments: string[];
+  answered: number;
   onSubmitted: () => void;
 }) {
   const [text, setText] = useState("");
@@ -43,11 +47,28 @@ function ManualAnswer({
 
   return (
     <section className="card border-amber-500/40 p-4">
-      <h2 className="mb-1 font-medium">Waiting for your answer</h2>
+      <h2 className="mb-1 font-medium">Waiting for your answer{answered > 0 ? ` · question ${answered + 1}` : ""}</h2>
       <p className="muted mb-3 text-sm">
         Copy the compiled prompt below into any chat, then paste the reply here. It is checked against the same schema a
         provider's answer is, so nothing is applied until it fits.
       </p>
+      {attachments.length > 0 && (
+        <div className="mb-3 rounded-lg bg-[var(--panel-2)] p-3 text-sm">
+          <p className="mb-2">
+            This question is about {attachments.length === 1 ? "an image" : `${attachments.length} images`}. A copied
+            prompt cannot carry pictures, so download {attachments.length === 1 ? "it" : "them"} and attach{" "}
+            {attachments.length === 1 ? "it" : "them"} to your chat — the prompt marks where each one goes.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {attachments.map((id, n) => (
+              <a key={id} href={assetUrl(id)} download target="_blank" rel="noreferrer" className="text-center text-xs">
+                <AssetImage assetId={id} alt={`Image ${n + 1}`} className="size-24 rounded object-cover" />
+                image {n + 1}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
       {lastError && (
         <p className="mb-3 rounded-lg bg-red-500/10 p-2 font-mono text-xs break-words text-red-500">{lastError}</p>
       )}
@@ -128,7 +149,7 @@ export function JobDetailPage() {
         subtitle={`Job ${job.id}`}
         actions={
           <>
-            {(job.status === "queued" || job.status === "processing") && (
+            {(job.status === "queued" || job.status === "processing" || job.status === "awaiting_input") && (
               <button
                 type="button"
                 className="btn-secondary"
@@ -237,7 +258,15 @@ export function JobDetailPage() {
       </div>
 
       {job.status === "awaiting_input" && (
-        <ManualAnswer jobId={job.id} lastError={job.failureReason} onSubmitted={() => q.refetch()} />
+        <ManualAnswer
+          jobId={job.id}
+          lastError={job.failureReason}
+          attachments={
+            Array.isArray(job.parameters.manualAttachments) ? (job.parameters.manualAttachments as string[]) : []
+          }
+          answered={Array.isArray(job.parameters.manualAnswers) ? job.parameters.manualAnswers.length : 0}
+          onSubmitted={() => q.refetch()}
+        />
       )}
 
       <section className="card p-4">

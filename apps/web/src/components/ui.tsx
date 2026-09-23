@@ -91,6 +91,8 @@ const STATUS_STYLE: Record<string, string> = {
   queued: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
   /** Waiting in a provider's batch: paid for, arriving within 24h. */
   submitted: "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300",
+  /** Parked for a pasted answer: nothing will happen until someone answers it. */
+  awaiting_input: "bg-orange-500/15 text-orange-700 dark:text-orange-300",
   pending: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
   "prompt-ready": "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300",
   failed: "bg-red-500/15 text-red-600 dark:text-red-300",

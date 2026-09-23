@@ -75,8 +75,8 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
   if (!asset) throw new InputError("Artwork no longer exists");
   const preview = await deps.assets.ensureResized(asset, "preview");
   const image = preview
-    ? { mime: preview.mimeType, data: await deps.assets.readVariant(preview) }
-    : { mime: asset.mimeType, data: await deps.assets.read(asset) };
+    ? { mime: preview.mimeType, data: await deps.assets.readVariant(preview), assetId: asset.id }
+    : { mime: asset.mimeType, data: await deps.assets.read(asset), assetId: asset.id };
 
   const ids = pn.characterVersionIds;
   const cast = ids.length

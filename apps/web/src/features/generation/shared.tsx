@@ -17,7 +17,15 @@ export const KIND_LABELS: Record<string, string> = {
   cover: "Cover",
 };
 
-export const JOB_STATUSES = ["queued", "processing", "completed", "failed", "cancel_requested", "cancelled"] as const;
+export const JOB_STATUSES = [
+  "queued",
+  "awaiting_input",
+  "processing",
+  "completed",
+  "failed",
+  "cancel_requested",
+  "cancelled",
+] as const;
 
 export const kindLabel = (k: string) => KIND_LABELS[k] ?? k.replace(/_/g, " ");
 

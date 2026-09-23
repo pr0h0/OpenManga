@@ -59,7 +59,7 @@ import { applyChapterPlan, applyNarrationPauses } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
 import type { WorkerDeps } from "../context.ts";
-import { isManual, manualProvider, ParkedForManualInput } from "../lib/manual-provider.ts";
+import { formatPrompt, isManual, manualProvider, ParkedForManualInput } from "../lib/manual-provider.ts";
 import {
   type GenerationJob,
   InputError,
@@ -107,10 +107,7 @@ async function structured<T>(
       providerRequestId: last?.requestId ?? null,
       provider: last?.provider ?? job.provider,
       model: last?.model ?? job.model,
-      compiledPrompt: messages
-        .map((m) => `### ${m.role}\n${m.content}`)
-        .join("\n\n")
-        .slice(0, 200_000),
+      compiledPrompt: formatPrompt(messages),
     })
     .where(eq(generationJobs.id, job.id));
   return r;
@@ -580,8 +577,8 @@ export async function imageDescribe(deps: WorkerDeps, job: GenerationJob) {
   // fallback for anything sharp cannot resize.
   const preview = await deps.assets.ensureResized(asset, "preview");
   const image = preview
-    ? { mime: preview.mimeType, data: await deps.assets.readVariant(preview) }
-    : { mime: asset.mimeType, data: await deps.assets.read(asset) };
+    ? { mime: preview.mimeType, data: await deps.assets.readVariant(preview), assetId: asset.id }
+    : { mime: asset.mimeType, data: await deps.assets.read(asset), assetId: asset.id };
 
   const aspects = Array.isArray(job.input.aspects) ? (job.input.aspects as string[]) : [];
   const messages: ChatMessage[] = [

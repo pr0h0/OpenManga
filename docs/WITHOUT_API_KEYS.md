@@ -36,8 +36,21 @@ Consequences worth knowing up front:
    answer has to satisfy — and paste it into any chat.
 5. Paste the reply into **Waiting for your answer**, or upload it as a `.json`/`.txt` file, and submit.
 
-If the answer does not validate, the job returns to *awaiting input* with the reason shown above the box. Fix it
-and paste again; there is no limit on attempts and no cost to a rejected one.
+If the answer does not validate, the job returns to *awaiting input* with the reason shown above the box, and the
+prompt on screen is the one that answer was for. Fix it and paste again; there is no limit on attempts and no cost
+to a rejected one.
+
+**Some operations ask more than one question.** Planning a chapter asks for an outline first, then for each scene's
+pages, so the job parks once per question and the panel shows which question you are on. Every answer you have given
+is kept and replayed in order, so a rejected answer costs only itself — never the ones before it.
+
+**Some questions are about an image** — describing a reference, checking a panel. A copied prompt is only text, so
+the panel lists the image under the prompt to download, and the prompt marks where it belongs
+(`[attach image 1: asset …]`). Attach it to your chat along with the prompt; an image question answered without
+its image is a guess.
+
+A parked job can be cancelled from the same page. Retrying it starts a fresh run: answers given to the cancelled
+one are not carried over.
 
 ## Over the API
 
@@ -50,7 +63,8 @@ curl -sX POST "$API/api/story-revisions/$REVISION_ID/analyze" \
 
 # 2. Once it is parked, fetch the prompt (status becomes awaiting_input within a second or two).
 curl -s "$API/api/generations/$JOB_ID/manual" -b cookies
-# => {"status":"awaiting_input","awaitingAnswer":true,"prompt":"### system\n…","lastError":null}
+# => {"status":"awaiting_input","awaitingAnswer":true,"prompt":"### system\n…","lastError":null,
+#     "attachments":[],"answered":0}
 
 # 3. Send the answer back — as JSON, or as a file.
 curl -sX POST "$API/api/generations/$JOB_ID/manual" \
@@ -167,7 +181,7 @@ reverted like any generated version. See
 ## Limits
 
 - **Text only.** An image cannot be pasted back as text; upload it to the panel instead.
-- **One operation at a time.** Each job carries one prompt and takes one answer. A chapter planned scene by scene
-  parks once per scene, so a long chapter is a sequence of pastes rather than a single one.
+- **One question at a time.** A job shows one prompt and takes one answer per round. A chapter planned scene by
+  scene is a sequence of pastes — one for the outline, one per scene — rather than a single one.
 - **The prompt is what it is.** Editing the prompt before pasting it into a chat is fine, but the answer is still
   validated against the schema the job expects.

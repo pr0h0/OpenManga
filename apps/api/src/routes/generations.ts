@@ -85,6 +85,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
   const last = jobs.at(-1);
   const [counts] = await db.execute<Record<string, number>>(sql`select
     count(*) filter (where status = 'queued')::int as queued,
+    count(*) filter (where status = 'awaiting_input')::int as awaiting_input,
     count(*) filter (where status = 'processing')::int as processing,
     count(*) filter (where status = 'completed')::int as completed,
     count(*) filter (where status = 'failed')::int as failed,
@@ -249,6 +250,13 @@ generationRoutes.get("/generations/:id/manual", async (c) => {
     awaitingAnswer: job.status === "awaiting_input",
     /** Set when a previous answer failed validation, so the next attempt can see what was wrong with it. */
     lastError: job.failureReason,
+    /**
+     * Images the question was asked about. A copied prompt is only text, so these have to be attached to the chat
+     * by hand — an image question answered without its image is a guess.
+     */
+    attachments: Array.isArray(job.parameters.manualAttachments) ? (job.parameters.manualAttachments as string[]) : [],
+    /** How many answers this job has taken so far; a plan asks one question per scene. */
+    answered: Array.isArray(job.parameters.manualAnswers) ? job.parameters.manualAnswers.length : 0,
   });
 });
 
@@ -274,7 +282,9 @@ generationRoutes.post("/generations/:id/manual", async (c) => {
       status: "queued",
       failureCode: null,
       failureReason: null,
-      parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ manualAnswer: { text } })}::jsonb`,
+      // Appended, not replaced: a handler that asks several questions (an outline, then each scene) takes one
+      // answer per question, in order, and every earlier answer is replayed on the next run.
+      parameters: sql`${generationJobs.parameters} || jsonb_build_object('manualAnswers', coalesce(${generationJobs.parameters}->'manualAnswers', '[]'::jsonb) || jsonb_build_array(${text}::text))`,
     })
     .where(eq(generationJobs.id, job.id));
   // Keyed by attempt, because this job has already been through the queue once: the queue dedupes by job id, so

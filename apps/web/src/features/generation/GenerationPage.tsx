@@ -51,6 +51,7 @@ export function GenerationPage() {
   const jobs = q.data?.pages.flatMap((p) => p.jobs) ?? [];
   const total =
     (counts.queued ?? 0) +
+    (counts.awaiting_input ?? 0) +
     (counts.processing ?? 0) +
     (counts.completed ?? 0) +
     (counts.failed ?? 0) +
@@ -79,6 +80,11 @@ export function GenerationPage() {
         <div className="muted mt-1 text-xs">
           {counts.completed ?? 0} / {total} completed · {counts.processing ?? 0} generating · {counts.queued ?? 0}{" "}
           queued
+          {(counts.awaiting_input ?? 0) > 0 && (
+            <button type="button" className="ml-1 underline" onClick={() => setStatus("awaiting_input")}>
+              · {counts.awaiting_input} waiting for your answer
+            </button>
+          )}
         </div>
       </div>
 

@@ -4,7 +4,16 @@ import { ProviderError, policyCategories } from "@openmanga/domain";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { projectBudget, recordError } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
-import { isManual, MANUAL_PROVIDER, ParkedForManualInput } from "./manual-provider.ts";
+import {
+  answersBeforeFailure,
+  formatPrompt,
+  isManual,
+  lastAskedPrompt,
+  MANUAL_PROVIDER,
+  manualAnswers,
+  ParkedForManualInput,
+  promptAttachments,
+} from "./manual-provider.ts";
 
 export type GenerationJob = typeof generationJobs.$inferSelect;
 
@@ -213,10 +222,9 @@ export async function runGenerationJob(
         .update(generationJobs)
         .set({
           status: "awaiting_input",
-          compiledPrompt: e.messages
-            .map((m) => `### ${m.role}\n${m.content}`)
-            .join("\n\n")
-            .slice(0, 200_000),
+          compiledPrompt: formatPrompt(e.messages),
+          // Images the question comes with: a vision prompt pasted without its image would be answered blind.
+          parameters: { ...started!.parameters, manualAttachments: promptAttachments(e.messages) },
           provider: MANUAL_PROVIDER,
           model: MANUAL_PROVIDER,
           failureCode: null,
@@ -230,7 +238,8 @@ export async function runGenerationJob(
     }
     // A pasted answer that does not satisfy the schema is a typo, not a dead job: park it again with the
     // validation error attached and drop the bad answer, so the next paste is a fresh attempt rather than a
-    // retry of the same text. Nothing was spent, so there is no budget reason to fail it either.
+    // retry of the same text. Answers before the failing call passed in this very run and are kept; the failing
+    // one and anything after it go. Nothing was spent, so there is no reason to fail the job.
     if (isManual(job) && e instanceof StructuredOutputError) {
       const [reparked] = await deps.db
         .update(generationJobs)
@@ -238,7 +247,12 @@ export async function runGenerationJob(
           status: "awaiting_input",
           failureCode: "invalid_json",
           failureReason: e.message,
-          parameters: sql`${generationJobs.parameters} - 'manualAnswer'`,
+          // The question the rejected answer was for, so the prompt on screen is the one to answer again.
+          ...(lastAskedPrompt(started!) ? { compiledPrompt: formatPrompt(lastAskedPrompt(started!)!) } : {}),
+          parameters: {
+            ...started!.parameters,
+            manualAnswers: manualAnswers(started!).slice(0, answersBeforeFailure(started!)),
+          },
         })
         .where(eq(generationJobs.id, jobId))
         .returning();

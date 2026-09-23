@@ -2,7 +2,15 @@ import { ProviderError, type ProviderErrorCode } from "@openmanga/domain/browser
 import { z } from "zod";
 
 /** Images are only supported by vision-capable providers/models; others reject the request clearly. */
-export type ChatImage = { mime: string; data: Uint8Array };
+export type ChatImage = {
+  mime: string;
+  data: Uint8Array;
+  /**
+   * The stored asset these bytes were cut from, when there is one. Providers never read it; a keyless run does,
+   * because a copied prompt is only text and the person answering has to be told which image to attach.
+   */
+  assetId?: string;
+};
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string; images?: ChatImage[] };
 
 export type TextCallRecord = {
