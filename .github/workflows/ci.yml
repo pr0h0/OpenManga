@@ -60,6 +60,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: Every commit is signed off
+        env:
+          # A release is a pull request from staging to master. Its commits are the squash merges GitHub made when
+          # each change landed on staging — authored with the account's private noreply address, so they can never
+          # carry a matching sign-off. Each of them already passed this check as its own pull request into staging.
+          RELEASE_PR: ${{ github.head_ref == 'staging' && github.base_ref == 'master' }}
         run: |
           fail=0
           for c in $(git rev-list --no-merges ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
@@ -67,6 +72,12 @@ jobs:
             # Bots cannot sign off, and the DCO is a statement about a human's right to submit the work. A
             # dependency bump authored by Dependabot carries no such claim to make, so it is exempt.
             case "$author" in *"[bot]"*|*"bot@"*) echo "skipping bot commit ${c}"; continue;; esac
+            # Only on a release, and only commits GitHub itself committed: anywhere else a committer is whatever the
+            # pusher set locally, so exempting it there would let any pull request skip the check.
+            if [ "$RELEASE_PR" = "true" ] && [ "$(git log -1 --format='%ce' "$c")" = "noreply@github.com" ]; then
+              echo "skipping ${c}: merged onto staging by GitHub, checked when its own pull request landed"
+              continue
+            fi
             if ! git log -1 --format='%B' "$c" | grep -qiF "Signed-off-by: $author"; then
               echo "::error::${c} is missing \"Signed-off-by: ${author}\" — see CONTRIBUTING.md (git commit -s)"
               fail=1
