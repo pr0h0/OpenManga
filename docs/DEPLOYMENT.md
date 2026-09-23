@@ -126,8 +126,19 @@ zip-bomb ratio; packages are streamed to disk, so these bound disk and time rath
 ## Updates
 
 ```bash
-git pull && docker compose build && docker compose up -d   # migrations apply automatically
+git pull && GIT_SHA=$(git rev-parse --short HEAD) docker compose build && docker compose up -d   # migrations apply automatically
 ```
+
+**Which build is running.** Every image stamps itself when it is built, and the app header shows the server's
+build as `v0.5.0.20260923121530` — the release version, then the UTC build time to the second. The version alone
+cannot tell deploys apart, since master is deployed many times under one number between releases; the build time
+orders them and can be matched against `git log` to see which commits are live. Hover it for the commit and for the
+web bundle's own stamp, which differs from the server's when a tab is still running an older bundle.
+`GET /api/meta` returns the same as `build`.
+
+`GIT_SHA` is optional — the build context has no `.git`, so the commit only appears if the build is told it. The
+stamp re-runs whenever the code changes, so rebuilding an unchanged tree keeps its time rather than claiming to be
+new. A checkout run outside Docker reports `v0.5.0-dev`.
 
 The worker has `stop_grace_period: 6m` so an in-flight image request (up to `AI_IMAGE_TIMEOUT_MS`) finishes instead of
 being killed after the user has already paid for it.

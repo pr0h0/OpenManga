@@ -268,6 +268,8 @@ export type Meta = {
     tts: { provider: string } | null;
   };
   mockMode: boolean;
+  /** The build the server is running (`v0.5.0.20260923121530`). */
+  build: import("@openmanga/domain/browser").BuildInfo & { label: string };
   ttsEnabled: boolean;
   referenceDefaults: { maxWidth: number; maxHeight: number; fit: string };
 };

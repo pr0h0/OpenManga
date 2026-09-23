@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
+import { build } from "../lib/build.ts";
 import { ApiError, notFound, requireUser, user, uuidParam } from "../lib/http.ts";
 import { docsHtml, openApiSpec } from "../lib/openapi.ts";
 
@@ -38,6 +39,8 @@ export const miscRoutes = new Hono<AppEnv>();
 miscRoutes.get("/meta", (c) => {
   const deps = c.get("deps");
   return c.json({
+    /** Which build is answering — the same label the app header shows, so "is it deployed yet" has an answer. */
+    build,
     layouts: LAYOUT_TEMPLATES,
     providers: deps.providers,
     mockMode: deps.config.AI_MOCK_MODE,

@@ -151,3 +151,10 @@ Bug reports and feature requests go through the issue templates. Security vulner
 ## Code of conduct
 
 Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Releasing
+
+A release is one commit on its own branch: the `CHANGELOG.md` entry, the image tags pinned in `README.md`, and the
+`version` in the root `package.json` — which is what the app header's build label starts with, and which a unit test
+holds equal to the newest changelog entry. Merge it once CI is green, then tag the merge commit `vX.Y.Z`; the tag
+builds and publishes the images.

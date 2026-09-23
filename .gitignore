@@ -11,3 +11,4 @@ tests/e2e/playwright-report
 
 deploy/cloudflared/config.yml
 deploy/cloudflared/*.json
+build-info.json

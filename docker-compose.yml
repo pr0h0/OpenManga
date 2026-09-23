@@ -153,6 +153,8 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/app.Dockerfile
+      args:
+        GIT_SHA: "${GIT_SHA:-}"
     image: openmanga-app:1
     command: ["bun", "apps/api/src/cli/bootstrap.ts"]
     environment:
@@ -223,6 +225,8 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/nginx.Dockerfile
+      args:
+        GIT_SHA: "${GIT_SHA:-}"
     image: openmanga-nginx:1
     restart: unless-stopped
     ports:

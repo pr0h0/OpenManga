@@ -1,9 +1,12 @@
+import { buildLabel } from "@openmanga/domain/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import { BarChart3, LogOut, Moon, Shield, Sun, User } from "lucide-react";
 import { useState } from "react";
 import { logout, useMe, useMeta } from "../api/hooks.ts";
 import { Logo } from "./Logo.tsx";
+
+const WEB_BUILD = buildLabel(__WEB_BUILD__);
 
 export function AppShell() {
   const { data: me } = useMe();
@@ -26,6 +29,17 @@ export function AppShell() {
           <Logo className="size-5 text-accent-500" />
           OpenManga
         </Link>
+        {meta?.build && (
+          <span
+            className="muted hidden font-mono text-[11px] sm:inline"
+            title={[
+              `Server ${meta.build.label}${meta.build.sha ? ` · ${meta.build.sha.slice(0, 7)}` : ""}`,
+              `Web ${WEB_BUILD}${__WEB_BUILD__.sha ? ` · ${__WEB_BUILD__.sha.slice(0, 7)}` : ""}`,
+            ].join("\n")}
+          >
+            {meta.build.label}
+          </span>
+        )}
         {meta?.mockMode && (
           <span
             className="chip bg-amber-500/15 text-amber-600 dark:text-amber-300"

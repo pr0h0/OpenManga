@@ -4,6 +4,8 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
 RUN bun install --frozen-lockfile --ignore-scripts
+# The web bundle bakes in its own build stamp (vite.config.ts); the commit comes in the same way as the app image's.
+ARG GIT_SHA=""
 RUN cd apps/web && bun run build
 
 FROM nginx:1.31-alpine
