@@ -81,6 +81,7 @@ Docker Compose behind nginx on one domain: `/app` SPA, `/api` API, `/cdn` author
 | [DATA_MODEL](docs/DATA_MODEL.md) | Tables and how story state, versions and assets relate |
 | [AI_PIPELINE](docs/AI_PIPELINE.md) | Analysis → planning → panels → narration, and provider resolution per run |
 | [WITHOUT_API_KEYS](docs/WITHOUT_API_KEYS.md) | Driving the whole pipeline by hand: paste text answers, upload artwork, no provider keys |
+| [ANSWER_FORMATS](docs/ANSWER_FORMATS.md) | Every answer a pasted run can ask for: each field explained, typed and exemplified |
 | [PROMPT_SYSTEM](docs/PROMPT_SYSTEM.md) | Versioned templates, validation, repair |
 | [IMAGE_REFERENCES](docs/IMAGE_REFERENCES.md) | Canonical references, derivatives, what is sent with each request |
 | [VIDEO_EXPORT_REFERENCE](docs/VIDEO_EXPORT_REFERENCE.md) | How the page cut and panel cut are rendered |

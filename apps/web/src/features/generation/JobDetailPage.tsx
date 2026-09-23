@@ -11,6 +11,7 @@ import { CopyButton, JsonBlock, kindLabel } from "./shared.tsx";
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : null);
 const DOCS_URL = "https://github.com/pr0h0/OpenManga/blob/master/docs/WITHOUT_API_KEYS.md";
+const FORMATS_URL = "https://github.com/pr0h0/OpenManga/blob/master/docs/ANSWER_FORMATS.md";
 
 /**
  * The other half of a keyless run: the prompt is above, this is where the answer comes back. Held to exactly the
@@ -34,7 +35,10 @@ function ManualAnswer({
   // Refetched per question: a plan's outline and its scenes each want a differently shaped answer.
   const guide = useQuery({
     queryKey: [...qk.job(jobId), "manual", answered],
-    queryFn: () => get<{ example: string | null }>(`/generations/${jobId}/manual`),
+    queryFn: () =>
+      get<{ example: string | null; format: { name: string; interface: string } | null }>(
+        `/generations/${jobId}/manual`,
+      ),
   });
   const send = async (answer: string) => {
     if (!answer.trim()) return;
@@ -87,6 +91,20 @@ function ManualAnswer({
             answer to <em>this</em> question, to show its shape. Its content is placeholder, not a real reading of your
             story — paste your chat's reply, not this.
           </p>
+          {guide.data?.format && (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="font-medium">
+                  <code>{guide.data.format.name}</code> — every field, what goes in it, and an example value
+                </span>
+                <CopyButton text={guide.data.format.interface} />
+              </div>
+              <pre className="max-h-[28rem] overflow-auto rounded-lg bg-[var(--panel-2)] p-2 font-mono text-xs">
+                {guide.data.format.interface}
+              </pre>
+              <span className="font-medium">A valid answer to this exact question</span>
+            </>
+          )}
           {guide.data?.example ? (
             <>
               <div className="flex justify-end">
@@ -100,7 +118,11 @@ function ManualAnswer({
             <p className="muted text-xs">{guide.isLoading ? "Loading an example…" : "No example for this one."}</p>
           )}
           <p className="text-xs">
-            Every operation, the API, and a worked example are in{" "}
+            Every answer format, field by field:{" "}
+            <a href={FORMATS_URL} target="_blank" rel="noreferrer" className="text-accent-500 hover:underline">
+              Answer formats
+            </a>
+            . How the whole flow works:{" "}
             <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-accent-500 hover:underline">
               Running without any API keys
             </a>
