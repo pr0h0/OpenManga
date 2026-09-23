@@ -5,6 +5,49 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.6.0] — 2026-09-23
+
+Upgrading: pull the new images and restart. One migration (`0013_awaiting_input`) runs automatically and only adds a
+job status, so existing projects are untouched. To have the header show which commit is running, build with
+`GIT_SHA=$(git rev-parse --short HEAD) docker compose build`; without it the label still shows version and build time.
+
+### Added
+
+- **Run the whole pipeline without any API key.** A text step can be set to *Paste it yourself — no key needed*: the
+  job compiles its prompt, waits, and finishes from an answer pasted back in — from any chat you already use. The
+  answer goes through the same validation and appliers as a provider's reply, so it is not a second-class input, and
+  nothing is billed. A step that asks several questions (a chapter plan: the outline, then each scene) waits once per
+  question and keeps every earlier answer, so a rejected paste costs only itself; the rejection shows the exact
+  validation error and the prompt that answer was for. Questions about an image list the image to attach, since a
+  copied prompt is only text. A waiting job can be cancelled, and a retry starts fresh.
+- **You are told when a job is waiting for you**, with a link straight to it, and the queue counts how many are.
+- **Every answer is documented field by field.** A waiting job shows the answer's shape as a TypeScript interface —
+  each field explained, typed exactly, marked optional or required, and given an example value — above a valid
+  answer to that exact question. [ANSWER_FORMATS](docs/ANSWER_FORMATS.md) carries all eight answer types with a
+  complete example of each, and [WITHOUT_API_KEYS](docs/WITHOUT_API_KEYS.md) walks the whole flow. Both are held to
+  the real schemas by tests: an unexplained field, a stale one, or an example that fails validation breaks the build.
+- **A panel can take artwork you already have.** *Upload artwork* in the panel editor's Versions tab fills the same
+  slot generation does; the upload becomes a version like any other, and can be compared, superseded or reverted.
+- **Draw every location or every prop in one run.** *Generate all* on the World page's Locations and Props tabs, with
+  the same dialog as a chapter's generate-all-panels: count and price first, *only those without a reference*, and
+  *send as a provider batch* at half price. A reference that comes back in a batch is identical to one drawn on the
+  spot, and anything already being drawn is never queued twice.
+- **The header says which build is running** — `v0.6.0.20260923155759`, the version and the UTC build time — with the
+  commit on hover, for the server and for the page itself. `GET /api/meta` returns the same.
+
+### Fixed
+
+- **A job handed back to the queue after it had already run was silently dropped.** The queue deduplicates by job id,
+  so re-queueing the same job was a no-op and it sat at *queued* forever. Nothing reached it before, because a
+  batched job is written unqueued and a retry creates a new job; resuming a waiting job now uses a key per attempt.
+- A test that asserted a batched job had not yet been picked up failed whenever the worker won the race to pick it up.
+  It now asserts what it is about — the job left the batch carrying its answer.
+
+### Changed
+
+- **Work lands on `staging` and is released to `master`** once confirmed, so `master` is always code that has been
+  seen running. CI now also runs on every push to `staging`. See *Branches* and *Releasing* in CONTRIBUTING.
+
 ## [0.5.0] — 2026-09-22
 
 Upgrading: pull the new images and restart. One migration (`0012_panel_seam`) runs automatically and adds a
