@@ -6,13 +6,24 @@ import { ConfirmDialog, fmt, Spinner, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useInvalidateBatches } from "../generation/BatchStatus.tsx";
 
-type Scope = { pageId?: string; sceneId?: string; chapterId?: string; panelIds?: string[] };
+type Scope = {
+  pageId?: string;
+  sceneId?: string;
+  chapterId?: string;
+  panelIds?: string[];
+  /** Every location or every prop: one reference each. */
+  references?: "location" | "prop";
+};
+
+/** What the run makes, in the words the dialog uses. */
+type Noun = { one: string; many: string; missing: string };
+const PANELS: Noun = { one: "panel", many: "panels", missing: "Only panels without artwork" };
 type Estimate = {
   confirmRequired?: boolean;
   count: number;
   skipped: number;
   total?: number;
-  skippedReasons?: { inProgress: number; hasArtwork: number; locked: number };
+  skippedReasons?: { inProgress: number; hasArtwork?: number; locked?: number; hasReference?: number };
   estimatedUsd: number | null;
   budget?: {
     limitUsd: number | null;
@@ -81,6 +92,7 @@ function skippedText(e: Estimate) {
   return [
     r.inProgress && `${r.inProgress} already queued or generating`,
     r.hasArtwork && `${r.hasArtwork} already have artwork`,
+    r.hasReference && `${r.hasReference} already have a reference`,
     r.locked && `${r.locked} locked`,
   ]
     .filter(Boolean)
@@ -93,11 +105,13 @@ export function BulkGenerateButton({
   scope,
   label,
   className,
+  noun = PANELS,
 }: {
   projectId: string;
   scope: Scope;
   label: string;
   className?: string;
+  noun?: Noun;
 }) {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [onlyMissing, setOnlyMissing] = useState(true);
@@ -138,11 +152,12 @@ export function BulkGenerateButton({
         await invalidateBatches();
         toast.success(
           batch
-            ? `Sent ${r.jobs.length} panel${r.jobs.length === 1 ? "" : "s"} to a provider batch — results within 24h`
-            : `Queued ${r.jobs.length} panel generation${r.jobs.length === 1 ? "" : "s"}`,
+            ? `Sent ${r.jobs.length} ${r.jobs.length === 1 ? noun.one : noun.many} to a provider batch — results within 24h`
+            : `Queued ${r.jobs.length} ${r.jobs.length === 1 ? noun.one : noun.many}`,
         );
       }
-      if (r.failures?.length) toast.error(`${r.failures.length} panel(s) could not be queued: ${r.failures[0]!.error}`);
+      if (r.failures?.length)
+        toast.error(`${r.failures.length} ${noun.many} could not be queued: ${r.failures[0]!.error}`);
     } catch (e) {
       toast.error(e);
     } finally {
@@ -170,7 +185,7 @@ export function BulkGenerateButton({
           <div className="space-y-3">
             {nothing ? (
               <p>
-                <strong>Nothing to generate.</strong> All {estimate.total ?? estimate.skipped} panels are skipped
+                <strong>Nothing to generate.</strong> All {estimate.total ?? estimate.skipped} {noun.many} are skipped
                 {skippedText(estimate) ? `: ${skippedText(estimate)}` : ""}.
                 {estimate.skippedReasons?.inProgress
                   ? " Their progress is shown in the batch status on this screen and at the bottom of the window."
@@ -219,7 +234,8 @@ export function BulkGenerateButton({
                     <strong>Send as a provider batch</strong> — half price, results within 24h (often sooner).
                     <span className="muted">
                       {" "}
-                      Panels wait at the provider instead of generating now. OpenAI and Google keys only.
+                      {noun.many[0]!.toUpperCase() + noun.many.slice(1)} wait at the provider instead of generating now.
+                      OpenAI and Google keys only.
                     </span>
                   </span>
                 </label>
@@ -261,7 +277,7 @@ export function BulkGenerateButton({
                   void ask(e.target.checked);
                 }}
               />
-              Only panels without artwork
+              {noun.missing}
             </label>
           </div>
         )}

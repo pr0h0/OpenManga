@@ -564,7 +564,18 @@ export class GenerationPlanner {
     versionId: string,
     kind: ReferenceKind,
     userId: string | null,
-    opts: { extraInstruction?: string; outfitId?: string | null; ai?: AiChoice | null } = {},
+    opts: {
+      extraInstruction?: string;
+      outfitId?: string | null;
+      ai?: AiChoice | null;
+      /** A bulk run: the jobs share a batch id, so they are tracked, paused and cancelled together. */
+      batchId?: string | null;
+      priority?: number;
+      /** The caller confirmed going over the project budget; the worker must not pause this job for it. */
+      allowOverBudget?: boolean;
+      /** Written but not queued, for the provider-batch submitter to collect — exactly as a batched panel is. */
+      batchMode?: boolean;
+    } = {},
   ) {
     const run = await this.imageRun(opts.ai, userId);
     let projectId: string;
@@ -682,29 +693,36 @@ export class GenerationPlanner {
         ]
       : [];
     const job = await this.db.transaction((tx) =>
-      this.jobs.createGenerationJob(tx, {
-        projectId,
-        userId,
-        kind: `${subject}_reference` as "character_reference",
-        priority: 2,
-        targetType: `${subject}_version`,
-        targetId: versionId,
-        templateName,
-        templateVersion: 1,
-        compiledPrompt: prompt,
-        provider: run.provider,
-        model: run.model,
-        parameters: {
-          ai: run.ai,
-          quality: project.settings.imageQuality ?? this.image?.quality ?? "low",
-          aspectRatio,
-          referenceKind: kind,
-          label,
-          fullResolution: true,
+      this.jobs.createGenerationJob(
+        tx,
+        {
+          projectId,
+          userId,
+          kind: `${subject}_reference` as "character_reference",
+          priority: opts.priority ?? 2,
+          batchId: opts.batchId ?? null,
+          targetType: `${subject}_version`,
+          targetId: versionId,
+          templateName,
+          templateVersion: 1,
+          compiledPrompt: prompt,
+          provider: run.provider,
+          model: run.model,
+          parameters: {
+            ai: run.ai,
+            quality: project.settings.imageQuality ?? this.image?.quality ?? "low",
+            aspectRatio,
+            referenceKind: kind,
+            label,
+            fullResolution: true,
+            ...(opts.allowOverBudget ? { allowOverBudget: true } : {}),
+            ...(opts.batchMode ? { batchMode: true } : {}),
+          },
+          input,
+          inputs,
         },
-        input,
-        inputs,
-      }),
+        { enqueue: !opts.batchMode },
+      ),
     );
     return job;
   }

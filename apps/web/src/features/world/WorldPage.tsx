@@ -21,6 +21,7 @@ import {
   useAutosave,
 } from "../../components/ui.tsx";
 import { ReferencePanel } from "../cast/ReferencePanel.tsx";
+import { BulkGenerateButton } from "../pages/BulkGenerate.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { DescribeImageButton } from "../vision/DescribeImageButton.tsx";
 
@@ -88,6 +89,20 @@ function EntityGrid({ kind }: { kind: "locations" | "props" }) {
         <button type="button" className="btn-secondary" onClick={() => setTrash(!trash)}>
           {trash ? "Show active" : "Trash"}
         </button>
+        {!trash && list.length > 0 && (
+          // The same count → price → confirm dialog as a chapter's "generate all panels", with its "only missing"
+          // and provider-batch options, so a whole world can be drawn in one go instead of card by card.
+          <BulkGenerateButton
+            projectId={projectId}
+            scope={{ references: singular }}
+            label={`Generate all ${kind}`}
+            noun={{
+              one: `${singular} reference`,
+              many: `${singular} references`,
+              missing: `Only ${kind} without a reference`,
+            }}
+          />
+        )}
       </div>
       <ErrorBox error={error} onRetry={() => refetch()} />
       {isLoading && <Spinner className="size-6" />}
