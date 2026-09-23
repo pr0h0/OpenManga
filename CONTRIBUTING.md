@@ -161,8 +161,10 @@ Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
   request and again on every push to `staging`, because several changes that each pass alone can still break
   together.
 - **Releasing** is a pull request from `staging` to `master`, opened once `staging` has been deployed and confirmed.
-  Afterwards `master` is merged back into `staging`: squash-merging makes a commit that `staging` has never seen, and
-  without the merge-back the two histories drift and every later release would re-list changes already released.
+  Afterwards `staging` is recreated from the new `master`, so the two are identical. Squash-merging writes a new commit
+  on `master` that `staging` never contains; merging `master` back instead would leave `staging` reporting itself
+  commits ahead of `master` with the same files, a count that grows every release. Nothing lands on `staging` while a
+  release pull request is open.
 
 ## Releasing
 
@@ -172,4 +174,5 @@ Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 2. Deploy `staging` and confirm it works.
 3. Open a pull request from `staging` to `master`; squash-merge it once CI is green.
 4. Tag that commit on `master` `vX.Y.Z`; the tag builds and publishes the images.
-5. Merge `master` back into `staging`, so the next release starts from shared history.
+5. Recreate `staging` from `master` — a new branch at the same commit, not a merge. GitHub deletes `staging` when the
+   release merges (its head branch), so this is also what brings it back.
