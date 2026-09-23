@@ -23,6 +23,7 @@
     "apps/api": {
       "name": "@openmanga/api",
       "dependencies": {
+        "@openmanga/ai-text": "workspace:*",
         "@openmanga/audio": "workspace:*",
         "@openmanga/auth": "workspace:*",
         "@openmanga/config": "workspace:*",

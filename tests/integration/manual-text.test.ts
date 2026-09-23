@@ -474,3 +474,48 @@ test("the whole text pipeline runs with no key: analysis, plan, panel prompts an
   const usage = await h.deps.db.select().from(aiUsage).where(eq(aiUsage.projectId, pid));
   expect(usage.every((u) => Number(u.estimatedCostUsd) === 0 && u.textInputTokens === 0)).toBe(true);
 }, 180_000);
+
+test("the example shown for every question is itself a valid answer to it", async () => {
+  // The example exists to show the shape an answer must have. If it did not fit, it would teach the wrong shape —
+  // so answer a whole analysis and a scene-by-scene plan using nothing but the examples the endpoint hands out.
+  const byExample = async (id: string, label: string) => {
+    jobId = id;
+    for (let turn = 0; turn < 40; turn++) {
+      const row = await waitFor(
+        async () => {
+          const r = await jobStatus();
+          return ["awaiting_input", "completed", "failed"].includes(r.status) ? r : null;
+        },
+        { label: `${label} ${turn}`, timeoutMs: 30_000 },
+      );
+      if (row.status !== "awaiting_input") return row.status;
+      expect(row.failureReason).toBeNull();
+      const view = await alice.get<{ example: string | null }>(`/api/generations/${id}/manual`);
+      expect(view.example).toBeTruthy();
+      await alice.post(`/api/generations/${id}/manual`, { text: view.example }, 202);
+    }
+    return "stuck";
+  };
+  const p = await alice.post<{ project: { id: string } }>(
+    "/api/projects",
+    { title: "Answered From Examples", story: { content: STORY } },
+    201,
+  );
+  const s = await alice.get<{ latest: { id: string } }>(`/api/projects/${p.project.id}/story`);
+  const an = await alice.post<{ job: { id: string } }>(
+    `/api/story-revisions/${s.latest.id}/analyze`,
+    { ai: { manual: true } },
+    202,
+  );
+  expect(await byExample(an.job.id, "analysis")).toBe("completed");
+  const [analysis] = await h.deps.db.select().from(storyAnalyses).where(eq(storyAnalyses.projectId, p.project.id));
+  await alice.post(`/api/story-analyses/${analysis!.id}/apply`, {});
+  const chapterId = (await alice.get<{ chapters: { id: string }[] }>(`/api/projects/${p.project.id}/chapters`))
+    .chapters[0]!.id;
+  const plan = await alice.post<{ job: { id: string } }>(
+    `/api/chapters/${chapterId}/plan`,
+    { ai: { manual: true } },
+    202,
+  );
+  expect(await byExample(plan.job.id, "plan")).toBe("completed");
+}, 180_000);

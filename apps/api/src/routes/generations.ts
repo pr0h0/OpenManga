@@ -1,3 +1,4 @@
+import { parsePrompt } from "@openmanga/ai-text";
 import {
   aiUsage,
   and,
@@ -19,6 +20,7 @@ import {
   providerSupports,
 } from "@openmanga/domain";
 import { generationPreflight, projectBudget, recordAudit } from "@openmanga/services";
+import { mockTextCompletion } from "@openmanga/testing";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -229,6 +231,17 @@ async function readManualAnswer(c: Context<AppEnv>) {
   return (await body(c, ManualAnswer)).text;
 }
 
+/** An answer of the right shape for a parked job's current question, or null when none can be derived. */
+function exampleAnswer(job: { status: string; compiledPrompt: string | null }) {
+  if (job.status !== "awaiting_input" || !job.compiledPrompt) return null;
+  try {
+    const answer = mockTextCompletion(parsePrompt(job.compiledPrompt));
+    return answer === undefined || answer === null ? null : JSON.stringify(answer, null, 2);
+  } catch {
+    return null;
+  }
+}
+
 const notManual = () => conflict("This job runs against a provider, so there is no prompt to answer by hand.");
 
 doc({
@@ -255,6 +268,12 @@ generationRoutes.get("/generations/:id/manual", async (c) => {
      * by hand — an image question answered without its image is a guess.
      */
     attachments: Array.isArray(job.parameters.manualAttachments) ? (job.parameters.manualAttachments as string[]) : [],
+    /**
+     * A valid answer to this exact question, to show its shape. Built from the job's own prompt by the same
+     * deterministic generator the tests paste back in, so it always fits the schema the answer is checked against —
+     * and it is placeholder content, not a real reading of anything.
+     */
+    example: exampleAnswer(job),
     /** How many answers this job has taken so far; a plan asks one question per scene. */
     answered: Array.isArray(job.parameters.manualAnswers) ? job.parameters.manualAnswers.length : 0,
   });

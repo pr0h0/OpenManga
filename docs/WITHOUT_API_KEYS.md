@@ -31,10 +31,16 @@ Consequences worth knowing up front:
 1. Open the model picker (the chip next to any generate button) and choose **Paste it yourself — no key needed**
    as the text provider. It is remembered per browser, so you only choose it once.
 2. Run the operation as normal — Analyse story, Plan chapter, Prepare page prompts, and so on.
-3. The job appears in the generation queue as **awaiting input**. Open it.
+3. A toast says the job is waiting for your answer, with **Open it in Generation →**. (It also sits in the
+   generation queue as **awaiting input**, and the queue's summary counts how many are waiting.)
 4. Copy the **Compiled prompt** — it is exactly what a provider would have been sent, including the schema the
    answer has to satisfy — and paste it into any chat.
 5. Paste the reply into **Waiting for your answer**, or upload it as a `.json`/`.txt` file, and submit.
+
+Not sure what the reply should look like? Open **What should the answer look like?** on the same card. It shows a
+valid answer to *that exact question* — built from the job's own prompt, so it is the right shape for the outline, a
+scene, narration or whatever is being asked, and it is checked by the test suite to pass validation. Its content is
+placeholder: use it to see the shape, or to check your chat's reply against, not as the answer.
 
 If the answer does not validate, the job returns to *awaiting input* with the reason shown above the box, and the
 prompt on screen is the one that answer was for. Fix it and paste again; there is no limit on attempts and no cost
@@ -64,7 +70,7 @@ curl -sX POST "$API/api/story-revisions/$REVISION_ID/analyze" \
 # 2. Once it is parked, fetch the prompt (status becomes awaiting_input within a second or two).
 curl -s "$API/api/generations/$JOB_ID/manual" -b cookies
 # => {"status":"awaiting_input","awaitingAnswer":true,"prompt":"### system\n…","lastError":null,
-#     "attachments":[],"answered":0}
+#     "attachments":[],"answered":0,"example":"{\n  \"title\": …"}
 
 # 3. Send the answer back — as JSON, or as a file.
 curl -sX POST "$API/api/generations/$JOB_ID/manual" \

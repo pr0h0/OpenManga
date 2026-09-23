@@ -19,7 +19,8 @@
     "@openmanga/audio": "workspace:*",
     "ioredis": "^5.7.0",
     "@openmanga/services": "workspace:*",
-    "@openmanga/testing": "workspace:*"
+    "@openmanga/testing": "workspace:*",
+    "@openmanga/ai-text": "workspace:*"
   },
   "exports": {
     ".": "./src/app.ts"

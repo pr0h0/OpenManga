@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import clsx from "clsx";
 import { AlertTriangle, CheckCircle2, CircleDashed, ImageOff, Loader2, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
@@ -226,17 +227,21 @@ export function ConfirmDialog({
   );
 }
 
-type Toast = { id: number; kind: "success" | "error" | "info"; message: string };
+/** An in-app path (relative to the /app base) and what to call it. */
+type ToastLink = { label: string; to: string };
+type Toast = { id: number; kind: "success" | "error" | "info"; message: string; link?: ToastLink };
 export const useToasts = create<{
   toasts: Toast[];
-  push: (kind: Toast["kind"], message: string) => void;
+  push: (kind: Toast["kind"], message: string, link?: ToastLink) => void;
   dismiss: (id: number) => void;
 }>((set) => ({
   toasts: [],
-  push: (kind, message) => {
+  push: (kind, message, link) => {
     const id = Date.now() + Math.random();
-    set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, message }] }));
-    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), kind === "error" ? 8000 : 4000);
+    set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, message, link }] }));
+    // A toast with something to click lasts long enough to read and act on; the rest only report.
+    const ms = link ? 15_000 : kind === "error" ? 8000 : 4000;
+    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), ms);
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
@@ -244,6 +249,8 @@ export const toast = {
   success: (m: string) => useToasts.getState().push("success", m),
   error: (e: unknown) => useToasts.getState().push("error", errorMessage(e)),
   info: (m: string) => useToasts.getState().push("info", m),
+  /** A toast that asks for something: it carries a link to where it is done, and stays long enough to click. */
+  action: (m: string, link: ToastLink) => useToasts.getState().push("info", m, link),
 };
 
 export function Toaster() {
@@ -263,7 +270,18 @@ export function Toaster() {
           ) : (
             <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
           )}
-          <div className="min-w-0 flex-1 break-words">{t.message}</div>
+          <div className="min-w-0 flex-1 break-words">
+            {t.message}
+            {t.link && (
+              <Link
+                to={t.link.to as never}
+                className="mt-1 block font-medium text-accent-500 hover:underline"
+                onClick={() => dismiss(t.id)}
+              >
+                {t.link.label} →
+              </Link>
+            )}
+          </div>
           <button type="button" className="muted" onClick={() => dismiss(t.id)} aria-label="Dismiss">
             <X className="size-3.5" />
           </button>

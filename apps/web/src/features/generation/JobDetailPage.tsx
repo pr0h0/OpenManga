@@ -10,6 +10,7 @@ import { useProjectId } from "../project/ProjectLayout.tsx";
 import { CopyButton, JsonBlock, kindLabel } from "./shared.tsx";
 
 const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+const DOCS_URL = "https://github.com/pr0h0/OpenManga/blob/master/docs/WITHOUT_API_KEYS.md";
 
 /**
  * The other half of a keyless run: the prompt is above, this is where the answer comes back. Held to exactly the
@@ -30,6 +31,11 @@ function ManualAnswer({
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  // Refetched per question: a plan's outline and its scenes each want a differently shaped answer.
+  const guide = useQuery({
+    queryKey: [...qk.job(jobId), "manual", answered],
+    queryFn: () => get<{ example: string | null }>(`/generations/${jobId}/manual`),
+  });
   const send = async (answer: string) => {
     if (!answer.trim()) return;
     setBusy(true);
@@ -72,6 +78,36 @@ function ManualAnswer({
       {lastError && (
         <p className="mb-3 rounded-lg bg-red-500/10 p-2 font-mono text-xs break-words text-red-500">{lastError}</p>
       )}
+      <details className="mb-3 rounded-lg border border-[var(--border)] p-2 text-sm">
+        <summary className="cursor-pointer font-medium">What should the answer look like?</summary>
+        <div className="mt-2 space-y-2">
+          <p className="muted">
+            JSON matching the schema at the end of the prompt — which is also what the prompt tells your chat to reply
+            with. Wrapping it in a code fence or a sentence of prose is fine; only the JSON is read. Here is a valid
+            answer to <em>this</em> question, to show its shape. Its content is placeholder, not a real reading of your
+            story — paste your chat's reply, not this.
+          </p>
+          {guide.data?.example ? (
+            <>
+              <div className="flex justify-end">
+                <CopyButton text={guide.data.example} />
+              </div>
+              <pre className="max-h-72 overflow-auto rounded-lg bg-[var(--panel-2)] p-2 font-mono text-xs">
+                {guide.data.example}
+              </pre>
+            </>
+          ) : (
+            <p className="muted text-xs">{guide.isLoading ? "Loading an example…" : "No example for this one."}</p>
+          )}
+          <p className="text-xs">
+            Every operation, the API, and a worked example are in{" "}
+            <a href={DOCS_URL} target="_blank" rel="noreferrer" className="text-accent-500 hover:underline">
+              Running without any API keys
+            </a>
+            .
+          </p>
+        </div>
+      </details>
       <textarea
         className="input min-h-40 font-mono text-xs"
         placeholder="Paste the model's reply — JSON, optionally inside a code fence"

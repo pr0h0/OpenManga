@@ -21,6 +21,7 @@
  */
 import {
   type ChatMessage,
+  formatPrompt,
   runStructured,
   type StructuredRequest,
   type StructuredResult,
@@ -118,20 +119,8 @@ export function manualProvider(job: { id: string; parameters: Record<string, unk
 const lastAsked = new WeakMap<object, ChatMessage[]>();
 export const lastAskedPrompt = (job: object) => lastAsked.get(job);
 
-/**
- * The prompt as it is stored and shown for copying: each message under its role. An image a provider would have
- * been sent is marked where it sits, since the copied text cannot carry it — the person attaches it themselves.
- */
-export const formatPrompt = (messages: ChatMessage[]) =>
-  messages
-    .map((m) => {
-      const images = (m.images ?? []).map(
-        (i, n) => `[attach image ${n + 1}${i.assetId ? `: asset ${i.assetId}` : ""}]`,
-      );
-      return [`### ${m.role}`, m.content, ...images].join("\n");
-    })
-    .join("\n\n")
-    .slice(0, 200_000);
+/** Re-exported: the manual path is where the stored prompt text format matters most. */
+export { formatPrompt };
 
 /** Stored assets a prompt's images came from, so the manual view can offer them for download. */
 export const promptAttachments = (messages: ChatMessage[]) =>

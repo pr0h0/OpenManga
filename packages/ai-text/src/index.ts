@@ -185,3 +185,4 @@ export * from "./batch.ts";
 export { DeepSeekTextProvider } from "./deepseek.ts";
 export { FakeTextAIProvider } from "./fake.ts";
 export { MetaMuseTextProvider, type OpenAIChatOptions, OpenAIChatTextProvider } from "./meta.ts";
+export { formatPrompt, parsePrompt } from "./prompt-text.ts";

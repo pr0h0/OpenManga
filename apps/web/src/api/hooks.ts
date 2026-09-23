@@ -140,6 +140,20 @@ export function useProjectEvents(projectId: string | undefined) {
           for (const l of listeners) l(e);
           if (e.type === "job.updated" && e.status === "failed" && e.failureReason)
             toast.error(`${String(e.kind).replace(/_/g, " ")} failed: ${e.failureReason}`);
+          // A paste-it-yourself run parks silently otherwise, and the only place to answer it is the job's own
+          // page — so say where it is. Covers every operation, and each later question of a multi-step one. Not
+          // shown on that page itself, where the answer box is already in front of you.
+          if (
+            e.type === "job.updated" &&
+            e.status === "awaiting_input" &&
+            !window.location.pathname.endsWith(`/generation/${e.jobId}`)
+          )
+            toast.action(
+              e.failureReason
+                ? `That answer was rejected — ${String(e.kind).replace(/_/g, " ")} is waiting for a corrected one.`
+                : `${String(e.kind).replace(/_/g, " ")} is waiting for your answer. Copy its prompt into your chat and paste the reply back.`,
+              { label: "Open it in Generation", to: `/projects/${projectId}/generation/${e.jobId}` },
+            );
           if (e.type === "export.updated" && e.status === "completed") toast.success("Export ready");
         } catch {}
       });
