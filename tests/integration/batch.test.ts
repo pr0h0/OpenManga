@@ -333,7 +333,11 @@ test("a text job batches by collecting its own handler's request, then replaying
 
   await pollProviderBatches(h.workerDeps); // succeeded -> requeued with the answer attached
   const [requeued] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
-  expect(requeued!.status).toBe("queued");
+  // Left the batch, carrying its answer. Which of queued, processing or completed it is by now is a race with the
+  // harness's live worker, which is entitled to pick a requeued job up the moment it is published — asserting
+  // "queued" failed whenever the worker won, and says nothing about whether the answer came back.
+  expect(requeued!.status).not.toBe("submitted");
+  expect(["queued", "processing", "completed"]).toContain(requeued!.status);
   expect((requeued!.parameters.batchAnswer as { text: string }).text).toContain("batched");
 
   // The handler now runs for real and applies the batched answer: a new story revision.
