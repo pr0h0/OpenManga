@@ -152,9 +152,24 @@ Bug reports and feature requests go through the issue templates. Security vulner
 
 Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Branches
+
+- **`master`** always works. It only moves when a tested `staging` is released into it, so what is on `master` is
+  what has been confirmed running.
+- **`staging`** is where work lands: experimental and in progress. Every change is its own branch cut from `staging`,
+  one feature per branch, opened as a pull request **against `staging`** and squash-merged. CI runs on each pull
+  request and again on every push to `staging`, because several changes that each pass alone can still break
+  together.
+- **Releasing** is a pull request from `staging` to `master`, opened once `staging` has been deployed and confirmed.
+  Afterwards `master` is merged back into `staging`: squash-merging makes a commit that `staging` has never seen, and
+  without the merge-back the two histories drift and every later release would re-list changes already released.
+
 ## Releasing
 
-A release is one commit on its own branch: the `CHANGELOG.md` entry, the image tags pinned in `README.md`, and the
-`version` in the root `package.json` — which is what the app header's build label starts with, and which a unit test
-holds equal to the newest changelog entry. Merge it once CI is green, then tag the merge commit `vX.Y.Z`; the tag
-builds and publishes the images.
+1. On a branch off `staging`, write the release commit: the `CHANGELOG.md` entry, the image tags pinned in
+   `README.md`, and the `version` in the root `package.json` — which the app header's build label starts with, and
+   which a unit test holds equal to the newest changelog entry. Merge it into `staging`.
+2. Deploy `staging` and confirm it works.
+3. Open a pull request from `staging` to `master`; squash-merge it once CI is green.
+4. Tag that commit on `master` `vX.Y.Z`; the tag builds and publishes the images.
+5. Merge `master` back into `staging`, so the next release starts from shared history.

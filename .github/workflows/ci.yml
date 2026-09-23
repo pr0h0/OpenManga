@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    # staging too: its head is several squashed PRs combined, and each PR passing alone does not prove the combination.
+    branches: [main, master, staging]
   pull_request:
 
 permissions:
