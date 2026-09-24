@@ -122,6 +122,28 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
   `pending|published`, attempts, last error.
 - `error_events` — captured server errors for the admin view.
 
+## Agent access (`mcp.ts`)
+
+What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only as HMACs.
+
+- `user_services` — a connected agent: its user, kind (`oauth` | `pat`), name, OAuth client id, scopes, project access
+  (`all` | `selected`), `allow_project_create`, approval mode (`ALLOW_ALL` | `REQUIRE_APPROVAL`), last use, revocation.
+- `user_service_projects` — the projects a `selected` connection may touch.
+- `personal_access_tokens` — `om_pat_…` fingerprints, last four characters, expiry, last use, revocation.
+- `oauth_clients` — dynamically registered clients (`oc_…`) and fetched Client ID Metadata Documents (the id is the
+  document URL): name and exact redirect URIs.
+- `oauth_authorization_requests` — an authorization request frozen on arrival (client, redirect, state, PKCE challenge,
+  resource, scopes); consent refers to it by id and completes it once.
+- `oauth_authorization_codes`, `oauth_access_tokens`, `oauth_refresh_tokens` — single-use codes; access and refresh
+  tokens bound to client, connection, resource and scopes; refresh tokens grouped in families for rotation and reuse
+  detection.
+- `mcp_approval_requests` — a parked call: tool, action key, sensitivity, summary, stored arguments and their hash,
+  idempotency key, target snapshot, estimate, status (`pending|approved|denied|expired|stale|executed|failed`), result or
+  error.
+- `mcp_approval_rules` — remembered decisions, unique per `(connection, project, action key)`.
+- `mcp_idempotency` — results under a caller's idempotency key per `(connection, tool, key)`, with the arguments hash.
+- `audit_events.service_id` — the connection an audited action came through (null for the browser).
+
 ## Indexes
 
 Project by owner and update time; chapter, scene, page, panel and beat ordering; generation jobs by status, project,

@@ -115,6 +115,33 @@ const EnvSchema = z.object({
    */
   STALLED_JOB_TIMEOUT_MINUTES: int(120),
 
+  /**
+   * MCP server for AI agents (ChatGPT connectors over OAuth, other agents over personal access tokens) at `/mcp`.
+   * Every URL below is derived from API_PUBLIC_URL's origin when left empty, which is right for the bundled nginx.
+   */
+  MCP_ENABLED: bool.default(true),
+  /** The MCP resource URL agents connect to, e.g. https://manga.example.com/mcp. Default: <API origin>/mcp. */
+  MCP_PUBLIC_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  /** The OAuth issuer (authorization server identifier). Default: the API origin. */
+  MCP_AUTH_ISSUER: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  /** Extra Host names accepted on /mcp (comma-separated), e.g. a tunnel's hostname. The public URLs' hosts are always accepted. */
+  MCP_ALLOWED_HOSTS: z.string().default(""),
+  /** Secret for hashing MCP tokens. Default: derived from SESSION_SECRET with domain separation. */
+  MCP_TOKEN_SECRET: z.string().default(""),
+  MCP_ACCESS_TOKEN_TTL_MINUTES: int(15),
+  MCP_REFRESH_TOKEN_TTL_DAYS: int(30),
+  MCP_AUTH_CODE_TTL_SECONDS: int(300),
+  /** How long a parked approval request waits for a decision before it expires. */
+  MCP_APPROVAL_TTL_MINUTES: int(1440),
+  /** A mutation expected to touch more entities than this needs approval under REQUIRE_APPROVAL, even if it is an ordinary write. */
+  MCP_BULK_APPROVAL_THRESHOLD: int(25),
+  MCP_RATE_LIMIT_PER_MINUTE: int(240),
+  /**
+   * Allow Client ID Metadata Documents from private, loopback or link-local addresses. Only for local development:
+   * the server fetches these URLs, so allowing private addresses in production is an SSRF hole.
+   */
+  MCP_CIMD_ALLOW_PRIVATE: bool.default(false),
+
   RATE_LIMIT_PER_MINUTE: int(600),
   LOGIN_MAX_ATTEMPTS: int(10),
 

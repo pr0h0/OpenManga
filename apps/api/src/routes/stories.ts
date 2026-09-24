@@ -23,12 +23,12 @@ import { doc } from "../lib/openapi.ts";
 export const storyRoutes = new Hono<AppEnv>();
 
 const InputKind = z.enum(["story", "chapter", "outline", "screenplay", "idea"]);
-const NewRevision = z.object({
+export const NewRevision = z.object({
   content: z.string().min(1).max(500_000),
   title: z.string().max(200).default(""),
   inputKind: InputKind.default("story"),
 });
-const PatchRevision = z.object({
+export const PatchRevision = z.object({
   content: z.string().min(1).max(500_000).optional(),
   title: z.string().max(200).optional(),
   inputKind: InputKind.optional(),
@@ -223,7 +223,7 @@ storyRoutes.post("/story-revisions/:id/analyze", async (c) => {
   return c.json(result, 202);
 });
 
-const RewriteInput = z.object({
+export const RewriteInput = z.object({
   instruction: z.string().trim().min(3).max(4000),
   batch: BatchInput,
   ai: AiChoiceInput,

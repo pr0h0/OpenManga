@@ -106,7 +106,7 @@ expertRoutes.get("/expert-chats", async (c) => {
   return c.json({ chats: rows.map((r) => ({ ...r.chat, projectTitle: r.projectTitle })) });
 });
 
-const NewChat = z.object({
+export const NewChat = z.object({
   /** A built-in expert's key, or the id of one of your own. */
   expert: z.string().min(1).max(100),
   projectId: z.string().uuid().nullable().default(null),
@@ -227,7 +227,7 @@ expertRoutes.post("/expert-chats/:id/attachments", async (c) => {
   return c.json({ asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
 });
 
-const Send = z.object({
+export const Send = z.object({
   text: z.string().max(50_000).default(""),
   /** Images uploaded to this chat (or any image you own) to send with the message. */
   attachments: z.array(z.string().uuid()).max(8).default([]),
@@ -414,7 +414,7 @@ expertRoutes.post("/expert-chats/:id/retry", async (c) => {
   return c.json({ reply }, 202);
 });
 
-const Answer = z
+export const Answer = z
   .object({
     text: z.string().trim().max(100_000).default(""),
     /** Images the other chat made, uploaded to this chat first: they become the reply's images. */

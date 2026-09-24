@@ -42,7 +42,7 @@ function versionLint(
   );
 }
 
-const CreateCharacter = z.object({
+export const CreateCharacter = z.object({
   name: z.string().trim().min(1).max(120),
   role: CharacterRole.default("supporting"),
   description: CharacterBible.partial().default({}),
@@ -210,7 +210,7 @@ characterRoutes.get("/characters/:id", async (c) => {
   });
 });
 
-const PatchCharacter = z.object({
+export const PatchCharacter = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   role: CharacterRole.optional(),
   currentVersionId: z.string().uuid().optional(),
@@ -323,7 +323,7 @@ characterRoutes.post("/characters/:id/restore", async (c) => {
   return c.json({ ok: true });
 });
 
-const PatchVersion = z.object({
+export const PatchVersion = z.object({
   description: CharacterBible.optional(),
   immutableTraits: z.array(z.string().trim().min(1).max(200)).max(40).optional(),
   changeNote: z.string().max(500).optional(),
@@ -419,7 +419,7 @@ characterRoutes.post("/character-versions/:id/status", async (c) => {
   return c.json({ version: row });
 });
 
-const NewVersion = z.object({
+export const NewVersion = z.object({
   fromVersionId: z.string().uuid().optional(),
   description: CharacterBible.optional(),
   immutableTraits: z.array(z.string()).optional(),
@@ -487,7 +487,7 @@ characterRoutes.post("/characters/:id/versions", async (c) => {
   );
 });
 
-const Migrate = z.object({
+export const Migrate = z.object({
   fromVersionId: z.string().uuid(),
   toVersionId: z.string().uuid(),
   panelIds: z.array(z.string().uuid()).optional(),
@@ -594,7 +594,7 @@ characterRoutes.delete("/character-aliases/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-const OutfitInput = z.object({
+export const OutfitInput = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().max(2000).default(""),
   isDefault: z.boolean().default(false),

@@ -3,7 +3,7 @@ import { ANSWER_FIELD_DOCS, ANSWER_SCHEMAS } from "./answer-docs.ts";
 import { assembleExample, type JsonSchema, renderInterface } from "./answer-format.ts";
 
 /** Which operation asks for each answer, in the words the app uses for it. */
-const ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
+export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   StoryAnalysis: "**Analyse story** — reads the story and proposes the cast, places, props and chapters.",
   StoryRewrite: "**Rewrite story** — returns a rewritten story following your instruction.",
   ChapterOutline: "**Plan chapter**, first question — the chapter's scenes, before any pages.",
@@ -47,7 +47,7 @@ export function answerReferenceMarkdown() {
     parts.push(
       `## ${name}`,
       "",
-      `Asked by ${ASKED_BY[key]}`,
+      `Asked by ${ANSWER_ASKED_BY[key]}`,
       "",
       "```ts",
       renderInterface(name, json, docs),
