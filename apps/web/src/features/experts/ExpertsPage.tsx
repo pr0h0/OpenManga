@@ -17,6 +17,7 @@ import {
 import { type ClipboardEvent, type DragEvent, useEffect, useRef, useState } from "react";
 import { api, assetUrl, del, get, patch, post } from "../../api/client.ts";
 import { useAction } from "../../api/hooks.ts";
+import { Markdown } from "../../components/Markdown.tsx";
 import { AssetImage, ConfirmDialog, clsx, EmptyState, Field, Modal, Spinner, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 
@@ -556,7 +557,12 @@ function MessageItem({ chatId, message: m, last }: { chatId: string; message: Me
         )}
       >
         {m.attachments.length > 0 && <ImageRow ids={m.attachments} />}
-        {shown && <div className="whitespace-pre-wrap break-words leading-relaxed">{shown}</div>}
+        {shown &&
+          (mine ? (
+            <div className="whitespace-pre-wrap break-words leading-relaxed">{shown}</div>
+          ) : (
+            <Markdown text={shown} />
+          ))}
         {m.status === "pending" && (
           <div className="muted flex items-center gap-2 text-xs">
             <Spinner />{" "}

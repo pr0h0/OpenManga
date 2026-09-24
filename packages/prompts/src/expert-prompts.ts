@@ -1914,7 +1914,7 @@ Prefer:
 
 Avoid vague descriptions such as:
 - "he gains incredible power"
-- "she uncovers a dark secret"
+- "he uncovers a dark secret"
 - "his life changes forever"
 - "a mysterious system appears"
 
@@ -4814,7 +4814,7 @@ Praise only what should be preserved.
 Identify exact weak points rather than giving generic advice.
 
 Prefer:
-"Cut these 12 lines and begin when she opens the message."
+"Cut these 12 lines and begin when he opens the message."
 
 over:
 "Make the opening faster."
@@ -5373,13 +5373,13 @@ Do not immediately explain the emotion after showing its cause.
 
 Weak:
 
-"She sees the empty room and feels extremely sad because it reminds her of her mother."
+"He sees the empty room and feels extremely sad because it reminds him of his mother."
 
 Better principle:
 
-"She opens the door.
+"He opens the door.
 
-The room is exactly as her mother left it."
+The room is exactly as his mother left it."
 
 Allow implication when the audience can understand it.
 
