@@ -67,6 +67,12 @@ function streamTo(deps: Deps, run: ReplyRun) {
   };
 }
 
+/**
+ * Room for a reply: the same cap the planning steps use. A reasoning model spends part of it thinking, and an expert
+ * asked for eight fully worked ideas writes thousands of words, so a chat-sized cap cut long answers off as failures.
+ */
+const REPLY_MAX_TOKENS = 64_000;
+
 /** How much of a conversation is sent back with each new message. */
 const HISTORY_MESSAGES = 40;
 /** Images sent with the conversation: the most recent ones, since each costs input tokens on every reply. */
@@ -201,7 +207,7 @@ export async function runExpertReply(deps: Deps, run: ReplyRun) {
     const provider = await deps.resolver.text(run.ai ?? { credentialId: null }, run.userId);
     const stream = streamTo(deps, run);
     const r = await provider
-      .generateText({ messages, maxTokens: 8000, onText: stream.onText })
+      .generateText({ messages, maxTokens: REPLY_MAX_TOKENS, onText: stream.onText })
       // finally waits for the promise stop returns: a save still under way lands before the final text.
       .finally(() => stream.stop());
     await deps.usage.record({
