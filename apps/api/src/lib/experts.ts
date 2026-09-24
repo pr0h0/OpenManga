@@ -6,7 +6,6 @@ import {
   chapters,
   characters,
   characterVersions,
-  type Database,
   desc,
   eq,
   expertChats,
@@ -18,7 +17,7 @@ import {
   projects,
   props,
 } from "@openmanga/db";
-import { expertChatV1, splitImagePrompt } from "@openmanga/prompts";
+import { expertChatV2 as expertChat, splitImagePrompt, styleSection } from "@openmanga/prompts";
 import type { AiChoice } from "@openmanga/services";
 import type { Deps } from "../context.ts";
 
@@ -73,6 +72,10 @@ function streamTo(deps: Deps, run: ReplyRun) {
  */
 const REPLY_MAX_TOKENS = 64_000;
 
+/** Images sent with a chat's picture: what the user attached, then named characters and places, then the style. */
+const MAX_IMAGE_REFERENCES = 6;
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /** How much of a conversation is sent back with each new message. */
 const HISTORY_MESSAGES = 40;
 /** Images sent with the conversation: the most recent ones, since each costs input tokens on every reply. */
@@ -84,9 +87,11 @@ export const STALE_REPLY_MS = 20 * 60_000;
  * What an expert is told about a project: enough to talk about it (who, where, what happens), not its whole data.
  * Descriptions are cut short so a large project cannot crowd out the conversation.
  */
-export async function projectSummary(db: Database, projectId: string) {
+export async function projectSummary(deps: Deps, projectId: string) {
+  const { db } = deps;
   const [p] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!p) return null;
+  const { style } = await deps.planner.styleContext(projectId);
   const cut = (s: string | null | undefined, n = 300) => (s ?? "").trim().slice(0, n);
   const cast = await db
     .select({ c: characters, v: characterVersions })
@@ -118,6 +123,17 @@ export async function projectSummary(db: Database, projectId: string) {
     format: p.settings.format,
     language: p.language,
     worldNotes: cut(p.settings.worldNotes, 1500),
+    // What anything visual has to match: the preset, its main rules, and the project's own direction.
+    artStyle: {
+      preset: style.presetName,
+      summary: cut(style.definition?.summary, 600),
+      lines: cut(style.definition?.lineTreatment, 200),
+      color: cut(style.definition?.colorPolicy, 200),
+      shading: cut(style.definition?.shading, 200),
+      lighting: cut(style.definition?.lighting, 200),
+      custom: cut(style.customDescription, 800),
+      colorMode: style.colorDirective,
+    },
     characters: cast.map(({ c, v }) => ({
       name: c.name,
       role: c.role,
@@ -157,8 +173,8 @@ async function buildConversation(deps: Deps, run: ReplyRun) {
     .reverse()
     // Only what was actually said: failed and unanswered replies are not part of the conversation.
     .filter((m) => m.id !== reply.id && m.createdAt <= reply.createdAt && (m.role === "user" || m.status === "done"));
-  const project = chat.projectId ? await projectSummary(deps.db, chat.projectId) : null;
-  const messages: ChatMessage[] = expertChatV1.build({
+  const project = chat.projectId ? await projectSummary(deps, chat.projectId) : null;
+  const messages: ChatMessage[] = expertChat.build({
     expertPrompt: chat.systemPrompt,
     project,
     wantImage: Boolean(reply.options.generateImage),
@@ -223,7 +239,7 @@ export async function runExpertReply(deps: Deps, run: ReplyRun) {
       rawUsage: r.call.rawUsage,
       latencyMs: r.call.latencyMs,
       success: r.call.success,
-      metadata: { templateName: expertChatV1.name, templateVersion: expertChatV1.version, chatId: chat.id },
+      metadata: { templateName: expertChat.name, templateVersion: expertChat.version, chatId: chat.id },
     });
     await finishReply(deps, run, r.text, { provider: r.call.provider, model: r.call.model });
   } catch (e) {
@@ -298,21 +314,50 @@ async function drawReplyImage(
     .where(and(eq(expertMessages.chatId, run.chatId), eq(expertMessages.role, "user")))
     .orderBy(desc(expertMessages.createdAt))
     .limit(1);
-  const refs = asked?.attachments.length
-    ? await deps.db.select().from(assets).where(inArray(assets.id, asked.attachments))
-    : [];
   const params = deps.assets.referenceParams({});
-  const references = [];
-  for (const a of refs) {
-    const v = await deps.assets.ensurePromptReference(a, params);
-    references.push({
-      data: await deps.assets.readVariant(v),
-      mime: v.mimeType,
-      label: `reference ${references.length + 1}`,
-    });
-  }
+  const references: { data: Uint8Array; mime: string; label: string }[] = [];
+  const notes: string[] = [];
+  const add = async (asset: typeof assets.$inferSelect, note: string) => {
+    if (references.length >= MAX_IMAGE_REFERENCES) return;
+    const v = await deps.assets.ensurePromptReference(asset, params);
+    references.push({ data: await deps.assets.readVariant(v), mime: v.mimeType, label: note });
+    notes.push(`Reference image ${references.length}: ${note}.`);
+  };
+  // What the user attached to the question comes first: it is what they asked about.
+  if (asked?.attachments.length)
+    for (const a of await deps.db.select().from(assets).where(inArray(assets.id, asked.attachments)))
+      await add(a, "attached by the user; follow it as the user asked");
+  let styled = prompt;
+  if (projectId) {
+    // Project characters and places the prompt names are drawn from their approved references, and the whole image
+    // follows the project's art style, the same direction its panels are drawn in.
+    const said = prompt.toLowerCase();
+    const named = (name: string) =>
+      new RegExp(`(^|[^\\p{L}])${escapeRegExp(name.toLowerCase())}($|[^\\p{L}])`, "u").test(said);
+    const cast = await deps.db
+      .select({ name: characters.name, versionId: characters.currentVersionId })
+      .from(characters)
+      .where(and(eq(characters.projectId, projectId), isNull(characters.deletedAt)));
+    for (const c of cast.filter((c) => c.versionId && named(c.name))) {
+      const ref = await deps.planner.approvedReference("character", c.versionId!);
+      if (ref) await add(ref, `${c.name}; keep their face, hair, build and default outfit exactly`);
+    }
+    const places = await deps.db
+      .select({ name: locations.name, versionId: locations.currentVersionId })
+      .from(locations)
+      .where(and(eq(locations.projectId, projectId), isNull(locations.deletedAt)));
+    for (const l of places.filter((l) => l.versionId && named(l.name))) {
+      const ref = await deps.planner.approvedReference("location", l.versionId!);
+      if (ref) await add(ref, `${l.name}; keep its layout and landmarks`);
+    }
+    const { style, styleRef } = await deps.planner.styleContext(projectId);
+    if (styleRef) await add(styleRef, "the project's art style; match its line work, colour and shading only");
+    styled = [prompt, styleSection(style), notes.length ? `REFERENCE IMAGES:\n${notes.join("\n")}` : ""]
+      .filter(Boolean)
+      .join("\n\n");
+  } else if (notes.length) styled = `${prompt}\n\nREFERENCE IMAGES:\n${notes.join("\n")}`;
   const r = await provider.generate({
-    prompt,
+    prompt: styled,
     aspectRatio,
     quality: deps.config.IMAGE_QUALITY,
     references,

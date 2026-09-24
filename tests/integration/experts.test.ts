@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { aiUsage, and, eq, isNull } from "@openmanga/db";
+import { aiUsage, and, eq, isNull, sql } from "@openmanga/db";
 import { mockImagePng } from "@openmanga/testing";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -241,4 +241,44 @@ test("a reply can be watched as it is written", async () => {
   expect(final.content.startsWith(seen[0]!)).toBe(true);
   // Someone else cannot listen in.
   expect((await bob.raw("GET", `/api/expert-chats/${chat.id}/stream`)).status).toBe(404);
+});
+
+test("a chat about a project gets its art style, and its images draw named characters from their references", async () => {
+  const c = await alice.post<{ character: { id: string; currentVersionId: string } }>(
+    `/api/projects/${projectId}/characters`,
+    { name: "Doyun", description: { hair: "short black hair" } },
+    201,
+  );
+  const gen = await alice.post<{ job: { id: string } }>(
+    `/api/character-versions/${c.character.currentVersionId}/references/generate`,
+    { kind: "portrait" },
+    202,
+  );
+  await waitFor(
+    async () => {
+      const r = await alice.get<{ job: { status: string } }>(`/api/generations/${gen.job.id}`);
+      return r.job.status === "completed" ? r : null;
+    },
+    { label: "portrait", timeoutMs: 30_000 },
+  );
+  const detail = await alice.get<{ references: { id: string }[] }>(`/api/characters/${c.character.id}`);
+  await alice.post(`/api/references/${detail.references[0]!.id}/status`, { status: "approved" });
+
+  // The expert is told the art style (seen in the conversation a pasted answer is written from).
+  const asked = await newChat("character-designer", projectId);
+  await send(asked.id, { text: "Design Doyun's rival", ai: { manual: true } });
+  const waiting = (await settled(asked.id)).at(-1)!;
+  expect(waiting.prompt).toContain('"artStyle":');
+  expect(waiting.prompt).toContain("[template:expert-chat-v2]");
+
+  // Naming him in the image prompt sends his approved reference with it.
+  const chat = await newChat("thumbnail-designer", projectId);
+  await send(chat.id, { text: "Doyun at the lighthouse door", generateImage: true, aspectRatio: 16 / 9 });
+  const reply = (await settled(chat.id)).at(-1)!;
+  expect(reply.images).toHaveLength(1);
+  const [usage] = await h.deps.db.execute<{ refs: number }>(
+    sql`select (metadata->>'referenceCount')::int as refs from ai_usage
+        where operation = 'expert_image' and metadata->>'chatId' = ${chat.id}`,
+  );
+  expect(usage!.refs).toBeGreaterThanOrEqual(1);
 });

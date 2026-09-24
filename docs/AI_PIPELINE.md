@@ -72,10 +72,15 @@ become non-retryable `content_policy`; a response with no image is a retryable `
 `/app/experts` holds chats with experts: a built-in expert (`BUILTIN_EXPERTS`, `packages/prompts/src/experts.ts`) or
 one the user wrote (`experts` table). A chat keeps its own copy of the expert's system prompt (`expert_chats`), so
 editing or deleting the expert never changes a chat already under way, and it can be adjusted per chat. Each reply
-is built by `expert-chat` v1: a short common frame, the chat's system prompt, the project summary when the chat is
-about a project (`projectSummary` in `apps/api/src/lib/experts.ts`), then the last 40 messages with the 4 most recent
-attached images. With *Generate image* the reply is asked to end with an `IMAGE PROMPT:` line; that line is taken
-out of the text and drawn at the chosen aspect ratio, with the images attached to the question as references.
+is built by `expert-chat` v2: a short common frame (reply in the user's language, write project material in
+`project_data.language`, treat the project data as a summary and ask for the full text when a judgment needs it, and
+follow the project's art style), the chat's system prompt, the project summary when the chat is about a project
+(`projectSummary` in `apps/api/src/lib/experts.ts`: cast, places, props, world notes, art style and chapter
+summaries), then the last 40 messages with the 4 most recent attached images. With *Generate image* the reply ends
+with an `IMAGE PROMPT:` line; only that line (or the paragraph after a marker on its own line) is drawn, so notes or
+overlay text written after it stay in the reply. It is drawn at the chosen aspect ratio with, as references, the
+images attached to the question, then the approved references of project characters and places the prompt names,
+then the project's style reference (at most 6), and with the project's art direction appended.
 
 Replies run in the API process after the request returns (`runExpertReply`), since a reasoning model can take longer
 than a proxy holds a request open; the page polls the chat for status. The text itself streams: providers that stream
