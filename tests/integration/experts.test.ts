@@ -64,7 +64,7 @@ test("the built-in experts are offered, each with a prompt and openers", async (
 
 test("a chat about a project answers with the project in view, and is kept to come back to", async () => {
   const chat = await newChat("title-doctor", projectId);
-  expect(chat.systemPrompt).toContain("You name comics");
+  expect(chat.systemPrompt).toContain("You are the Title Doctor");
   await send(chat.id, { text: "Better titles for chapter 1?" });
   const messages = await settled(chat.id);
   expect(messages.map((m) => [m.role, m.status])).toEqual([
