@@ -13,7 +13,9 @@ import {
 } from "@openmanga/db";
 import { panelCheckV1 } from "@openmanga/prompts";
 import { CharacterBible, PanelCheck } from "@openmanga/schemas";
+import { resolveOutfits, wardrobeText } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
+import { formatPrompt } from "../lib/manual-provider.ts";
 import { type GenerationJob, InputError, recordTextCalls } from "../lib/runner.ts";
 import { batchAware } from "../lib/text-batch-provider.ts";
 
@@ -81,7 +83,7 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
   const ids = pn.characterVersionIds;
   const cast = ids.length
     ? await deps.db
-        .select({ name: characters.name, description: characterVersions.description })
+        .select({ id: characters.id, name: characters.name, description: characterVersions.description })
         .from(characterVersions)
         .innerJoin(characters, eq(characters.id, characterVersions.characterId))
         .where(inArray(characterVersions.id, ids))
@@ -92,9 +94,19 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
     .where(eq(panelSpecs.panelId, panelId))
     .orderBy(desc(panelSpecs.versionNumber))
     .limit(1);
+  // Judge the clothes against the outfit the panel was drawn in, not the bible's default wardrobe, or every
+  // outfit change reads as a mismatch.
+  const textOf = (id: string) => spec?.spec.characters.find((x) => x.characterId === id)?.outfit;
+  const worn = await resolveOutfits(
+    deps.db,
+    panelId,
+    cast.map((c) => ({ id: c.id, text: textOf(c.id) })),
+  );
   const expected = cast.map((c) => {
     const b = CharacterBible.parse(c.description);
-    return { name: c.name, appearance: [b.hair, b.eyes, b.wardrobe, b.build].filter(Boolean).join("; ") };
+    const w = worn.get(c.id);
+    const wardrobe = w ? wardrobeText(w, [w.outfit], textOf(c.id)) : textOf(c.id) || b.wardrobe;
+    return { name: c.name, appearance: [b.hair, b.eyes, wardrobe, b.build].filter(Boolean).join("; ") };
   });
   const messages: ChatMessage[] = [...panelCheckV1.build({ expected, beat: spec?.spec.beat ?? pn.storyBeat })];
   messages[1] = { ...messages[1]!, images: [image] };
@@ -108,6 +120,11 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
     buildRepairMessages: undefined,
   });
   await recordTextCalls(deps, job, r.calls);
+  // Shown on the job page like every other text step's prompt: what the check was told to expect.
+  await deps.db
+    .update(generationJobs)
+    .set({ compiledPrompt: formatPrompt(messages) })
+    .where(eq(generationJobs.id, job.id));
   if (job.parameters.batchAnswer && job.parameters.batchUsageRecorded !== true)
     await deps.db
       .update(generationJobs)
@@ -122,6 +139,8 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
       ? `${c.peopleCount} people drawn, ${expectedCount} expected`
       : "",
     expectedCount === 0 && c.peopleCount > 0 ? `${c.peopleCount} people drawn in a panel with no cast` : "",
+    // Panel art must carry no text: lettering is added on top, and model-drawn text is garbled.
+    c.readableText ? "readable text drawn in the art" : "",
   ].filter(Boolean);
   const qa = {
     verdict: problems.length ? "mismatch" : "ok",

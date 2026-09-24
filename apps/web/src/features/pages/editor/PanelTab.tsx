@@ -654,7 +654,14 @@ function ReviewBadge({
   );
 }
 
-type Qa = { verdict: "ok" | "mismatch"; problems: string[]; stale?: boolean; model?: string; checkedAt?: string };
+type Qa = {
+  verdict: "ok" | "mismatch";
+  problems: string[];
+  notes?: string;
+  stale?: boolean;
+  model?: string;
+  checkedAt?: string;
+};
 
 /** Result of the automatic cast/headcount check, plus a manual "check now". */
 function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasArt: boolean }) {
@@ -662,7 +669,14 @@ function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasA
   const aiText = useAiBody("text");
   const check = useAction(() => post(`/panels/${panelId}/check`, aiText()), { success: "Consistency check queued" });
   if (!hasArt) return null;
-  const label = !qa ? "not checked" : qa.stale ? "check outdated" : qa.verdict === "ok" ? "cast OK" : "cast mismatch";
+  // A mismatch names its first problem, so a stray sign in the art is not reported as a wrong cast.
+  const label = !qa
+    ? "not checked"
+    : qa.stale
+      ? "check outdated"
+      : qa.verdict === "ok"
+        ? "check OK"
+        : `${qa.problems[0] ?? "mismatch"}${qa.problems.length > 1 ? ` +${qa.problems.length - 1}` : ""}`;
   const cls =
     qa?.verdict === "mismatch" && !qa.stale
       ? "chip bg-amber-500/15 text-amber-700 dark:text-amber-300"
@@ -676,7 +690,7 @@ function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasA
       disabled={check.isPending}
       title={
         qa
-          ? `${qa.problems.length ? qa.problems.join("; ") : "Expected cast and headcount match"}${qa.model ? ` — ${qa.model}` : ""}. Click to check again.`
+          ? `${qa.problems.length ? qa.problems.join("; ") : "Expected cast and headcount match"}${qa.notes ? `. ${qa.notes}` : ""}${qa.model ? ` — ${qa.model}` : ""}. Click to check again.`
           : "Run the vision consistency check (Project settings → Consistency check)"
       }
       onClick={() => check.mutate()}
