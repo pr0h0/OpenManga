@@ -9,6 +9,7 @@ import { audioRoutes } from "./routes/audio.ts";
 import { authRoutes, devMailRoutes } from "./routes/auth.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
+import { expertRoutes } from "./routes/experts.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
 import { importRoutes } from "./routes/imports.ts";
@@ -71,6 +72,7 @@ export function createApp(deps: Deps) {
     visionRoutes,
     miscRoutes,
     aiRoutes,
+    expertRoutes,
   ])
     api.route("/", r);
   app.route("/api", api);

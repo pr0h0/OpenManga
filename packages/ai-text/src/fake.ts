@@ -47,7 +47,8 @@ export class FakeTextAIProvider implements TextAIProvider {
     else if (sc === "fenced-json" && !isRepair)
       text = `Here you go:\n\`\`\`json\n${JSON.stringify(result)}\n\`\`\`\nThanks!`;
     else if (sc === "repairable" && !isRepair) text = JSON.stringify({ unexpected: true });
-    else text = JSON.stringify(result);
+    // A template that answers in prose (an expert chat) gets its text as is.
+    else text = typeof result === "string" ? result : JSON.stringify(result);
     const inputTokens = Math.ceil(all.length / 4);
     return {
       text,

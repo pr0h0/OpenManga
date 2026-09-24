@@ -19,11 +19,16 @@ const OPERATION_LABELS: Record<string, string> = {
   chapter_plan: "Planning",
   page_prompts: "Prompt prep",
   narration_text: "Narration text",
+  expert_chat: "Expert chat",
+  expert_image: "Expert chat image",
 };
 
-/** Cost dashboard data. scope = project id, list of project ids, or null for everything (admin). */
-export async function usageSummary(db: Database, scope: string | string[] | null) {
-  const filter =
+/**
+ * Cost dashboard data. scope = project id, list of project ids, or null for everything (admin). `ownerId` adds that
+ * user's spend outside any project (expert chats), which no project scope would otherwise show.
+ */
+export async function usageSummary(db: Database, scope: string | string[] | null, ownerId?: string) {
+  const projectFilter =
     scope === null
       ? sql`true`
       : typeof scope === "string"
@@ -34,6 +39,7 @@ export async function usageSummary(db: Database, scope: string | string[] | null
               sql`, `,
             )})`
           : sql`false`;
+  const filter = ownerId ? sql`(${projectFilter} or (u.project_id is null and u.user_id = ${ownerId}))` : projectFilter;
   const windows = await db.execute<{ win: string; cost: number; calls: number }>(sql`
     select w.win, coalesce(sum(u.estimated_cost_usd),0)::float as cost, count(u.id)::int as calls
     from (values ('today', date_trunc('day', now())), ('7d', now() - interval '7 days'), ('30d', now() - interval '30 days'), ('lifetime', '-infinity'::timestamptz)) as w(win, since)
@@ -157,5 +163,5 @@ usageRoutes.get("/", usageLimit, async (c) => {
       .from(projectMembers)
       .where(sql`${projectMembers.userId} = ${user(c).id}`)
   ).map((r) => r.id);
-  return c.json(await usageSummary(db, ids));
+  return c.json(await usageSummary(db, ids, user(c).id));
 });

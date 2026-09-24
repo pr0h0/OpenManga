@@ -167,9 +167,12 @@ cdnRoutes.get("/a/:id", async (c) => {
   const [a] = await deps.db.select().from(assets).where(eq(assets.id, id));
   if (!a) throw notFound("Asset");
   if (a.visibility !== "public") {
-    if (!c.get("user")) throw new ApiError(401, "unauthenticated", "Please sign in");
-    if (!a.projectId) throw notFound("Asset");
-    await projectAccess(c, a.projectId, "read");
+    const me = c.get("user");
+    if (!me) throw new ApiError(401, "unauthenticated", "Please sign in");
+    // An image with no project (one attached to or drawn in an expert chat) is its owner's alone.
+    if (!a.projectId) {
+      if (a.ownerUserId !== me.id) throw notFound("Asset");
+    } else if (a.ownerUserId !== me.id) await projectAccess(c, a.projectId, "read");
   }
   const v = c.req.query("v");
   let storageKey = a.storageKey;

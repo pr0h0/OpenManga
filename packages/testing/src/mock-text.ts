@@ -378,6 +378,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "story-rewrite": "story-rewrite-v1",
     "json-repair": "json-repair-v1",
     "panel-check": "panel-check-v1",
+    "expert-chat": "expert-chat-v1",
   };
   const route = tpl === "narration-v1" ? tpl : name === "narration" ? "narration-v2" : (byName[name] ?? tpl);
   switch (route) {
@@ -431,6 +432,17 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         readableText: /\[\[mock:qa-text\]\]/.test(user),
         notes: "mock check",
       };
+    }
+    case "expert-chat-v1": {
+      // Plain text, not JSON: an expert talks. It answers the last message, names the project when it has one, and
+      // ends with an image prompt when the chat asked for an image.
+      const last = messages.filter((m) => m.role === "user").at(-1)?.content ?? "";
+      const project = /<project_data>\n(\{[\s\S]*?\})\n<\/project_data>/.exec(system)?.[1];
+      const title = project ? (JSON.parse(project) as { title?: string }).title : undefined;
+      const lines = [`Mock expert reply to: ${last.slice(0, 120)}`];
+      if (title) lines.push(`About your project "${title}".`);
+      if (system.includes("IMAGE PROMPT:")) lines.push(`IMAGE PROMPT: a mock illustration of ${last.slice(0, 60)}`);
+      return lines.join("\n\n");
     }
     case "story-rewrite-v1":
       return mockRewrite(story, extractTagged(user, "editor_instruction")[0] ?? "");

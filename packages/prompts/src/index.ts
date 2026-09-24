@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { IMAGE_TEMPLATES } from "./image-templates.ts";
 import { TEXT_TEMPLATES } from "./templates.ts";
 
+export * from "./experts.ts";
 export * from "./image-templates.ts";
 export * from "./templates.ts";
 export * from "./text-templates.ts";

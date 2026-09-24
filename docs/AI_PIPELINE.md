@@ -67,6 +67,24 @@ image and text tokens; costs use the seeded `google/*` rate snapshots, which pri
 tokens for a 1K image). Safety finish reasons (`IMAGE_SAFETY`, `PROHIBITED_CONTENT`, …) and `promptFeedback.blockReason`
 become non-retryable `content_policy`; a response with no image is a retryable `invalid_response`.
 
+## Experts
+
+`/app/experts` holds chats with experts: a built-in expert (`BUILTIN_EXPERTS`, `packages/prompts/src/experts.ts`) or
+one the user wrote (`experts` table). A chat keeps its own copy of the expert's system prompt (`expert_chats`), so
+editing or deleting the expert never changes a chat already under way, and it can be adjusted per chat. Each reply
+is built by `expert-chat` v1: a short common frame, the chat's system prompt, the project summary when the chat is
+about a project (`projectSummary` in `apps/api/src/lib/experts.ts`), then the last 40 messages with the 4 most recent
+attached images. With *Generate image* the reply is asked to end with an `IMAGE PROMPT:` line; that line is taken
+out of the text and drawn at the chosen aspect ratio, with the images attached to the question as references.
+
+Replies run in the API process after the request returns (`runExpertReply`), since a reasoning model can take longer
+than a proxy holds a request open; the page polls the chat. A reply still pending after 20 minutes was cut off by a
+restart and is shown as failed, to retry. With *Paste it yourself* the reply waits with the whole conversation ready
+to copy, and the pasted answer (plus any image uploaded with it) completes it. Usage is recorded as `expert_chat` and
+`expert_image`, against the chat's project, or against no project, which the user's own usage page includes.
+Images attached to or drawn in a chat are `source_image` assets owned by the user, in the chat's project when it has
+one; an image with no project is readable by its owner only.
+
 ## What each text step is given
 
 Each step's instructions are fixed per template version; what varies is the project data sent with them, built in
