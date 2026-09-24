@@ -427,7 +427,8 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         expectedCharactersPresent: names.filter((n) => !missing.includes(n)),
         missingCharacters: missing,
         unexpectedPeople: 0,
-        readableText: false,
+        // [[mock:qa-text]] in the beat reports text drawn in the art.
+        readableText: /\[\[mock:qa-text\]\]/.test(user),
         notes: "mock check",
       };
     }

@@ -225,3 +225,27 @@ test("a chapter plan that names an outfit switches the character from that panel
   );
   expect(await wardrobe(last!.id)).toContain("Pajamas: blue striped pajamas");
 });
+
+test("the panel check judges clothes by the outfit worn, and flags text drawn in the art", async () => {
+  const id = panels[7]!;
+  await alice.put(`/api/panels/${id}/spec`, {
+    spec: {
+      beat: "Mina reads a sign [[mock:qa-text]]",
+      characters: [{ characterId, expression: "", pose: "", action: "", outfit: "", position: "" }],
+    },
+  });
+  const gen = await alice.post<{ job: { id: string } }>(`/api/panels/${id}/generate`, {}, 202);
+  expect((await waitJob(gen.job.id)).status).toBe("completed");
+  const chk = await alice.post<{ job: { id: string } }>(`/api/panels/${id}/check`, {}, 202);
+  expect((await waitJob(chk.job.id)).status).toBe("completed");
+  const job = await alice.get<{ job: { compiledPrompt: string } }>(`/api/generations/${chk.job.id}`);
+  // She wears the Rain Coat from here on, so that is what the check expects to see, not the school blazer.
+  expect(job.job.compiledPrompt).toContain("Rain Coat: long yellow raincoat");
+  expect(job.job.compiledPrompt).not.toContain("grey school blazer");
+  const page = await alice.get<{ panels: { id: string; qa: { verdict: string; problems: string[] } | null }[] }>(
+    `/api/pages/${(await alice.get<{ panel: { pageId: string } }>(`/api/panels/${id}`)).panel.pageId}`,
+  );
+  const qa = page.panels.find((p) => p.id === id)!.qa!;
+  expect(qa.verdict).toBe("mismatch");
+  expect(qa.problems).toEqual(["readable text drawn in the art"]);
+});
