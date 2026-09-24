@@ -528,7 +528,12 @@ describe("full production flow (mock AI)", () => {
       { style: "dramatic recap" },
       202,
     );
-    expect((await waitJob(alice, g.job.id)).job.status).toBe("completed");
+    const narrationJob = await waitJob(alice, g.job.id);
+    expect(narrationJob.job.status).toBe("completed");
+    // It knows who is in the chapter (for names and pronouns) and the world it is set in.
+    const asked = (narrationJob.job as { compiledPrompt?: string }).compiledPrompt ?? "";
+    expect(asked).toContain('"name":"Woo Jin","role":"protagonist","aliases":["he","the boy"],"genderPresentation"');
+    expect(asked).toContain('"worldNotes":"Setting: Rooftop');
     const n = await alice.get<{ lines: { id: string; segments: { id: string }[] }[] }>(
       `/api/chapters/${chapterId}/narration`,
     );

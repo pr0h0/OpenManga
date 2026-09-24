@@ -8,6 +8,7 @@ import {
   characters,
   characterVersions,
   desc,
+  dialogueLines,
   eq,
   generationJobs,
   inArray,
@@ -51,6 +52,7 @@ import {
   ImageDescription,
   narrationDraftFor,
   PanelPromptDraft,
+  type PanelSpec,
   type ProjectFormat,
   ScenePages,
   StoryAnalysis,
@@ -486,12 +488,67 @@ export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
   const chapterId = String(job.input.chapterId);
   const [chapter] = await deps.db.select().from(chapters).where(eq(chapters.id, chapterId));
   if (!chapter) throw new InputError("Chapter no longer exists");
-  const pns = await deps.db
-    .select({ id: panels.id, beat: panels.storyBeat, pageOrder: pages.order, order: panels.order })
+  const rows = await deps.db
+    .select({
+      id: panels.id,
+      beat: panels.storyBeat,
+      pageOrder: pages.order,
+      order: panels.order,
+      cast: panels.characterVersionIds,
+      spec: sql<PanelSpec | null>`(select spec from panel_specs s where s.panel_id = ${panels.id} order by s.version_number desc limit 1)`,
+    })
     .from(panels)
     .innerJoin(pages, eq(pages.id, panels.pageId))
     .where(eq(pages.chapterId, chapterId))
     .orderBy(asc(pages.order), asc(panels.order));
+  // Who is in the chapter, so the narration names people rightly and gets their pronouns right; what they say and
+  // feel on each panel; and where the story stood before it, so it does not re-introduce what the listener knows.
+  const versionIds = [...new Set(rows.flatMap((r) => r.cast))];
+  const cast = versionIds.length
+    ? await deps.db
+        .select({ versionId: characterVersions.id, id: characters.id, c: characters, v: characterVersions })
+        .from(characterVersions)
+        .innerJoin(characters, eq(characters.id, characterVersions.characterId))
+        .where(inArray(characterVersions.id, versionIds))
+    : [];
+  const castAliases = cast.length
+    ? await deps.db
+        .select()
+        .from(characterAliases)
+        .where(
+          inArray(
+            characterAliases.characterId,
+            cast.map((c) => c.id),
+          ),
+        )
+    : [];
+  const spoken = rows.length
+    ? await deps.db
+        .select({ panelId: dialogueLines.panelId, text: dialogueLines.text, speaker: characters.name })
+        .from(dialogueLines)
+        .leftJoin(characters, eq(characters.id, dialogueLines.characterId))
+        .where(
+          inArray(
+            dialogueLines.panelId,
+            rows.map((r) => r.id),
+          ),
+        )
+        .orderBy(asc(dialogueLines.order))
+    : [];
+  const [prev] = await deps.db
+    .select()
+    .from(chapters)
+    .where(and(eq(chapters.projectId, chapter.projectId), sql`${chapters.order} < ${chapter.order}`))
+    .orderBy(sql`${chapters.order} desc`)
+    .limit(1);
+  const pns = rows.map((r) => ({
+    id: r.id,
+    beat: r.beat,
+    pageOrder: r.pageOrder,
+    order: r.order,
+    emotion: r.spec?.emotion || undefined,
+    dialogue: spoken.filter((d) => d.panelId === r.id).map((d) => ({ speaker: d.speaker, text: d.text })),
+  }));
   const [project] = await deps.db
     .select({ settings: projects.settings, language: projects.language })
     .from(projects)
@@ -505,7 +562,19 @@ export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
     job,
     narrationV4.build({
       language: `${languageName(language)} (${language})`,
-      context: { chapter: { title: chapter.title, summary: chapter.summary } },
+      context: {
+        chapter: { title: chapter.title, summary: chapter.summary },
+        previousChapter: prev
+          ? { title: prev.title, closingState: prev.closingState, revealedFacts: prev.revealedFacts }
+          : null,
+        worldNotes: project?.settings.worldNotes,
+        characters: [...new Map(cast.map((c) => [c.id, c])).values()].map(({ c, v }) => ({
+          name: c.name,
+          role: c.role,
+          aliases: castAliases.filter((a) => a.characterId === c.id).map((a) => a.alias),
+          genderPresentation: v.description.genderPresentation,
+        })),
+      },
       chapterText: chapter.sourceExcerpt || chapter.summary,
       panels: promptPanels,
       style: String(job.input.style || project?.settings.narrationStyle || ""),
