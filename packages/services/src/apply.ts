@@ -171,6 +171,9 @@ export async function applyStoryAnalysis(
     }
 
     const [project] = await tx.select().from(projects).where(eq(projects.id, projectId));
+    // The cover is drawn from the project's description; an empty one takes the story's summary.
+    if (project && !project.description.trim() && result.summary)
+      await tx.update(projects).set({ description: result.summary }).where(eq(projects.id, projectId));
     if (project && !project.settings.worldNotes) {
       const w = result.world;
       const notes = [
@@ -180,6 +183,14 @@ export async function applyStoryAnalysis(
         w.magicSystem && `Magic: ${w.magicSystem}`,
         w.factions.length && `Factions: ${w.factions.map((f) => `${f.name} — ${f.description}`).join("; ")}`,
         result.visualMotifs.length && `Visual motifs: ${result.visualMotifs.join(", ")}`,
+        // The rest of the world the analysis read out of the story: planners and narration see these notes.
+        w.uniforms.length && `Uniforms: ${w.uniforms.join("; ")}`,
+        w.recurringScenery.length && `Recurring scenery: ${w.recurringScenery.join("; ")}`,
+        w.vehicles.length && `Vehicles: ${w.vehicles.join("; ")}`,
+        (result.genre || result.tone) &&
+          `Genre and tone: ${[result.genre, result.subgenre, result.tone].filter(Boolean).join(", ")}`,
+        result.themes.length && `Themes: ${result.themes.join(", ")}`,
+        w.notes && `Notes: ${w.notes}`,
       ]
         .filter(Boolean)
         .join("\n");

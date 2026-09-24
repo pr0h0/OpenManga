@@ -170,6 +170,13 @@ describe("full production flow (mock AI)", () => {
     );
     expect(applied.created.characters).toBeGreaterThanOrEqual(2);
     expect(applied.created.chapters).toBe(1);
+    // What the analysis read about the world lands where planners and narration look, and the summary becomes
+    // the description the cover is drawn from.
+    const pj = await alice.get<{ project: { description: string; settings: { worldNotes: string } } }>(
+      `/api/projects/${projectId}`,
+    );
+    expect(pj.project.settings.worldNotes).toContain("Genre and tone: fantasy");
+    expect(pj.project.description).toContain("Woo Jin");
 
     // locked revision forks on edit instead of being overwritten
     const saved = await alice.patch<{ forked: boolean; revision: { revisionNumber: number } }>(
