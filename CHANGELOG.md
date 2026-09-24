@@ -5,6 +5,38 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.8.0] — 2026-09-24
+
+Upgrading: pull the new images and restart. One migration (`0016_experts`) runs automatically and only adds tables,
+so existing projects are untouched. The nginx image changed too (a new unbuffered route for streamed replies), so
+pull it along with the app image.
+
+### Added
+
+- **Experts: brainstorm and develop a series with specialists, outside any chapter.** Ten built-in experts, each a
+  long, studio-written system prompt with openers: Topic Scout, Title Doctor, Thumbnail Designer, Story Developer,
+  Character Designer, World Builder, Hook & Pacing Editor, Narration Scriptwriter, Beta Reader and Channel Strategist.
+  You can also write your own, or start from a copy of a built-in one.
+- **Chats are kept**, listed and searchable, and each keeps its own copy of the expert's prompt. That copy can be
+  adjusted for one chat, and editing or deleting the expert never changes a chat already under way. A reply can be
+  written again, copied, or retried after a failure.
+- **Talk about a project.** A chat can be tied to one of your projects: its cast, places, props, world notes, art
+  style and chapter summaries go with every reply. The expert writes in the project's language, and asks for the
+  full text when a summary is not enough to judge.
+- **Images in and out.** Attach images by button, drag and drop, or paste. Tick *Generate image* for a picture with
+  the reply, at the shape you choose. In a project, it follows the art style and draws the characters and places the
+  prompt names from their approved references. The Thumbnail Designer starts at 16:9 with the image on, and overlay
+  text stays out of the picture.
+- **Replies stream in** as they are written: Anthropic, the OpenAI-style providers, and DeepSeek. They render
+  Markdown (headings, lists, tables, code) without ever letting a reply inject markup.
+- **No API key needed:** a reply can wait for an answer pasted from any chat, with the image that chat made.
+- Expert chat spend appears on your Usage page, including chats with no project.
+
+### Changed
+
+- Text providers can pass an answer on as it arrives. DeepSeek streams only when something listens, so the planning
+  steps send exactly the request they did before.
+
 ## [0.7.0] — 2026-09-24
 
 Upgrading: pull the new images and restart. Two migrations run automatically: `0014_outfit_assignments` adds a table
