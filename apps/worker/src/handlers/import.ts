@@ -19,6 +19,7 @@ import {
   locationVersions,
   narrationLines,
   narrationSegments,
+  outfitAssignments,
   pages,
   panelSpecs,
   panels,
@@ -690,6 +691,12 @@ async function restore(
             bubble: dl.bubble,
           });
           counts.dialogue!++;
+        }
+        for (const w of pn.outfits) {
+          const characterId = refs.get(w.character);
+          const outfitId = refs.get(w.outfit);
+          if (characterId && outfitId)
+            await tx.insert(outfitAssignments).values({ projectId, characterId, outfitId, panelId, scope: w.scope });
         }
         for (const sfx of pn.sfx) {
           await tx.insert(soundEffects).values({ projectId, pageId, panelId, text: sfx.text, style: sfx.style });

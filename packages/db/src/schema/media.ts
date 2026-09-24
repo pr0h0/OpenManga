@@ -201,6 +201,35 @@ export const panelSpecs = pgTable(
   (t) => [uniqueIndex("panel_specs_uq").on(t.panelId, t.versionNumber)],
 );
 
+/**
+ * Which outfit a character wears, set on a panel. "onward" holds from that panel to the next change in reading order,
+ * across pages and chapters; "panel" dresses that one panel only and leaves the running outfit alone.
+ */
+export const outfitAssignments = pgTable(
+  "outfit_assignments",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    characterId: uuid("character_id")
+      .notNull()
+      .references(() => characters.id, { onDelete: "cascade" }),
+    outfitId: uuid("outfit_id")
+      .notNull()
+      .references(() => characterOutfits.id, { onDelete: "cascade" }),
+    panelId: uuid("panel_id")
+      .notNull()
+      .references(() => panels.id, { onDelete: "cascade" }),
+    scope: text("scope").$type<"onward" | "panel">().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("outfit_assignments_uq").on(t.characterId, t.panelId, t.scope),
+    index("outfit_assignments_project_idx").on(t.projectId),
+  ],
+);
+
 export const dialogueLines = pgTable(
   "dialogue_lines",
   {

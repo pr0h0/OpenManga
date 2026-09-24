@@ -16,7 +16,7 @@ import {
 } from "@openmanga/db";
 import { canTransition, lintCharacter } from "@openmanga/domain";
 import { asPatch, CharacterBible, CharacterRole } from "@openmanga/schemas";
-import { isStale, recordAudit, versionFingerprints } from "@openmanga/services";
+import { isStale, outfitTimeline, recordAudit, versionFingerprints } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -636,6 +636,18 @@ characterRoutes.delete("/character-outfits/:id", async (c) => {
   await entityAccess(c, "character", o.characterId, "write");
   await db.delete(characterOutfits).where(eq(characterOutfits.id, id));
   return c.json({ ok: true });
+});
+
+doc({
+  method: "GET",
+  path: "/api/characters/:id/outfit-timeline",
+  summary: "Every outfit change of this character, in reading order",
+  tag: "characters",
+});
+characterRoutes.get("/characters/:id/outfit-timeline", async (c) => {
+  const id = uuidParam(c, "id");
+  await entityAccess(c, "character", id, "read");
+  return c.json({ timeline: await outfitTimeline(c.get("deps").db, [id]) });
 });
 
 mountReferenceEndpoints(characterRoutes, "character", "character-versions", async (c, id, action) => {

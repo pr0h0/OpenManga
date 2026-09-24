@@ -1104,9 +1104,9 @@ interface ScenePages {
            */
           action?: string;
           /**
-           * The outfit, only if it differs from the character's usual one. Used in place of the default wardrobe.
+           * The outfit, only if it changes. Naming one of the character's outfits (project data lists them under outfits) switches the character into it from this panel on, reference image included, until another is named; anything else describes this panel's wardrobe.
            * Optional — defaults to "" when left out.
-           * @example "yellow oilskin coat over her overalls"
+           * @example "Storm gear, hood up"
            */
           outfit?: string;
           /**
@@ -1312,7 +1312,7 @@ interface ScenePages {
                 "expression": "wary, squinting into the wind",
                 "pose": "standing, one hand holding her hat",
                 "action": "looking up at the tower",
-                "outfit": "yellow oilskin coat over her overalls",
+                "outfit": "Storm gear, hood up",
                 "position": "left foreground"
               }
             ],

@@ -41,6 +41,7 @@ import {
 import { CharacterBible, type PanelSpec, type ProjectSettings } from "@openmanga/schemas";
 import type { AssetRecord, AssetService } from "./assets.ts";
 import type { JobService, NewGenerationInput } from "./jobs.ts";
+import { outfitReferenceAssets, resolveOutfits, wardrobeText } from "./outfits.ts";
 import { type AiChoice, MISSING_CREDENTIAL, type ProviderResolver } from "./providers.ts";
 import { versionFingerprint } from "./staleness.ts";
 
@@ -170,34 +171,6 @@ export class GenerationPlanner {
     return rows[0]?.asset ?? null;
   }
 
-  /**
-   * Approved outfit reference whose outfit name matches the panel's outfit text (either contains the other,
-   * case-insensitive). Outfit references are generated with `outfitId`.
-   */
-  private async matchingOutfitReference(characterId: string, versionId: string, outfitText: string) {
-    const wanted = outfitText.toLowerCase().trim();
-    if (!wanted) return null;
-    const rows = await this.db
-      .select({ o: characterOutfits, asset: assets, ref: referenceAssets })
-      .from(referenceAssets)
-      .innerJoin(characterOutfits, eq(characterOutfits.id, referenceAssets.outfitId))
-      .innerJoin(assets, eq(assets.id, referenceAssets.assetId))
-      .where(
-        and(
-          eq(characterOutfits.characterId, characterId),
-          eq(referenceAssets.characterVersionId, versionId),
-          inArray(referenceAssets.status, ["approved", "locked"]),
-          isNull(assets.deletedAt),
-        ),
-      )
-      .orderBy(desc(referenceAssets.isPrimary), desc(referenceAssets.createdAt));
-    const hit = rows.find((r) => {
-      const name = r.o.name.toLowerCase().trim();
-      return name.length > 0 && (wanted.includes(name) || name.includes(wanted));
-    });
-    return hit ? { name: hit.o.name, asset: hit.asset } : null;
-  }
-
   private async derivativeInput(
     asset: AssetRecord,
     role: NewGenerationInput["role"],
@@ -272,9 +245,27 @@ export class GenerationPlanner {
       : [];
     charRows.sort((a, b) => panel.characterVersionIds.indexOf(a.v.id) - panel.characterVersionIds.indexOf(b.v.id));
     const chars: PanelCharacterContext[] = [];
+    const specOf = (c: (typeof charRows)[number]["c"]) =>
+      spec?.characters.find((x) => x.characterId === c.id || x.characterId === c.analysisKey) ?? null;
+    const worn = await resolveOutfits(
+      this.db,
+      panelId,
+      charRows.map(({ c }) => ({ id: c.id, text: specOf(c)?.outfit })),
+    );
+    const allOutfits = worn.size
+      ? await this.db
+          .select()
+          .from(characterOutfits)
+          .where(
+            inArray(
+              characterOutfits.characterId,
+              charRows.map(({ c }) => c.id),
+            ),
+          )
+      : [];
     for (const { v, c } of charRows) {
       const ref = await this.approvedReference("character", v.id);
-      const pc = spec?.characters.find((x) => x.characterId === c.id || x.characterId === c.analysisKey) ?? null;
+      const pc = specOf(c);
       let referenceImageIndex: number | undefined;
       if (ref && refs.length < MAX_REFERENCES) {
         refs.push({
@@ -285,26 +276,38 @@ export class GenerationPlanner {
         });
         referenceImageIndex = refs.length;
       }
-      // Identity reference first; the outfit reference (if the panel names a known outfit) comes right after.
+      // Identity reference first; the reference of the outfit this panel resolves to comes right after.
       let outfitReference: PanelCharacterContext["outfitReference"];
-      const outfit = pc?.outfit ? await this.matchingOutfitReference(c.id, v.id, pc.outfit) : null;
-      if (outfit && outfit.asset.id !== ref?.id && refs.length < MAX_REFERENCES) {
+      const outfit = worn.get(c.id);
+      const outfitAsset = outfit
+        ? (await outfitReferenceAssets(this.db, [outfit.outfit.id], v.id)).get(outfit.outfit.id)
+        : undefined;
+      if (outfit && outfitAsset && outfitAsset.id !== ref?.id && refs.length < MAX_REFERENCES) {
         refs.push({
-          asset: outfit.asset,
+          asset: outfitAsset,
           role: "character_ref",
-          label: `${c.name} outfit: ${outfit.name}`,
+          label: `${c.name} outfit: ${outfit.outfit.name}`,
           subjectVersionId: v.id,
         });
-        outfitReference = { name: outfit.name, imageIndex: refs.length };
+        outfitReference = { name: outfit.outfit.name, imageIndex: refs.length };
       }
+      // The resolved outfit's own description is what the WARDROBE line reads; the panel's text stays as a detail.
+      const wardrobe = outfit
+        ? wardrobeText(
+            outfit,
+            allOutfits.filter((o) => o.characterId === c.id),
+            pc?.outfit,
+          )
+        : undefined;
       chars.push({
         name: c.name,
         versionNumber: v.versionNumber,
         bible: CharacterBible.parse(v.description),
         immutableTraits: v.immutableTraits,
+        outfit: wardrobe,
         referenceImageIndex,
         outfitReference,
-        panel: pc,
+        panel: pc && wardrobe ? { ...pc, outfit: wardrobe } : pc,
       });
     }
 
