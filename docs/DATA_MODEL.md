@@ -70,7 +70,8 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
 ## Cast & world (`projects.ts`)
 
 - `characters` → `character_versions` (bible JSON, `immutable_traits`, status, parent version, change note) +
-  `character_aliases` + `character_outfits`.
+  `character_aliases` + `character_outfits`. `outfit_assignments` (in `media.ts`) sets an outfit on a panel,
+  `onward` (until the next change, in reading order) or for that `panel` only; see `docs/IMAGE_REFERENCES.md`.
 - `locations` → `location_versions`, `props` → `prop_versions` — same versioning shape.
 - `style_presets` (built-in and custom) and `project_styles` (the versioned project style).
 - `reference_assets` — links one canonical asset to exactly one subject version (character, location, prop or style),

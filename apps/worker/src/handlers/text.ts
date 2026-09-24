@@ -4,6 +4,7 @@ import {
   asc,
   chapters,
   characterAliases,
+  characterOutfits,
   characters,
   characterVersions,
   desc,
@@ -201,6 +202,18 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
           ),
         )
     : [];
+  const outfits = chars.length
+    ? await deps.db
+        .select()
+        .from(characterOutfits)
+        .where(
+          inArray(
+            characterOutfits.characterId,
+            chars.map((c) => c.c.id),
+          ),
+        )
+        .orderBy(asc(characterOutfits.createdAt))
+    : [];
   const locs = await deps.db
     .select({ l: locations, v: locationVersions })
     .from(locations)
@@ -248,6 +261,8 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
         role: c.role,
         aliases: aliases.filter((a) => a.characterId === c.id).map((a) => a.alias),
         look: v ? [v.description.hair, v.description.eyes, v.description.wardrobe].filter(Boolean).join("; ") : "",
+        // Naming one of these in a panel's outfit dresses the character in it, reference image included.
+        outfits: outfits.filter((o) => o.characterId === c.id).map((o) => o.name),
       })),
       locations: locs.map(({ l, v }) => ({
         key: keyOf(l.analysisKey, l.name),

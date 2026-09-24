@@ -51,6 +51,24 @@ clothing. Without a baseline every outfit drifted into a different face and buil
 exist to prevent. The per-outfit generate buttons in the Outfits editor are disabled until that main reference is
 approved, and mark the outfits that already have one.
 
+### Which outfit a panel draws
+
+Outfits are switched on panels, the way a costume change happens in the story. In the panel editor, pick an outfit
+for a character and choose **From this panel on** (it holds until the next change, across pages and chapters) or
+**Only this panel**. The character page lists every change in reading order. For each character on a panel,
+`resolveOutfits` (`packages/services/src/outfits.ts`) takes, strongest first:
+
+1. an outfit set on this panel (only this panel, then from this panel on);
+2. an outfit that the panel's own outfit text names (text containing the outfit's name, e.g. "rain coat, hood up"
+   names "Rain Coat"), which is how a chapter plan switches outfits, since the planner sees each character's
+   outfit names;
+3. the last "from this panel on" change before it in reading order (chapter, page, panel);
+4. the character's default outfit, when the panel's outfit text is empty.
+
+The outfit it resolves to gives the WARDROBE line its name and description, with the panel's outfit text as a detail
+(unless that text names a different outfit), and sends its approved reference. Text that names no outfit and no
+resolved outfit keeps the old behaviour: the text itself is the wardrobe.
+
 ### Which version a panel draws from
 
 A panel pins its own `characterVersionIds` and takes identity from `approvedReference(...)`, which accepts only
@@ -69,8 +87,8 @@ character's *current* version, so:
 
 1. Approved canonical character references for the characters **present in the panel** — primary first, then by kind
    preference `portrait → full_body → multi_angle → uploaded → outfit → expression_sheet`.
-2. The approved outfit reference, when the panel's spec names an outfit matching one, immediately after that
-   character's identity reference (the prompt then says to copy the clothing only, not the face).
+2. The approved outfit reference of the outfit the character wears on that panel (see below), immediately after
+   that character's identity reference (the prompt then says to copy the clothing only, not the face).
 3. The approved location reference for the panel's location version.
 4. Approved prop references for the panel's props.
 5. The approved project style reference.

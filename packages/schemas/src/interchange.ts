@@ -159,6 +159,10 @@ export const ProjectInterchange = z.object({
               artworkHistory: z.array(AssetRef),
               dialogue: z.array(z.object({ speaker: z.string().nullable(), text: z.string(), bubble: Bubble })),
               sfx: z.array(z.object({ text: z.string(), style: SfxStyle })),
+              /** Outfit changes set on this panel: from here on, or this panel only. */
+              outfits: z
+                .array(z.object({ character: z.string(), outfit: z.string(), scope: z.enum(["onward", "panel"]) }))
+                .default([]),
             }),
           ),
         }),

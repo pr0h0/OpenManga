@@ -9,6 +9,7 @@ import { clsx, Field, StatusChip, TagInput } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
+import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
 import { useEditor } from "./store.ts";
 
 /** Prepared prompt fields the planner prefers over the panel spec, in the order the prompt reads them. */
@@ -137,6 +138,10 @@ export function PanelTab({
     select: (r) => r.props,
   });
   const inv = [qk.page(data.page.id), qk.panel(panel.id)];
+  const outfits = useQuery({
+    queryKey: [...qk.panel(panel.id), "outfits"],
+    queryFn: () => get<PanelOutfits>(`/panels/${panel.id}/outfits`),
+  });
 
   const saveSpec = useAction(() => put(`/panels/${panel.id}/spec`, { spec }), {
     invalidate: inv,
@@ -352,6 +357,10 @@ export function PanelTab({
         </div>
         {spec.characters.map((pc, i) => {
           const name = data.cast.find((c) => c.id === pc.characterId)?.name ?? "Character";
+          // Planned specs name a character by its story key until it is edited here.
+          const wearing = outfits.data?.characters.find(
+            (c) => c.characterId === pc.characterId || c.analysisKey === pc.characterId,
+          );
           const upd = (k: "expression" | "pose" | "action" | "outfit" | "position", v: string) =>
             setField(
               "characters",
@@ -365,13 +374,22 @@ export function PanelTab({
                   <input
                     key={k}
                     className="input text-xs"
-                    placeholder={k}
+                    placeholder={k === "outfit" ? "outfit detail" : k}
                     aria-label={`${name} ${k}`}
                     value={pc[k]}
                     onChange={(e) => upd(k, e.target.value)}
                   />
                 ))}
               </div>
+              {wearing && (
+                <OutfitPicker
+                  projectId={projectId}
+                  panelId={panel.id}
+                  entry={wearing}
+                  locked={locked}
+                  invalidate={[qk.panel(panel.id), ["prompt-preview", panel.id]]}
+                />
+              )}
             </div>
           );
         })}

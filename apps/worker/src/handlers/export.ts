@@ -22,6 +22,7 @@ import {
   locationVersions,
   narrationLines,
   narrationSegments,
+  outfitAssignments,
   pages,
   panelSpecs,
   panels,
@@ -759,6 +760,11 @@ export async function buildInterchange(
           .from(soundEffects)
           .where(eq(soundEffects.panelId, pn.id))
           .orderBy(asc(soundEffects.createdAt), asc(soundEffects.id));
+        const worn = await db
+          .select()
+          .from(outfitAssignments)
+          .where(eq(outfitAssignments.panelId, pn.id))
+          .orderBy(asc(outfitAssignments.createdAt), asc(outfitAssignments.id));
         panelDocs.push({
           ref: `pn-${pn.id}`,
           order: pn.order,
@@ -781,6 +787,7 @@ export async function buildInterchange(
             bubble: d.bubble,
           })),
           sfx: sf.map((s) => ({ text: s.text, style: s.style })),
+          outfits: worn.map((w) => ({ character: `c-${w.characterId}`, outfit: `o-${w.outfitId}`, scope: w.scope })),
         });
       }
       pageDocs.push({

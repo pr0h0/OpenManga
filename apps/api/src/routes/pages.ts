@@ -3,6 +3,7 @@ import {
   asc,
   assets,
   chapters,
+  characterOutfits,
   characters,
   characterVersions,
   type Database,
@@ -16,6 +17,7 @@ import {
   locations,
   locationVersions,
   narrationLines,
+  outfitAssignments,
   pages,
   panelSpecs,
   panels,
@@ -52,7 +54,7 @@ import {
   SfxStyle,
   ShotType,
 } from "@openmanga/schemas";
-import { recordAudit } from "@openmanga/services";
+import { outfitReferenceAssets, outfitTimeline, recordAudit, resolveOutfits } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -740,6 +742,141 @@ pageRoutes.put("/panels/:id/spec", async (c) => {
     return s;
   });
   return c.json({ spec: row });
+});
+
+doc({
+  method: "GET",
+  path: "/api/panels/:id/outfits",
+  summary: "What each character on the panel wears, where that was set, and the outfits they could wear",
+  tag: "panels",
+});
+pageRoutes.get("/panels/:id/outfits", async (c) => {
+  const { panel } = await loadPanel(c, uuidParam(c, "id"), "read");
+  const { db } = c.get("deps");
+  const rows = panel.characterVersionIds.length
+    ? await db
+        .select({ v: characterVersions, c: characters })
+        .from(characterVersions)
+        .innerJoin(characters, eq(characters.id, characterVersions.characterId))
+        .where(inArray(characterVersions.id, panel.characterVersionIds))
+    : [];
+  rows.sort((a, b) => panel.characterVersionIds.indexOf(a.v.id) - panel.characterVersionIds.indexOf(b.v.id));
+  const [spec] = await db
+    .select()
+    .from(panelSpecs)
+    .where(eq(panelSpecs.panelId, panel.id))
+    .orderBy(desc(panelSpecs.versionNumber))
+    .limit(1);
+  const textOf = (ch: (typeof rows)[number]["c"]) =>
+    spec?.spec.characters.find((x) => x.characterId === ch.id || x.characterId === ch.analysisKey)?.outfit ?? "";
+  const ids = rows.map((r) => r.c.id);
+  const outfits = ids.length
+    ? await db
+        .select()
+        .from(characterOutfits)
+        .where(inArray(characterOutfits.characterId, ids))
+        .orderBy(asc(characterOutfits.createdAt))
+    : [];
+  const worn = await resolveOutfits(
+    db,
+    panel.id,
+    rows.map((r) => ({ id: r.c.id, text: textOf(r.c) })),
+  );
+  const timeline = await outfitTimeline(db, ids);
+  const characterList = [];
+  for (const { c: ch, v } of rows) {
+    const mine = outfits.filter((o) => o.characterId === ch.id);
+    const refs = await outfitReferenceAssets(
+      db,
+      mine.map((o) => o.id),
+      v.id,
+    );
+    const w = worn.get(ch.id);
+    characterList.push({
+      characterId: ch.id,
+      analysisKey: ch.analysisKey,
+      name: ch.name,
+      text: textOf(ch),
+      outfits: mine.map((o) => ({ ...o, referenceAssetId: refs.get(o.id)?.id ?? null })),
+      worn: w ? { outfitId: w.outfit.id, source: w.source, since: w.assignment ?? null } : null,
+      here: timeline
+        .filter((t) => t.characterId === ch.id && t.panelId === panel.id)
+        .map((t) => ({ id: t.id, scope: t.scope, outfitId: t.outfitId })),
+    });
+  }
+  return c.json({ characters: characterList });
+});
+
+const SetOutfit = z.object({
+  characterId: z.string().uuid(),
+  outfitId: z.string().uuid(),
+  /** "onward": from this panel until the next change, across chapters. "panel": this panel only. */
+  scope: z.enum(["onward", "panel"]),
+});
+doc({
+  method: "PUT",
+  path: "/api/panels/:id/outfits",
+  summary: "Dress a character in an outfit from this panel on, or on this panel only",
+  tag: "panels",
+  body: SetOutfit,
+});
+pageRoutes.put("/panels/:id/outfits", async (c) => {
+  const { panel } = await loadPanel(c, uuidParam(c, "id"), "write");
+  if (panel.approvalStatus === "locked") throw conflict("Panel is locked");
+  const input = await body(c, SetOutfit);
+  const { db } = c.get("deps");
+  const [o] = await db
+    .select({ o: characterOutfits })
+    .from(characterOutfits)
+    .innerJoin(characters, eq(characters.id, characterOutfits.characterId))
+    .where(
+      and(
+        eq(characterOutfits.id, input.outfitId),
+        eq(characterOutfits.characterId, input.characterId),
+        eq(characters.projectId, panel.projectId),
+      ),
+    );
+  if (!o) throw notFound("Outfit");
+  const row = await db.transaction(async (tx) => {
+    // A change from here on replaces a one-panel override here, which would otherwise hide it on this very panel.
+    if (input.scope === "onward")
+      await tx
+        .delete(outfitAssignments)
+        .where(
+          and(
+            eq(outfitAssignments.characterId, input.characterId),
+            eq(outfitAssignments.panelId, panel.id),
+            eq(outfitAssignments.scope, "panel"),
+          ),
+        );
+    const [a] = await tx
+      .insert(outfitAssignments)
+      .values({ projectId: panel.projectId, panelId: panel.id, ...input })
+      .onConflictDoUpdate({
+        target: [outfitAssignments.characterId, outfitAssignments.panelId, outfitAssignments.scope],
+        set: { outfitId: input.outfitId },
+      })
+      .returning();
+    return a;
+  });
+  return c.json({ assignment: row });
+});
+
+doc({
+  method: "DELETE",
+  path: "/api/outfit-assignments/:id",
+  summary: "Remove an outfit change; the panels it covered fall back to the one before it",
+  tag: "panels",
+});
+pageRoutes.delete("/outfit-assignments/:id", async (c) => {
+  const id = uuidParam(c, "id");
+  const { db } = c.get("deps");
+  const [a] = await db.select().from(outfitAssignments).where(eq(outfitAssignments.id, id));
+  if (!a) throw notFound("Outfit change");
+  const { panel } = await loadPanel(c, a.panelId, "write");
+  if (panel.approvalStatus === "locked") throw conflict("Panel is locked");
+  await db.delete(outfitAssignments).where(eq(outfitAssignments.id, id));
+  return c.json({ ok: true });
 });
 
 doc({ method: "DELETE", path: "/api/panels/:id", summary: "Remove panel", tag: "panels" });

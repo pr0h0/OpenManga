@@ -99,6 +99,13 @@
       "when": 1790077788605,
       "tag": "0013_awaiting_input",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790211533321,
+      "tag": "0014_outfit_assignments",
+      "breakpoints": true
     }
   ]
 }

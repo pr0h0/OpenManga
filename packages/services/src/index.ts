@@ -7,6 +7,7 @@ export * from "./compose.ts";
 export * from "./credentials.ts";
 export * from "./jobs.ts";
 export * from "./narration-pauses.ts";
+export * from "./outfits.ts";
 export * from "./planner.ts";
 export * from "./preflight.ts";
 export * from "./providers.ts";

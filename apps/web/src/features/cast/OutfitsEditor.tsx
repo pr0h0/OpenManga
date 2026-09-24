@@ -1,10 +1,14 @@
-import { ImagePlus, Plus, Star, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { ImagePlus, Plus, Star, Trash2, X } from "lucide-react";
 import { useState } from "react";
-import { del, patch, post } from "../../api/client.ts";
+import { del, get, patch, post } from "../../api/client.ts";
 import { useAction } from "../../api/hooks.ts";
 import type { CharacterOutfitRow, Reference } from "../../api/types.ts";
 import { Spinner } from "../../components/ui.tsx";
 import { useAiBody } from "../ai/AiPicker.tsx";
+import { changePlace, type OutfitChange } from "../pages/editor/OutfitPicker.tsx";
+import { useProjectId } from "../project/ProjectLayout.tsx";
 
 export function OutfitsEditor({
   characterId,
@@ -47,6 +51,14 @@ export function OutfitsEditor({
     opts,
   );
   const remove = useAction((id: string) => del(`/character-outfits/${id}`), opts);
+  const projectId = useProjectId();
+  const timelineKey = ["character", characterId, "outfit-timeline"];
+  const timeline = useQuery({
+    queryKey: timelineKey,
+    queryFn: () => get<{ timeline: OutfitChange[] }>(`/characters/${characterId}/outfit-timeline`),
+    select: (r) => r.timeline,
+  });
+  const removeChange = useAction((id: string) => del(`/outfit-assignments/${id}`), { invalidate: [timelineKey] });
   const aiImage = useAiBody("image");
   const generate = useAction(
     (outfitId: string) =>
@@ -129,6 +141,46 @@ export function OutfitsEditor({
           </li>
         ))}
       </ul>
+      {outfits.length > 1 && (
+        <div className="mt-3">
+          <h3 className="label">Outfit changes</h3>
+          {timeline.data?.length ? (
+            <ul className="space-y-1 text-xs">
+              {timeline.data.map((t) => (
+                <li key={t.id} className="flex items-center gap-1">
+                  <Link
+                    to="/projects/$projectId/pages/$pageId"
+                    params={{ projectId, pageId: t.pageId }}
+                    search={{ panelId: t.panelId }}
+                    className="muted shrink-0 tabular-nums hover:underline"
+                    title={t.chapterTitle}
+                  >
+                    {changePlace(t)}
+                  </Link>
+                  <span className="min-w-0 flex-1 truncate">
+                    {t.outfitName}
+                    <span className="muted">{t.scope === "panel" ? " · this panel only" : " · from here on"}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-ghost p-0.5"
+                    aria-label={`Remove the change to ${t.outfitName} at ${changePlace(t)}`}
+                    disabled={removeChange.isPending}
+                    onClick={() => removeChange.mutate(t.id)}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted text-xs">
+              None yet: every panel wears the default. Switch outfits on a panel in the page editor, from that panel on
+              or for that panel only.
+            </p>
+          )}
+        </div>
+      )}
       <form
         className="mt-2 space-y-1"
         onSubmit={(e) => {
