@@ -72,6 +72,22 @@ The outfit it resolves to gives the WARDROBE line its name and description, with
 (unless that text names a different outfit), and sends its approved reference. Text that names no outfit and no
 resolved outfit keeps the old behaviour: the text itself is the wardrobe.
 
+### Location and prop reference kinds
+
+Each is one image, in the kind picked on the location or prop page:
+
+| Subject | Kind | What it draws |
+| --- | --- | --- |
+| Location | `location` (wide view) | One eye-level establishing shot of the space. The default. |
+| Location | `location_panorama` | One continuous sweep across the whole space, as if the camera turned in place, so every wall and area appears once. |
+| Location | `location_sheet` | One image split 2x2, each panel facing a different side of the space. |
+| Prop | `prop` (single view) | One three-quarter view. The default, and the right one for an object only ever seen from one side. |
+| Prop | `prop_multi_angle` | Front, side, back and top views of the object in a row. |
+
+Panels send the primary (starred) approved reference, whatever its kind. When it is a panorama, a sheet or a
+multi-angle turnaround, the panel prompt (`panel-generation` v8) says so: use it for where things are and what they
+look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
+
 ### Which version a panel draws from
 
 A panel pins its own `characterVersionIds` and takes identity from `approvedReference(...)`, which accepts only

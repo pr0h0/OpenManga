@@ -64,7 +64,10 @@ const KIND_ORDER: ReferenceKind[] = [
   "outfit",
   "expression_sheet",
   "location",
+  "location_sheet",
+  "location_panorama",
   "prop",
+  "prop_multi_angle",
   "style",
 ];
 
@@ -75,7 +78,10 @@ export const REFERENCE_ASPECT: Record<string, number> = {
   expression_sheet: 3 / 2,
   outfit: 2 / 3,
   location: 3 / 2,
+  location_panorama: 3 / 2,
+  location_sheet: 3 / 2,
   prop: 1,
+  prop_multi_angle: 3 / 2,
   style: 2 / 3,
   cover: 2 / 3,
 };
@@ -148,7 +154,10 @@ export class GenerationPlanner {
   }
 
   /** Approved/locked canonical reference for a subject version. Drafts are never used for identity. */
-  async approvedReference(subject: RefSubject, versionId: string): Promise<AssetRecord | null> {
+  async approvedReference(
+    subject: RefSubject,
+    versionId: string,
+  ): Promise<(AssetRecord & { referenceKind: ReferenceKind }) | null> {
     const col =
       subject === "character"
         ? referenceAssets.characterVersionId
@@ -168,7 +177,7 @@ export class GenerationPlanner {
         Number(b.ref.isPrimary) - Number(a.ref.isPrimary) ||
         KIND_ORDER.indexOf(a.ref.kind) - KIND_ORDER.indexOf(b.ref.kind),
     );
-    return rows[0]?.asset ?? null;
+    return rows[0] ? { ...rows[0].asset, referenceKind: rows[0].ref.kind } : null;
   }
 
   private async derivativeInput(
@@ -330,7 +339,12 @@ export class GenerationPlanner {
           });
           referenceImageIndex = refs.length;
         }
-        location = { name: l.l.name, description: l.v.description, referenceImageIndex };
+        location = {
+          name: l.l.name,
+          description: l.v.description,
+          referenceImageIndex,
+          referenceKind: referenceImageIndex ? ref?.referenceKind : undefined,
+        };
       }
     }
 
@@ -353,7 +367,12 @@ export class GenerationPlanner {
           });
           referenceImageIndex = refs.length;
         }
-        propCtx.push({ name: pr.p.name, description: pr.v.description, referenceImageIndex });
+        propCtx.push({
+          name: pr.p.name,
+          description: pr.v.description,
+          referenceImageIndex,
+          referenceKind: referenceImageIndex ? ref?.referenceKind : undefined,
+        });
       }
     }
 
@@ -643,15 +662,16 @@ export class GenerationPlanner {
       if (!r) throw new PlanningError(404, "Location version not found");
       projectId = r.l.projectId;
       const { style } = await this.styleContext(projectId);
+      kind = kind === "location_panorama" || kind === "location_sheet" ? kind : "location";
       prompt = locationReferenceV1.compile({
         style,
         name: r.l.name,
         description: r.v.description,
+        kind,
         extraInstruction: opts.extraInstruction,
       });
-      label = `${r.l.name} v${r.v.versionNumber}`;
+      label = `${r.l.name} v${r.v.versionNumber}${kind === "location" ? "" : ` ${kind.replace("location_", "")}`}`;
       templateName = locationReferenceV1.name;
-      kind = "location";
     } else if (subject === "prop") {
       const [r] = await this.db
         .select({ v: propVersions, p: props })
@@ -661,15 +681,16 @@ export class GenerationPlanner {
       if (!r) throw new PlanningError(404, "Prop version not found");
       projectId = r.p.projectId;
       const { style } = await this.styleContext(projectId);
+      kind = kind === "prop_multi_angle" ? kind : "prop";
       prompt = propReferenceV1.compile({
         style,
         name: r.p.name,
         description: r.v.description,
+        kind,
         extraInstruction: opts.extraInstruction,
       });
-      label = `${r.p.name} v${r.v.versionNumber}`;
+      label = `${r.p.name} v${r.v.versionNumber}${kind === "prop" ? "" : " multi angle"}`;
       templateName = propReferenceV1.name;
-      kind = "prop";
     } else {
       const [ps] = await this.db.select().from(projectStyles).where(eq(projectStyles.id, versionId));
       if (!ps) throw new PlanningError(404, "Project style not found");

@@ -6,6 +6,7 @@ import {
   eq,
   inArray,
   isNull,
+  REFERENCE_KINDS,
   type ReferenceKind,
   referenceAssets,
 } from "@openmanga/db";
@@ -92,9 +93,7 @@ export async function listReferences(c: Context<AppEnv>, subject: Subject, versi
 }
 
 const GenerateRef = z.object({
-  kind: z
-    .enum(["portrait", "full_body", "multi_angle", "expression_sheet", "outfit", "location", "prop", "style"])
-    .default("full_body"),
+  kind: z.enum(REFERENCE_KINDS).exclude(["uploaded"]).default("full_body"),
   extraInstruction: z.string().max(2000).optional(),
   outfitId: z.string().uuid().optional(),
   ai: AiChoiceInput,
@@ -172,18 +171,7 @@ export function mountReferenceEndpoints(
         locationVersionId: subject === "location" ? id : null,
         propVersionId: subject === "prop" ? id : null,
         projectStyleId: subject === "style" ? id : null,
-        kind: [
-          "portrait",
-          "full_body",
-          "multi_angle",
-          "expression_sheet",
-          "outfit",
-          "location",
-          "prop",
-          "style",
-        ].includes(kind)
-          ? kind
-          : "uploaded",
+        kind: REFERENCE_KINDS.find((k) => k === kind) ?? "uploaded",
         assetId: asset.id,
         isPrimary: !existingPrimary,
         sourceFingerprint: await versionFingerprint(deps.db, subject, id),

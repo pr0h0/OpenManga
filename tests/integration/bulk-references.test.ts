@@ -200,3 +200,50 @@ test("a batched run parks the references at the provider and ingests them as dra
   expect(usage).toHaveLength(2);
   expect(usage.every((u) => u.model.endsWith(":batch"))).toBe(true);
 });
+
+test("a location sheet and a prop turnaround are one image each, and panels are told how to read them", async () => {
+  const generate = async (path: string, kind: string) => {
+    const r = await alice.post<{ job: { id: string } }>(`/api/${path}/references/generate`, { kind }, 202);
+    const job = await waitFor(
+      async () => {
+        const [j] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: `${kind} reference`, timeoutMs: 60_000 },
+    );
+    expect(job.status).toBe("completed");
+    // One image, wide enough to hold several views.
+    expect(job.parameters.aspectRatio).toBe(3 / 2);
+    const [ref] = await h.deps.db
+      .select()
+      .from(referenceAssets)
+      .where(and(eq(referenceAssets.kind, kind as "location_sheet"), eq(referenceAssets.status, "draft")));
+    await alice.post(`/api/references/${ref!.id}/status`, { status: "approved" });
+    await alice.post(`/api/references/${ref!.id}/primary`);
+    return job.compiledPrompt!;
+  };
+  expect(await generate(`location-versions/${locationVersions[0]}`, "location_sheet")).toContain("2x2 grid");
+  expect(await generate(`prop-versions/${propVersions[0]}`, "prop_multi_angle")).toContain(
+    "front, side, back and top views",
+  );
+
+  const ch = await alice.post<{ chapter: { id: string } }>(
+    `/api/projects/${projectId}/chapters`,
+    { title: "One" },
+    201,
+  );
+  const page = await alice.post<{ page: { id: string } }>(
+    `/api/chapters/${ch.chapter.id}/pages`,
+    { layoutTemplate: "four-grid" },
+    201,
+  );
+  const doc = await alice.get<{ panels: { id: string }[] }>(`/api/pages/${page.page.id}`);
+  const panelId = doc.panels[0]!.id;
+  await alice.patch(`/api/panels/${panelId}`, {
+    locationVersionId: locationVersions[0],
+    propVersionIds: [propVersions[0]],
+  });
+  const pv = await alice.get<{ compiledPrompt: string }>(`/api/panels/${panelId}/prompt-preview`);
+  expect(pv.compiledPrompt).toContain("is a sheet showing several sides of the location");
+  expect(pv.compiledPrompt).toContain("Weather notebook is shown from several angles");
+});

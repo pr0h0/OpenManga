@@ -13,10 +13,20 @@ export type Subject = "character" | "location" | "prop" | "style";
 const KINDS: Record<Subject, string[]> = {
   // full_body first: it is the default kind, and the one panels lean on most (height, proportions, clothing).
   character: ["full_body", "portrait", "multi_angle", "expression_sheet", "outfit"],
-  location: ["location"],
-  prop: ["prop"],
+  // Each is one image; the primary (starred) one is what panels are drawn from.
+  location: ["location", "location_panorama", "location_sheet"],
+  prop: ["prop", "prop_multi_angle"],
   style: ["style"],
 };
+
+const KIND_LABELS: Record<string, string> = {
+  location: "wide view",
+  location_panorama: "panorama",
+  location_sheet: "sheet (every side)",
+  prop: "single view",
+  prop_multi_angle: "multi angle",
+};
+const kindLabel = (k: string) => KIND_LABELS[k] ?? k.replace(/_/g, " ");
 
 type Pending = { jobId: string; status: string; failureReason?: string | null };
 
@@ -129,7 +139,7 @@ export function ReferencePanel({
             <select className="input" value={kind} onChange={(e) => setKind(e.target.value)}>
               {kinds.map((k) => (
                 <option key={k} value={k}>
-                  {k.replace(/_/g, " ")}
+                  {kindLabel(k)}
                 </option>
               ))}
             </select>
@@ -250,7 +260,7 @@ export function ReferencePanel({
               </button>
               <div className="space-y-1.5 p-2 text-xs">
                 <div className="flex items-center gap-1">
-                  <span className="font-medium capitalize">{r.kind.replace(/_/g, " ")}</span>
+                  <span className="font-medium capitalize">{kindLabel(r.kind)}</span>
                   {r.isPrimary && <Star className="size-3.5 fill-amber-400 text-amber-400" aria-label="Primary" />}
                   <span className="ml-auto flex items-center gap-1">
                     {r.stale && (
@@ -340,7 +350,7 @@ export function ReferencePanel({
       <Modal
         open={Boolean(viewing)}
         onClose={() => setViewing(null)}
-        title={viewing ? `${viewing.kind.replace(/_/g, " ")} — ${viewing.asset.width}×${viewing.asset.height}` : ""}
+        title={viewing ? `${kindLabel(viewing.kind)} — ${viewing.asset.width}×${viewing.asset.height}` : ""}
         wide="xl"
       >
         {viewing && (

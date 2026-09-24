@@ -57,7 +57,10 @@ const REF_KIND_ORDER = [
   "outfit",
   "expression_sheet",
   "location",
+  "location_sheet",
+  "location_panorama",
   "prop",
+  "prop_multi_angle",
   "style",
 ];
 
