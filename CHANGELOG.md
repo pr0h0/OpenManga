@@ -5,6 +5,56 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.7.0] — 2026-09-24
+
+Upgrading: pull the new images and restart. Two migrations run automatically: `0014_outfit_assignments` adds a table
+and `0015_planned_lettering` adds a nullable column, so existing projects are untouched. Outfits already worn by
+naming them in a panel's outfit text keep working the same way. Chapters planned before this release have no kept
+dialogue to letter; re-plan one to get it.
+
+### Added
+
+- **Outfits are switched on panels, the way a costume change happens in the story.** In the panel editor each
+  character gets outfit chips with their reference images. A pick holds *from this panel on*, across pages and into
+  later chapters, until the next change, or for *only this panel*. The editor says what is worn and where it was set
+  ("since Ch.1 p.3 panel 2"), and the character page lists every change in reading order. A panel's outfit now reaches
+  the prompt by its own description, not only its name, and sends that outfit's approved reference image. The default
+  outfit is finally used.
+- **Chapter plans switch outfits too.** The planner sees each character's outfits; naming one records a change from
+  that panel on, or for one panel only with `outfitScope: "panel"`. Re-planning replaces the plan's changes instead
+  of stacking them.
+- **Locations can be drawn as a panorama or as a sheet of every side, and props from every angle.** Each is one image,
+  picked from the kind dropdown the character page already had; a panel told it is looking at a sheet or panorama
+  draws only the one view it needs.
+- **Letter from plan.** With automatic lettering off, the plan's dialogue and SFX are now kept on each panel instead of
+  thrown away; Editor → Lettering places them on request. Bubbles go where the plan said text fits.
+- **The text steps see what they are asked to use.** The chapter planner gets each location's key features and
+  lighting, prop summaries, the cast's distinctive features, personality and mannerisms, the protagonist,
+  relationships from the story analysis, and every fact revealed in earlier chapters. Narration gets the chapter's
+  cast (for names and pronouns), the world notes, the previous chapter, and each panel's emotion and dialogue.
+- **What a scene changed carries into the scenes after it** ("left sleeve torn"), for the people it is about, and a
+  scene that states no starting state starts where the previous one ended.
+- **New prompt versions say how to use that data**: `page-planning` v6 (with `shot-planning` v3, `strip-planning` v2
+  and the split-planning passes derived from them) on naming outfits, acting the cast and not repeating earlier
+  revelations; `panel-prompts` v4 on writing each named character in the named location; `narration` v5 on names
+  and pronouns from the cast. Nothing else in them changed, and earlier versions stay registered.
+- **The story analysis keeps more of the world**: uniforms, recurring scenery, vehicles, genre, tone and themes go
+  into the world notes, and its summary fills an empty project description, which the cover is drawn from.
+
+### Fixed
+
+- **Outfit references were drawn without the character.** The prompt told the model to reproduce the approved design
+  from reference image 1, and no image was sent, so every outfit drifted into a different face.
+- **Prompt preparation saw database ids instead of names**, so it could not tell whose pose was whose.
+- **The panel check compared clothes with the default wardrobe**, so any outfit change read as a mismatch; it also
+  ignored text drawn into the art and never showed its notes. It now checks the outfit worn, reports drawn text, names
+  the problem on its badge, and saves its prompt on the job page.
+- **Editing a wardrobe did not reach panels, and a new appearance version wore the old one's clothes.** The default
+  outfit now follows the wardrobe of the version it was made from.
+- **Reference jobs recorded template version 1** whatever template drew them; they now record the real one.
+- **The prompt and pipeline docs had fallen several versions behind**; they now list the live versions, and say what
+  each text step is given.
+
 ## [0.6.0] — 2026-09-23
 
 Upgrading: pull the new images and restart. One migration (`0013_awaiting_input`) runs automatically and only adds a
