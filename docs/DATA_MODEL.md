@@ -61,7 +61,9 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
   `prompt_override` (text, a user-edited prompt), `prompt_draft` (JSON, the sections written by the `page_prompts`
   job), `qa` (JSON, the latest consistency check of the active artwork) and `review` (JSON
   `{reason, message, at}`, set when the artwork needs a human look — for example because it came from the
-  content-policy fallback provider).
+  content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
+  (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
+  plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it.
 - `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user.
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
   can carry several narration tracks over the same artwork; optional on-page box) → `narration_segments` (TTS units:

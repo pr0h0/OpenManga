@@ -4,13 +4,13 @@
 | --- | --- | --- | --- |
 | Story analysis | `story_analysis` / text-ai | `story-analysis` v2 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
-| Chapter planning | `chapter_plan` / text-ai | `page-planning` v5, or `shot-planning` v2 for a film project | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
-| Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v3 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
-| Narration text | `narration_text` / text-ai | `narration` v4 | narration lines → TTS segments |
-| References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference`, `style-reference` v3 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v6 | a new `panel_art` asset, activated on the panel |
-| Masked edit | `panel_edit` / image-edit | `panel-edit` v3 | a new `panel_art` asset with `parent_asset_id` set |
-| Cover | `cover` / image-generation | `cover` v3 | cover artwork (the title is composited by the app) |
+| Chapter planning | `chapter_plan` / text-ai | `page-planning` v6, or `shot-planning` v3 for a film project and `strip-planning` v2 for a vertical strip | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
+| Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
+| Narration text | `narration_text` / text-ai | `narration` v5 | narration lines → TTS segments |
+| References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v4 | full-resolution canonical asset + a draft `reference_assets` row |
+| Panels | `panel_generation` / image-generation | `panel-generation` v8 | a new `panel_art` asset, activated on the panel |
+| Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
+| Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Panel QA | `panel_check` / text-ai | `panel-check` v1 | `panels.qa` verdict from a vision model (opt-in) |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
@@ -67,6 +67,30 @@ image and text tokens; costs use the seeded `google/*` rate snapshots, which pri
 tokens for a 1K image). Safety finish reasons (`IMAGE_SAFETY`, `PROHIBITED_CONTENT`, …) and `promptFeedback.blockReason`
 become non-retryable `content_policy`; a response with no image is a retryable `invalid_response`.
 
+## What each text step is given
+
+Each step's instructions are fixed per template version; what varies is the project data sent with them, built in
+`apps/worker/src/handlers/text.ts`. Since 0.7:
+
+- **Chapter planning** (`projectPlanningData`): the chapter and its beats; world notes and art direction; each
+  character's key, name, role, aliases, a short look, distinctive features, personality, mannerisms, outfit names and
+  a `protagonist` flag; the cast's relationships from the latest applied story analysis; each location's summary,
+  key features and lighting; each prop's summary; the previous chapter's closing state, character and location
+  changes and revealed facts, and `earlierRevealedFacts` from every chapter before it.
+- **Panel prompt prep** (`pagePrompts`): the scene (with its purpose, time, weather, continuity and state) and the page
+  (purpose, pacing, emphasis, page-turn hook); per panel its spec with characters by **name** (never a database id),
+  its location (summary, key features), its props and the dialogue spoken in it.
+- **Narration** (`narrationText`): the chapter, the previous chapter's closing state and revealed facts, the world
+  notes, and the chapter's cast (name, role, aliases, gender presentation, for names and pronouns); per panel its
+  beat, emotion and dialogue.
+- **Panel images** (`GenerationPlanner.panelContext`): continuity is the scene's notes and starting state, what
+  earlier scenes of the chapter changed for good (`continuityDeltas`), the previous scene's end state when this scene
+  sets none, and earlier panels' requirements, each kept only when it concerns someone in the panel (or no one).
+
+Applying a story analysis writes its setting, rules, technology, magic, factions, uniforms, recurring scenery,
+vehicles, genre, tone, themes, motifs and notes into empty world notes, and its summary into an empty project
+description (which the cover is drawn from).
+
 ## Colour mode, format and audio timing
 
 - **Colour mode wins over the preset**: `styleSection()` drops a preset's monochrome `colorPolicy` line for a
@@ -92,7 +116,7 @@ itself is deterministic ffmpeg work in the worker: see `docs/DEPLOYMENT.md` for 
 ## Prompt quality rules
 
 Rules that came from production output, all versioned (old text versions stay registered for reproducibility) —
-`story-analysis` v2, `page-planning` v5, `shot-planning` v2, `panel-prompts` v3, `narration` v4 and the image
+`story-analysis` v2, `page-planning` v6, `shot-planning` v3, `panel-prompts` v4, `narration` v5 and the image
 templates:
 
 - **Bibles are drawable**: concrete descriptors, apparent age as a range, one default outfit with colours and
@@ -124,7 +148,7 @@ of the time. Five layers, all visible to the user:
   description when the image was made. When a draft description changes, its references report `stale: true` — the old
   image still shows the old look and is attached to every panel. Migrating panels onto a version with no fresh
   approved reference returns 409 `no_approved_reference` unless `force: true`.
-- **Art direction binds planning**: since `page-planning` v4 and `panel-prompts` v2 (live: v5 and v3) the planner
+- **Art direction binds planning**: since `page-planning` v4 and `panel-prompts` v2 (live: v6 and v4) the planner
   receives `artDirection` (preset, lighting, custom style) and must keep `lighting` and `emotion` inside it — no
   horror lighting or distressed moods in a warm comedy, and never lone figure + underlighting + distressed mood +
   high or tilted camera together.
@@ -170,9 +194,12 @@ accepts `language`, defaulting to the project language.
 
 `settings.consistencyCheck = { enabled, credentialId, model }`. After a panel generation or edit activates new
 artwork, a `panel_check` job sends the 1024 px preview plus the expected cast (names and appearance) to a
-vision-capable text model (`panel-check` v1, schema `PanelCheck`). The verdict is computed deterministically — missing
-expected characters, unexpected people, headcount mismatch — and stored on `panels.qa`; the page grid outlines
-mismatches and the Panel tab shows the badge with a "check again" action (`POST /api/panels/:id/check`). DeepSeek
+vision-capable text model (`panel-check` v1, schema `PanelCheck`). The expected appearance uses the outfit the panel
+resolves to (see `docs/IMAGE_REFERENCES.md`), not the bible's default wardrobe. The verdict is computed
+deterministically — missing expected characters, unexpected people, headcount mismatch, readable text drawn in the
+art — and stored on `panels.qa`; the page grid outlines mismatches and the Panel tab's badge names the first problem,
+shows the model's notes on hover, and has a "check again" action (`POST /api/panels/:id/check`). The check's prompt is
+saved on its job like every other text step's. DeepSeek
 cannot read images, so this needs a BYOK vision model. Text providers accept `images` on chat messages (OpenAI-style
 content parts, Anthropic image blocks).
 

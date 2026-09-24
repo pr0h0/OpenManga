@@ -621,6 +621,7 @@ export class GenerationPlanner {
     let prompt: string;
     let label: string;
     let templateName: string;
+    let templateVersion: number;
     /** The approved identity reference an outfit reference is drawn from. */
     let baseline: AssetRecord | null = null;
     const input: Record<string, unknown> = { subject, versionId, kind, outfitId: opts.outfitId ?? null };
@@ -670,6 +671,7 @@ export class GenerationPlanner {
       });
       label = `${r.c.name} v${r.v.versionNumber} ${kind}`;
       templateName = characterReferenceV1.name;
+      templateVersion = characterReferenceV1.version;
     } else if (subject === "location") {
       const [r] = await this.db
         .select({ v: locationVersions, l: locations })
@@ -689,6 +691,7 @@ export class GenerationPlanner {
       });
       label = `${r.l.name} v${r.v.versionNumber}${kind === "location" ? "" : ` ${kind.replace("location_", "")}`}`;
       templateName = locationReferenceV1.name;
+      templateVersion = locationReferenceV1.version;
     } else if (subject === "prop") {
       const [r] = await this.db
         .select({ v: propVersions, p: props })
@@ -708,6 +711,7 @@ export class GenerationPlanner {
       });
       label = `${r.p.name} v${r.v.versionNumber}${kind === "prop" ? "" : " multi angle"}`;
       templateName = propReferenceV1.name;
+      templateVersion = propReferenceV1.version;
     } else {
       const [ps] = await this.db.select().from(projectStyles).where(eq(projectStyles.id, versionId));
       if (!ps) throw new PlanningError(404, "Project style not found");
@@ -716,6 +720,7 @@ export class GenerationPlanner {
       prompt = styleReferenceV1.compile({ style, subject: opts.extraInstruction ?? "" });
       label = "style reference";
       templateName = styleReferenceV1.name;
+      templateVersion = styleReferenceV1.version;
       kind = "style";
     }
     input.sourceFingerprint = await versionFingerprint(this.db, subject, versionId);
@@ -745,7 +750,7 @@ export class GenerationPlanner {
           targetType: `${subject}_version`,
           targetId: versionId,
           templateName,
-          templateVersion: 1,
+          templateVersion,
           compiledPrompt: prompt,
           provider: run.provider,
           model: run.model,

@@ -23,7 +23,7 @@ import {
   resolveLettering,
   segmentNarration,
 } from "@openmanga/domain";
-import { narrationV4 } from "@openmanga/prompts";
+import { narrationV5 } from "@openmanga/prompts";
 import { Bubble, type Frame, type ProjectSettings } from "@openmanga/schemas";
 import { applyNarrationPauses } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -418,8 +418,8 @@ audioRoutes.post("/chapters/:id/narration/generate", async (c) => {
         targetType: "chapter",
         targetId: chapterId,
         batchId: narrationBatchId,
-        templateName: narrationV4.name,
-        templateVersion: narrationV4.version,
+        templateName: narrationV5.name,
+        templateVersion: narrationV5.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(batch) },

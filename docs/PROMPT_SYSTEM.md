@@ -24,21 +24,40 @@ versions stay in the array so old jobs remain reproducible.
 | Template | Versions registered | Live version | Imported by |
 | --- | --- | --- | --- |
 | `story-analysis` | 1, 2 | 2 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
-| `page-planning` | 1–5 | 5 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` |
-| `shot-planning` | 1, 2 | 2 | same two files, for `format: "film"` projects |
-| `panel-prompts` | 1–3 | 3 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/text.ts` |
-| `narration` | 1–4 | 4 | `apps/api/src/routes/audio.ts`, `apps/worker/src/handlers/text.ts` |
+| `page-planning` | 1–6 | 6 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` |
+| `shot-planning` | 1–3 | 3 | same two files, for `format: "film"` projects |
+| `strip-planning` | 1, 2 | 2 | same two files, for `format: "vertical"` projects |
+| `chapter-outline`, `shot-outline`, `strip-outline` | 1, 2 | 2 | `apps/worker/src/handlers/text.ts` (split planning, pass 1) |
+| `scene-pages`, `scene-shots`, `scene-strip` | 1, 2 | 2 | `apps/worker/src/handlers/text.ts` (split planning, pass 2) |
+| `panel-prompts` | 1–4 | 4 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/text.ts` |
+| `narration` | 1–5 | 5 | `apps/api/src/routes/audio.ts`, `apps/worker/src/handlers/text.ts` |
 | `panel-check` | 1 | 1 | `apps/worker/src/handlers/qa.ts` (vision QA) |
 | `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts` |
+| `image-describe` | 1 | 1 | `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
-Image templates keep one registered version each: `character-reference` v3, `location-reference` v3, `prop-reference`
-v3, `style-reference` v3, `panel-generation` **v6**, `panel-edit` v3, `cover` v3. (The exported constants are still
-named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.)
+Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
+v5, `style-reference` v4, `panel-generation` **v8**, `panel-edit` v4, `cover` v4. (The exported constants are still
+named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
+references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
+records the version that drew it.
 
-`shot-planning` is derived from `page-planning` by string replacement (v1 from `page-planning` v3, v2 from v5): same
-schema and rules, re-framed as a film director's shot list, forced to one shot per page with `layoutTemplate:
-"full-page"`, with dialogue and negative-space instructions stripped because film pages carry no bubbles.
+`shot-planning` and `strip-planning` are derived from `page-planning` by string replacement (`shot-planning` v1 from
+`page-planning` v3, v2 from v5, v3 from v6; `strip-planning` v1 from v5, v2 from v6): same schema and rules, re-framed
+as a film director's shot list (one shot per page, no dialogue or negative space) or a vertical strip (one full-width
+panel per page, with height and seams). The outline and page passes of split planning are derived from each of those
+in turn, so a change to `page-planning` reaches all nine.
+
+What the 0.7 versions added (`page-planning` v6 and everything derived from it, `panel-prompts` v4, `narration` v5)
+is only how to use data those steps now receive; nothing else in them changed:
+
+- **Planning**: name one of a character's outfits (listed in project data) to switch into it from that panel on,
+  with `outfitScope: "panel"` for a one-panel change; act the cast from its personality, mannerisms and
+  relationships; treat `earlierRevealedFacts` as already known.
+- **Panel prompts**: each panel names its characters, location, props and spoken lines; write every character's
+  action and expression by name, in that location.
+- **Narration**: use the chapter's cast for names and pronouns, do not re-introduce what the previous chapter
+  established, and carry each panel's dialogue and emotion into its line.
 
 ## Versioning and the database
 
@@ -113,7 +132,8 @@ Keep everything else consistent with the requirements above.
 
 as a per-run override (nothing is saved on the panel). `edited_prompt` uses the caller's text verbatim and stores it as
 `panels.prompt_override`. Whenever a run carries an override the job is labelled `template_name =
-panel-generation-user-edited`, with `template_version` still 6 (`packages/services/src/planner.ts`) — a marker on the
+panel-generation-user-edited`, with `template_version` still the live `panel-generation` version
+(`packages/services/src/planner.ts`) — a marker on the
 job, not a registered template.
 
 ## Hashes

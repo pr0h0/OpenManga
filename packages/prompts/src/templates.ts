@@ -226,28 +226,33 @@ export const chapterPlanningV5 = defineTextTemplate<Parameters<typeof chapterPla
   },
 });
 
-export const shotPlanningV2 = defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
-  name: "shot-planning",
-  version: 2,
-  description: "Film projects: a shot list of drawable full-frame 16:9 shots for a narrated video.",
-  system: chapterPlanningV5.system
-    .replace(templateHeader("page-planning", 5), templateHeader("shot-planning", 2))
-    .replace(
-      PLAN_ROLE_V5,
-      "You are a film storyboard director adapting a chapter into a sequence of cinematic 16:9 shots for a narrated video (a slow camera move over each still, with voice-over).",
-    )
-    .replace(
-      PLAN_PAGES_V5,
-      'SHOTS: plan the shot list per scene as pages. EVERY page is exactly ONE shot with exactly one panel and layoutTemplate "full-page". Use page purpose for the shot\'s story purpose and pacing for its rhythm. Plan roughly one shot per one to three sentences of the source, so each shot carries about six to ten seconds of narration. Compose for a wide 16:9 frame with the focal subject slightly off-centre and room for a slow push-in or pull-out.',
-    )
-    .replace(
-      PLAN_TEXT_V5,
-      "TEXT: there are no speech bubbles, captions or sound effects. Leave dialogue and sfx empty and never plan negativeSpace for text; the story is told by the pictures and a voice-over written later.",
-    ),
-  build(i) {
-    return chapterPlanningV1.build.call(this, i);
-  },
-});
+/** Film: the page planner's direction, turned into a shot list. */
+function shotPlanning(base: typeof chapterPlanningV5, version: number) {
+  return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+    name: "shot-planning",
+    version,
+    description: "Film projects: a shot list of drawable full-frame 16:9 shots for a narrated video.",
+    system: base.system
+      .replace(templateHeader(base.name, base.version), templateHeader("shot-planning", version))
+      .replace(
+        PLAN_ROLE_V5,
+        "You are a film storyboard director adapting a chapter into a sequence of cinematic 16:9 shots for a narrated video (a slow camera move over each still, with voice-over).",
+      )
+      .replace(
+        PLAN_PAGES_V5,
+        'SHOTS: plan the shot list per scene as pages. EVERY page is exactly ONE shot with exactly one panel and layoutTemplate "full-page". Use page purpose for the shot\'s story purpose and pacing for its rhythm. Plan roughly one shot per one to three sentences of the source, so each shot carries about six to ten seconds of narration. Compose for a wide 16:9 frame with the focal subject slightly off-centre and room for a slow push-in or pull-out.',
+      )
+      .replace(
+        PLAN_TEXT_V5,
+        "TEXT: there are no speech bubbles, captions or sound effects. Leave dialogue and sfx empty and never plan negativeSpace for text; the story is told by the pictures and a voice-over written later.",
+      ),
+    build(i) {
+      return chapterPlanningV1.build.call(this, i);
+    },
+  });
+}
+
+export const shotPlanningV2 = shotPlanning(chapterPlanningV5, 2);
 
 export const panelPromptsV3 = defineTextTemplate<Parameters<typeof panelPromptsV1.build>[0]>({
   name: "panel-prompts",
@@ -546,31 +551,35 @@ export const imageDescribeV1 = defineTextTemplate<{
  * Vertical strip planning. Derived from page planning rather than shot planning on purpose: a strip keeps its
  * dialogue, captions and sound effects — only the geometry changes — so every lettering rule carries over.
  */
-export const stripPlanningV1 = defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
-  name: "strip-planning",
-  version: 1,
-  description: "Vertical scroll: one full-width panel per page, composed as a continuous column.",
-  system: chapterPlanningV5.system
-    .replace(templateHeader("page-planning", 5), templateHeader("strip-planning", 1))
-    .replace(
-      PLAN_ROLE_V5,
-      "You are a storyboard director adapting a chapter into a vertical-scroll manhwa: one continuous column the reader scrolls through on a phone, not a sequence of pages.",
-    )
-    .replace(
-      PLAN_PAGES_V5,
-      [
-        'STRIP: every page is exactly ONE full-width panel with layoutTemplate "full-page". Use page purpose for what the panel is for and pacing for its rhythm.',
-        'HEIGHT IS PACING: set each panel\'s `height` to how long the reader should spend on it. "short" is a wide beat that reads fast (a reaction, a cut-in, an establishing sliver), "normal" is the default, "tall" holds a moment (a reveal, a landscape, a slow turn), "very-tall" is for a fall, a drop, a long climb or one image the reader scrolls through.',
-        'SEAMS: set each panel\'s `seam` to how it meets the panel above it. "butt" for the same action continuing with no break. "dissolve" when two moments should merge softly, "bleed" for an overlap with a hard edge. "fade" with a dark `color` for a change of scene, place or time. "gap" for an ordinary beat change, which is what you get if you say nothing. The first panel of a chapter needs no seam.',
-        "Do not put a gap between every panel: a column of separate pictures is exactly what this format is not. Most seams inside one action should be butt, bleed or dissolve, and gaps should mark a change of beat.",
-        "CONTINUITY: consecutive panels inside one action should read as the same moment continuing — keep the camera, the light and the background consistent across them, and let the action advance by a small step rather than cutting elsewhere. Start a new scene only when the story changes place or time.",
-        "A fight or chase is a run of such panels: a few beats of contact joined with butt or dissolve seams, then a panel that jumps the action forward (name what changed in continuityRequirements), not one panel per punch.",
-      ].join(" "),
-    ),
-  build(i) {
-    return chapterPlanningV1.build.call(this, i);
-  },
-});
+function stripPlanning(base: typeof chapterPlanningV5, version: number) {
+  return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+    name: "strip-planning",
+    version,
+    description: "Vertical scroll: one full-width panel per page, composed as a continuous column.",
+    system: base.system
+      .replace(templateHeader(base.name, base.version), templateHeader("strip-planning", version))
+      .replace(
+        PLAN_ROLE_V5,
+        "You are a storyboard director adapting a chapter into a vertical-scroll manhwa: one continuous column the reader scrolls through on a phone, not a sequence of pages.",
+      )
+      .replace(
+        PLAN_PAGES_V5,
+        [
+          'STRIP: every page is exactly ONE full-width panel with layoutTemplate "full-page". Use page purpose for what the panel is for and pacing for its rhythm.',
+          'HEIGHT IS PACING: set each panel\'s `height` to how long the reader should spend on it. "short" is a wide beat that reads fast (a reaction, a cut-in, an establishing sliver), "normal" is the default, "tall" holds a moment (a reveal, a landscape, a slow turn), "very-tall" is for a fall, a drop, a long climb or one image the reader scrolls through.',
+          'SEAMS: set each panel\'s `seam` to how it meets the panel above it. "butt" for the same action continuing with no break. "dissolve" when two moments should merge softly, "bleed" for an overlap with a hard edge. "fade" with a dark `color` for a change of scene, place or time. "gap" for an ordinary beat change, which is what you get if you say nothing. The first panel of a chapter needs no seam.',
+          "Do not put a gap between every panel: a column of separate pictures is exactly what this format is not. Most seams inside one action should be butt, bleed or dissolve, and gaps should mark a change of beat.",
+          "CONTINUITY: consecutive panels inside one action should read as the same moment continuing — keep the camera, the light and the background consistent across them, and let the action advance by a small step rather than cutting elsewhere. Start a new scene only when the story changes place or time.",
+          "A fight or chase is a run of such panels: a few beats of contact joined with butt or dissolve seams, then a panel that jumps the action forward (name what changed in continuityRequirements), not one panel per punch.",
+        ].join(" "),
+      ),
+    build(i) {
+      return chapterPlanningV1.build.call(this, i);
+    },
+  });
+}
+
+export const stripPlanningV1 = stripPlanning(chapterPlanningV5, 1);
 
 /**
  * A chapter's plan does not fit in one response once the chapter is long: production runs truncated at the 64k
@@ -584,15 +593,15 @@ const PAGE_PASS =
   "PAGE PASS: you are planning the pages of ONE scene. The whole chapter's scene outline is given for context so the pages you write lead into the next scene; plan pages for the named scene only, and nothing else.";
 
 /** The outline pass of a planning template: same direction, scenes without pages. */
-function outlinePass<T extends typeof chapterPlanningV5>(base: T, name: string) {
+function outlinePass<T extends typeof chapterPlanningV5>(base: T, name: string, version = 1) {
   return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
     name,
-    version: 1,
+    version,
     description: `${base.description} Scene outline only.`,
     system: base.system
       // The header names the template in the prompt itself, so it has to be restamped: mocks and log analysis
       // route on it, and leaving the base name made this pass indistinguishable from a full plan.
-      .replace(templateHeader(base.name, base.version), templateHeader(name, 1))
+      .replace(templateHeader(base.name, base.version), templateHeader(name, version))
       .replace(
         schemaInstructions("ChapterPlan", ChapterPlan),
         [OUTLINE_PASS, schemaInstructions("ChapterOutline", ChapterOutline)].join("\n\n"),
@@ -604,7 +613,7 @@ function outlinePass<T extends typeof chapterPlanningV5>(base: T, name: string) 
 }
 
 /** The page pass: one scene at a time, with the outline as its brief. */
-function pagePass<T extends typeof chapterPlanningV5>(base: T, name: string) {
+function pagePass<T extends typeof chapterPlanningV5>(base: T, name: string, version = 1) {
   return defineTextTemplate<
     Parameters<typeof chapterPlanningV1.build>[0] & {
       outline: { scenes: SceneOutline[] };
@@ -612,10 +621,10 @@ function pagePass<T extends typeof chapterPlanningV5>(base: T, name: string) {
     }
   >({
     name,
-    version: 1,
+    version,
     description: `${base.description} One scene's pages.`,
     system: base.system
-      .replace(templateHeader(base.name, base.version), templateHeader(name, 1))
+      .replace(templateHeader(base.name, base.version), templateHeader(name, version))
       .replace(
         schemaInstructions("ChapterPlan", ChapterPlan),
         [PAGE_PASS, schemaInstructions("ScenePages", ScenePages)].join("\n\n"),
@@ -640,12 +649,83 @@ function pagePass<T extends typeof chapterPlanningV5>(base: T, name: string) {
   });
 }
 
+const PLAN_FIELDS_V5 =
+  "Panel spec fields: beat, shotType, cameraAngle, characters (use character keys from project data as characterId; list exactly the characters visible, each with position in frame such as 'left foreground', pose, action, expression and outfit if it changed), composition (focal subject and where it sits), foreground/midground/background (use the location's key features), lighting (light source, direction, color temperature), emotion, action, continuityRequirements.";
+
+/**
+ * v6: says how to use what project data now carries. Outfits are named (a named outfit is a real change, reference
+ * image included, and outfitScope bounds it); the cast is acted from personality, mannerisms and relationships; and
+ * earlier chapters' facts are not revealed again.
+ */
+export const chapterPlanningV6 = defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+  name: "page-planning",
+  version: 6,
+  description: chapterPlanningV5.description,
+  system: chapterPlanningV5.system
+    .replace(templateHeader("page-planning", 5), templateHeader("page-planning", 6))
+    .replace(
+      PLAN_FIELDS_V5,
+      [
+        PLAN_FIELDS_V5.replace(" and outfit if it changed", " and outfit only when it changes"),
+        'OUTFITS: to change what a character wears, write the name of one of their outfits from project data in outfit (details may follow, e.g. "Storm gear, hood up"). The character keeps it from that panel on, until you name another; set outfitScope to "panel" when the change lasts only that panel. Leave outfit empty when nothing changes.',
+        "CAST: act each character from project data. personality and visualMannerisms shape their poses and expressions, relationships shape how they face and react to each other, and distinctiveFeatures stay visible. Pick up from previousChapterMemory, and treat earlierRevealedFacts as already known: never reveal them again as news or contradict them.",
+      ].join("\n\n"),
+    ),
+  build(i) {
+    return chapterPlanningV1.build.call(this, i);
+  },
+});
+export const shotPlanningV3 = shotPlanning(chapterPlanningV6, 3);
+export const stripPlanningV2 = stripPlanning(chapterPlanningV6, 2);
+
 export const chapterOutlineV1 = outlinePass(chapterPlanningV5, "chapter-outline");
 export const stripOutlineV1 = outlinePass(stripPlanningV1, "strip-outline");
 export const shotOutlineV1 = outlinePass(shotPlanningV2, "shot-outline");
 export const scenePagesV1 = pagePass(chapterPlanningV5, "scene-pages");
 export const sceneStripV1 = pagePass(stripPlanningV1, "scene-strip");
 export const sceneShotsV1 = pagePass(shotPlanningV2, "scene-shots");
+export const chapterOutlineV2 = outlinePass(chapterPlanningV6, "chapter-outline", 2);
+export const stripOutlineV2 = outlinePass(stripPlanningV2, "strip-outline", 2);
+export const shotOutlineV2 = outlinePass(shotPlanningV3, "shot-outline", 2);
+export const scenePagesV2 = pagePass(chapterPlanningV6, "scene-pages", 2);
+export const sceneStripV2 = pagePass(stripPlanningV2, "scene-strip", 2);
+export const sceneShotsV2 = pagePass(shotPlanningV3, "scene-shots", 2);
+
+export const panelPromptsV4 = defineTextTemplate<Parameters<typeof panelPromptsV1.build>[0]>({
+  name: "panel-prompts",
+  version: 4,
+  description: "Panel prompt sections that tie each named character to their action, in the panel's location.",
+  system: panelPromptsV3.system
+    .replace(templateHeader("panel-prompts", 3), templateHeader("panel-prompts", 4))
+    .replace(
+      DATA_RULE,
+      [
+        "Each panel names its characters, its location (with its key features), its props and the lines spoken in it. Write each character's action and expression by name, set the composition in that location, and let faces and bodies fit what is being said, but never draw the words.",
+        DATA_RULE,
+      ].join("\n\n"),
+    ),
+  build(i) {
+    return panelPromptsV1.build.call(this, i);
+  },
+});
+
+export const narrationV5 = defineTextTemplate<Parameters<typeof narrationV3.build>[0]>({
+  name: "narration",
+  version: 5,
+  description: narrationV4.description,
+  system: narrationV4.system
+    .replace(templateHeader("narration", 4), templateHeader("narration", 5))
+    .replace(
+      DATA_RULE,
+      [
+        "Names: project_data.characters is who is in this chapter. Call people by those names, use pronouns that match their genderPresentation, and never guess a name or gender the data does not give. previousChapter says where the story stood: do not re-introduce people, places or facts the listener already knows. A panel's dialogue is what is said on it and its emotion is how it feels; carry both into the line for that panel.",
+        DATA_RULE,
+      ].join("\n\n"),
+    ),
+  build(i) {
+    return narrationV3.build.call(this, i);
+  },
+});
 
 export const TEXT_TEMPLATES = [
   storyAnalysisV1,
@@ -675,4 +755,15 @@ export const TEXT_TEMPLATES = [
   sceneStripV1,
   scenePagesV1,
   sceneShotsV1,
+  chapterPlanningV6,
+  shotPlanningV3,
+  stripPlanningV2,
+  chapterOutlineV2,
+  stripOutlineV2,
+  shotOutlineV2,
+  scenePagesV2,
+  sceneStripV2,
+  sceneShotsV2,
+  panelPromptsV4,
+  narrationV5,
 ];
