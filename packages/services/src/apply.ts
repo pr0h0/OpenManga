@@ -522,17 +522,13 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
             const named = outfitNamedIn(mine, pc.outfit);
             const current = wearing.get(ch!.id) ?? mine.find((o) => o.isDefault)?.id;
             if (!named || named.id === current) continue;
+            // "panel" dresses this panel only and leaves what the character is wearing from here on alone.
+            const scope = pc.outfitScope === "panel" ? "panel" : "onward";
             await tx
               .insert(outfitAssignments)
-              .values({
-                projectId: project.id,
-                characterId: ch!.id,
-                outfitId: named.id,
-                panelId: panel!.id,
-                scope: "onward",
-              })
+              .values({ projectId: project.id, characterId: ch!.id, outfitId: named.id, panelId: panel!.id, scope })
               .onConflictDoNothing();
-            wearing.set(ch!.id, named.id);
+            if (scope === "onward") wearing.set(ch!.id, named.id);
           }
 
           // Speakers resolved to characters now, so a plan kept for later letters the same way.
