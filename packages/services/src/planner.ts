@@ -387,6 +387,34 @@ export class GenerationPlanner {
     const continuity: string[] = [];
     if (scene) {
       continuity.push(...scene.continuityNotes, ...Object.entries(scene.initialState).map(([k, v]) => `${k}: ${v}`));
+      const cast = await this.db
+        .select({ name: characters.name, key: characters.analysisKey })
+        .from(characters)
+        .where(eq(characters.projectId, panel.projectId));
+      const present = new Set(chars.map((c) => c.name.toLowerCase()));
+      // A note about someone not in this panel is left out; a note about no one in particular is kept.
+      const relevant = (note: string) => {
+        const l = note.toLowerCase();
+        const mentions = cast.filter(
+          (c) => l.includes(c.name.toLowerCase()) || (c.key && l.includes(c.key.toLowerCase())),
+        );
+        return !mentions.length || mentions.some((m) => present.has(m.name.toLowerCase()));
+      };
+      // What earlier scenes of the chapter changed for good (a torn sleeve, a bandaged hand) still shows here, and
+      // a scene that states no starting state of its own starts where the one before it ended.
+      const before = await this.db
+        .select()
+        .from(scenes)
+        .where(and(eq(scenes.chapterId, scene.chapterId), sql`${scenes.order} < ${scene.order}`))
+        .orderBy(asc(scenes.order));
+      const last = before.at(-1);
+      if (last && !Object.keys(scene.initialState).length)
+        continuity.push(
+          ...Object.entries(last.finalState)
+            .map(([k, v]) => `${k}: ${v}`)
+            .filter(relevant),
+        );
+      continuity.push(...before.flatMap((b) => b.continuityDeltas).filter(relevant));
       // continuity from earlier panels in the same scene, filtered to present characters
       const earlier = await this.db
         .select({ spec: panelSpecs.spec, order: panels.order, pageOrder: pages.order, id: panels.id })
@@ -394,20 +422,9 @@ export class GenerationPlanner {
         .innerJoin(pages, eq(pages.id, panels.pageId))
         .innerJoin(panelSpecs, eq(panelSpecs.panelId, panels.id))
         .where(eq(panels.sceneId, scene.id));
-      const allNames = (
-        await this.db
-          .select({ name: characters.name })
-          .from(characters)
-          .where(eq(characters.projectId, panel.projectId))
-      ).map((r) => r.name.toLowerCase());
-      const present = chars.map((c) => c.name.toLowerCase());
       for (const e of earlier) {
         if (e.pageOrder > page.order || (e.pageOrder === page.order && e.order >= panel.order)) continue;
-        for (const req of e.spec.continuityRequirements ?? []) {
-          const l = req.toLowerCase();
-          const mentions = allNames.filter((n) => l.includes(n));
-          if (!mentions.length || mentions.some((m) => present.includes(m))) continuity.push(req);
-        }
+        continuity.push(...(e.spec.continuityRequirements ?? []).filter(relevant));
       }
     }
 
