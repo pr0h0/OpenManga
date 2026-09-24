@@ -53,6 +53,7 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 - **Narration**: AI-written narration, segment split/merge, voices and preview, local synthesis, cache reuse, chapter playback, timeline manifest.
 - **Exports**: PNG/JPG page sequences, PDF (page size, margin, bleed, DPI, RTL), webtoon strips with chunking, narration audio package (MP3/OGG/WAV + timeline), project JSON (`schemaVersion: 1`), full ZIP package.
 - **Experts**: chats with brainstorming specialists outside any chapter — topic scout, title doctor, thumbnail designer, story developer, character and world designers, hook editor, narration scriptwriter, beta reader, channel strategist — or experts you write yourself. Pick the model, attach images (upload, drop or paste), talk about a project, and tick *Generate image* for a picture with the reply. Chats are kept, and work without an API key by pasting answers from any chat.
+- **AI agents (MCP)**: connect ChatGPT (OAuth) or any MCP agent (personal access token) to build projects as you — story, analysis, chapter plans, panels, narration, exports — including the whole pipeline in paste mode with no API key. Each connection has its own scopes, projects and approval mode; spending, deleting and other sensitive actions can wait for your approval in the app. See [MCP](docs/MCP.md).
 - **Describe an image**: upload a reference — a frame from a video, a page you like — and extract its art style, character, outfit, location, lighting, composition, mood, props, era or technique, plus your own free-text question. Style, character and location results apply straight into the project; the upload stays in the library as a reference for later generation.
 - **Provider batches**: send image or text generation to OpenAI's or Google's batch API for **half price**, results within 24h, opt-in per run.
 - **Cost dashboard**: today/7d/30d/lifetime, provider and operation breakdowns, reference-size experiments, regeneration/acceptance rates. **Admin**: users, jobs, queues, Kokoro status, storage, errors, rate snapshots, maintenance.
@@ -149,12 +150,12 @@ instead of building locally, pin a tag in a compose override:
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
 services:
-  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.8.0", build: !reset null }
-  api: { image: "ghcr.io/pr0h0/openmanga-app:0.8.0" }
-  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.8.0" }
-  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.8.0" }
-  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.8.0", build: !reset null }
-  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.8.0", build: !reset null }
+  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.9.0", build: !reset null }
+  api: { image: "ghcr.io/pr0h0/openmanga-app:0.9.0" }
+  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.9.0" }
+  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.9.0" }
+  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.9.0", build: !reset null }
+  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.9.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
 than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.6`). `!reset`

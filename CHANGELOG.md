@@ -5,6 +5,41 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.0] — 2026-09-24
+
+Upgrading: pull the new images and restart. Two migrations run automatically: `0017_mcp` adds the agent-access tables
+and a nullable `audit_events.service_id` column, and `0018_mcp_claims` adjusts one of those new tables, so existing
+projects are untouched. The nginx image changed too (routes for `/mcp`, `/oauth/` and `/.well-known/oauth-*`), so pull
+it along with the app image. Nothing needs configuring: the endpoint is `<your origin>/mcp`; the optional `MCP_*`
+variables are in `.env.example` and [MCP](docs/MCP.md).
+
+### Added
+
+- **AI agents can work on your projects (MCP).** OpenManga serves a Model Context Protocol endpoint at `/mcp`, so
+  ChatGPT and other MCP agents can create projects, write and analyse stories, plan chapters, fix panels, write and
+  synthesize narration and export — as you, within the limits you set. 70 task-shaped tools cover the pipeline, and
+  every call goes through the same checks as the app (project membership, budgets, locked versions, validation).
+- **Connect ChatGPT with OAuth.** Add `https://<your host>/mcp` as a connector; you sign in to OpenManga as usual
+  and choose on a consent page what it may do: which scopes, all projects or selected ones, whether it may create
+  projects, and whether sensitive actions ask you first. Your provider keys are never shared with it.
+- **Personal access tokens** for other agents, shown once, with the same choices and an optional expiry.
+- **Approvals.** With "Ask me first", spending provider credits, deleting, applying an analysis, locking versions,
+  exports and other sensitive actions wait under **Agents → Waiting for you**: approve or deny, once or always for
+  that project. Remembered decisions can be flipped or removed. A request whose target changed meanwhile is not run.
+- **Paste mode through the agent.** Manual jobs work end to end: the agent reads the exact prompt and answer format
+  (with the images a question is about), answers, and the job continues — a chapter plan question by question.
+- **Agent access page** listing connections (scopes, projects, last use; edit or revoke), approvals, history and
+  remembered decisions. Everything an agent does is in the audit log as "*connection* via *you*".
+
+### Fixed
+
+- A panel consistency check started without an API key (paste mode) failed with a missing-credential error instead
+  of waiting for a pasted answer.
+
+### Changed
+
+- CI: `docker/setup-buildx-action` 4.4.1 and `docker/build-push-action` 7.4.0.
+
 ## [0.8.0] — 2026-09-24
 
 Upgrading: pull the new images and restart. One migration (`0016_experts`) runs automatically and only adds tables,
