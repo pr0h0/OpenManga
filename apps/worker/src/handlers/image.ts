@@ -323,14 +323,20 @@ const SUBJECT_ASSET: Record<string, AssetType> = {
 export async function referenceGeneration(deps: WorkerDeps, job: GenerationJob) {
   const kind = String(job.input.kind) as ReferenceKind;
   if (!job.compiledPrompt) throw new InputError("Job has no compiled prompt");
+  // An outfit reference is drawn from the approved design, and its prompt says so: "reference image 1 is this
+  // character's approved design — reproduce that same person". That image is recorded as the job's input, and it has
+  // to be sent; without it the model is told to copy a face it never sees, and every outfit drifts into a stranger.
+  const inputs = await inputsOf(deps, job.id);
+  const references: ImageInputFile[] = [];
+  for (const i of inputs) references.push(await loadInputFile(deps, i));
   const r = await (await imageProviderFor(deps, job)).generate({
     prompt: job.compiledPrompt,
     aspectRatio: Number(job.parameters.aspectRatio ?? 1),
     quality: String(job.parameters.quality ?? deps.config.IMAGE_QUALITY),
-    references: [],
+    references,
     label: String(job.parameters.label ?? kind),
   });
-  await recordImageUsage(deps, job, r, []);
+  await recordImageUsage(deps, job, r, inputs);
   const out = await attachReference(deps, job, r);
   if (out.cancelled) throw new JobCancelledError();
   return { assetId: out.asset.id, referenceId: out.referenceId, width: out.asset.width, height: out.asset.height };
