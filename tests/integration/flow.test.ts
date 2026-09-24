@@ -285,6 +285,17 @@ describe("full production flow (mock AI)", () => {
     await alice.post(`/api/chapters/${chapterId}/plan`, {}, 409);
   });
 
+  test("preparing page prompts shows the model names, the location and the props, never database ids", async () => {
+    const r = await alice.post<{ job: Job }>(`/api/pages/${pageId}/prepare-prompts`, {}, 202);
+    const done = await waitJob(alice, r.job.id);
+    expect(done.job.status).toBe("completed");
+    const asked = (done.job as { compiledPrompt?: string }).compiledPrompt ?? "";
+    expect(asked).toContain('"name":"Woo Jin"');
+    expect(asked).toContain('"location":{"name":"Rooftop"');
+    expect(asked).not.toMatch(/"characterId":"[0-9a-f]{8}-/);
+    expect(asked).not.toMatch(/"locationId":"[0-9a-f]{8}-/);
+  });
+
   test("layout swap, add/duplicate/split/reorder panels", async () => {
     await alice.post(`/api/pages/${pageId}/layout`, { layoutTemplate: "four-grid" });
     let page = await alice.get<{ panels: { id: string; frame: { x: number } }[] }>(`/api/pages/${pageId}`);

@@ -8,6 +8,7 @@ import {
   characters,
   characterVersions,
   desc,
+  dialogueLines,
   eq,
   generationJobs,
   inArray,
@@ -21,6 +22,7 @@ import {
   projectStyles,
   projects,
   props,
+  propVersions,
   scenes,
   sql,
   storyAnalyses,
@@ -420,18 +422,65 @@ export async function pagePrompts(deps: WorkerDeps, job: GenerationJob) {
         .innerJoin(characters, eq(characters.id, characterVersions.characterId))
         .where(inArray(characterVersions.id, charIds))
     : [];
+  // After a plan is applied, a spec names its cast, location and props by database id. Give the model their names
+  // (and what the location and props look like) instead, or it cannot tell whose pose is whose.
+  const specChars = await deps.db
+    .select({ id: characters.id, name: characters.name })
+    .from(characters)
+    .where(eq(characters.projectId, page.projectId));
+  const locIds = [...new Set(pns.map((p) => p.locationVersionId).filter((x): x is string => Boolean(x)))];
+  const locs = locIds.length
+    ? await deps.db
+        .select({ id: locationVersions.id, name: locations.name, description: locationVersions.description })
+        .from(locationVersions)
+        .innerJoin(locations, eq(locations.id, locationVersions.locationId))
+        .where(inArray(locationVersions.id, locIds))
+    : [];
+  const propIds = [...new Set(pns.flatMap((p) => p.propVersionIds))];
+  const prs = propIds.length
+    ? await deps.db
+        .select({ id: propVersions.id, name: props.name, description: propVersions.description })
+        .from(propVersions)
+        .innerJoin(props, eq(props.id, propVersions.propId))
+        .where(inArray(propVersions.id, propIds))
+    : [];
+  const lines = await deps.db
+    .select({ panelId: dialogueLines.panelId, text: dialogueLines.text, speaker: characters.name })
+    .from(dialogueLines)
+    .leftJoin(characters, eq(characters.id, dialogueLines.characterId))
+    .where(eq(dialogueLines.pageId, pageId))
+    .orderBy(asc(dialogueLines.order));
+  const nameOf = (id: unknown) => specChars.find((c) => c.id === id)?.name ?? id;
+  const readable = (spec: Record<string, unknown> | null) => {
+    if (!spec) return null;
+    const { locationId, propIds: _p, dialogueIds: _d, narrationIds: _n, sfxIds: _s, ...rest } = spec;
+    return {
+      ...rest,
+      characters: ((spec.characters as Record<string, unknown>[] | undefined) ?? []).map((c) => ({
+        ...c,
+        characterId: undefined,
+        name: nameOf(c.characterId),
+      })),
+    };
+  };
   const context = {
     scene: scene
       ? {
           title: scene.title,
           summary: scene.summary,
+          purpose: scene.purpose,
           time: scene.time,
           weather: scene.weather,
           continuityNotes: scene.continuityNotes,
           state: scene.initialState,
         }
       : null,
-    page: { purpose: page.purpose, pacing: page.pacing, visualEmphasis: page.visualEmphasis },
+    page: {
+      purpose: page.purpose,
+      pacing: page.pacing,
+      visualEmphasis: page.visualEmphasis,
+      pageTurnHook: page.pageTurnHook,
+    },
     artDirection: await projectArtDirection(deps, page.projectId),
   };
   const panelData = pns.map((p) => ({
@@ -441,7 +490,16 @@ export async function pagePrompts(deps: WorkerDeps, job: GenerationJob) {
     cameraAngle: p.cameraAngle,
     beat: p.storyBeat,
     characters: p.characterVersionIds.map((v) => chars.find((c) => c.id === v)?.name).filter(Boolean),
-    spec: [...specs].find((s) => s.panel_id === p.id)?.spec ?? null,
+    location: (() => {
+      const l = locs.find((x) => x.id === p.locationVersionId);
+      return l ? { name: l.name, summary: l.description.summary, keyFeatures: l.description.keyFeatures } : null;
+    })(),
+    props: prs
+      .filter((x) => p.propVersionIds.includes(x.id))
+      .map((x) => ({ name: x.name, summary: x.description.summary })),
+    // What is said here shapes the acting, even though the text itself is never drawn by the model.
+    dialogue: lines.filter((l) => l.panelId === p.id).map((l) => ({ speaker: l.speaker, text: l.text })),
+    spec: readable([...specs].find((s) => s.panel_id === p.id)?.spec ?? null),
   }));
   const r = await structured(
     deps,
