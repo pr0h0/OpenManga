@@ -83,7 +83,12 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
   const ids = pn.characterVersionIds;
   const cast = ids.length
     ? await deps.db
-        .select({ id: characters.id, name: characters.name, description: characterVersions.description })
+        .select({
+          id: characters.id,
+          versionId: characterVersions.id,
+          name: characters.name,
+          description: characterVersions.description,
+        })
         .from(characterVersions)
         .innerJoin(characters, eq(characters.id, characterVersions.characterId))
         .where(inArray(characterVersions.id, ids))
@@ -100,7 +105,7 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
   const worn = await resolveOutfits(
     deps.db,
     panelId,
-    cast.map((c) => ({ id: c.id, text: textOf(c.id) })),
+    cast.map((c) => ({ id: c.id, text: textOf(c.id), versionId: c.versionId })),
   );
   const expected = cast.map((c) => {
     const b = CharacterBible.parse(c.description);

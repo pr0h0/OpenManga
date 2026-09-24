@@ -780,7 +780,7 @@ pageRoutes.get("/panels/:id/outfits", async (c) => {
   const worn = await resolveOutfits(
     db,
     panel.id,
-    rows.map((r) => ({ id: r.c.id, text: textOf(r.c) })),
+    rows.map((r) => ({ id: r.c.id, text: textOf(r.c), versionId: r.v.id })),
   );
   const timeline = await outfitTimeline(db, ids);
   const characterList = [];

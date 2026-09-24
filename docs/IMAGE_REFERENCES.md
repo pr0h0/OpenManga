@@ -62,7 +62,10 @@ for a character and choose **From this panel on** (it holds until the next chang
 2. an outfit that the panel's own outfit text names (text containing the outfit's name, e.g. "rain coat, hood up"
    names "Rain Coat");
 3. the last "from this panel on" change before it in reading order (chapter, page, panel);
-4. the character's default outfit, when the panel's outfit text is empty.
+4. the character's default outfit, when the panel's outfit text is empty, but only on panels drawn from the
+   appearance version the default was made for (or one made for no version). A panel on another version wears
+   that version's own wardrobe, so a new look is not dressed in the old one's clothes. Editing a draft version's
+   wardrobe updates the default outfit made from it, unless that outfit's description was rewritten by hand.
 
 A chapter plan switches outfits the same way the editor does. The planner sees each character's outfit names, and
 when a panel's outfit text names one other than what the character is wearing at that point, applying the plan
