@@ -224,8 +224,17 @@ export class EventBus {
 
   /** Each subscription uses a dedicated connection (Redis pub/sub requirement). */
   subscribe(redisUrl: string, projectId: string, onEvent: (json: string) => void) {
+    return this.subscribeTo(redisUrl, channel(projectId), onEvent);
+  }
+
+  /** A channel of its own, outside any project: an expert chat's reply as it is written. */
+  async publishTo(name: string, payload: unknown) {
+    await this.pub.publish(name, JSON.stringify(payload));
+  }
+
+  subscribeTo(redisUrl: string, name: string, onEvent: (json: string) => void) {
     const sub = createRedis(redisUrl);
-    sub.subscribe(channel(projectId)).catch(() => {});
+    sub.subscribe(name).catch(() => {});
     sub.on("message", (_c, msg) => onEvent(msg));
     return async () => {
       await sub.unsubscribe().catch(() => {});

@@ -22,6 +22,51 @@ import { expertChatV1, splitImagePrompt } from "@openmanga/prompts";
 import type { AiChoice } from "@openmanga/services";
 import type { Deps } from "../context.ts";
 
+/** The channel an open chat listens on for its reply as it is written. */
+export const chatChannel = (chatId: string) => `om:events:chat:${chatId}`;
+
+/**
+ * Passes a reply on as it is written: to the page watching the chat (at most every 100 ms), and to the database now
+ * and then, so a page that opens mid-reply, or polls instead of listening, still sees it grow.
+ */
+function streamTo(deps: Deps, run: ReplyRun) {
+  let sentAt = 0;
+  let savedAt = Date.now();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let latest = "";
+  let stopped = false;
+  let saving: Promise<unknown> = Promise.resolve();
+  const send = () => {
+    timer = null;
+    if (stopped) return;
+    sentAt = Date.now();
+    deps.events.publishTo(chatChannel(run.chatId), { messageId: run.messageId, content: latest }).catch(() => {});
+    if (Date.now() - savedAt > 2000) {
+      savedAt = Date.now();
+      saving = deps.db
+        .update(expertMessages)
+        .set({ content: latest })
+        .where(and(eq(expertMessages.id, run.messageId), eq(expertMessages.status, "pending")))
+        .catch(() => {});
+    }
+  };
+  return {
+    onText: (soFar: string) => {
+      latest = soFar;
+      if (timer || stopped) return;
+      const wait = 100 - (Date.now() - sentAt);
+      if (wait <= 0) send();
+      else timer = setTimeout(send, wait);
+    },
+    /** Once the reply is complete: nothing late may overwrite the final text, so wait out a save under way. */
+    stop: () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      return saving;
+    },
+  };
+}
+
 /** How much of a conversation is sent back with each new message. */
 const HISTORY_MESSAGES = 40;
 /** Images sent with the conversation: the most recent ones, since each costs input tokens on every reply. */
@@ -154,7 +199,11 @@ export async function runExpertReply(deps: Deps, run: ReplyRun) {
       return;
     }
     const provider = await deps.resolver.text(run.ai ?? { credentialId: null }, run.userId);
-    const r = await provider.generateText({ messages, maxTokens: 8000 });
+    const stream = streamTo(deps, run);
+    const r = await provider
+      .generateText({ messages, maxTokens: 8000, onText: stream.onText })
+      // finally waits for the promise stop returns: a save still under way lands before the final text.
+      .finally(() => stream.stop());
     await deps.usage.record({
       provider: r.call.provider,
       model: r.call.model,

@@ -2,12 +2,13 @@ import { and, asc, assets, desc, eq, expertChats, expertMessages, experts, inArr
 import { BUILTIN_EXPERTS, findBuiltinExpert } from "@openmanga/prompts";
 import type { AiChoice } from "@openmanga/services";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { AiChoiceInput, checkImageChoice, textRun } from "../lib/ai.ts";
-import { finishReply, runExpertReply, STALE_REPLY_MS } from "../lib/experts.ts";
-import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
+import { chatChannel, finishReply, runExpertReply, STALE_REPLY_MS } from "../lib/experts.ts";
+import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -310,6 +311,66 @@ expertRoutes.post("/expert-chats/:id/messages", async (c) => {
     .where(eq(expertChats.id, chat.id));
   void runExpertReply(deps, { chatId: chat.id, messageId: reply!.id, userId: user(c).id, ...choices });
   return c.json({ message: sent, reply }, 202);
+});
+
+/** Each open stream holds a Redis connection: a few per user is plenty, since only a chat being answered needs one. */
+const MAX_CHAT_STREAMS_PER_USER = 4;
+const chatStreams = new Map<string, number>();
+
+doc({
+  method: "GET",
+  path: "/api/expert-chats/:id/stream",
+  summary: "The reply being written, as it arrives (server-sent events: {messageId, content so far})",
+  tag: "experts",
+});
+expertRoutes.get("/expert-chats/:id/stream", async (c) => {
+  const chat = await ownChat(c, uuidParam(c, "id"));
+  const deps = c.get("deps");
+  const userId = user(c).id;
+  const open = chatStreams.get(userId) ?? 0;
+  if (open >= MAX_CHAT_STREAMS_PER_USER)
+    throw new ApiError(429, "too_many_streams", "Too many chats are streaming. Close a tab and try again.");
+  chatStreams.set(userId, open + 1);
+  c.header("x-accel-buffering", "no");
+  c.header("cache-control", "no-cache, no-transform");
+  return streamSSE(c, async (stream) => {
+    let latest: string | null = null;
+    let wake: (() => void) | null = null;
+    // Only the newest text matters: an update replaces one not yet sent instead of queueing behind it.
+    const unsubscribe = deps.events.subscribeTo(deps.config.REDIS_URL, chatChannel(chat.id), (msg) => {
+      latest = msg;
+      wake?.();
+    });
+    let closed = false;
+    stream.onAbort(() => {
+      closed = true;
+      wake?.();
+    });
+    try {
+      await stream.writeSSE({ event: "ready", data: JSON.stringify({ chatId: chat.id }) });
+      let lastPing = Date.now();
+      while (!closed) {
+        if (latest === null)
+          await new Promise<void>((r) => {
+            wake = r;
+            setTimeout(r, 15_000);
+          });
+        wake = null;
+        if (latest !== null) {
+          const data: string = latest;
+          latest = null;
+          await stream.writeSSE({ event: "message", data });
+        }
+        if (Date.now() - lastPing > 14_000) {
+          await stream.writeSSE({ event: "ping", data: String(Date.now()) });
+          lastPing = Date.now();
+        }
+      }
+    } finally {
+      await unsubscribe();
+      chatStreams.set(userId, Math.max(0, (chatStreams.get(userId) ?? 1) - 1));
+    }
+  });
 });
 
 const Retry = Send.pick({ ai: true, imageAi: true, generateImage: true, aspectRatio: true }).partial({

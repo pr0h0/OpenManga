@@ -68,6 +68,8 @@ const ASPECTS: [string, number][] = [
 ];
 
 const idOf = (e: Expert) => e.key ?? e.id ?? "";
+/** Same marker as EXPERT_IMAGE_MARKER in @openmanga/prompts, which the web does not import. */
+const IMAGE_MARKER = "IMAGE PROMPT:";
 
 function useExperts() {
   return useQuery({
@@ -373,9 +375,10 @@ function ChatView({ chatId }: { chatId: string }) {
   const bottom = useRef<HTMLDivElement>(null);
   const count = detail.data?.messages.length ?? 0;
   const lastStatus = detail.data?.messages.at(-1)?.status;
+  const live = useLiveReply(chatId, lastStatus === "pending");
   useEffect(() => {
     if (count) bottom.current?.scrollIntoView({ block: "end" });
-  }, [count, lastStatus]);
+  }, [count, lastStatus, live?.content.length]);
   if (detail.isLoading) return <Spinner className="m-6" />;
   if (!detail.data) return <EmptyState title="Chat not found" />;
   const { chat, project, messages } = detail.data;
@@ -441,7 +444,17 @@ function ChatView({ chatId }: { chatId: string }) {
             </EmptyState>
           )}
           {messages.map((m, i) => (
-            <MessageItem key={m.id} chatId={chatId} message={m} last={i === messages.length - 1} />
+            <MessageItem
+              key={m.id}
+              chatId={chatId}
+              // The live text is newer than the saved copy the page polls, until the reply is complete.
+              message={
+                m.status === "pending" && live?.messageId === m.id && live.content.length > m.content.length
+                  ? { ...m, content: live.content }
+                  : m
+              }
+              last={i === messages.length - 1}
+            />
           ))}
           <div ref={bottom} />
         </div>
@@ -478,6 +491,25 @@ function ChatView({ chatId }: { chatId: string }) {
   );
 }
 
+/** The reply being written, as it arrives, while one is. Providers that do not stream simply send nothing. */
+function useLiveReply(chatId: string, pending: boolean) {
+  const [live, setLive] = useState<{ messageId: string; content: string } | null>(null);
+  useEffect(() => {
+    if (!pending) {
+      setLive(null);
+      return;
+    }
+    const es = new EventSource(`/api/expert-chats/${chatId}/stream`, { withCredentials: true });
+    es.addEventListener("message", (e) => {
+      try {
+        setLive(JSON.parse((e as MessageEvent<string>).data) as { messageId: string; content: string });
+      } catch {}
+    });
+    return () => es.close();
+  }, [chatId, pending]);
+  return live;
+}
+
 function PromptEditor({ value, onClose, onSave }: { value: string; onClose: () => void; onSave: (v: string) => void }) {
   const [text, setText] = useState(value);
   return (
@@ -508,6 +540,8 @@ function MessageItem({ chatId, message: m, last }: { chatId: string; message: Me
     invalidate: [keys.chat(chatId)],
   });
   const mine = m.role === "user";
+  // While a reply is still arriving, its image prompt line is not part of the answer: it is drawn, then shown apart.
+  const shown = m.status === "pending" ? m.content.split(IMAGE_MARKER)[0]!.trimEnd() : m.content;
   const copy = () =>
     navigator.clipboard.writeText(m.content).then(
       () => toast.success("Copied"),
@@ -522,10 +556,11 @@ function MessageItem({ chatId, message: m, last }: { chatId: string; message: Me
         )}
       >
         {m.attachments.length > 0 && <ImageRow ids={m.attachments} />}
-        {m.content && <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>}
+        {shown && <div className="whitespace-pre-wrap break-words leading-relaxed">{shown}</div>}
         {m.status === "pending" && (
           <div className="muted flex items-center gap-2 text-xs">
-            <Spinner /> {m.content ? "Drawing the image…" : "Thinking…"}
+            <Spinner />{" "}
+            {!m.content ? "Thinking…" : m.options.generateImage ? "Writing, then drawing the image…" : "Writing…"}
           </div>
         )}
         {m.images.length > 0 && <ImageRow ids={m.images} large />}

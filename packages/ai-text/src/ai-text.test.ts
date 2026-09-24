@@ -222,6 +222,35 @@ describe("DeepSeekTextProvider over HTTP", () => {
     });
     await expect(p.generateText({ messages: [] })).rejects.toMatchObject({ code: "timeout" });
   });
+
+  test("streams when the caller shows the answer as it arrives, and still records usage", async () => {
+    const chunks = (events: unknown[]) =>
+      new Response(events.map((e) => `data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`).join(""), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    const { f, seen } = fakeFetch([
+      () =>
+        chunks([
+          { id: "req-s", model: "deepseek-v4-flash", choices: [{ delta: { content: "Three " } }] },
+          { id: "req-s", choices: [{ delta: { content: "titles." }, finish_reason: "stop" }] },
+          { id: "req-s", choices: [], usage: { prompt_tokens: 50, completion_tokens: 3, prompt_cache_hit_tokens: 10 } },
+          "[DONE]",
+        ]),
+    ]);
+    const seenSoFar: string[] = [];
+    const r = await make(f).generateText({
+      messages: [{ role: "user", content: "titles?" }],
+      onText: (t) => seenSoFar.push(t),
+    });
+    expect(seenSoFar).toEqual(["Three ", "Three titles."]);
+    expect(r.text).toBe("Three titles.");
+    expect(r.call).toMatchObject({ requestId: "req-s", inputTokens: 50, outputTokens: 3, cachedTokens: 10 });
+    expect(seen[0]!.body).toMatchObject({ stream: true, stream_options: { include_usage: true } });
+    // Without a listener the request is the plain one it always was.
+    const plain = fakeFetch([() => ok("hello")]);
+    await make(plain.f).generateText({ messages: [{ role: "user", content: "hi" }] });
+    expect(plain.seen[0]!.body.stream).toBe(false);
+  });
 });
 
 describe("MetaMuseTextProvider", () => {
@@ -276,6 +305,21 @@ describe("MetaMuseTextProvider", () => {
     const body = JSON.parse(String(seen[0]!.body));
     expect(body).toMatchObject({ stream: true, max_completion_tokens: 1000, response_format: { type: "json_object" } });
     expect(body.temperature).toBeUndefined();
+  });
+
+  test("passes the text on as it streams in", async () => {
+    const { p } = make([
+      () =>
+        sse([
+          { id: "c", choices: [{ delta: { content: "A " } }] },
+          { id: "c", choices: [{ delta: { content: "hook." }, finish_reason: "stop" }] },
+          "[DONE]",
+        ]),
+    ]);
+    const soFar: string[] = [];
+    const r = await p.generateText({ messages: msg, onText: (t) => soFar.push(t) });
+    expect(soFar).toEqual(["A ", "A hook."]);
+    expect(r.text).toBe("A hook.");
   });
 
   test("truncation is non-retryable; content_filter is policy; 429 retries; mid-stream error surfaces", async () => {

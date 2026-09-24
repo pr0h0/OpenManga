@@ -78,7 +78,11 @@ attached images. With *Generate image* the reply is asked to end with an `IMAGE 
 out of the text and drawn at the chosen aspect ratio, with the images attached to the question as references.
 
 Replies run in the API process after the request returns (`runExpertReply`), since a reasoning model can take longer
-than a proxy holds a request open; the page polls the chat. A reply still pending after 20 minutes was cut off by a
+than a proxy holds a request open; the page polls the chat for status. The text itself streams: providers that stream
+(Anthropic, the OpenAI-style providers, and DeepSeek when a caller asks, via `TextRequest.onText`) pass the answer on
+as it arrives; it is published on the chat's Redis channel at most every 100 ms and read by the page from
+`GET /api/expert-chats/:id/stream` (server-sent events, at most 4 open per user), and saved every 2 s so a page that
+opens mid-reply sees it too. A provider that does not stream shows the whole reply when it is done. A reply still pending after 20 minutes was cut off by a
 restart and is shown as failed, to retry. With *Paste it yourself* the reply waits with the whole conversation ready
 to copy, and the pasted answer (plus any image uploaded with it) completes it. Usage is recorded as `expert_chat` and
 `expert_image`, against the chat's project, or against no project, which the user's own usage page includes.

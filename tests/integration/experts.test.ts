@@ -205,3 +205,40 @@ test("a pasted answer can bring the image the other chat made", async () => {
   expect(r.reply.content).toBe("Concept: her face lit by the flames.");
   expect(r.reply.options.imagePrompt).toBe("close-up of a woman lit by a burning letter");
 });
+
+test("a reply can be watched as it is written", async () => {
+  const chat = await newChat("story-developer");
+  const res = await alice.raw("GET", `/api/expert-chats/${chat.id}/stream`);
+  expect(res.status).toBe(200);
+  const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
+  const long = "Outline a story about a lighthouse keeper whose light starts showing ships that sank long ago";
+  await send(chat.id, { text: long });
+  const seen: string[] = [];
+  let buf = "";
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value;
+    for (const block of buf.split("\n\n").slice(0, -1)) {
+      const data = block
+        .split("\n")
+        .find((l) => l.startsWith("data:"))
+        ?.slice(5)
+        .trim();
+      if (block.includes("event: message") && data) seen.push((JSON.parse(data) as { content: string }).content);
+    }
+    buf = buf.slice(buf.lastIndexOf("\n\n") + 2);
+    if (seen.at(-1)?.endsWith(long)) break;
+  }
+  await reader.cancel();
+  // It arrived in pieces, each one longer than the last, ending with the whole answer.
+  expect(seen.length).toBeGreaterThan(1);
+  for (let i = 1; i < seen.length; i++) expect(seen[i]!.length).toBeGreaterThanOrEqual(seen[i - 1]!.length);
+  expect(seen.at(-1)).toContain("Mock expert reply to: Outline a story");
+  const final = (await settled(chat.id)).at(-1)!;
+  expect(final.status).toBe("done");
+  expect(final.content.startsWith(seen[0]!)).toBe(true);
+  // Someone else cannot listen in.
+  expect((await bob.raw("GET", `/api/expert-chats/${chat.id}/stream`)).status).toBe(404);
+});
