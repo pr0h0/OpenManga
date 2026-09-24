@@ -2,7 +2,6 @@ import {
   and,
   desc,
   eq,
-  gt,
   lt,
   mcpApprovalRequests,
   mcpApprovalRules,
@@ -36,6 +35,11 @@ export type ToolRun = {
 };
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long an execution may take before it is presumed interrupted. Tools only validate and queue work (the long
+ * part runs as jobs), so a live call finishes in seconds; ten minutes is far past any real one.
+ */
+export const EXECUTION_LEASE_MS = 10 * 60 * 1000;
 const POLL_AFTER_SECONDS = 15;
 
 let toolsByName: Map<string, McpTool> = new Map();
@@ -65,12 +69,31 @@ const stripKey = (args: Record<string, unknown>) => {
   return rest;
 };
 
-/** Marks pending requests past their deadline as expired (lazily: whenever anything looks at them). */
+/**
+ * Lazy housekeeping, run whenever anything looks at requests: pending ones past their deadline expire, and approved
+ * ones still executing past the lease were interrupted (the process died mid-run). Those become `execution_unknown`
+ * and are never re-run automatically: their side effect may already have happened.
+ */
 export async function expireApprovals(deps: Deps) {
   await deps.db
     .update(mcpApprovalRequests)
     .set({ status: "expired" })
     .where(and(eq(mcpApprovalRequests.status, "pending"), lt(mcpApprovalRequests.expiresAt, new Date())));
+  await deps.db
+    .update(mcpApprovalRequests)
+    .set({
+      status: "execution_unknown",
+      error: {
+        code: "execution_unknown",
+        message: "Execution was interrupted before its outcome was recorded; it may or may not have taken effect.",
+      },
+    })
+    .where(
+      and(
+        eq(mcpApprovalRequests.status, "approved"),
+        lt(mcpApprovalRequests.decidedAt, new Date(Date.now() - EXECUTION_LEASE_MS)),
+      ),
+    );
 }
 
 function scopeGate(tool: McpTool, args: Record<string, unknown>, actor: McpActor) {
@@ -117,27 +140,29 @@ export async function runTool(
   const key = typeof args.idempotencyKey === "string" ? args.idempotencyKey : null;
   const hash = argsHash(stripKey(args));
   if (key) {
-    const [prior] = await deps.db
-      .select()
-      .from(mcpIdempotency)
-      .where(
-        and(
-          eq(mcpIdempotency.serviceId, actor.serviceId),
-          eq(mcpIdempotency.toolName, tool.name),
-          eq(mcpIdempotency.key, key),
-          gt(mcpIdempotency.expiresAt, new Date()),
-        ),
-      );
-    if (prior) {
-      if (prior.argumentsHash !== hash)
-        throw toolError(409, "idempotency_conflict", "This idempotencyKey was already used with different arguments.");
-      const stored = prior.result as ToolRun;
-      if (stored.status === "pending_approval" && stored.approval)
-        return approvalRun(deps, actor.serviceId, stored.approval.approvalRequestId);
-      return stored;
-    }
+    const replay = await claimKey(deps, actor.serviceId, tool.name, key, hash);
+    if (replay) return replay;
   }
+  try {
+    return await decideAndRun(deps, actor, tool, args, hash, key, ctx, requestId);
+  } catch (e) {
+    // Nothing happened (the route refused, or the call was denied by a rule): free the key so a corrected retry
+    // can use it. A process that dies mid-call leaves it `running`, which the lease turns into execution_unknown.
+    if (key) await releaseKey(deps, actor.serviceId, tool.name, key);
+    throw e;
+  }
+}
 
+async function decideAndRun(
+  deps: Deps,
+  actor: McpActor,
+  tool: McpTool,
+  args: Record<string, unknown>,
+  hash: string,
+  key: string | null,
+  ctx: ToolContext,
+  requestId: string,
+): Promise<ToolRun> {
   const cls: Classification = tool.classify
     ? await tool.classify(args as never, ctx)
     : { sensitivity: "read", actionKey: tool.name, projectId: null, summary: tool.title };
@@ -168,16 +193,16 @@ export async function runTool(
         `The user has chosen to always deny "${cls.actionKey}" for this connection in this project. Do not retry; ask the user if they want to change that in OpenManga.`,
         { action: cls.actionKey, projectId: cls.projectId },
       );
-    if (rule?.decision !== "ALLOW") {
-      const run = await park(deps, actor, tool, args, hash, key, cls, requestId);
-      if (key) await remember(deps, actor.serviceId, tool.name, key, hash, run);
-      return run;
-    }
+    if (rule?.decision !== "ALLOW") return park(deps, actor, tool, args, hash, key, cls, requestId);
   }
 
   const out = await tool.handler(args as never, ctx);
   const run: ToolRun = { status: "completed", data: out.data, links: out.links, content: out.content };
-  if (key) await remember(deps, actor.serviceId, tool.name, key, hash, { ...run, content: undefined });
+  if (key)
+    await deps.db
+      .update(mcpIdempotency)
+      .set({ state: "completed", result: { ...run, content: undefined } as Record<string, unknown> })
+      .where(keyWhere(actor.serviceId, tool.name, key));
   return run;
 }
 
@@ -199,22 +224,65 @@ async function assertProjectVisible(deps: Deps, actor: McpActor, projectId: stri
   }
 }
 
-async function remember(deps: Deps, serviceId: string, toolName: string, key: string, hash: string, run: ToolRun) {
-  const values = {
-    serviceId,
-    toolName,
-    key,
-    argumentsHash: hash,
-    result: run as Record<string, unknown>,
-    expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
-  };
+const keyWhere = (serviceId: string, toolName: string, key: string) =>
+  and(eq(mcpIdempotency.serviceId, serviceId), eq(mcpIdempotency.toolName, toolName), eq(mcpIdempotency.key, key));
+/**
+ * Claims an idempotency key before anything happens. Returns null when this call now owns the key (it must go on to
+ * act), or the earlier call's outcome to replay. A key is claimed by one atomic insert (or by taking over an expired
+ * row in one conditional update), so of two simultaneous calls exactly one acts.
+ */
+async function claimKey(deps: Deps, serviceId: string, toolName: string, key: string, hash: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const fresh = {
+      argumentsHash: hash,
+      state: "running" as const,
+      approvalRequestId: null,
+      result: null,
+      expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+    };
+    const [mine] = await deps.db
+      .insert(mcpIdempotency)
+      .values({ serviceId, toolName, key, ...fresh })
+      .onConflictDoNothing()
+      .returning();
+    if (mine) return null;
+    const [takenOver] = await deps.db
+      .update(mcpIdempotency)
+      .set({ ...fresh, createdAt: new Date() })
+      .where(and(keyWhere(serviceId, toolName, key), lt(mcpIdempotency.expiresAt, new Date())))
+      .returning();
+    if (takenOver) return null;
+    const [prior] = await deps.db
+      .select()
+      .from(mcpIdempotency)
+      .where(keyWhere(serviceId, toolName, key));
+    if (!prior) continue; // released between the insert and the read: claim again
+    if (prior.argumentsHash !== hash)
+      throw toolError(409, "idempotency_conflict", "This idempotencyKey was already used with different arguments.");
+    if (prior.state === "completed" && prior.result) return prior.result as ToolRun;
+    if (prior.state === "pending_approval" && prior.approvalRequestId)
+      return approvalRun(deps, serviceId, prior.approvalRequestId);
+    if (Date.now() - prior.createdAt.getTime() > EXECUTION_LEASE_MS)
+      throw toolError(
+        409,
+        "execution_unknown",
+        "An earlier call with this idempotencyKey was interrupted before its outcome was recorded; it may or may not have taken effect. Re-read the target, then use a new key if the action is still needed.",
+      );
+    const e = toolError(
+      409,
+      "operation_in_progress",
+      "A call with this idempotencyKey is still running. Retry the same call in a few seconds to get its result.",
+    );
+    (e as { retryAfterSeconds?: number }).retryAfterSeconds = 5;
+    throw e;
+  }
+  throw toolError(409, "operation_in_progress", "This idempotencyKey is busy; retry in a few seconds.");
+}
+
+async function releaseKey(deps: Deps, serviceId: string, toolName: string, key: string) {
   await deps.db
-    .insert(mcpIdempotency)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [mcpIdempotency.serviceId, mcpIdempotency.toolName, mcpIdempotency.key],
-      set: values,
-    });
+    .delete(mcpIdempotency)
+    .where(and(keyWhere(serviceId, toolName, key), eq(mcpIdempotency.state, "running")));
 }
 
 async function park(
@@ -228,47 +296,73 @@ async function park(
   requestId: string,
 ): Promise<ToolRun> {
   await expireApprovals(deps);
-  // The same call already waiting: hand back that request instead of queueing a duplicate for the user.
-  const [same] = await deps.db
-    .select()
-    .from(mcpApprovalRequests)
-    .where(
-      and(
-        eq(mcpApprovalRequests.serviceId, actor.serviceId),
-        eq(mcpApprovalRequests.argumentsHash, hash),
-        eq(mcpApprovalRequests.toolName, tool.name),
-        eq(mcpApprovalRequests.status, "pending"),
-      ),
-    );
-  if (same) return { status: "pending_approval", approval: pendingView(deps, same) };
-  const [row] = await deps.db
-    .insert(mcpApprovalRequests)
-    .values({
-      serviceId: actor.serviceId,
+  // One transaction: the waiting request, and the idempotency key pointing at it. The partial unique index allows one
+  // pending request per identical call, so of two simultaneous attempts one inserts and the other gets that same
+  // request back instead of queueing a duplicate for the user.
+  const { row, created } = await deps.db.transaction(async (tx) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [inserted] = await tx
+        .insert(mcpApprovalRequests)
+        .values({
+          serviceId: actor.serviceId,
+          userId: actor.user.id,
+          projectId: cls.projectId,
+          toolName: tool.name,
+          actionKey: cls.actionKey,
+          sensitivity: cls.sensitivity,
+          summary: cls.summary.slice(0, 2000),
+          arguments: args,
+          argumentsHash: hash,
+          idempotencyKey: key,
+          targetSnapshot: cls.target === undefined ? null : { hash: argsHash(cls.target), value: cls.target as never },
+          estimate: cls.estimate ?? null,
+          expiresAt: new Date(Date.now() + deps.config.MCP_APPROVAL_TTL_MINUTES * 60_000),
+        })
+        .onConflictDoNothing({
+          target: [mcpApprovalRequests.serviceId, mcpApprovalRequests.toolName, mcpApprovalRequests.argumentsHash],
+          where: sql`${mcpApprovalRequests.status} = 'pending'`,
+        })
+        .returning();
+      const found =
+        inserted ??
+        (
+          await tx
+            .select()
+            .from(mcpApprovalRequests)
+            .where(
+              and(
+                eq(mcpApprovalRequests.serviceId, actor.serviceId),
+                eq(mcpApprovalRequests.toolName, tool.name),
+                eq(mcpApprovalRequests.argumentsHash, hash),
+                eq(mcpApprovalRequests.status, "pending"),
+              ),
+            )
+        )[0];
+      if (!found) continue; // decided between the insert and the read: park a fresh one
+      if (key)
+        await tx
+          .update(mcpIdempotency)
+          .set({
+            state: "pending_approval",
+            approvalRequestId: found.id,
+            result: { status: "pending_approval", approval: pendingView(deps, found) } as Record<string, unknown>,
+          })
+          .where(keyWhere(actor.serviceId, tool.name, key));
+      return { row: found, created: Boolean(inserted) };
+    }
+    throw toolError(409, "operation_in_progress", "This request is being decided right now; retry in a few seconds.");
+  });
+  if (created)
+    await recordAudit(deps.db, {
       userId: actor.user.id,
       projectId: cls.projectId,
-      toolName: tool.name,
-      actionKey: cls.actionKey,
-      sensitivity: cls.sensitivity,
-      summary: cls.summary.slice(0, 2000),
-      arguments: args,
-      argumentsHash: hash,
-      idempotencyKey: key,
-      targetSnapshot: cls.target === undefined ? null : { hash: argsHash(cls.target), value: cls.target as never },
-      estimate: cls.estimate ?? null,
-      expiresAt: new Date(Date.now() + deps.config.MCP_APPROVAL_TTL_MINUTES * 60_000),
-    })
-    .returning();
-  await recordAudit(deps.db, {
-    userId: actor.user.id,
-    projectId: cls.projectId,
-    action: "mcp.approval_requested",
-    targetType: "mcp_approval_request",
-    targetId: row!.id,
-    metadata: { tool: tool.name, actionKey: cls.actionKey, sensitivity: cls.sensitivity },
-    requestId,
-  });
-  return { status: "pending_approval", approval: pendingView(deps, row!) };
+      action: "mcp.approval_requested",
+      targetType: "mcp_approval_request",
+      targetId: row.id,
+      metadata: { tool: tool.name, actionKey: cls.actionKey, sensitivity: cls.sensitivity },
+      requestId,
+    });
+  return { status: "pending_approval", approval: pendingView(deps, row) };
 }
 
 /** The request as an agent sees it when polling: only ever its own connection's. */
@@ -313,7 +407,11 @@ export function approvalView(deps: Deps, r: ApprovalRow) {
               ? "What this action targeted changed before it was approved. Re-read the target before proposing it again."
               : r.status === "failed"
                 ? "It was approved but failed when it ran; see `error`."
-                : "Waiting for the user.",
+                : r.status === "approved"
+                  ? "Approved and running now; check again in a few seconds."
+                  : r.status === "execution_unknown"
+                    ? "Execution was interrupted and it is unknown whether it took effect. Re-read the target before proposing the action again; do not simply repeat it."
+                    : "Waiting for the user.",
   };
 }
 
@@ -359,14 +457,8 @@ export async function decideApproval(
           : { status: "completed", data: approvalView(deps, row) };
       await deps.db
         .update(mcpIdempotency)
-        .set({ result: run as Record<string, unknown> })
-        .where(
-          and(
-            eq(mcpIdempotency.serviceId, r.serviceId),
-            eq(mcpIdempotency.toolName, r.toolName),
-            eq(mcpIdempotency.key, r.idempotencyKey),
-          ),
-        );
+        .set({ state: "completed", result: run as Record<string, unknown> })
+        .where(keyWhere(r.serviceId, r.toolName, r.idempotencyKey));
     }
     return row!;
   };

@@ -176,10 +176,15 @@ state (ids, status, `updatedAt`, or for bulk generation the estimate) was finger
 a difference makes the request `stale` instead of running an old decision against new state. Undecided requests
 expire after `MCP_APPROVAL_TTL_MINUTES`; revoking a connection expires its pending requests.
 
-The agent polls with `get_approval_request` (its own requests only): `pending`, `executed` (with the original tool's
-saved result), `denied`, `expired`, `stale` or `failed`. Retrying the original call while it waits returns the same
-request rather than a second one, and an `idempotencyKey` is carried through, so a retry after approval returns the
-executed result.
+While it runs the request is `approved`. If the process dies before the outcome is recorded, the request is not left
+there and not run again: after a ten-minute lease it becomes `execution_unknown`, because the side effect may already
+have happened. The agent is told to re-read the target before proposing the action again. (Fully durable exactly-once
+execution would need the underlying mutations to take an idempotency identity themselves; that is not built.)
+
+The agent polls with `get_approval_request` (its own requests only): `pending`, `approved` (running now), `executed`
+(with the original tool's saved result), `denied`, `expired`, `stale`, `failed` or `execution_unknown`. Only one
+request waits per identical call — retrying, even simultaneously, returns the same request — and an
+`idempotencyKey` is carried through, so a retry after approval returns the executed result.
 
 ## Tools
 
@@ -213,8 +218,12 @@ in 50,000-character chunks, a chapter's source excerpt is cut unless asked for, 
 `get_manual_prompt` / `get_panel_prompt`, the OpenAPI description only for matching operations, and answer schemas
 one at a time. A 2-hour project is worked chapter by chapter.
 
-`idempotencyKey` (optional, on tools that create things or start jobs): the same key with the same arguments returns
-the first result for 24 hours; with different arguments it is `idempotency_conflict`.
+`idempotencyKey` (optional, on tools that create things or start jobs) is claimed atomically before anything
+happens, so of several calls with one key — sequential or simultaneous — only one acts. For 24 hours the same key
+with the same arguments returns that call's result (or its pending approval); with different arguments it is
+`idempotency_conflict`; while the first call is still running it is `operation_in_progress` (retry shortly); if the
+first call was interrupted before recording its outcome it is `execution_unknown` (re-read the target; use a new key
+if still needed). A call that fails frees its key, so a corrected retry can reuse it.
 
 ## Asynchronous jobs and manual (paste) mode
 
@@ -271,7 +280,7 @@ retryAfterSeconds? } }`, keeping OpenManga's own codes:
 | 403 | `scope_missing` | The connection lacks a scope. For OAuth connections the result carries `_meta["mcp/www_authenticate"]` with an `insufficient_scope` challenge naming the scopes to ask for. |
 | 403 | `project_not_granted`, `forbidden`, `approval_denied_by_rule` | Project not granted to this connection; not allowed (e.g. creating projects); the user always denies this action here. |
 | 404 | `not_found` | Missing, or in a project you cannot see (never distinguished). |
-| 409 | `conflict`, `idempotency_conflict`, `estimate_changed` | Locked/approved version, wrong lifecycle state, job not in the expected state, reused key, stale estimate. |
+| 409 | `conflict`, `idempotency_conflict`, `estimate_changed`, `operation_in_progress`, `execution_unknown` | Locked/approved version, wrong lifecycle state, job not in the expected state, reused key, stale estimate, the same key still running, an interrupted call whose outcome is unknown. |
 | 422 | `validation_error`, `credentials_required`, `provider_*` | Input validation (with details), no usable key, provider refusal. |
 | 429 | `rate_limited` | With `retryAfterSeconds`. |
 | 5xx | `internal_error`, `provider_*` | Sanitized; never a stack trace or raw provider response. |
@@ -373,6 +382,7 @@ flows are exercised by `tests/integration/mcp.test.ts`.
 | 403 `Invalid Host header` (or `Missing Host header`) on `/mcp` | The request's `Host` is not the API's public host; add it to `MCP_ALLOWED_HOSTS` or set `MCP_PUBLIC_URL`. |
 | ChatGPT says the server has no OAuth | `/.well-known/…` is not reaching the API (proxy config), or `MCP_ENABLED=false`. |
 | Consent page says the request is no longer valid | Authorization requests live 10 minutes and can be answered once; start connecting again from the client. |
+| `invalid_scope` on authorize/token | A requested scope does not exist, or a refresh asked for a scope outside the original grant (a refresh can only narrow it). |
 | `invalid_target` on authorize/token | The client's `resource` is not the canonical `MCP_PUBLIC_URL` (check scheme, host, and no trailing path). |
 | `invalid_grant` "Refresh token already used" | The refresh token was replayed (or two clients shared it); the grant was revoked for safety. Reconnect. |
 | Every write says `scope_missing` | The connection was granted read scopes only; widen it in Agent access (OAuth clients can also re-consent). |

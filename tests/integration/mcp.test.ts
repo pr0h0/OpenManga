@@ -6,8 +6,10 @@ import {
   auditEvents,
   eq,
   mcpApprovalRequests,
+  mcpIdempotency,
   oauthAccessTokens,
   personalAccessTokens,
+  projects,
   sql,
   users,
 } from "@openmanga/db";
@@ -388,6 +390,54 @@ describe("idempotency", () => {
     const c = await allowAll.call("create_project", { title: "Other", idempotencyKey: "create-once-1" });
     expect(c.error?.code).toBe("idempotency_conflict");
   });
+
+  test("simultaneous calls with one key act once", async () => {
+    const runs = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        allowAll.call<{ data: { project: { id: string } } }>("create_project", {
+          title: "Race",
+          idempotencyKey: "race-key-1",
+        }),
+      ),
+    );
+    const made = await h.deps.db.select().from(projects).where(eq(projects.title, "Race"));
+    expect(made.length).toBe(1);
+    // Every caller either got that one project or was told the call is still running.
+    for (const r of runs)
+      if (r.isError) expect(r.error?.code).toBe("operation_in_progress");
+      else expect(r.structured.data.project.id).toBe(made[0]!.id);
+    const again = await allowAll.call<{ data: { project: { id: string } } }>("create_project", {
+      title: "Race",
+      idempotencyKey: "race-key-1",
+    });
+    expect(again.structured.data.project.id).toBe(made[0]!.id);
+  });
+
+  test("an interrupted call leaves its key unknown, not free to act again", async () => {
+    await allowAll.call("create_project", { title: "Crash", idempotencyKey: "crash-key-1" });
+    const where = and(eq(mcpIdempotency.key, "crash-key-1"), eq(mcpIdempotency.toolName, "create_project"));
+    await h.deps.db.update(mcpIdempotency).set({ state: "running", result: null, createdAt: new Date() }).where(where);
+    const busy = await allowAll.call("create_project", { title: "Crash", idempotencyKey: "crash-key-1" });
+    expect(busy.error?.code).toBe("operation_in_progress");
+    await h.deps.db
+      .update(mcpIdempotency)
+      .set({ createdAt: new Date(Date.now() - 20 * 60_000) })
+      .where(where);
+    const lost = await allowAll.call("create_project", { title: "Crash", idempotencyKey: "crash-key-1" });
+    expect(lost.error?.code).toBe("execution_unknown");
+    expect((await h.deps.db.select().from(projects).where(eq(projects.title, "Crash"))).length).toBe(1);
+  });
+
+  test("a failed call frees its key for a corrected retry", async () => {
+    const bad = await allowAll.call("save_story_revision", {
+      revisionId: "00000000-0000-4000-8000-000000000000",
+      content: "x",
+      idempotencyKey: "fail-key-1",
+    });
+    expect(bad.error?.code).toBe("not_found");
+    const rows = await h.deps.db.select().from(mcpIdempotency).where(eq(mcpIdempotency.key, "fail-key-1"));
+    expect(rows.length).toBe(0);
+  });
 });
 
 describe("scopes and project restrictions", () => {
@@ -612,6 +662,46 @@ describe("approvals", () => {
     expect(late.status).toBe(409);
   });
 
+  test("simultaneous identical sensitive calls park one request", async () => {
+    const runs = await Promise.all(
+      Array.from({ length: 6 }, () => gated.call("manage_chapter", { action: "delete", chapterId: chapterIds[1] })),
+    );
+    const ids = new Set(runs.map((r) => r.structured.approval!.approvalRequestId));
+    expect(ids.size).toBe(1);
+    const keyed = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        gated.call("manage_chapter", { action: "delete", chapterId: chapterIds[1], idempotencyKey: "park-race-1" }),
+      ),
+    );
+    for (const r of keyed)
+      if (r.isError) expect(r.error?.code).toBe("operation_in_progress");
+      else expect(r.structured.approval!.approvalRequestId).toBeTruthy();
+    const pending = await h.deps.db
+      .select()
+      .from(mcpApprovalRequests)
+      .where(and(eq(mcpApprovalRequests.status, "pending"), eq(mcpApprovalRequests.toolName, "manage_chapter")));
+    // The keyed and unkeyed calls have the same arguments, so they share the one waiting request.
+    expect(pending.length).toBe(1);
+  });
+
+  test("an approval interrupted mid-execution becomes execution_unknown, never re-run", async () => {
+    const r = await gated.call("manage_chapter", { action: "delete", chapterId: chapterIds[1] });
+    const id = r.structured.approval!.approvalRequestId;
+    // As if the process died right after claiming it: approved, but no outcome recorded.
+    await h.deps.db
+      .update(mcpApprovalRequests)
+      .set({ status: "approved", decidedAt: new Date(Date.now() - 20 * 60_000) })
+      .where(eq(mcpApprovalRequests.id, id));
+    const poll = await gated.call<{ data: { status: string; next: string } }>("get_approval_request", {
+      approvalRequestId: id,
+    });
+    expect(poll.structured.data.status).toBe("execution_unknown");
+    expect(poll.structured.data.next).toContain("Re-read the target");
+    const again = await alice.raw("POST", `/api/agents/approvals/${id}/decide`, { decision: "approve" });
+    expect(again.status).toBe(409);
+    await alice.get(`/api/chapters/${chapterIds[1]}`);
+  });
+
   test("manual text work is not spending: it runs without approval", async () => {
     const r = await gated.call("run_chapter_plan", { chapterId: chapterIds[0], ai: { manual: true }, replace: false });
     // The chapter already has pages, so this is refused by the route itself (409), not parked for approval.
@@ -817,6 +907,37 @@ describe("OAuth 2.1", () => {
       resource: "http://test.local/mcp",
     });
     expect(reuse.status).toBe(400);
+  });
+
+  test("scopes are strict: unknown ones are refused, and a refresh cannot widen the grant", async () => {
+    const unknown = await authorize({ scope: "projects:read completely_fake_scope" });
+    expect(new URL(unknown.headers.get("location")!).searchParams.get("error")).toBe("invalid_scope");
+    const code = await consent();
+    const t = (await (
+      await token({
+        grant_type: "authorization_code",
+        code,
+        client_id: clientId,
+        redirect_uri: redirect,
+        code_verifier: verifier,
+        resource: "http://test.local/mcp",
+      })
+    ).json()) as { refresh_token: string };
+    const wider = await token({
+      grant_type: "refresh_token",
+      refresh_token: t.refresh_token,
+      client_id: clientId,
+      scope: "projects:read story:write",
+    });
+    expect(((await wider.json()) as { error: string }).error).toBe("invalid_scope");
+    // Refused before the token was spent: it still works.
+    const ok = await token({
+      grant_type: "refresh_token",
+      refresh_token: t.refresh_token,
+      client_id: clientId,
+      scope: "projects:read",
+    });
+    expect(ok.status).toBe(200);
   });
 
   test("an expired access token is refused; a disabled user's tokens stop working", async () => {

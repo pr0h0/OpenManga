@@ -495,7 +495,9 @@ function ApprovalCard({ a, focused }: { a: Approval; focused: boolean }) {
             ? "Denied"
             : r.approval.status === "stale"
               ? "Not run: what it acted on changed meanwhile"
-              : `Approved, but it failed: ${r.approval.error?.message ?? r.approval.status}`,
+              : r.approval.status === "execution_unknown"
+                ? "Interrupted: check whether it took effect before trying again"
+                : `Approved, but it failed: ${r.approval.error?.message ?? r.approval.status}`,
     },
   );
   const pending = a.status === "pending";
@@ -511,11 +513,15 @@ function ApprovalCard({ a, focused }: { a: Approval; focused: boolean }) {
                 ? "completed"
                 : a.status === "denied"
                   ? "cancelled"
-                  : a.status === "failed"
+                  : a.status === "failed" || a.status === "execution_unknown"
                     ? "failed"
-                    : "queued"
+                    : a.status === "approved"
+                      ? "processing"
+                      : "queued"
             }
-            label={a.status}
+            label={
+              a.status === "execution_unknown" ? "outcome unknown" : a.status === "approved" ? "running" : a.status
+            }
           />
         )}
       </div>

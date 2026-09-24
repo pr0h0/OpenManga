@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, index, jsonb, pgTable, primaryKey, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
 import { createdAt, id, ts, updatedAt } from "./common.ts";
@@ -156,7 +157,20 @@ export const oauthRefreshTokens = pgTable(
   (t) => [index("oauth_refresh_tokens_family_idx").on(t.familyId)],
 );
 
-export type McpApprovalStatus = "pending" | "approved" | "denied" | "expired" | "stale" | "executed" | "failed";
+/**
+ * `approved` means approved and executing right now. A request still `approved` past the execution lease was
+ * interrupted (the process died): it becomes `execution_unknown`, never re-run, because its side effect may have
+ * happened.
+ */
+export type McpApprovalStatus =
+  | "pending"
+  | "approved"
+  | "denied"
+  | "expired"
+  | "stale"
+  | "executed"
+  | "failed"
+  | "execution_unknown";
 
 /** A sensitive call parked for the user's decision, executed once if approved. */
 export const mcpApprovalRequests = pgTable(
@@ -192,6 +206,10 @@ export const mcpApprovalRequests = pgTable(
   (t) => [
     index("mcp_approval_requests_user_idx").on(t.userId, t.status, t.createdAt),
     index("mcp_approval_requests_service_idx").on(t.serviceId, t.argumentsHash),
+    // One waiting request per identical call: two simultaneous attempts cannot both park.
+    uniqueIndex("mcp_approval_requests_pending_uq")
+      .on(t.serviceId, t.toolName, t.argumentsHash)
+      .where(sql`${t.status} = 'pending'`),
   ],
 );
 
@@ -215,7 +233,11 @@ export const mcpApprovalRules = pgTable(
   (t) => [uniqueIndex("mcp_approval_rules_uq").on(t.serviceId, t.projectId, t.actionKey)],
 );
 
-/** A call's result under a caller-supplied idempotency key, so a retried call never repeats its side effect. */
+/**
+ * A caller-supplied idempotency key, claimed before anything happens so two simultaneous calls with the same key
+ * cannot both act: `running` while the first executes, `pending_approval` while it waits for the user (with its
+ * request), `completed` with the result to replay.
+ */
 export const mcpIdempotency = pgTable(
   "mcp_idempotency",
   {
@@ -225,7 +247,9 @@ export const mcpIdempotency = pgTable(
     toolName: text("tool_name").notNull(),
     key: text("key").notNull(),
     argumentsHash: text("arguments_hash").notNull(),
-    result: jsonb("result").$type<Record<string, unknown>>().notNull(),
+    state: text("state").$type<"running" | "pending_approval" | "completed">().notNull().default("completed"),
+    approvalRequestId: uuid("approval_request_id"),
+    result: jsonb("result").$type<Record<string, unknown>>(),
     expiresAt: ts("expires_at").notNull(),
     createdAt: createdAt(),
   },

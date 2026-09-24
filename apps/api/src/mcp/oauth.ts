@@ -357,9 +357,10 @@ oauthRoutes.get(
     const resource = (q.resource ?? "").replace(/\/$/, "");
     if (resource !== mcpUrls(deps.config).resource)
       return fail("invalid_target", `resource must be ${mcpUrls(deps.config).resource}`);
-    const asked = (q.scope ?? "").split(/\s+/).filter(Boolean);
+    const asked = [...new Set((q.scope ?? "").split(/\s+/).filter(Boolean))];
+    const unknown = asked.filter((s) => !isScope(s));
+    if (unknown.length) return fail("invalid_scope", `Unknown scope: ${unknown.join(" ").slice(0, 200)}`);
     const known = asked.filter(isScope);
-    if (asked.length && !known.length) return fail("invalid_scope", "None of the requested scopes exist");
     const [req] = await deps.db
       .insert(oauthAuthorizationRequests)
       .values({
@@ -538,6 +539,11 @@ oauthRoutes.post(
       };
       if (rt.usedAt) return reuse();
       if (rt.expiresAt.getTime() < Date.now()) return oauthError(c, 400, "invalid_grant", "Refresh token expired");
+      // RFC 6749 §6: a refresh may narrow the grant, never widen it. Checked before the token is spent.
+      const asked = [...new Set((f.scope ?? "").split(/\s+/).filter(Boolean))];
+      const beyond = asked.filter((s) => !rt.scopes.includes(s));
+      if (beyond.length)
+        return oauthError(c, 400, "invalid_scope", `Not part of the original grant: ${beyond.join(" ").slice(0, 200)}`);
       const [claimed] = await deps.db
         .update(oauthRefreshTokens)
         .set({ usedAt: new Date() })
@@ -552,7 +558,6 @@ oauthRoutes.post(
       if (!claimed) return reuse();
       const actor = await loadActor(deps.db, rt.serviceId);
       if (!actor) return oauthError(c, 400, "invalid_grant", "The connection is no longer active");
-      const asked = (f.scope ?? "").split(/\s+/).filter(Boolean);
       const scopes = rt.scopes.filter((s) => actor.scopes.has(s as never) && (!asked.length || asked.includes(s)));
       return c.json(
         await issueTokens(deps, {
