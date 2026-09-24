@@ -13,6 +13,7 @@ import type {
   ProviderResolver,
   UsageService,
 } from "@openmanga/services";
+import type { ServiceRestriction } from "./mcp/context.ts";
 
 export type Deps = {
   config: AppConfig;
@@ -47,5 +48,7 @@ export type AppEnv = {
     log: Logger;
     user: SessionUser | null;
     sessionId: string | null;
+    /** Set when an MCP connection is acting: its project restriction applies on top of membership. */
+    service: ServiceRestriction | null;
   };
 };

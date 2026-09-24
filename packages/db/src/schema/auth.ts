@@ -103,6 +103,8 @@ export const auditEvents = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     ip: text("ip"),
     requestId: text("request_id"),
+    /** The connected agent (user_service) that did this on the user's behalf, if any. */
+    serviceId: uuid("service_id"),
     createdAt: createdAt(),
   },
   (t) => [

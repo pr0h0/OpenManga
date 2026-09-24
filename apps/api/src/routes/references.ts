@@ -92,7 +92,7 @@ export async function listReferences(c: Context<AppEnv>, subject: Subject, versi
   }));
 }
 
-const GenerateRef = z.object({
+export const GenerateRef = z.object({
   kind: z.enum(REFERENCE_KINDS).exclude(["uploaded"]).default("full_body"),
   extraInstruction: z.string().max(2000).optional(),
   outfitId: z.string().uuid().optional(),

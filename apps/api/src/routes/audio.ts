@@ -213,7 +213,7 @@ async function narrationBox(c: Context<AppEnv>, settings: ProjectSettings, text:
   return Bubble.parse({ ...bubble, ...rect, tail: false });
 }
 
-const NewLine = z.object({
+export const NewLine = z.object({
   text: z.string().trim().min(1).max(20_000),
   language: z.string().trim().min(2).max(16).optional(),
   panelId: z.string().uuid().nullable().default(null),
@@ -285,7 +285,7 @@ audioRoutes.post("/chapters/:id/narration/lines", async (c) => {
   return c.json({ line, segments }, 201);
 });
 
-const PatchLine = z.object({
+export const PatchLine = z.object({
   text: z.string().trim().min(1).max(20_000).optional(),
   panelId: z.string().uuid().nullable().optional(),
   showOnPage: z.boolean().optional(),
@@ -382,7 +382,7 @@ audioRoutes.post("/chapters/:id/narration/pauses", async (c) => {
   return c.json({ updated });
 });
 
-const GenerateNarration = z.object({
+export const GenerateNarration = z.object({
   style: z.string().max(500).default(""),
   replace: z.boolean().default(false),
   /** Overrides the project's narrationWordsPerPanel for this run. */
@@ -433,7 +433,7 @@ audioRoutes.post("/chapters/:id/narration/generate", async (c) => {
   return c.json({ job }, 202);
 });
 
-const PatchSegment = z.object({
+export const PatchSegment = z.object({
   text: z.string().trim().min(1).max(4000).optional(),
   voice: z.string().max(64).nullable().optional(),
   speed: z.number().min(0.5).max(2).nullable().optional(),
@@ -611,7 +611,7 @@ audioRoutes.post(
   },
 );
 
-const Synth = z.object({
+export const Synth = z.object({
   voice: z.string().max(128).optional(),
   speed: z.number().min(0.5).max(2).optional(),
   force: z.boolean().default(false),
@@ -654,7 +654,7 @@ audioRoutes.post("/narration-segments/:id/synthesize", async (c) => {
   return c.json({ job, force: input.force }, 202);
 });
 
-const SynthAll = z.object({
+export const SynthAll = z.object({
   onlyMissing: z.boolean().default(true),
   /** Voice for every segment when a BYOK provider is chosen (provider voices differ from Kokoro's). */
   voice: z.string().max(128).optional(),

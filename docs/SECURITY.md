@@ -22,6 +22,7 @@ gate), `docs/STORAGE.md` (uploads, keys, asset serving) and `docs/PROMPT_SYSTEM.
 | Budget | per-project cap (new projects start at $5) refuses new AI work with 402 until raised or explicitly overridden |
 | Mock safety | `AI_MOCK_MODE` refused when `NODE_ENV=production` unless `AI_MOCK_ALLOW_IN_PRODUCTION=true`; the mock HTTP service is on the internal network only |
 | Audit | `audit_events` for auth, project lifecycle, approvals, deletes, migrations, bulk generation, exports, credential rotation |
+| AI agents (MCP) | `/mcp` takes Bearer tokens only (OAuth 2.1 with PKCE S256, or personal access tokens), never the session; tokens are opaque and stored as HMACs; per-connection scopes, project grants and approval mode on top of normal membership; sensitive calls can wait for the user's approval; Host/Origin checks against DNS rebinding. Details in `docs/MCP.md` |
 | Network exposure | only nginx is published (loopback by default); Postgres, Redis, Kokoro, worker and mock-ai have no host ports |
 | Dev mailbox | 404 unless enabled; admin-only when `NODE_ENV=production` (reset links must not be public) |
 

@@ -18,7 +18,8 @@ import {
 import { canPerform, type ProjectAction } from "@openmanga/domain";
 import type { Context } from "hono";
 import type { AppEnv } from "../context.ts";
-import { forbidden, notFound, user } from "./http.ts";
+import { serviceMayAccess } from "../mcp/context.ts";
+import { ApiError, forbidden, notFound, user } from "./http.ts";
 
 export type ProjectRecord = typeof projects.$inferSelect;
 
@@ -37,6 +38,13 @@ export async function projectAccess(
     .where(eq(projects.id, projectId));
   if (!row) throw notFound("Project");
   const role = row.role ?? (row.project.ownerUserId === u.id ? "owner" : null);
+  const service = c.get("service");
+  if (service) {
+    // An agent acts only in the user's own projects: an admin's bypass of membership is not extended to it.
+    if (!role) throw notFound("Project");
+    if (!serviceMayAccess(service, projectId))
+      throw new ApiError(403, "project_not_granted", "This connection has not been granted access to this project");
+  }
   if (!role && u.role !== "admin") throw notFound("Project");
   if (!canPerform(u, role, action)) throw role ? forbidden() : notFound("Project");
   if (row.project.deletedAt && action !== "read" && action !== "delete" && action !== "manage") throw forbidden();

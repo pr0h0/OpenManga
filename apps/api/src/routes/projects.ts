@@ -49,7 +49,7 @@ const ProjectType = z.enum(["manga", "manhwa", "webtoon", "comic", "illustrated_
 const ReadingDirection = z.enum(["ltr", "rtl", "vertical"]);
 const ColorMode = z.enum(["full_color", "grayscale", "bw_manga"]);
 
-const CreateProject = z.object({
+export const CreateProject = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(5000).default(""),
   projectType: ProjectType.default("manhwa"),
@@ -69,7 +69,7 @@ const CreateProject = z.object({
     .optional(),
 });
 
-const UpdateProject = z.object({
+export const UpdateProject = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(5000).optional(),
   projectType: ProjectType.optional(),
@@ -96,8 +96,15 @@ projectRoutes.get("/", async (c) => {
     .select({ id: projectMembers.projectId })
     .from(projectMembers)
     .where(eq(projectMembers.userId, u.id));
+  const service = c.get("service");
   const where = and(
     inArray(projects.id, memberOf),
+    // A connection limited to selected projects sees only those.
+    service?.projectAccess === "selected"
+      ? service.projectIds.size
+        ? inArray(projects.id, [...service.projectIds])
+        : sql`false`
+      : undefined,
     status === "trash"
       ? isNotNull(projects.deletedAt)
       : status === "all"
@@ -319,7 +326,7 @@ projectRoutes.post("/:projectId/duplicate", async (c) => {
   return c.json({ project: copy }, 201);
 });
 
-const StatusInput = z.object({ action: z.enum(["archive", "unarchive", "trash", "restore"]) });
+export const StatusInput = z.object({ action: z.enum(["archive", "unarchive", "trash", "restore"]) });
 doc({
   method: "POST",
   path: "/api/projects/:projectId/status",

@@ -15,7 +15,7 @@ import { panelCheckV1 } from "@openmanga/prompts";
 import { CharacterBible, PanelCheck } from "@openmanga/schemas";
 import { resolveOutfits, wardrobeText } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
-import { formatPrompt } from "../lib/manual-provider.ts";
+import { formatPrompt, isManual, manualProvider } from "../lib/manual-provider.ts";
 import { type GenerationJob, InputError, recordTextCalls } from "../lib/runner.ts";
 import { batchAware } from "../lib/text-batch-provider.ts";
 
@@ -116,7 +116,10 @@ export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
   const messages: ChatMessage[] = [...panelCheckV1.build({ expected, beat: spec?.spec.beat ?? pn.storyBeat })];
   messages[1] = { ...messages[1]!, images: [image] };
 
-  const provider = batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);
+  // A keyless check is answered by a person looking at the same image, like every other manual text step.
+  const provider = isManual(job)
+    ? manualProvider(job)
+    : batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);
   const r = await provider.generateStructured({
     messages,
     schema: PanelCheck,

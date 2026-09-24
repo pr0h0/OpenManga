@@ -21,6 +21,7 @@ export function withDeps(deps: Deps): MiddlewareHandler<AppEnv> {
     c.set("log", deps.logger.child({ requestId }));
     c.set("user", null);
     c.set("sessionId", null);
+    c.set("service", null);
     const started = performance.now();
     c.header("x-request-id", requestId);
     await next();

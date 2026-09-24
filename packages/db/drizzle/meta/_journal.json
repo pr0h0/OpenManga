@@ -120,6 +120,20 @@
       "when": 1790255299325,
       "tag": "0016_experts",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790275580856,
+      "tag": "0017_mcp",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790280346847,
+      "tag": "0018_mcp_claims",
+      "breakpoints": true
     }
   ]
 }

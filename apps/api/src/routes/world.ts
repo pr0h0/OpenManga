@@ -334,7 +334,7 @@ worldRoutes.get("/projects/:projectId/style", async (c) => {
   });
 });
 
-const SetStyle = z.object({
+export const SetStyle = z.object({
   stylePresetKey: z.string().max(64).nullable(),
   customDescription: z.string().max(4000).default(""),
   customDefinition: StyleDefinition.partial().optional(),

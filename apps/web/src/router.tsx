@@ -136,6 +136,22 @@ const expertChat = createRoute({
   staticData: { title: "Experts" },
   component: lazyRouteComponent(() => import("./features/experts/ExpertsPage.tsx"), "ExpertsPage"),
 });
+const agents = createRoute({
+  getParentRoute: () => shell,
+  path: "/agents",
+  validateSearch: z.object({
+    tab: z.enum(["connections", "pending", "history", "rules"]).optional(),
+    request: z.string().optional(),
+  }),
+  staticData: { title: "Agent access" },
+  component: lazyRouteComponent(() => import("./features/agents/AgentsPage.tsx"), "AgentsPage"),
+});
+const connect = createRoute({
+  getParentRoute: () => shell,
+  path: "/connect/$requestId",
+  staticData: { title: "Connect an agent" },
+  component: lazyRouteComponent(() => import("./features/agents/ConnectPage.tsx"), "ConnectPage"),
+});
 const admin = createRoute({
   getParentRoute: () => shell,
   path: "/admin",
@@ -294,6 +310,8 @@ const routeTree = rootRoute.addChildren([
     newProject,
     usage,
     experts,
+    agents,
+    connect,
     expertChat,
     admin,
     account,

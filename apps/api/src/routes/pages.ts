@@ -105,7 +105,7 @@ async function loadPanel(
   return { project, ...row };
 }
 
-const CreatePage = z.object({
+export const CreatePage = z.object({
   layoutTemplate: z.string().max(64).default("four-grid"),
   sceneId: z.string().uuid().nullable().default(null),
   afterPageId: z.string().uuid().optional(),
@@ -248,7 +248,7 @@ pageRoutes.get("/pages/:id", async (c) => {
   });
 });
 
-const PatchPage = z.object({
+export const PatchPage = z.object({
   purpose: z.string().max(2000).optional(),
   pacing: z.string().max(500).optional(),
   visualEmphasis: z.string().max(2000).optional(),
@@ -351,7 +351,7 @@ pageRoutes.post("/pages/:id/layout", async (c) => {
   return c.json({ ok: true });
 });
 
-const DocumentPatch = z.object({
+export const DocumentPatch = z.object({
   panels: z
     .array(
       z.object({
@@ -445,7 +445,7 @@ pageRoutes.patch("/pages/:id/document", async (c) => {
   return c.json({ ok: true });
 });
 
-const AddPanel = z.object({ frame: Frame.optional(), duplicateOf: z.string().uuid().optional() });
+export const AddPanel = z.object({ frame: Frame.optional(), duplicateOf: z.string().uuid().optional() });
 doc({
   method: "POST",
   path: "/api/pages/:id/panels",
@@ -647,7 +647,7 @@ async function artworkVersions(db: Database, panelId: string, projectId: string)
   }));
 }
 
-const PatchPanel = z.object({
+export const PatchPanel = z.object({
   frame: Frame.optional(),
   imageTransform: ImageTransform.optional(),
   shotType: ShotType.optional(),
@@ -807,7 +807,7 @@ pageRoutes.get("/panels/:id/outfits", async (c) => {
   return c.json({ characters: characterList });
 });
 
-const SetOutfit = z.object({
+export const SetOutfit = z.object({
   characterId: z.string().uuid(),
   outfitId: z.string().uuid(),
   /** "onward": from this panel until the next change, across chapters. "panel": this panel only. */
@@ -1016,7 +1016,7 @@ const REGEN_OPERATIONS = [
   "add_object",
   "reframe",
 ] as const;
-const GenerateInput = z.object({
+export const GenerateInput = z.object({
   operation: z.enum(REGEN_OPERATIONS).default("same_prompt"),
   instruction: z.string().max(2000).optional(),
   promptOverride: z.string().max(32_000).optional(),
@@ -1096,7 +1096,7 @@ pageRoutes.post("/panels/:id/mask", async (c) => {
   return c.json({ asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
 });
 
-const EditInput = z.object({
+export const EditInput = z.object({
   maskAssetId: z.string().uuid(),
   instruction: z.string().trim().min(3).max(2000),
   operation: z.string().max(64).optional(),
@@ -1246,7 +1246,7 @@ pageRoutes.delete("/panels/:id/versions/:assetId", async (c) => {
 
 // ---------------------------------------------------------------- dialogue & sfx
 
-const NewDialogue = z.object({
+export const NewDialogue = z.object({
   panelId: z.string().uuid().nullable().default(null),
   characterId: z.string().uuid().nullable().default(null),
   text: z.string().trim().min(1).max(2000),
@@ -1387,7 +1387,7 @@ pageRoutes.post("/pages/:id/letter-from-plan", async (c) => {
   return c.json(result);
 });
 
-const PatchDialogue = z.object({
+export const PatchDialogue = z.object({
   text: z.string().max(2000).optional(),
   bubble: Bubble.optional(),
   characterId: z.string().uuid().nullable().optional(),
@@ -1421,7 +1421,7 @@ pageRoutes.delete("/dialogue/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-const NewSfx = z.object({
+export const NewSfx = z.object({
   panelId: z.string().uuid().nullable().default(null),
   text: z.string().trim().min(1).max(100),
   style: asPatch(SfxStyle).optional(),
@@ -1481,7 +1481,7 @@ pageRoutes.delete("/sfx/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-const ApplyLettering = z.object({
+export const ApplyLettering = z.object({
   scope: z.enum(["page", "chapter", "project"]).default("page"),
   types: z
     .array(z.enum(["normal", "thought", "shout", "whisper", "narration", "system", "sfx"]))
@@ -1548,7 +1548,7 @@ pageRoutes.post("/pages/:id/lettering/apply-defaults", async (c) => {
   return c.json({ ok: true, pages: pageIds.length, ...counts });
 });
 
-const ClearLettering = z.object({ scope: z.enum(["page", "chapter", "project"]).default("page") });
+export const ClearLettering = z.object({ scope: z.enum(["page", "chapter", "project"]).default("page") });
 doc({
   method: "POST",
   path: "/api/pages/:id/lettering/clear",

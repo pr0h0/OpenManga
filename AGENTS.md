@@ -46,6 +46,7 @@ Self-hosted AI manhwa/webtoon studio: story → analysis → cast/world → refe
 8. Long AI work always goes through the queue; jobs are created with their outbox row in one transaction.
 9. Story content is untrusted data inside delimiters; never interpolate it as instructions.
 10. Keys never leave the server; logs redact secrets. User BYOK keys are AES-GCM encrypted at rest, returned only as `…last4`, and usable only by their owner. Assets are served only after authorization (X-Accel-Redirect).
+11. MCP tools (`apps/api/src/mcp`) call the REST route handlers in-process through a private router, never business logic of their own; every tool is registered in `mcp/tools/*` with its scopes, sensitivity and `classify`, and `docs/MCP_TOOLS.md` is regenerated from the registry (`bun scripts/mcp-docs.ts`).
 
 ## Where to look next
 Deep docs live in `docs/`; the README has an index of them. Two are the usual starting points:

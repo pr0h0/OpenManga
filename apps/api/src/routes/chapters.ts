@@ -60,7 +60,7 @@ chapterRoutes.get("/projects/:projectId/chapters", async (c) => {
   });
 });
 
-const ChapterInput = z.object({
+export const ChapterInput = z.object({
   title: z.string().trim().min(1).max(200),
   summary: z.string().max(10_000).default(""),
   sourceExcerpt: z.string().max(500_000).default(""),
@@ -155,7 +155,7 @@ chapterRoutes.get("/chapters/:id", async (c) => {
   });
 });
 
-const PatchChapter = z.object({
+export const PatchChapter = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   summary: z.string().max(10_000).optional(),
   sourceExcerpt: z.string().max(500_000).optional(),
@@ -223,7 +223,7 @@ chapterRoutes.delete("/chapters/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-const PlanInput = z.object({
+export const PlanInput = z.object({
   replace: z.boolean().default(false),
   targetPages: z.number().int().min(1).max(60).optional(),
   /** Send to the provider's batch API: half price, result within 24h instead of now. */
@@ -306,7 +306,7 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
   return c.json({ job }, 202);
 });
 
-const SceneInput = z.object({
+export const SceneInput = z.object({
   title: z.string().trim().min(1).max(200),
   summary: z.string().max(10_000).default(""),
   locationId: z.string().uuid().nullable().default(null),
@@ -360,7 +360,7 @@ chapterRoutes.delete("/scenes/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-const BeatsInput = z.object({ beats: z.array(z.string().trim().min(1).max(1000)).max(200) });
+export const BeatsInput = z.object({ beats: z.array(z.string().trim().min(1).max(1000)).max(200) });
 doc({
   method: "PUT",
   path: "/api/scenes/:id/beats",

@@ -38,7 +38,7 @@ import { doc } from "../lib/openapi.ts";
 export const generationRoutes = new Hono<AppEnv>();
 
 /** Matches the `panelIds` array cap, so every bulk scope is bounded the same way. */
-const MAX_BULK_PANELS = 500;
+export const MAX_BULK_PANELS = 500;
 
 const ListQuery = z.object({
   status: z.string().optional(),
@@ -347,7 +347,7 @@ const Scope = z.object({
   /** Every location or every prop in the project: one reference each, for its current version. */
   references: z.enum(["location", "prop"]).optional(),
 });
-const BulkInput = z.object({
+export const BulkInput = z.object({
   scope: Scope,
   onlyMissing: z.boolean().default(true),
   confirm: z.boolean().default(false),
@@ -882,7 +882,7 @@ generationRoutes.post("/generations/batches/:batchId/cancel", async (c) => {
   return c.json({ cancelled });
 });
 
-const CoverInput = z.object({
+export const CoverInput = z.object({
   title: z.string().max(200),
   subtitle: z.string().max(300).default(""),
   composition: z.string().max(2000).default(""),
