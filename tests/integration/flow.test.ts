@@ -789,6 +789,11 @@ describe("full production flow (mock AI)", () => {
       202,
     );
     expect((await waitJob(alice, og.job.id)).job.status).toBe("completed");
+    // the approved design is what the prompt tells the model to reproduce, so it must actually be sent
+    const [ogUsage] = await h.deps.db.execute<{ n: number }>(
+      sql`select (metadata->>'referenceCount')::int as n from ai_usage where generation_job_id = ${og.job.id}`,
+    );
+    expect(ogUsage?.n).toBe(1);
     const detail = await alice.get<{ references: { id: string; kind: string; outfitId: string | null }[] }>(
       `/api/characters/${characterId}`,
     );
