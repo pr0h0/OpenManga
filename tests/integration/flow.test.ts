@@ -263,6 +263,12 @@ describe("full production flow (mock AI)", () => {
     const r = await alice.post<{ job: Job }>(`/api/chapters/${chapterId}/plan`, {}, 202);
     const done = await waitJob(alice, r.job.id);
     expect(done.job.status).toBe("completed");
+    // The planner is asked to build backgrounds from each location's key features and to act out its cast, so it
+    // is given those, and who the protagonist is and how the cast relate.
+    const asked = (done.job as { compiledPrompt?: string }).compiledPrompt ?? "";
+    expect(asked).toContain('"keyFeatures":["recognizable');
+    expect(asked).toContain('"protagonist":true');
+    expect(asked).toMatch(/"relationships":\[\{[^}]*"kind":"rival"/);
     const ch = await alice.get<{ scenes: unknown[]; pages: { id: string }[] }>(`/api/chapters/${chapterId}`);
     expect(ch.scenes.length).toBeGreaterThan(0);
     expect(ch.pages.length).toBeGreaterThanOrEqual(2);

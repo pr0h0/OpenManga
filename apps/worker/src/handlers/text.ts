@@ -21,6 +21,7 @@ import {
   projectStyles,
   projects,
   props,
+  propVersions,
   scenes,
   sql,
   storyAnalyses,
@@ -220,8 +221,9 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
     .leftJoin(locationVersions, eq(locationVersions.id, locations.currentVersionId))
     .where(and(eq(locations.projectId, projectId), isNull(locations.deletedAt)));
   const prs = await deps.db
-    .select()
+    .select({ p: props, v: propVersions })
     .from(props)
+    .leftJoin(propVersions, eq(propVersions.id, props.currentVersionId))
     .where(and(eq(props.projectId, projectId), isNull(props.deletedAt)));
   const [chapter] = await deps.db.select().from(chapters).where(eq(chapters.id, chapterId));
   const [prev] = chapter
@@ -232,10 +234,25 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
         .orderBy(sql`${chapters.order} desc`)
         .limit(1)
     : [];
+  // Facts revealed before the previous chapter: the planner must not reveal them again or contradict them.
+  const earlier = chapter
+    ? await deps.db
+        .select({ revealedFacts: chapters.revealedFacts })
+        .from(chapters)
+        .where(and(eq(chapters.projectId, projectId), sql`${chapters.order} < ${chapter.order}`))
+        .orderBy(chapters.order)
+    : [];
   const [project] = await deps.db.select().from(projects).where(eq(projects.id, projectId));
   const artDirection = await projectArtDirection(deps, projectId);
+  const [analysis] = await deps.db
+    .select({ result: storyAnalyses.result })
+    .from(storyAnalyses)
+    .where(and(eq(storyAnalyses.projectId, projectId), eq(storyAnalyses.status, "applied")))
+    .orderBy(desc(storyAnalyses.appliedAt))
+    .limit(1);
   const keyOf = (analysisKey: string | null, name: string) =>
     analysisKey ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const castKeys = new Set(chars.map(({ c }) => keyOf(c.analysisKey, c.name)));
   return {
     chapter,
     data: {
@@ -252,15 +269,22 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
             title: prev.title,
             closingState: prev.closingState,
             characterStateChanges: prev.characterStateChanges,
+            locationStateChanges: prev.locationStateChanges,
             revealedFacts: prev.revealedFacts,
           }
         : null,
+      earlierRevealedFacts: earlier.slice(0, -1).flatMap((c) => c.revealedFacts),
       characters: chars.map(({ c, v }) => ({
         key: keyOf(c.analysisKey, c.name),
         name: c.name,
         role: c.role,
         aliases: aliases.filter((a) => a.characterId === c.id).map((a) => a.alias),
         look: v ? [v.description.hair, v.description.eyes, v.description.wardrobe].filter(Boolean).join("; ") : "",
+        // What poses and expressions should carry: how this person moves and reacts.
+        distinctiveFeatures: v?.description.distinctiveFeatures ?? [],
+        personality: v?.description.personality ?? "",
+        visualMannerisms: v?.description.visualMannerisms ?? "",
+        protagonist: analysis?.result?.protagonistKey === keyOf(c.analysisKey, c.name) || undefined,
         // Naming one of these in a panel's outfit dresses the character in it, reference image included.
         outfits: outfits.filter((o) => o.characterId === c.id).map((o) => o.name),
       })),
@@ -268,8 +292,16 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
         key: keyOf(l.analysisKey, l.name),
         name: l.name,
         summary: v?.description.summary ?? "",
+        // The planner is told to build foreground, midground and background from these.
+        keyFeatures: v?.description.keyFeatures ?? [],
+        lighting: v?.description.lighting ?? "",
       })),
-      props: prs.map((p) => ({ key: keyOf(p.analysisKey, p.name), name: p.name })),
+      props: prs.map(({ p, v }) => ({
+        key: keyOf(p.analysisKey, p.name),
+        name: p.name,
+        summary: v?.description.summary ?? "",
+      })),
+      relationships: (analysis?.result?.relationships ?? []).filter((r) => castKeys.has(r.from) && castKeys.has(r.to)),
     },
   };
 }
