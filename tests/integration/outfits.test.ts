@@ -249,3 +249,35 @@ test("the panel check judges clothes by the outfit worn, and flags text drawn in
   expect(qa.verdict).toBe("mismatch");
   expect(qa.problems).toEqual(["readable text drawn in the art"]);
 });
+
+test("the default outfit follows its version's wardrobe, and a new look is not dressed in the old one's clothes", async () => {
+  const ren = await alice.post<{ character: { id: string; currentVersionId: string } }>(
+    `/api/projects/${projectId}/characters`,
+    { name: "Ren", description: { wardrobe: "blue jacket" } },
+    201,
+  );
+  const renId = ren.character.id;
+  const v1 = ren.character.currentVersionId;
+  const id = panels[0]!;
+  const dressRen = async (versionId: string) => {
+    await alice.patch(`/api/panels/${id}`, { characterVersionIds: [versionId] });
+    await alice.put(`/api/panels/${id}/spec`, {
+      spec: {
+        beat: "Ren waits",
+        characters: [{ characterId: renId, expression: "", pose: "", action: "", outfit: "", position: "" }],
+      },
+    });
+    return wardrobe(id);
+  };
+  expect(await dressRen(v1)).toBe("Ren: Default: blue jacket");
+  // Editing the draft's wardrobe carries into the default outfit made from it.
+  await alice.patch(`/api/character-versions/${v1}`, { description: { wardrobe: "green jacket" } });
+  expect(await dressRen(v1)).toBe("Ren: Default: green jacket");
+  // A new appearance version wears its own wardrobe, not the default outfit made for v1.
+  const v2 = await alice.post<{ version: { id: string } }>(
+    `/api/characters/${renId}/versions`,
+    { description: { wardrobe: "red hoodie" } },
+    201,
+  );
+  expect(await dressRen(v2.version.id)).toBe("Ren: red hoodie");
+});

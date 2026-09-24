@@ -93,7 +93,8 @@ export async function outfitTimeline(db: DbOrTx, characterIds: string[]): Promis
 export async function resolveOutfits(
   db: DbOrTx,
   panelId: string,
-  characters: { id: string; text?: string | null }[],
+  /** `versionId`: the appearance version the panel pins, which decides the default outfit (see below). */
+  characters: { id: string; text?: string | null; versionId?: string }[],
 ): Promise<Map<string, ResolvedOutfit>> {
   const out = new Map<string, ResolvedOutfit>();
   const ids = characters.map((c) => c.id);
@@ -124,7 +125,11 @@ export async function resolveOutfits(
     if (set && setOutfit) out.set(c.id, { outfit: setOutfit, source: set.scope, assignment: set });
     else if (named) out.set(c.id, { outfit: named, source: "text" });
     else if (!c.text?.trim()) {
-      const d = mine.find((o) => o.isDefault);
+      // The default outfit mirrors the wardrobe of the version it was made for. A panel on another version falls
+      // back to that version's own wardrobe instead, so a new look is not dressed in the old one's clothes.
+      const d = mine.find(
+        (o) => o.isDefault && (!c.versionId || !o.characterVersionId || o.characterVersionId === c.versionId),
+      );
       if (d) out.set(c.id, { outfit: d, source: "default" });
     }
   }

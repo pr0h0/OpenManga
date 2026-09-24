@@ -259,7 +259,7 @@ export class GenerationPlanner {
     const worn = await resolveOutfits(
       this.db,
       panelId,
-      charRows.map(({ c }) => ({ id: c.id, text: specOf(c)?.outfit })),
+      charRows.map(({ c, v }) => ({ id: c.id, text: specOf(c)?.outfit, versionId: v.id })),
     );
     const allOutfits = worn.size
       ? await this.db

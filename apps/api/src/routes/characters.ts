@@ -353,6 +353,21 @@ characterRoutes.patch("/character-versions/:id", async (c) => {
     })
     .where(eq(characterVersions.id, id))
     .returning();
+  // A default outfit made from this version's wardrobe follows an edit of that wardrobe, unless it was rewritten.
+  const oldWardrobe = CharacterBible.parse(v.description).wardrobe;
+  const newWardrobe = input.description?.wardrobe;
+  if (newWardrobe !== undefined && newWardrobe !== oldWardrobe)
+    await db
+      .update(characterOutfits)
+      .set({ description: newWardrobe })
+      .where(
+        and(
+          eq(characterOutfits.characterId, v.characterId),
+          eq(characterOutfits.characterVersionId, v.id),
+          eq(characterOutfits.isDefault, true),
+          eq(characterOutfits.description, oldWardrobe),
+        ),
+      );
   const outfitRows = await db.select().from(characterOutfits).where(eq(characterOutfits.characterId, v.characterId));
   return c.json({ version: row, contentWarnings: row ? versionLint(row, outfitRows) : [] });
 });
