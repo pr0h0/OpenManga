@@ -80,6 +80,23 @@ export const PlannedDialogue = z.object({
   preferredQuadrant: z.enum(["top-left", "top-right", "bottom-left", "bottom-right", "top", "bottom"]).optional(),
 });
 
+/**
+ * The dialogue and SFX a plan wrote for a panel, kept on the panel when they were not lettered at once (auto-placement
+ * off), so the page can be lettered from the plan later instead of retyping it. Speakers are resolved to characters.
+ */
+export const PlannedLettering = z.object({
+  dialogue: z.array(
+    z.object({
+      speakerId: z.string().nullable(),
+      text: z.string(),
+      kind: PlannedDialogue.shape.kind,
+      preferredQuadrant: PlannedDialogue.shape.preferredQuadrant,
+    }),
+  ),
+  sfx: z.array(z.string()),
+});
+export type PlannedLettering = z.infer<typeof PlannedLettering>;
+
 export const PlannedPanel = z.object({
   spec: PanelSpec,
   dialogue: z.array(PlannedDialogue).optional().default([]),

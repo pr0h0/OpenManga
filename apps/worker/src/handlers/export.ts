@@ -787,6 +787,14 @@ export async function buildInterchange(
             bubble: d.bubble,
           })),
           sfx: sf.map((s) => ({ text: s.text, style: s.style })),
+          // Speakers as character refs, like dialogue lines, so they resolve to the imported characters.
+          plannedLettering: pn.plannedLettering && {
+            ...pn.plannedLettering,
+            dialogue: pn.plannedLettering.dialogue.map((d) => ({
+              ...d,
+              speakerId: d.speakerId ? `c-${d.speakerId}` : null,
+            })),
+          },
           outfits: worn.map((w) => ({ character: `c-${w.characterId}`, outfit: `o-${w.outfitId}`, scope: w.scope })),
         });
       }

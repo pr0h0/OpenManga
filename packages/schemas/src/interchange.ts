@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Bubble, Frame, ImageTransform, ProjectSettings, SfxStyle, StyleDefinition } from "./editor.ts";
-import { PanelSpec } from "./planning.ts";
+import { PanelSpec, PlannedLettering } from "./planning.ts";
 import { CharacterBible, LocationDescription, PropDescription } from "./story.ts";
 
 /** Stable project interchange format. Assets are referenced by manifest id, never by DB row. */
@@ -159,6 +159,8 @@ export const ProjectInterchange = z.object({
               artworkHistory: z.array(AssetRef),
               dialogue: z.array(z.object({ speaker: z.string().nullable(), text: z.string(), bubble: Bubble })),
               sfx: z.array(z.object({ text: z.string(), style: SfxStyle })),
+              /** Dialogue and SFX the chapter plan kept for this panel and that are not lettered yet. */
+              plannedLettering: PlannedLettering.nullable().default(null),
               /** Outfit changes set on this panel: from here on, or this panel only. */
               outfits: z
                 .array(z.object({ character: z.string(), outfit: z.string(), scope: z.enum(["onward", "panel"]) }))
