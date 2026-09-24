@@ -519,6 +519,21 @@ export function LetteringTab({ data, panelId }: { data: PageDocument; panelId: s
     setApplying(false);
     setConfirmClear(false);
   };
+  // With auto-placement off, a chapter plan keeps its dialogue and SFX on each panel instead of lettering them.
+  const planned = data.panels.reduce(
+    (n, p) =>
+      p.plannedLettering && p.approvalStatus !== "locked"
+        ? { lines: n.lines + p.plannedLettering.dialogue.length, sfx: n.sfx + p.plannedLettering.sfx.length }
+        : n,
+    { lines: 0, sfx: 0 },
+  );
+  const letterFromPlan = useAction(
+    async () => {
+      await useEditor.getState().flush();
+      return post<{ lines: number; sfx: number }>(`/pages/${data.page.id}/letter-from-plan`);
+    },
+    { invalidate: [["page"]], success: (r) => `Placed ${r.lines} bubbles and ${r.sfx} SFX from the plan` },
+  );
   const bubbles = doc.bubbles.filter((b) => !panelId || b.panelId === panelId);
   const sfx = doc.sfx.filter((s) => !panelId || s.panelId === panelId);
   const isSel = (t: string, id: string) => selection?.type === t && selection.ids.includes(id);
@@ -532,6 +547,23 @@ export function LetteringTab({ data, panelId }: { data: PageDocument; panelId: s
         Lettering is vector — changes cost zero image calls. Click an item (here or on the page) to move and resize it;
         drag the side handles to change width.
       </p>
+      {planned.lines + planned.sfx > 0 && (
+        <div className="rounded-lg border border-accent-500/40 bg-accent-600/10 p-2 text-xs">
+          <div className="font-medium">The chapter plan wrote text for this page</div>
+          <p className="muted mt-1">
+            {planned.lines} line{planned.lines === 1 ? "" : "s"} of dialogue and {planned.sfx} SFX, kept aside because
+            automatic lettering is off. Place them as bubbles where the plan left space; move or edit them after.
+          </p>
+          <button
+            type="button"
+            className="btn-secondary mt-1 w-full text-xs"
+            disabled={letterFromPlan.isPending}
+            onClick={() => letterFromPlan.mutate()}
+          >
+            <MessageSquarePlus className="size-3.5" /> Letter from plan
+          </button>
+        </div>
+      )}
       <details className="rounded-lg border border-[var(--border)] p-2 text-xs">
         <summary className="cursor-pointer font-medium">Default styles & bulk actions</summary>
         <div className="mt-2 space-y-2">

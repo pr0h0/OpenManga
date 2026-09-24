@@ -138,6 +138,16 @@ export function placeBubble(opts: {
 }
 
 /** Default avoid zones from shot type: faces tend to sit centrally in close shots. */
+/** The quadrant a free-text area names ("upper-left", "top right corner", "the sky at the top"), if it names one. */
+export function quadrantFromArea(area: string | null | undefined): Quadrant | undefined {
+  const a = (area ?? "").toLowerCase();
+  const top = /\b(top|upper|above|sky|ceiling)\b/.test(a);
+  const bottom = /\b(bottom|lower|below|ground|floor)\b/.test(a);
+  if (top === bottom) return undefined;
+  const side = /\bleft\b/.test(a) ? "-left" : /\bright\b/.test(a) ? "-right" : "";
+  return `${top ? "top" : "bottom"}${side}` as Quadrant;
+}
+
 export function faceAvoidZone(panel: Frame, shotType: string): Rect[] {
   const close = ["close", "extreme-close", "medium-close"].includes(shotType);
   const w = panel.width * (close ? 0.55 : 0.35);

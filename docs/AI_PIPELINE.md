@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | Story analysis | `story_analysis` / text-ai | `story-analysis` v2 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
-| Chapter planning | `chapter_plan` / text-ai | `page-planning` v5, or `shot-planning` v2 for a film project | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles (auto-placed), narration captions, SFX, chapter memory |
+| Chapter planning | `chapter_plan` / text-ai | `page-planning` v5, or `shot-planning` v2 for a film project | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v3 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
 | Narration text | `narration_text` / text-ai | `narration` v4 | narration lines → TTS segments |
 | References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference`, `style-reference` v3 | full-resolution canonical asset + a draft `reference_assets` row |

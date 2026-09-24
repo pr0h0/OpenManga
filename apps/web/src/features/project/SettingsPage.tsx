@@ -359,8 +359,9 @@ function LetteringSection({
         <span>
           Add speech bubbles, captions and SFX automatically when planning chapters
           <span className="muted block text-xs">
-            Off: pages get clean artwork only, and panel prompts don't reserve empty space for text. Dialogue and SFX
-            can still be added by hand in the editor; narration lines are still created for audio.
+            Off: pages get clean artwork only, and panel prompts don't reserve empty space for text. The plan's dialogue
+            and SFX are kept: Editor → Lettering → Letter from plan places them later. Narration lines are still created
+            for audio.
           </span>
         </span>
       </label>

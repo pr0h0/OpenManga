@@ -54,7 +54,7 @@ import {
   SfxStyle,
   ShotType,
 } from "@openmanga/schemas";
-import { outfitReferenceAssets, outfitTimeline, recordAudit, resolveOutfits } from "@openmanga/services";
+import { letterPanel, outfitReferenceAssets, outfitTimeline, recordAudit, resolveOutfits } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -1329,6 +1329,62 @@ pageRoutes.post("/pages/:id/dialogue", async (c) => {
     })
     .returning();
   return c.json({ dialogue: row }, 201);
+});
+
+doc({
+  method: "POST",
+  path: "/api/pages/:id/letter-from-plan",
+  summary:
+    "Letter a page from its chapter plan: place the dialogue and SFX the plan kept for each panel. Zero image calls.",
+  tag: "lettering",
+});
+pageRoutes.post("/pages/:id/letter-from-plan", async (c) => {
+  const { project, page } = await loadPageProject(c, uuidParam(c, "id"), "write");
+  const { db } = c.get("deps");
+  const lettering = resolveLettering(project.settings);
+  const result = await db.transaction(async (tx) => {
+    const pns = await tx.select().from(panels).where(eq(panels.pageId, page.id)).orderBy(asc(panels.order));
+    const existing = await tx.select().from(dialogueLines).where(eq(dialogueLines.pageId, page.id));
+    const captions = await tx
+      .select({ box: narrationLines.box })
+      .from(narrationLines)
+      .where(and(eq(narrationLines.pageId, page.id), eq(narrationLines.showOnPage, true)));
+    // New bubbles keep clear of what is already lettered on the page.
+    const placed = [...existing.map((d) => d.bubble), ...captions.flatMap((n) => (n.box ? [n.box] : []))].map((b) => ({
+      x: b.x,
+      y: b.y,
+      width: b.width,
+      height: b.height,
+    }));
+    let lines = 0;
+    let sfx = 0;
+    for (const p of pns) {
+      if (!p.plannedLettering || p.approvalStatus === "locked") continue;
+      const [spec] = await tx
+        .select({ spec: panelSpecs.spec })
+        .from(panelSpecs)
+        .where(eq(panelSpecs.panelId, p.id))
+        .orderBy(desc(panelSpecs.versionNumber))
+        .limit(1);
+      const r = await letterPanel(tx, {
+        projectId: project.id,
+        page,
+        panel: p,
+        lettering,
+        readingDirection: page.readingDirection ?? project.readingDirection,
+        planned: p.plannedLettering,
+        positions: new Map((spec?.spec.characters ?? []).map((x) => [x.characterId, x.position])),
+        negativeSpace: spec?.spec.negativeSpace?.area,
+        placed,
+        firstOrder: existing.filter((d) => d.panelId === p.id).length,
+      });
+      await tx.update(panels).set({ plannedLettering: null }).where(eq(panels.id, p.id));
+      lines += r.dialogueIds.length;
+      sfx += r.sfxIds.length;
+    }
+    return { lines, sfx };
+  });
+  return c.json(result);
 });
 
 const PatchDialogue = z.object({

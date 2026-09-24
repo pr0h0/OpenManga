@@ -35,11 +35,22 @@ import {
   faceAvoidZone,
   layoutByKey,
   placeBubble,
+  quadrantFromArea,
+  type ResolvedLettering,
   resolveLettering,
   segmentNarration,
   templateFrames,
 } from "@openmanga/domain";
-import { Bubble, type ChapterPlan, PanelSpec, SfxStyle, type StoryAnalysis, stripPageHeight } from "@openmanga/schemas";
+import {
+  Bubble,
+  type ChapterPlan,
+  type Frame,
+  PanelSpec,
+  type PlannedLettering,
+  SfxStyle,
+  type StoryAnalysis,
+  stripPageHeight,
+} from "@openmanga/schemas";
 import { sha256Hex } from "@openmanga/storage";
 import { outfitNamedIn, outfitTimeline } from "./outfits.ts";
 
@@ -219,6 +230,84 @@ async function createCharacter(
 }
 
 const bubbleKind = (k: string) => (["normal", "thought", "shout", "whisper"].includes(k) ? (k as "normal") : "normal");
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/**
+ * Letters one panel from its plan: each line of dialogue becomes a bubble placed where the plan asked (its preferred
+ * quadrant, else the panel's planned negative space), clear of faces and of everything already in `placed`, which it
+ * extends; each SFX is set in the lower right. Used when a plan is applied with auto-placement on, and later by
+ * "letter from plan" on a page whose plan was kept.
+ */
+export async function letterPanel(
+  tx: Tx,
+  a: {
+    projectId: string;
+    page: { id: string; width: number; height: number };
+    panel: { id: string; frame: Frame; shotType: string };
+    lettering: ResolvedLettering;
+    readingDirection: "ltr" | "rtl" | "vertical";
+    planned: PlannedLettering;
+    /** Where each character stands in the frame, by character id: the bubble's tail points there. */
+    positions: Map<string, string | undefined>;
+    negativeSpace?: string;
+    placed: Rect[];
+    firstOrder?: number;
+  },
+): Promise<{ dialogueIds: string[]; sfxIds: string[] }> {
+  const { page, panel, lettering } = a;
+  const avoid = [...faceAvoidZone(panel.frame, panel.shotType), ...a.placed];
+  const planSpace = quadrantFromArea(a.negativeSpace);
+  const dialogueIds: string[] = [];
+  for (const d of a.planned.dialogue) {
+    const draft = draftBubble(d.text, bubbleKind(d.kind), lettering, page.width, page.height, panel.frame.width);
+    const rect = placeBubble({
+      panel: panel.frame,
+      text: d.text,
+      fontSize: draft.bubble.fontSize,
+      pageW: page.width,
+      pageH: page.height,
+      preferred: d.preferredQuadrant ?? planSpace,
+      avoid,
+      readingDirection: a.readingDirection,
+      size: draft.size,
+    });
+    a.placed.push(rect);
+    avoid.push(rect);
+    const bubble = Bubble.parse({
+      ...draft.bubble,
+      ...rect,
+      tailTarget: defaultTailTarget(rect, panel.frame, d.speakerId ? a.positions.get(d.speakerId) : undefined),
+    });
+    const [dl] = await tx
+      .insert(dialogueLines)
+      .values({
+        projectId: a.projectId,
+        pageId: page.id,
+        panelId: panel.id,
+        characterId: d.speakerId,
+        order: (a.firstOrder ?? 0) + dialogueIds.length,
+        text: d.text,
+        bubble,
+      })
+      .returning({ id: dialogueLines.id });
+    dialogueIds.push(dl!.id);
+  }
+  const sfxIds: string[] = [];
+  for (const [k, text] of a.planned.sfx.entries()) {
+    const style = SfxStyle.parse({
+      ...lettering.sfx,
+      x: Math.min(0.95, panel.frame.x + panel.frame.width * (0.6 + 0.1 * k)),
+      y: Math.min(0.95, panel.frame.y + panel.frame.height * 0.7),
+    });
+    const [sf] = await tx
+      .insert(soundEffects)
+      .values({ projectId: a.projectId, pageId: page.id, panelId: panel.id, text, style })
+      .returning({ id: soundEffects.id });
+    sfxIds.push(sf!.id);
+  }
+  return { dialogueIds, sfxIds };
+}
 
 export async function applyChapterPlan(db: Database, chapterId: string, plan: ChapterPlan, opts: { replace: boolean }) {
   return db.transaction(async (tx) => {
@@ -435,47 +524,33 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
             wearing.set(ch!.id, named.id);
           }
 
-          const avoid = [...faceAvoidZone(frame, spec.shotType), ...placed];
-          const dialogueIds: string[] = [];
-          for (const d of lettering.autoPlace ? pp.dialogue : []) {
-            const draft = draftBubble(d.text, bubbleKind(d.kind), lettering, page!.width, page!.height, frame.width);
-            const rect = placeBubble({
-              panel: frame,
+          // Speakers resolved to characters now, so a plan kept for later letters the same way.
+          const planned: PlannedLettering = {
+            dialogue: pp.dialogue.map((d) => ({
+              speakerId: (d.speaker ? findChar(d.speaker)?.id : undefined) ?? null,
               text: d.text,
-              fontSize: draft.bubble.fontSize,
-              pageW: page!.width,
-              pageH: page!.height,
-              preferred: d.preferredQuadrant,
-              avoid,
-              readingDirection: dir,
-              size: draft.size,
-            });
-            placed.push(rect);
-            avoid.push(rect);
-            const speaker = d.speaker ? findChar(d.speaker) : undefined;
-            const bubble = Bubble.parse({
-              ...draft.bubble,
-              ...rect,
-              tailTarget: defaultTailTarget(
-                rect,
-                frame,
-                panelChars.find((x) => speaker && x.ch?.id === speaker.id)?.pc.position,
-              ),
-            });
-            const [dl] = await tx
-              .insert(dialogueLines)
-              .values({
+              kind: d.kind,
+              preferredQuadrant: d.preferredQuadrant,
+            })),
+            sfx: pp.sfx,
+          };
+          const lettered = lettering.autoPlace
+            ? await letterPanel(tx, {
                 projectId: project.id,
-                pageId: page!.id,
-                panelId: panel!.id,
-                characterId: speaker?.id ?? null,
-                order: dialogueIds.length,
-                text: d.text,
-                bubble,
+                page: page!,
+                panel: { id: panel!.id, frame, shotType: spec.shotType },
+                lettering,
+                readingDirection: dir,
+                planned,
+                positions: new Map(panelChars.map((x) => [x.ch!.id, x.pc.position])),
+                negativeSpace: spec.negativeSpace?.area,
+                placed,
               })
-              .returning({ id: dialogueLines.id });
-            dialogueIds.push(dl!.id);
-          }
+            : { dialogueIds: [], sfxIds: [] };
+          if (!lettering.autoPlace && (planned.dialogue.length || planned.sfx.length))
+            await tx.update(panels).set({ plannedLettering: planned }).where(eq(panels.id, panel!.id));
+          const dialogueIds = lettered.dialogueIds;
+          const avoid = [...faceAvoidZone(frame, spec.shotType), ...placed];
           const narrationIds: string[] = [];
           for (const text of pp.narration) {
             let box: Bubble | null = null;
@@ -526,19 +601,7 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
             }
             narrationIds.push(nl!.id);
           }
-          const sfxIds: string[] = [];
-          for (const [k, text] of lettering.autoPlace ? pp.sfx.entries() : []) {
-            const style = SfxStyle.parse({
-              ...lettering.sfx,
-              x: Math.min(0.95, frame.x + frame.width * (0.6 + 0.1 * k)),
-              y: Math.min(0.95, frame.y + frame.height * 0.7),
-            });
-            const [sf] = await tx
-              .insert(soundEffects)
-              .values({ projectId: project.id, pageId: page!.id, panelId: panel!.id, text, style })
-              .returning({ id: soundEffects.id });
-            sfxIds.push(sf!.id);
-          }
+          const sfxIds = lettered.sfxIds;
           const storedSpec: PanelSpec = {
             ...spec,
             characters: panelChars.map((x) => ({ ...x.pc, characterId: x.ch!.id })),

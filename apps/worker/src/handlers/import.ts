@@ -652,6 +652,13 @@ async function restore(
             propVersionIds: pn.props.flatMap((r) => refs.get(r) ?? []),
             approvalStatus: pick(approvalStatus.enumValues, pn.approvalStatus, "draft"),
             promptOverride: pn.promptOverride,
+            plannedLettering: pn.plannedLettering && {
+              ...pn.plannedLettering,
+              dialogue: pn.plannedLettering.dialogue.map((d) => ({
+                ...d,
+                speakerId: (d.speakerId && refs.get(d.speakerId)) || null,
+              })),
+            },
           })
           .returning({ id: panels.id });
         const panelId = panel!.id;

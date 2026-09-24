@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Bubble } from "@openmanga/schemas";
 import { bubbleGeometry } from "./bubbles.ts";
+import { quadrantFromArea } from "./text.ts";
 
 const base = Bubble.parse({ x: 0.1, y: 0.1, width: 0.25, height: 0.08, tailTarget: { x: 0.2, y: 0.4 } });
 
@@ -34,4 +35,16 @@ describe("bubble geometry", () => {
   test("deterministic", () => {
     expect(bubbleGeometry(base, 1600, 2400)).toEqual(bubbleGeometry(structuredClone(base), 1600, 2400));
   });
+});
+
+test("a planned negative-space area names the quadrant a bubble goes in, when it names one", () => {
+  expect(quadrantFromArea("upper-left")).toBe("top-left");
+  expect(quadrantFromArea("top right corner")).toBe("top-right");
+  expect(quadrantFromArea("the sky at the top")).toBe("top");
+  expect(quadrantFromArea("lower left, over the floor")).toBe("bottom-left");
+  expect(quadrantFromArea("bottom")).toBe("bottom");
+  // Sides alone, both ends, or nothing: no preference, so placement falls back to reading order.
+  expect(quadrantFromArea("left side")).toBeUndefined();
+  expect(quadrantFromArea("top and bottom")).toBeUndefined();
+  expect(quadrantFromArea(undefined)).toBeUndefined();
 });
