@@ -11,6 +11,7 @@ import {
   StoryAnalysis,
   StoryRewrite,
 } from "@openmanga/schemas";
+import { expertChatV1, expertChatV2 } from "./experts.ts";
 import { DATA_RULE, defineTextTemplate, schemaInstructions, templateHeader, untrusted } from "./text-templates.ts";
 
 export const storyAnalysisV1 = defineTextTemplate<{
@@ -728,6 +729,8 @@ export const narrationV5 = defineTextTemplate<Parameters<typeof narrationV3.buil
 });
 
 export const TEXT_TEMPLATES = [
+  expertChatV1,
+  expertChatV2,
   storyAnalysisV1,
   storyAnalysisV2,
   chapterPlanningV1,

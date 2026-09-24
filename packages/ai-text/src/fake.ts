@@ -47,7 +47,17 @@ export class FakeTextAIProvider implements TextAIProvider {
     else if (sc === "fenced-json" && !isRepair)
       text = `Here you go:\n\`\`\`json\n${JSON.stringify(result)}\n\`\`\`\nThanks!`;
     else if (sc === "repairable" && !isRepair) text = JSON.stringify({ unexpected: true });
-    else text = JSON.stringify(result);
+    // A template that answers in prose (an expert chat) gets its text as is.
+    else text = typeof result === "string" ? result : JSON.stringify(result);
+    // Streams like a real provider when someone is listening: a few words at a time, with a pause between.
+    if (req.onText) {
+      const words = text.split(/(?<=\s)/);
+      for (let i = 4; i < words.length; i += 4) {
+        req.onText(words.slice(0, i).join(""));
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      req.onText(text);
+    }
     const inputTokens = Math.ceil(all.length / 4);
     return {
       text,

@@ -64,6 +64,9 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
   plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it.
+- `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
+  project) and `expert_messages` (role, text, status `done|pending|awaiting_input|failed`, attached and generated
+  image asset ids, options such as `generateImage` and the reply's `imagePrompt`); see `docs/AI_PIPELINE.md`.
 - `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user.
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
   can carry several narration tracks over the same artwork; optional on-page box) → `narration_segments` (TTS units:

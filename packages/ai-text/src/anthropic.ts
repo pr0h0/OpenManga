@@ -175,6 +175,7 @@ export class AnthropicTextProvider implements TextAIProvider {
         Object.assign(usage, ev.message?.usage ?? {});
       } else if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
         text += ev.delta.text ?? "";
+        req.onText?.(text);
       } else if (ev.type === "message_delta") {
         stop = ev.delta?.stop_reason ?? stop;
         if (ev.usage?.output_tokens !== undefined) usage.output_tokens = ev.usage.output_tokens;

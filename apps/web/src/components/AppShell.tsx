@@ -1,7 +1,7 @@
 import { buildLabel } from "@openmanga/domain/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
-import { BarChart3, LogOut, Moon, Shield, Sun, User } from "lucide-react";
+import { BarChart3, LogOut, MessagesSquare, Moon, Shield, Sun, User } from "lucide-react";
 import { useState } from "react";
 import { logout, useMe, useMeta } from "../api/hooks.ts";
 import { Logo } from "./Logo.tsx";
@@ -49,6 +49,9 @@ export function AppShell() {
           </span>
         )}
         <nav className="ml-auto flex items-center gap-1 text-sm">
+          <Link to="/experts" className="btn-ghost" activeProps={{ className: "bg-[var(--panel-2)]" }}>
+            <MessagesSquare className="size-4" /> <span className="hidden sm:inline">Experts</span>
+          </Link>
           <Link to="/usage" className="btn-ghost" activeProps={{ className: "bg-[var(--panel-2)]" }}>
             <BarChart3 className="size-4" /> <span className="hidden sm:inline">Usage</span>
           </Link>

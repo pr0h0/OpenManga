@@ -124,6 +124,18 @@ const usage = createRoute({
   staticData: { title: "Usage" },
   component: lazyRouteComponent(() => import("./features/usage/UsagePage.tsx"), "UsagePage"),
 });
+const experts = createRoute({
+  getParentRoute: () => shell,
+  path: "/experts",
+  staticData: { title: "Experts" },
+  component: lazyRouteComponent(() => import("./features/experts/ExpertsPage.tsx"), "ExpertsPage"),
+});
+const expertChat = createRoute({
+  getParentRoute: () => shell,
+  path: "/experts/$chatId",
+  staticData: { title: "Experts" },
+  component: lazyRouteComponent(() => import("./features/experts/ExpertsPage.tsx"), "ExpertsPage"),
+});
 const admin = createRoute({
   getParentRoute: () => shell,
   path: "/admin",
@@ -277,7 +289,16 @@ const routeTree = rootRoute.addChildren([
   forgot,
   reset,
   mailbox,
-  shell.addChildren([dashboard, newProject, usage, admin, account, project.addChildren(projectChildren)]),
+  shell.addChildren([
+    dashboard,
+    newProject,
+    usage,
+    experts,
+    expertChat,
+    admin,
+    account,
+    project.addChildren(projectChildren),
+  ]),
 ]);
 
 export const router = createRouter({ routeTree, basepath: "/app", defaultPreload: "intent" });

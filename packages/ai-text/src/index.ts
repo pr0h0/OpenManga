@@ -33,6 +33,11 @@ export type TextRequest = {
   maxTokens?: number;
   json?: boolean;
   signal?: AbortSignal;
+  /**
+   * Called as the answer arrives, with all of it so far (a retried call starts again from nothing). Providers that
+   * stream call it as they read; the rest return the whole answer at once and never call it.
+   */
+  onText?: (soFar: string) => void;
 };
 
 export type TextResult = { text: string; finishReason: string | null; call: TextCallRecord };

@@ -16,6 +16,7 @@ import {
   type TextRequest,
   type TextResult,
 } from "./index.ts";
+import { readSseData } from "./sse.ts";
 
 type Usage = {
   prompt_tokens?: number;
@@ -177,26 +178,15 @@ export class OpenAIChatTextProvider implements TextAIProvider {
       id ??= c.id;
       model ??= c.model;
       const ch = c.choices?.[0];
-      if (ch?.delta?.content) text += ch.delta.content;
+      if (ch?.delta?.content) {
+        text += ch.delta.content;
+        req.onText?.(text);
+      }
       if (ch?.finish_reason) finish = ch.finish_reason;
       if (c.usage) usage = c.usage;
     };
     try {
-      const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
-      let buf = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += value;
-        let nl = buf.indexOf("\n");
-        while (nl >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (line.startsWith("data:")) handle(line.slice(5).trim());
-          nl = buf.indexOf("\n");
-        }
-      }
-      if (buf.trim().startsWith("data:")) handle(buf.trim().slice(5).trim());
+      await readSseData(res, handle);
     } catch (e) {
       if (e instanceof ProviderError) throw e;
       throw classifyFetchError(this.provider, e);

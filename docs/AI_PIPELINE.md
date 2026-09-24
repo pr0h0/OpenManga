@@ -67,6 +67,33 @@ image and text tokens; costs use the seeded `google/*` rate snapshots, which pri
 tokens for a 1K image). Safety finish reasons (`IMAGE_SAFETY`, `PROHIBITED_CONTENT`, …) and `promptFeedback.blockReason`
 become non-retryable `content_policy`; a response with no image is a retryable `invalid_response`.
 
+## Experts
+
+`/app/experts` holds chats with experts: a built-in expert (`BUILTIN_EXPERTS`, `packages/prompts/src/experts.ts`) or
+one the user wrote (`experts` table). A chat keeps its own copy of the expert's system prompt (`expert_chats`), so
+editing or deleting the expert never changes a chat already under way, and it can be adjusted per chat. Each reply
+is built by `expert-chat` v2: a short common frame (reply in the user's language, write project material in
+`project_data.language`, treat the project data as a summary and ask for the full text when a judgment needs it, and
+follow the project's art style), the chat's system prompt, the project summary when the chat is about a project
+(`projectSummary` in `apps/api/src/lib/experts.ts`: cast, places, props, world notes, art style and chapter
+summaries), then the last 40 messages with the 4 most recent attached images. With *Generate image* the reply ends
+with an `IMAGE PROMPT:` line; only that line (or the paragraph after a marker on its own line) is drawn, so notes or
+overlay text written after it stay in the reply. It is drawn at the chosen aspect ratio with, as references, the
+images attached to the question, then the approved references of project characters and places the prompt names,
+then the project's style reference (at most 6), and with the project's art direction appended.
+
+Replies run in the API process after the request returns (`runExpertReply`), since a reasoning model can take longer
+than a proxy holds a request open; the page polls the chat for status. The text itself streams: providers that stream
+(Anthropic, the OpenAI-style providers, and DeepSeek when a caller asks, via `TextRequest.onText`) pass the answer on
+as it arrives; it is published on the chat's Redis channel at most every 100 ms and read by the page from
+`GET /api/expert-chats/:id/stream` (server-sent events, at most 4 open per user), and saved every 2 s so a page that
+opens mid-reply sees it too. A provider that does not stream shows the whole reply when it is done. A reply still pending after 20 minutes was cut off by a
+restart and is shown as failed, to retry. With *Paste it yourself* the reply waits with the whole conversation ready
+to copy, and the pasted answer (plus any image uploaded with it) completes it. Usage is recorded as `expert_chat` and
+`expert_image`, against the chat's project, or against no project, which the user's own usage page includes.
+Images attached to or drawn in a chat are `source_image` assets owned by the user, in the chat's project when it has
+one; an image with no project is readable by its owner only.
+
 ## What each text step is given
 
 Each step's instructions are fixed per template version; what varies is the project data sent with them, built in
