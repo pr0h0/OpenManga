@@ -162,8 +162,8 @@ test("the character's timeline lists every change in reading order, and removing
     `/api/characters/${characterId}/outfit-timeline`,
   );
   expect(t.timeline.map((x) => [x.outfitName, x.scope, x.panelId])).toEqual([
-    ["Rain Coat", "onward", panels[2]],
-    ["Pajamas", "panel", panels[5]],
+    ["Rain Coat", "onward", panels[2]!],
+    ["Pajamas", "panel", panels[5]!],
   ]);
   await alice.del(`/api/outfit-assignments/${t.timeline[0]!.id}`);
   expect((await worn(panels[4]!))?.source).toBe("default");
