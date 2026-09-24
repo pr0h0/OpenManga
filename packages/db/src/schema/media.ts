@@ -77,16 +77,24 @@ export const assetVariants = pgTable(
   ],
 );
 
-export type ReferenceKind =
-  | "portrait"
-  | "full_body"
-  | "multi_angle"
-  | "expression_sheet"
-  | "outfit"
-  | "location"
-  | "prop"
-  | "style"
-  | "uploaded";
+export const REFERENCE_KINDS = [
+  "portrait",
+  "full_body",
+  "multi_angle",
+  "expression_sheet",
+  "outfit",
+  "location",
+  /** One continuous wide view sweeping across the whole space. */
+  "location_panorama",
+  /** One image split into panels, each showing a different side of the space. */
+  "location_sheet",
+  "prop",
+  /** One image showing the object from several angles. */
+  "prop_multi_angle",
+  "style",
+  "uploaded",
+] as const;
+export type ReferenceKind = (typeof REFERENCE_KINDS)[number];
 
 export const referenceAssets = pgTable(
   "reference_assets",

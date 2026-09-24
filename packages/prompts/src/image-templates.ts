@@ -197,19 +197,47 @@ export type LocationReferenceInput = {
   style: StyleContext;
   name: string;
   description: LocationDescription;
+  /** One image either way: a single establishing view, a panorama across the space, or a sheet of its sides. */
+  kind?: "location" | "location_panorama" | "location_sheet";
   extraInstruction?: string;
 };
 
+const locationKind = {
+  location: {
+    what: "a wide establishing environment reference",
+    presentation: [
+      "Eye-level wide shot showing the overall layout with every key feature clearly visible and recognizable.",
+      FULL_BLEED,
+    ],
+  },
+  location_panorama: {
+    what: "a panoramic environment reference",
+    presentation: [
+      "One continuous panoramic view sweeping across the whole space from one side to the other, as if the camera turned in place at eye level, so every area (entrances, windows, furniture, each wall) appears once in a single seamless image.",
+      "Wide-angle with at most gentle curvature; one unbroken picture, never split into panels.",
+      FULL_BLEED,
+    ],
+  },
+  location_sheet: {
+    what: "a location sheet",
+    presentation: [
+      "One image divided into four equal panels in a 2x2 grid with thin clean gutters. Each panel shows the same space at eye level from a different side (facing the entrance, facing the opposite wall, and each side wall), so every area and key feature appears in at least one panel.",
+      "Identical architecture, furniture, palette and lighting in every panel. No captions, labels or numbers.",
+    ],
+  },
+} as const;
+
 export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
   name: "location-reference",
-  version: 4,
+  version: 5,
   kind: "image",
   description: "Full-resolution canonical location/environment reference.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, LOCATION, LIGHTING, STRICT EXCLUSIONS",
   compile(i) {
     const d = i.description;
+    const k = locationKind[i.kind ?? "location"];
     return join([
-      `Create a wide establishing environment reference of "${i.name}" for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production. It is the canonical design reference for this recurring location.`,
+      `Create ${k.what} of "${i.name}" for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production. It is the canonical design reference for this recurring location.`,
       styleSection(i.style),
       section("LOCATION", [
         clean(d.summary),
@@ -222,13 +250,7 @@ export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
         d.immutableTraits.length ? line("Never change", d.immutableTraits.join("; ")) : "",
       ]),
       section("LIGHTING", [clean(d.lighting) || "Clear readable lighting."]),
-      section("PRESENTATION", [
-        "Empty of people.",
-        "Eye-level wide shot showing the overall layout with every key feature clearly visible and recognizable.",
-        FULL_BLEED,
-        FINISH,
-        clean(i.extraInstruction),
-      ]),
+      section("PRESENTATION", ["Empty of people.", ...k.presentation, FINISH, clean(i.extraInstruction)]),
       section("STRICT EXCLUSIONS", [...STRICT_BASE, "No people or characters."]),
     ]);
   },
@@ -238,19 +260,21 @@ export type PropReferenceInput = {
   style: StyleContext;
   name: string;
   description: PropDescription;
+  /** A single three-quarter view, or one image showing the object from several angles. */
+  kind?: "prop" | "prop_multi_angle";
   extraInstruction?: string;
 };
 
 export const propReferenceV1: ImageTemplate<PropReferenceInput> = {
   name: "prop-reference",
-  version: 4,
+  version: 5,
   kind: "image",
   description: "Full-resolution canonical prop reference.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, PROP, STRICT EXCLUSIONS",
   compile(i) {
     const d = i.description;
     return join([
-      `Create a clean object design reference of "${i.name}" for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production.`,
+      `Create ${i.kind === "prop_multi_angle" ? "an object turnaround sheet" : "a clean object design reference"} of "${i.name}" for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production.`,
       styleSection(i.style),
       section("PROP", [
         clean(d.summary),
@@ -262,7 +286,9 @@ export const propReferenceV1: ImageTemplate<PropReferenceInput> = {
         d.immutableTraits.length ? line("Never change", d.immutableTraits.join("; ")) : "",
       ]),
       section("PRESENTATION", [
-        "Object centered on a plain light background, three-quarter view, entirely inside the frame, true to its stated size, materials and colors.",
+        i.kind === "prop_multi_angle"
+          ? "The same object shown four times on a plain light background, evenly spaced in a row: front, side, back and top views, each entirely visible, with identical size, materials and colors in every view."
+          : "Object centered on a plain light background, three-quarter view, entirely inside the frame, true to its stated size, materials and colors.",
         FINISH,
         clean(i.extraInstruction),
       ]),
@@ -318,8 +344,14 @@ export type PanelPromptInput = {
     spec: PanelSpec | null;
   };
   characters: PanelCharacterContext[];
-  location: { name: string; description: LocationDescription; referenceImageIndex?: number } | null;
-  props: { name: string; description: PropDescription; referenceImageIndex?: number }[];
+  /** `referenceKind` says how the reference presents the subject: a sheet or panorama is used, never copied. */
+  location: {
+    name: string;
+    description: LocationDescription;
+    referenceImageIndex?: number;
+    referenceKind?: string;
+  } | null;
+  props: { name: string; description: PropDescription; referenceImageIndex?: number; referenceKind?: string }[];
   previousPanelImageIndex?: number;
   continuity: string[];
   /** Panel has app lettering (bubbles/captions); ask for calm space for it. Defaults to true. */
@@ -366,7 +398,7 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 7,
+  version: 8,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
@@ -385,10 +417,22 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
           `${c.name} wears the "${clean(c.outfitReference.name)}" outfit shown in reference image ${c.outfitReference.imageIndex}. Copy the clothing only, not the face.`,
         );
     }
-    if (i.location?.referenceImageIndex)
-      refNotes.push(`The location matches reference image ${i.location.referenceImageIndex}.`);
+    const li = i.location?.referenceImageIndex;
+    if (li)
+      refNotes.push(
+        i.location?.referenceKind === "location_sheet"
+          ? `Reference image ${li} is a sheet showing several sides of the location: use it for where everything in the space is and what it looks like, and draw only the one view this panel's camera sees, as a single continuous picture, never the sheet's divided layout.`
+          : i.location?.referenceKind === "location_panorama"
+            ? `Reference image ${li} is a panorama across the whole location: use it for where everything in the space is, and frame only the part this panel's camera sees, without panoramic curvature.`
+            : `The location matches reference image ${li}.`,
+      );
     for (const p of i.props)
-      if (p.referenceImageIndex) refNotes.push(`${p.name} matches reference image ${p.referenceImageIndex}.`);
+      if (p.referenceImageIndex)
+        refNotes.push(
+          p.referenceKind === "prop_multi_angle"
+            ? `${p.name} is shown from several angles in reference image ${p.referenceImageIndex}: draw it once, from whatever angle this panel needs.`
+            : `${p.name} matches reference image ${p.referenceImageIndex}.`,
+        );
     if (i.previousPanelImageIndex)
       refNotes.push(
         `Reference image ${i.previousPanelImageIndex} is the previous panel, for continuity of setting and lighting ONLY. Do not copy character identity from it; the character references above are the source of truth.`,

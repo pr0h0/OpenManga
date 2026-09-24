@@ -28,7 +28,7 @@ import {
   projectType,
   props,
   propVersions,
-  type ReferenceKind,
+  REFERENCE_KINDS,
   readingDirection,
   referenceAssets,
   scenes,
@@ -58,17 +58,6 @@ const limitsFrom = (config: WorkerDeps["config"]): ExtractLimits => ({
   maxTotalBytes: config.IMPORT_MAX_UPLOAD_MB * 1024 * 1024,
   maxRatio: config.IMPORT_MAX_COMPRESSION_RATIO,
 });
-const REFERENCE_KINDS: ReferenceKind[] = [
-  "portrait",
-  "full_body",
-  "multi_angle",
-  "expression_sheet",
-  "outfit",
-  "location",
-  "prop",
-  "style",
-  "uploaded",
-];
 
 const pick = <T extends string, F = T>(values: readonly T[], v: string | null | undefined, fallback: F): T | F =>
   values.includes(v as T) ? (v as T) : fallback;
