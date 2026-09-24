@@ -399,6 +399,10 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "The outfit, only if it changes. Naming one of the character's outfits (project data lists them under outfits) switches the character into it from this panel on, reference image included, until another is named; anything else describes this panel's wardrobe.",
       "Storm gear, hood up",
     ],
+    "pages[].panels[].spec.characters[].outfitScope": [
+      'How long an outfit named in outfit is worn. "onward" (the default): from this panel until another is named. "panel": this panel only, after which the character is back in what they wore before (a towel after a shower, a borrowed coat for one scene beat).',
+      "panel",
+    ],
     "pages[].panels[].spec.characters[].position": [
       "Where the character is in the frame. Also used to point the speech bubble's tail at the speaker.",
       "left foreground",

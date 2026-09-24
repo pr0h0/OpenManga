@@ -281,3 +281,23 @@ test("the default outfit follows its version's wardrobe, and a new look is not d
   );
   expect(await dressRen(v2.version.id)).toBe("Ren: red hoodie");
 });
+
+test("a plan can dress a character for one panel only, and the next panel is back in what came before", async () => {
+  const ch = await alice.post<{ chapter: { id: string } }>(
+    `/api/projects/${projectId}/chapters`,
+    { title: "Four" },
+    201,
+  );
+  const panel = (outfitText: string, outfitScope?: "panel") => ({
+    spec: { beat: "Mina at home", characters: [{ characterId: "Mina", outfit: outfitText, outfitScope }] },
+  });
+  const plan = ChapterPlan.parse({
+    scenes: [{ title: "Bath", pages: [{ panels: [panel("Rain Coat"), panel("Pajamas", "panel"), panel("")] }] }],
+  });
+  await applyChapterPlan(h.deps.db, ch.chapter.id, plan, { replace: false });
+  const page = await alice.get<{ pages: { id: string }[] }>(`/api/chapters/${ch.chapter.id}`);
+  const doc = await alice.get<{ panels: { id: string; order: number }[] }>(`/api/pages/${page.pages[0]!.id}`);
+  const [, only, after] = doc.panels.sort((a, b) => a.order - b.order);
+  expect(await worn(only!.id)).toMatchObject({ outfitId: outfit.Pajamas, source: "panel" });
+  expect(await wardrobe(after!.id)).toContain("Rain Coat");
+});

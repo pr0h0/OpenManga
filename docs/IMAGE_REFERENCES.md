@@ -69,7 +69,9 @@ for a character and choose **From this panel on** (it holds until the next chang
 
 A chapter plan switches outfits the same way the editor does. The planner sees each character's outfit names, and
 when a panel's outfit text names one other than what the character is wearing at that point, applying the plan
-records a "from this panel on" change there. Re-planning the chapter replaces those changes with the new plan's.
+records a "from this panel on" change there, or an "only this panel" change when the plan sets that character's
+`outfitScope` to `panel` (a towel after a shower). Re-planning the chapter replaces those changes with the new
+plan's.
 
 The outfit it resolves to gives the WARDROBE line its name and description, with the panel's outfit text as a detail
 (unless that text names a different outfit), and sends its approved reference. Text that names no outfit and no

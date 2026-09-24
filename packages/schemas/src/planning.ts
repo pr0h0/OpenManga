@@ -34,6 +34,10 @@ export const PanelCharacterSpec = z.object({
   pose: optStr,
   action: optStr,
   outfit: optStr,
+  outfitScope: z
+    .enum(["onward", "panel"])
+    .optional()
+    .describe("onward (default): outfit holds until another is named; panel: this panel only"),
   position: optStr.describe("where in the frame, e.g. right third, foreground"),
 });
 export type PanelCharacterSpec = z.infer<typeof PanelCharacterSpec>;

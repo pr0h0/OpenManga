@@ -1110,6 +1110,12 @@ interface ScenePages {
            */
           outfit?: string;
           /**
+           * How long an outfit named in outfit is worn. "onward" (the default): from this panel until another is named. "panel": this panel only, after which the character is back in what they wore before (a towel after a shower, a borrowed coat for one scene beat).
+           * Optional — may be left out.
+           * @example "panel"
+           */
+          outfitScope?: "onward" | "panel";
+          /**
            * Where the character is in the frame. Also used to point the speech bubble's tail at the speaker.
            * Optional — defaults to "" when left out.
            * @example "left foreground"
@@ -1313,6 +1319,7 @@ interface ScenePages {
                 "pose": "standing, one hand holding her hat",
                 "action": "looking up at the tower",
                 "outfit": "Storm gear, hood up",
+                "outfitScope": "panel",
                 "position": "left foreground"
               }
             ],
