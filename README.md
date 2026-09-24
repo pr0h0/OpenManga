@@ -146,12 +146,12 @@ instead of building locally, pin a tag in a compose override:
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
 services:
-  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.6.0", build: !reset null }
-  api: { image: "ghcr.io/pr0h0/openmanga-app:0.6.0" }
-  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.6.0" }
-  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.6.0" }
-  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.6.0", build: !reset null }
-  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.6.0", build: !reset null }
+  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.7.0", build: !reset null }
+  api: { image: "ghcr.io/pr0h0/openmanga-app:0.7.0" }
+  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.7.0" }
+  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.7.0" }
+  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.7.0", build: !reset null }
+  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.7.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
 than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.6`). `!reset`
