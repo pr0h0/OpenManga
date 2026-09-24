@@ -8,6 +8,7 @@ import type {
   BatchStatus,
   ImageBatchProvider,
 } from "../../packages/ai-image/src/batch.ts";
+import { locationReferenceV1, propReferenceV1 } from "../../packages/prompts/src/index.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -214,6 +215,10 @@ test("a location sheet and a prop turnaround are one image each, and panels are 
     expect(job.status).toBe("completed");
     // One image, wide enough to hold several views.
     expect(job.parameters.aspectRatio).toBe(3 / 2);
+    // The job names the template version that drew it, not a placeholder 1.
+    expect(job.templateVersion).toBe(
+      path.startsWith("location") ? locationReferenceV1.version : propReferenceV1.version,
+    );
     const [ref] = await h.deps.db
       .select()
       .from(referenceAssets)

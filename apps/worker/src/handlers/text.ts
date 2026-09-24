@@ -31,21 +31,21 @@ import {
 } from "@openmanga/db";
 import { LAYOUT_TEMPLATES, languageName, segmentNarration } from "@openmanga/domain";
 import {
-  chapterOutlineV1,
-  chapterPlanningV5,
+  chapterOutlineV2,
+  chapterPlanningV6,
   imageDescribeV1,
   jsonRepairV1,
-  narrationV4,
-  panelPromptsV3,
-  scenePagesV1,
-  sceneShotsV1,
-  sceneStripV1,
-  shotOutlineV1,
-  shotPlanningV2,
+  narrationV5,
+  panelPromptsV4,
+  scenePagesV2,
+  sceneShotsV2,
+  sceneStripV2,
+  shotOutlineV2,
+  shotPlanningV3,
   storyAnalysisV2,
   storyRewriteV1,
-  stripOutlineV1,
-  stripPlanningV1,
+  stripOutlineV2,
+  stripPlanningV2,
 } from "@openmanga/prompts";
 import {
   ChapterOutline,
@@ -348,7 +348,7 @@ async function planByScene(
   const outline = await structured(
     deps,
     job,
-    (i.format === "film" ? shotOutlineV1 : i.format === "vertical" ? stripOutlineV1 : chapterOutlineV1).build({
+    (i.format === "film" ? shotOutlineV2 : i.format === "vertical" ? stripOutlineV2 : chapterOutlineV2).build({
       ...base,
       targetPages: target,
     }),
@@ -356,7 +356,7 @@ async function planByScene(
     "ChapterOutline",
     16_000,
   );
-  const pagesTemplate = i.format === "film" ? sceneShotsV1 : i.format === "vertical" ? sceneStripV1 : scenePagesV1;
+  const pagesTemplate = i.format === "film" ? sceneShotsV2 : i.format === "vertical" ? sceneStripV2 : scenePagesV2;
   const scenes: ChapterPlan["scenes"] = [];
   for (const [sceneIndex, scene] of outline.data.scenes.entries()) {
     if (await isCancelRequested(deps, job.id)) throw new JobCancelledError();
@@ -396,7 +396,7 @@ export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
   const format: ProjectFormat = proj?.settings.format ?? "comic";
   const oneFrame = format === "film" || format === "vertical";
   const messages = (
-    format === "film" ? shotPlanningV2 : format === "vertical" ? stripPlanningV1 : chapterPlanningV5
+    format === "film" ? shotPlanningV3 : format === "vertical" ? stripPlanningV2 : chapterPlanningV6
   ).build({
     projectData: data,
     chapterText: chapter.sourceExcerpt || chapter.summary,
@@ -536,7 +536,7 @@ export async function pagePrompts(deps: WorkerDeps, job: GenerationJob) {
   const r = await structured(
     deps,
     job,
-    panelPromptsV3.build({ context, panels: panelData }),
+    panelPromptsV4.build({ context, panels: panelData }),
     PanelPromptDraft,
     "PanelPromptDraft",
   );
@@ -554,8 +554,8 @@ export async function pagePrompts(deps: WorkerDeps, job: GenerationJob) {
           composition: d.composition,
           lighting: d.lighting,
           continuity: d.continuity,
-          templateName: panelPromptsV3.name,
-          templateVersion: panelPromptsV3.version,
+          templateName: panelPromptsV4.name,
+          templateVersion: panelPromptsV4.version,
           jobId: job.id,
         },
         status: pn.status === "planned" || pn.status === "failed" ? "prompt-ready" : pn.status,
@@ -648,7 +648,7 @@ export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
   const r = await structured(
     deps,
     job,
-    narrationV4.build({
+    narrationV5.build({
       language: `${languageName(language)} (${language})`,
       context: {
         chapter: { title: chapter.title, summary: chapter.summary },

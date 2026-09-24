@@ -2,24 +2,33 @@ import { describe, expect, test } from "bun:test";
 import { CharacterBible, LocationDescription, PanelSpec, PropDescription } from "@openmanga/schemas";
 import {
   allTemplateRecords,
+  chapterOutlineV2,
   chapterPlanningV3,
   chapterPlanningV4,
   chapterPlanningV5,
+  chapterPlanningV6,
   characterReferenceV1,
   locationReferenceV1,
   narrationV1,
   narrationV2,
   narrationV3,
   narrationV4,
+  narrationV5,
   panelEditV1,
   panelGenerationV1,
   panelPromptsV2,
   panelPromptsV3,
+  panelPromptsV4,
   propReferenceV1,
+  scenePagesV2,
+  sceneShotsV2,
+  sceneStripV2,
   shotPlanningV1,
   shotPlanningV2,
+  shotPlanningV3,
   storyAnalysisV1,
   storyAnalysisV2,
+  stripPlanningV2,
   styleSection,
   untrusted,
 } from "./index.ts";
@@ -199,6 +208,28 @@ describe("text templates isolate user content", () => {
     expect(sys).toContain("[template:story-analysis-v1]");
     expect(sys).toContain('"chapters"');
   });
+  test("0.7 prompt versions say how to use the data they now get, and keep everything else", () => {
+    const outfits = 'set outfitScope to "panel" when the change lasts only that panel';
+    for (const [t, header, kept] of [
+      [chapterPlanningV6, "[template:page-planning-v6]", "PAGES: plan pages per scene"],
+      [shotPlanningV3, "[template:shot-planning-v3]", "SHOTS: plan the shot list per scene"],
+      [stripPlanningV2, "[template:strip-planning-v2]", "HEIGHT IS PACING"],
+      [chapterOutlineV2, "[template:chapter-outline-v2]", "OUTLINE PASS"],
+      [scenePagesV2, "[template:scene-pages-v2]", "PAGE PASS"],
+      [sceneShotsV2, "[template:scene-shots-v2]", "SHOTS: plan the shot list per scene"],
+      [sceneStripV2, "[template:scene-strip-v2]", "HEIGHT IS PACING"],
+    ] as const) {
+      expect(t.system.startsWith(header)).toBe(true);
+      expect(t.system).toContain(outfits);
+      expect(t.system).toContain("treat earlierRevealedFacts as already known");
+      expect(t.system).toContain(kept);
+    }
+    expect(narrationV5.system).toContain("use pronouns that match their genderPresentation");
+    expect(narrationV5.system.startsWith("[template:narration-v5]")).toBe(true);
+    expect(panelPromptsV4.system).toContain("Write each character's action and expression by name");
+    expect(panelPromptsV4.system.startsWith("[template:panel-prompts-v4]")).toBe(true);
+  });
+
   test("registry names are unique per version", () => {
     const recs = allTemplateRecords();
     expect(new Set(recs.map((r) => `${r.name}@${r.version}`)).size).toBe(recs.length);
@@ -229,6 +260,7 @@ describe("narration v2", () => {
       narrationV2.version,
       narrationV3.version,
       narrationV4.version,
+      narrationV5.version,
     ]);
     const v3 = narrationV3.build({
       context: {},
