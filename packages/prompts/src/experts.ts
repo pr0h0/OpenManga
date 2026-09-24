@@ -28,7 +28,7 @@ export const BUILTIN_EXPERTS: BuiltinExpert[] = [
     starters: [
       "Give me 8 premises for a revenge manhwa that do not start with a betrayal at a wedding.",
       "What topics are underused in school-life stories right now?",
-      "Sharpen this idea: a courier discovers every package she delivers arrives one day before it was sent.",
+      "Sharpen this idea: a courier discovers every package he delivers arrives one day before it was sent.",
     ],
   },
   {
@@ -59,7 +59,7 @@ export const BUILTIN_EXPERTS: BuiltinExpert[] = [
     ].join("\n\n"),
     starters: [
       "Thumbnail concepts for the chapter where the hero finally stands up to his brother.",
-      "Make a 16:9 thumbnail: the heroine holding a burning letter, shocked.",
+      "Make a 16:9 thumbnail: the hero holding a burning letter, shocked.",
       "What is wrong with thumbnails that show the whole cast?",
     ],
     image: { byDefault: true, aspectRatio: 16 / 9 },
@@ -93,7 +93,7 @@ export const BUILTIN_EXPERTS: BuiltinExpert[] = [
     starters: [
       "Design the rival: cold, rich, secretly lonely.",
       "Give my protagonist three outfits for school, fighting and a formal party.",
-      "Draw a full-body concept of the heroine.",
+      "Draw a full-body concept of the hero.",
     ],
     image: { byDefault: false, aspectRatio: 2 / 3 },
   },

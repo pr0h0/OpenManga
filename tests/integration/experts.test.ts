@@ -85,10 +85,10 @@ test("a chat about a project answers with the project in view, and is kept to co
 
 test("'generate image' draws one from the prompt the reply wrote, at the chosen shape", async () => {
   const chat = await newChat("thumbnail-designer");
-  await send(chat.id, { text: "Heroine holding a burning letter", generateImage: true, aspectRatio: 16 / 9 });
+  await send(chat.id, { text: "Hero holding a burning letter", generateImage: true, aspectRatio: 16 / 9 });
   const reply = (await settled(chat.id)).at(-1)!;
   expect(reply.status).toBe("done");
-  expect(reply.options.imagePrompt).toContain("a mock illustration of Heroine holding a burning letter");
+  expect(reply.options.imagePrompt).toContain("a mock illustration of Hero holding a burning letter");
   // The prompt line is taken out of the text shown.
   expect(reply.content).not.toContain("IMAGE PROMPT:");
   expect(reply.images).toHaveLength(1);
