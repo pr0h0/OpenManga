@@ -60,10 +60,13 @@ for a character and choose **From this panel on** (it holds until the next chang
 
 1. an outfit set on this panel (only this panel, then from this panel on);
 2. an outfit that the panel's own outfit text names (text containing the outfit's name, e.g. "rain coat, hood up"
-   names "Rain Coat"), which is how a chapter plan switches outfits, since the planner sees each character's
-   outfit names;
+   names "Rain Coat");
 3. the last "from this panel on" change before it in reading order (chapter, page, panel);
 4. the character's default outfit, when the panel's outfit text is empty.
+
+A chapter plan switches outfits the same way the editor does. The planner sees each character's outfit names, and
+when a panel's outfit text names one other than what the character is wearing at that point, applying the plan
+records a "from this panel on" change there. Re-planning the chapter replaces those changes with the new plan's.
 
 The outfit it resolves to gives the WARDROBE line its name and description, with the panel's outfit text as a detail
 (unless that text names a different outfit), and sends its approved reference. Text that names no outfit and no

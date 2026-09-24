@@ -14,6 +14,7 @@ import {
   locationVersions,
   narrationLines,
   narrationSegments,
+  outfitAssignments,
   pages,
   panelSpecs,
   panels,
@@ -40,6 +41,7 @@ import {
 } from "@openmanga/domain";
 import { Bubble, type ChapterPlan, PanelSpec, SfxStyle, type StoryAnalysis, stripPageHeight } from "@openmanga/schemas";
 import { sha256Hex } from "@openmanga/storage";
+import { outfitNamedIn, outfitTimeline } from "./outfits.ts";
 
 const slug = (s: string) =>
   s
@@ -279,6 +281,26 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
     const findProp = (key: string) =>
       prps.find((p) => p.id === key || p.analysisKey === key || slug(p.name) === slug(key));
 
+    // Outfits the plan names switch the character from that panel on, like a change set in the editor. Each
+    // character starts the chapter in whatever the chapters before it left them in.
+    const outfitRows = chars.length
+      ? await tx
+          .select()
+          .from(characterOutfits)
+          .where(
+            inArray(
+              characterOutfits.characterId,
+              chars.map(({ c }) => c.id),
+            ),
+          )
+      : [];
+    const wearing = new Map<string, string>();
+    for (const t of await outfitTimeline(
+      tx,
+      chars.map(({ c }) => c.id),
+    ))
+      if (t.scope === "onward" && t.chapterOrder < chapter.order) wearing.set(t.characterId, t.outfitId);
+
     const s = project.settings;
     const lettering = resolveLettering(s);
     const dir = project.readingDirection;
@@ -395,6 +417,23 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
             })
             .returning();
           panelCount++;
+          for (const { pc, ch } of panelChars) {
+            const mine = outfitRows.filter((o) => o.characterId === ch!.id);
+            const named = outfitNamedIn(mine, pc.outfit);
+            const current = wearing.get(ch!.id) ?? mine.find((o) => o.isDefault)?.id;
+            if (!named || named.id === current) continue;
+            await tx
+              .insert(outfitAssignments)
+              .values({
+                projectId: project.id,
+                characterId: ch!.id,
+                outfitId: named.id,
+                panelId: panel!.id,
+                scope: "onward",
+              })
+              .onConflictDoNothing();
+            wearing.set(ch!.id, named.id);
+          }
 
           const avoid = [...faceAvoidZone(frame, spec.shotType), ...placed];
           const dialogueIds: string[] = [];

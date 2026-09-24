@@ -396,8 +396,8 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "pages[].panels[].spec.characters[].pose": ["The character's pose.", "standing, one hand holding her hat"],
     "pages[].panels[].spec.characters[].action": ["What the character is doing.", "looking up at the tower"],
     "pages[].panels[].spec.characters[].outfit": [
-      "The outfit, only if it differs from the character's usual one. Used in place of the default wardrobe.",
-      "yellow oilskin coat over her overalls",
+      "The outfit, only if it changes. Naming one of the character's outfits (project data lists them under outfits) switches the character into it from this panel on, reference image included, until another is named; anything else describes this panel's wardrobe.",
+      "Storm gear, hood up",
     ],
     "pages[].panels[].spec.characters[].position": [
       "Where the character is in the frame. Also used to point the speech bubble's tail at the speaker.",

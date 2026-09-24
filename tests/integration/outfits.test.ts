@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { ChapterPlan } from "@openmanga/schemas";
+import { applyChapterPlan } from "@openmanga/services";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -185,4 +187,41 @@ test("an outfit of another character is refused", async () => {
     { characterId: other.character.id, outfitId: outfit.Pajamas, scope: "onward" },
     404,
   );
+});
+
+test("a chapter plan that names an outfit switches the character from that panel on", async () => {
+  // Chapter three starts in the Rain Coat the change on chapter two left Mina in.
+  const ch = await alice.post<{ chapter: { id: string } }>(
+    `/api/projects/${projectId}/chapters`,
+    { title: "Three" },
+    201,
+  );
+  const panel = (outfitText: string) => ({
+    spec: { beat: "Mina at home", characters: [{ characterId: "Mina", outfit: outfitText }] },
+  });
+  const plan = ChapterPlan.parse({
+    scenes: [
+      {
+        title: "Home",
+        pages: [{ panels: [panel("rain coat, dripping"), panel("Pajamas"), panel("")] }],
+      },
+    ],
+  });
+  for (const replace of [false, true]) {
+    await applyChapterPlan(h.deps.db, ch.chapter.id, plan, { replace });
+    const t = await alice.get<{ timeline: { chapterId: string; outfitName: string; scope: string }[] }>(
+      `/api/characters/${characterId}/outfit-timeline`,
+    );
+    // Naming what she already wears changes nothing; naming Pajamas is one change, and re-planning does not stack it.
+    expect(t.timeline.filter((x) => x.chapterId === ch.chapter.id).map((x) => [x.outfitName, x.scope])).toEqual([
+      ["Pajamas", "onward"],
+    ]);
+  }
+  const page = await alice.get<{ pages: { id: string }[] }>(`/api/chapters/${ch.chapter.id}`);
+  const doc = await alice.get<{ panels: { id: string; order: number }[] }>(`/api/pages/${page.pages[0]!.id}`);
+  const [first, , last] = doc.panels.sort((a, b) => a.order - b.order);
+  expect(await wardrobe(first!.id)).toContain(
+    "Rain Coat: long yellow raincoat with a hood (this panel: rain coat, dripping)",
+  );
+  expect(await wardrobe(last!.id)).toContain("Pajamas: blue striped pajamas");
 });
