@@ -111,9 +111,25 @@ function buildServer(deps: Deps, actor: McpActor, requestId: string) {
         _meta: { securitySchemes: [{ type: "oauth2", scopes: tool.scopes }] },
       },
       async (args: unknown) => {
+        // One line per call (never the arguments): a tool error travels inside a 200 reply, so without this it would
+        // not show up in the logs at all.
+        const started = performance.now();
+        const log = (level: "info" | "warn", outcome: string, extra: Record<string, unknown> = {}) =>
+          deps.logger[level]("mcp tool call", {
+            requestId,
+            tool: tool.name,
+            connection: actor.serviceId,
+            outcome,
+            latencyMs: Math.round(performance.now() - started),
+            ...extra,
+          });
         try {
-          return toContent(await runTool(deps, actor, tool, args as Record<string, unknown>, requestId), requestId);
+          const run = await runTool(deps, actor, tool, args as Record<string, unknown>, requestId);
+          log("info", run.status, run.approval ? { approval: run.approval.approvalRequestId } : {});
+          return toContent(run, requestId);
         } catch (e) {
+          const err = asToolError(e);
+          log("warn", "error", { code: err.code, status: err.status, message: err.message.slice(0, 300) });
           return toErrorResult(deps, actor, e, requestId);
         }
       },
@@ -178,7 +194,7 @@ mcpRoutes.all("/mcp", async (c) => {
     if (e instanceof ApiError) throw e;
   }
   const requestId = c.get("requestId");
-  return agentContext.run({ serviceId: actor.serviceId, serviceName: actor.serviceName }, () =>
+  const res = await agentContext.run({ serviceId: actor.serviceId, serviceName: actor.serviceName }, () =>
     handlerFor(deps).fetch(c.req.raw, {
       authInfo: {
         token: "redacted",
@@ -189,4 +205,19 @@ mcpRoutes.all("/mcp", async (c) => {
       },
     }),
   );
+  // Protocol-level failures (a malformed request, an unknown tool, arguments the SDK rejected before any tool ran)
+  // never reach the tool callback's log line; note them here.
+  // A GET is a client probing for a standalone event stream, which a stateless server answers 405 by design.
+  if (c.req.method !== "GET" && (res.headers.get("content-type") ?? "").includes("json")) {
+    const text = await res.clone().text();
+    const rejected = text.match(/"error":\{"code":-?\d+,"message":"([^"]{0,300})|Input validation error[^"]{0,300}/);
+    if (rejected || res.status >= 400)
+      deps.logger.warn("mcp request rejected", {
+        requestId,
+        connection: actor.serviceId,
+        status: res.status,
+        message: rejected?.[1] ?? rejected?.[0] ?? text.slice(0, 300),
+      });
+  }
+  return res;
 });
