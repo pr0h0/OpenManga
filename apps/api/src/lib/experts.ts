@@ -57,10 +57,17 @@ function streamTo(deps: Deps, run: ReplyRun) {
       if (wait <= 0) send();
       else timer = setTimeout(send, wait);
     },
-    /** Once the reply is complete: nothing late may overwrite the final text, so wait out a save under way. */
+    /**
+     * Once the reply is complete: send the text still waiting out its 100 ms (it is the end of the reply, and a
+     * watcher would otherwise be left on a partial one), then stop, so nothing late overwrites the final text; wait
+     * out a save under way.
+     */
     stop: () => {
+      if (timer) {
+        clearTimeout(timer);
+        send();
+      }
       stopped = true;
-      if (timer) clearTimeout(timer);
       return saving;
     },
   };

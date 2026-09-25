@@ -815,6 +815,25 @@ describe("OAuth 2.1", () => {
     });
     expect(ok.status).toBe(201);
     clientId = ((await ok.json()) as { client_id: string }).client_id;
+    // Grants this server never issues are ignored (Claude's client document lists jwt-bearer too); a client that
+    // cannot use the code flow at all is refused.
+    const extra = await h.app.request("http://test.local/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Claude-like",
+        redirect_uris: [redirect],
+        grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    expect(extra.status).toBe(201);
+    const noCode = await h.app.request("http://test.local/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "x", redirect_uris: [redirect], grant_types: ["client_credentials"] }),
+    });
+    expect(noCode.status).toBe(400);
   });
 
   test("authorize refuses missing or plain PKCE, a wrong resource and an unregistered redirect", async () => {

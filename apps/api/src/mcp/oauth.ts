@@ -229,8 +229,10 @@ function parseClientMetadata(doc: Record<string, unknown>, opts: { requireNone: 
   const single = doc.token_endpoint_auth_method;
   if (opts.requireNone && single !== undefined && single !== "none" && !supported.includes("none"))
     throw new Error('only public clients are supported (token_endpoint_auth_method "none")');
-  for (const g of Array.isArray(doc.grant_types) ? doc.grant_types : [])
-    if (g !== "authorization_code" && g !== "refresh_token") throw new Error(`unsupported grant type ${String(g)}`);
+  // A client may list grants this server never issues (Claude's document also names jwt-bearer); those are simply
+  // not offered. It only has to be able to use the one this server needs.
+  if (Array.isArray(doc.grant_types) && !doc.grant_types.includes("authorization_code"))
+    throw new Error("grant_types must include authorization_code");
   const name =
     typeof doc.client_name === "string" && doc.client_name.trim() ? doc.client_name.trim().slice(0, 100) : null;
   return { name, redirectUris: uris as string[] };

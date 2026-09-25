@@ -212,9 +212,12 @@ test("a reply can be watched as it is written", async () => {
   expect(res.status).toBe(200);
   const reader = res.body!.pipeThrough(new TextDecoderStream()).getReader();
   const long = "Outline a story about a lighthouse keeper whose light starts showing ships that sank long ago";
+  // "ready" means the stream is listening; a reply sent before it could start unheard.
+  let buf = "";
+  while (!buf.includes("event: ready")) buf += (await reader.read()).value ?? "";
+  buf = buf.slice(buf.lastIndexOf("\n\n") + 2);
   await send(chat.id, { text: long });
   const seen: string[] = [];
-  let buf = "";
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     const { value, done } = await reader.read();
@@ -239,6 +242,8 @@ test("a reply can be watched as it is written", async () => {
   const final = (await settled(chat.id)).at(-1)!;
   expect(final.status).toBe("done");
   expect(final.content.startsWith(seen[0]!)).toBe(true);
+  // The stream ends on the whole reply, not on whatever was sent last before it finished.
+  expect(seen.at(-1)).toBe(final.content);
   // Someone else cannot listen in.
   expect((await bob.raw("GET", `/api/expert-chats/${chat.id}/stream`)).status).toBe(404);
 });

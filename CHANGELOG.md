@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.2] — 2026-09-25
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes.
+
+### Fixed
+
+- **Claude can connect over MCP.** Claude's client description lists a sign-in type OpenManga never uses (`jwt-bearer`)
+  next to the standard ones, and was refused as unsupported ("This app is not registered with this OpenManga
+  server"). A client now only has to support the standard code flow.
+- An expert's reply, watched as it is written, now ends on the whole reply. The last part was dropped from the live
+  view, which stopped on a partial answer until the page reloaded. The live view also starts listening before it says
+  it is ready, so the beginning of a reply sent right away is not missed.
+
 ## [0.9.1] — 2026-09-25
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes.
