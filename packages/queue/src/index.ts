@@ -232,14 +232,24 @@ export class EventBus {
     await this.pub.publish(name, JSON.stringify(payload));
   }
 
+  /**
+   * Returns the unsubscribe function; its `ready` resolves once Redis confirms the subscription, before which a
+   * message published to the channel is not delivered.
+   */
   subscribeTo(redisUrl: string, name: string, onEvent: (json: string) => void) {
     const sub = createRedis(redisUrl);
-    sub.subscribe(name).catch(() => {});
+    const ready = sub.subscribe(name).then(
+      () => {},
+      () => {},
+    );
     sub.on("message", (_c, msg) => onEvent(msg));
-    return async () => {
-      await sub.unsubscribe().catch(() => {});
-      sub.disconnect();
-    };
+    return Object.assign(
+      async () => {
+        await sub.unsubscribe().catch(() => {});
+        sub.disconnect();
+      },
+      { ready },
+    );
   }
 }
 

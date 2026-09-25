@@ -347,6 +347,8 @@ expertRoutes.get("/expert-chats/:id/stream", async (c) => {
       wake?.();
     });
     try {
+      // "ready" means listening: a reply sent right after it must not be published before the subscription exists.
+      await unsubscribe.ready;
       await stream.writeSSE({ event: "ready", data: JSON.stringify({ chatId: chat.id }) });
       let lastPing = Date.now();
       while (!closed) {
