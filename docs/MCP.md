@@ -188,7 +188,7 @@ request waits per identical call — retrying, even simultaneously, returns the 
 
 ## Tools
 
-About seventy task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
+Seventy-one task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
 There is deliberately no generic "call any endpoint" tool.
 
 What a connection is shown depends on it. A personal access token lists only the tools it can ever call (a
@@ -204,6 +204,7 @@ tool, because its scopes can grow by step-up and a client only asks for a scope 
 | Cast, world, style | `list_library`, `get_library_item`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | Chapters | `list_chapters`, `get_chapter`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `list_chapter_panels` |
 | Pages and panels | `get_page`, `manage_page`, `manage_lettering`, `get_panel`, `update_panel`, `manage_panel_outfits`, `get_panel_prompt`, `prepare_page_prompts`, `generate_panel`, `manage_panel_artwork`, `run_panel_check`, `manage_panel` |
+| Images | `get_image`: the picture itself (panel artwork, the lettered page, a reference, any project image) as MCP image content, at 384, 1024 or 2048 px |
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
 | Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration` |
 | Exports | `create_export`, `list_exports` |

@@ -374,6 +374,51 @@ describe("manual questions about images", () => {
     expect(p.structured.data.imagesIncluded).toBeGreaterThan(0);
     expect(p.content.some((c) => c.type === "image" && c.mimeType?.startsWith("image/"))).toBe(true);
   });
+
+  test("get_image returns the picture itself: a panel's artwork and the lettered page", async () => {
+    const list = await allowAll.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    const { panels } = await alice.get<{
+      panels: { id: string; pageId: string; activeArtworkAssetId: string | null }[];
+    }>(`/api/chapters/${list.structured.data.chapters[0]!.id}/panels`);
+    const drawn = panels.find((x) => x.activeArtworkAssetId)!;
+    const panel = await allowAll.call<{ data: { kind: string; width: number; bytes: number; assetId: string } }>(
+      "get_image",
+      { kind: "panel", id: drawn.id, size: "thumbnail" },
+    );
+    expect(panel.isError).toBe(false);
+    expect(panel.structured.data.assetId).toBe(drawn.activeArtworkAssetId!);
+    expect(panel.structured.data.width).toBeLessThanOrEqual(384);
+    const image = panel.content.find((c) => c.type === "image") as { type: string; mimeType: string; data: string };
+    expect(image.mimeType).toStartWith("image/");
+    expect(Buffer.from(image.data, "base64").byteLength).toBe(panel.structured.data.bytes);
+
+    const pageImg = await allowAll.call("get_image", { kind: "page", id: drawn.pageId });
+    expect(pageImg.isError).toBe(false);
+    expect(pageImg.content.some((c) => c.type === "image" && c.mimeType === "image/png")).toBe(true);
+
+    const asset = await allowAll.call("get_image", { kind: "asset", id: drawn.activeArtworkAssetId! });
+    expect(asset.content.some((c) => c.type === "image")).toBe(true);
+
+    const empty = panels.find((x) => !x.activeArtworkAssetId);
+    if (empty)
+      expect((await allowAll.call("get_image", { kind: "panel", id: empty.id })).error?.code).toBe("not_found");
+
+    // Another project's image, through a connection limited to a different project: refused, whatever the kind.
+    const other = await alice.post<{ project: { id: string } }>("/api/projects", { title: "Elsewhere" }, 201);
+    const t = await pat({
+      name: "Elsewhere only",
+      scopes: ALL,
+      projectAccess: "selected",
+      projectIds: [other.project.id],
+    });
+    const scoped = await mcp(t.token);
+    for (const [kind, id] of [
+      ["panel", drawn.id],
+      ["page", drawn.pageId],
+      ["asset", drawn.activeArtworkAssetId!],
+    ] as const)
+      expect((await scoped.call("get_image", { kind, id })).error?.code).toBe("project_not_granted");
+  });
 });
 
 describe("idempotency", () => {

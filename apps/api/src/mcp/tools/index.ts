@@ -3,6 +3,7 @@ import { chapterTools } from "./chapters.ts";
 import { expertTools } from "./experts.ts";
 import { exportTools } from "./exports.ts";
 import { generationTools } from "./generations.ts";
+import { imageTools } from "./images.ts";
 import { libraryTools } from "./library.ts";
 import { narrationTools } from "./narration.ts";
 import { panelTools } from "./panels.ts";
@@ -18,6 +19,7 @@ export const MCP_TOOLS = [
   ...libraryTools,
   ...chapterTools,
   ...panelTools,
+  ...imageTools,
   ...generationTools,
   ...narrationTools,
   ...exportTools,
