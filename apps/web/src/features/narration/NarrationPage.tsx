@@ -2,9 +2,9 @@ import { NARRATION_LANGUAGES, voiceMatchesLanguage } from "@openmanga/domain/bro
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { AlertTriangle, CheckCircle2, Download, Mic, Plus, Volume2, Wand2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api, get, patch, post } from "../../api/client.ts";
-import { onProjectEvent, qk, useAction } from "../../api/hooks.ts";
+import { qk, useAction } from "../../api/hooks.ts";
 import type { ChapterListItem, NarrationDoc, PanelRow, TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, EmptyState, ErrorBox, Field, PageHeader, Spinner, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
@@ -75,21 +75,6 @@ export function NarrationPage() {
     queryFn: () => get<unknown>(`/chapters/${chapterId}/narration/timeline?language=${encodeURIComponent(lang)}`),
     enabled: Boolean(chapterId) && showTimeline,
   });
-
-  // Synthesising a chapter emits one event per line, so refetching per event meant a request per line. One
-  // trailing refetch per burst shows the same result.
-  useEffect(() => {
-    let t: ReturnType<typeof setTimeout> | undefined;
-    const off = onProjectEvent((e) => {
-      if (e.type !== "audio.updated" && e.type !== "narration.updated") return;
-      clearTimeout(t);
-      t = setTimeout(() => doc.refetch(), 600);
-    });
-    return () => {
-      clearTimeout(t);
-      off();
-    };
-  }, [doc.refetch]);
 
   const settings = overview?.project.settings;
   const [voice, setVoice] = useState<string>();
