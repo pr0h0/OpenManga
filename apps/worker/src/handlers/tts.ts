@@ -139,7 +139,15 @@ export async function processTts(deps: WorkerDeps, bullJob: Job) {
         trimmedSilenceMs: trimmed.trimmedMs,
       },
     });
-    await deps.db.transaction(async (tx) => {
+    // The line can be rewritten while this segment is being voiced (a narration re-run replaces its segments), so the
+    // segment is locked and re-read before its audio is attached. Gone: the audio belongs to nothing, so it is dropped.
+    const saved = await deps.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ sha: narrationSegments.textSha256 })
+        .from(narrationSegments)
+        .where(eq(narrationSegments.id, seg.s.id))
+        .for("update");
+      if (!current) return false;
       await tx.insert(audioAssets).values({
         projectId: job.projectId,
         assetId: asset.id,
@@ -154,11 +162,7 @@ export async function processTts(deps: WorkerDeps, bullJob: Job) {
         durationMs: r.durationMs,
         format: "wav",
       });
-      const [current] = await tx
-        .select({ sha: narrationSegments.textSha256 })
-        .from(narrationSegments)
-        .where(eq(narrationSegments.id, seg.s.id));
-      if (current?.sha === seg.s.textSha256)
+      if (current.sha === seg.s.textSha256)
         await tx
           .update(narrationSegments)
           .set({ activeAudioAssetId: asset.id })
@@ -173,7 +177,22 @@ export async function processTts(deps: WorkerDeps, bullJob: Job) {
           failureReason: null,
         })
         .where(eq(audioJobs.id, id));
+      return true;
     });
+    if (!saved) {
+      await deps.assets.hardDelete(asset).catch(() => {});
+      await deps.db
+        .update(audioJobs)
+        .set({
+          status: "failed",
+          failureCode: "invalid_input",
+          failureReason: "Segment was deleted",
+          finishedAt: new Date(),
+        })
+        .where(eq(audioJobs.id, id));
+      await publish("failed", "Segment was deleted");
+      return;
+    }
     await deps.usage.record({
       provider: r.provider,
       model: r.modelVersion ?? "kokoro-82m",

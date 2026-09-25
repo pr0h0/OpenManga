@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.1] — 2026-09-25
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes.
+
+### Fixed
+
+- Narration audio no longer fails with an internal error when its line is rewritten while the audio is being made (for
+  example, an agent writing narration chapter by chapter). The unneeded audio is discarded and the job reports
+  "Segment was deleted".
+- The narration page no longer floods the server while a chapter is being voiced. Every audio update used to reload
+  the chapter's narration and panels, thousands of times a minute, until the rate limit refused requests and the page
+  stopped updating. Updates are now combined into one reload every 1.5 seconds.
+
 ## [0.9.0] — 2026-09-24
 
 Upgrading: pull the new images and restart. Two migrations run automatically: `0017_mcp` adds the agent-access tables

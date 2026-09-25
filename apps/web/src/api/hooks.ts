@@ -1,6 +1,7 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { toast } from "../components/ui.tsx";
+import { coalesce } from "../lib/coalesce.ts";
 import { get, post } from "./client.ts";
 import type { Meta, SessionUser } from "./types.ts";
 
@@ -74,6 +75,13 @@ export function onProjectEvent(fn: (e: ProjectEvent) => void) {
   };
 }
 
+let chapterRefresh: { qc: QueryClient; run: () => void } | undefined;
+const refreshChapters = (qc: QueryClient) => {
+  if (chapterRefresh?.qc !== qc)
+    chapterRefresh = { qc, run: coalesce(() => qc.invalidateQueries({ queryKey: ["chapter"] }), 1500) };
+  chapterRefresh.run();
+};
+
 function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
   const inv = (key: readonly unknown[]) => qc.invalidateQueries({ queryKey: key });
   switch (e.type) {
@@ -115,7 +123,9 @@ function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
       break;
     case "audio.updated":
     case "narration.updated":
-      inv(["chapter"]);
+      // Voicing a chapter sends several events per segment. Refetching every chapter query on each one was
+      // thousands of requests a minute and tripped the rate limit, so a stream of them shares one refetch.
+      refreshChapters(qc);
       break;
     case "export.updated":
       inv(qk.exports(projectId));
