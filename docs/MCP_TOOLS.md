@@ -13,16 +13,16 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image` |
 | `projects:write` | Change project settings, state and metadata. | `update_project`, `set_project_status`, `delete_project` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite` |
-| `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style` |
+| `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter`, `get_page` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page` |
-| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork` |
+| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch` |
 | `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation` |
@@ -89,6 +89,7 @@ requests) need no scope.
 | [`manage_panel_artwork`](#manage_panel_artwork) | delete | `panels:read` `panels:write` |
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
+| [`get_image`](#get_image) | read | `panels:read` `library:read` `projects:read` |
 | [`list_jobs`](#list_jobs) | read | `generations:read` |
 | [`get_job`](#get_job) | read | `generations:read` |
 | [`get_manual_prompt`](#get_manual_prompt) | read | `generations:read` |
@@ -5756,6 +5757,104 @@ split: split a panel into two (horizontal or vertical). delete: remove a panel (
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_image
+
+Look at an image itself, returned as image content (not just its id): a panel's current artwork (kind=panel), a page as readers see it, with its speech bubbles, SFX and captions composited (kind=page), a character/location/prop/style reference image (kind=reference, the reference id), or any image asset of a project (kind=asset). size: thumbnail (384 px), preview (1024 px, default) or large (2048 px). Use it to check artwork, consistency or lettering before deciding what to change. Read-only; nothing is generated or spent.
+
+- **Scopes:** `panels:read`, `library:read`, `projects:read` — per action, see description
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/panels/:id`, `GET /api/pages/:id/render.png`, `GET /api/assets/:id`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "panel",
+        "page",
+        "reference",
+        "asset"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "description": "The panel, page, reference or asset id."
+    },
+    "size": {
+      "default": "preview",
+      "type": "string",
+      "enum": [
+        "thumbnail",
+        "preview",
+        "large"
+      ]
+    }
+  },
+  "required": [
+    "kind",
+    "id"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "mimeType": {
+      "type": "string"
+    },
+    "width": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "height": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "bytes": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "mimeType",
+    "width",
+    "height",
+    "bytes"
+  ],
   "additionalProperties": {}
 }
 ```

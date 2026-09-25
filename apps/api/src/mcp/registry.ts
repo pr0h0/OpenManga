@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Deps } from "../context.ts";
 import type { McpActor } from "./context.ts";
-import { type InvokeOptions, invoke } from "./runtime.ts";
+import { type InvokeOptions, invoke, invokeBinary } from "./runtime.ts";
 import type { McpScope } from "./scopes.ts";
 
 /**
@@ -39,6 +39,7 @@ export type ToolContext = {
     path: string,
     opts?: InvokeOptions,
   ) => Promise<T>;
+  invokeBinary: (path: string, opts?: Pick<InvokeOptions, "query">) => Promise<{ data: Uint8Array; mimeType: string }>;
 };
 
 export type ToolOutput = {
@@ -129,6 +130,7 @@ export function toolContext(deps: Deps, actor: McpActor, requestId: string, appr
     requestId,
     approved,
     invoke: (method, path, opts) => invoke(deps, actor, method, path, { requestId, ...opts }),
+    invokeBinary: (path, opts) => invokeBinary(deps, actor, path, { requestId, ...opts }),
   };
 }
 

@@ -102,6 +102,32 @@ export async function invoke<T = Record<string, unknown>>(
   return json as T;
 }
 
+/** Like {@link invoke}, for a route that answers with bytes (a rendered page image) rather than JSON. */
+export async function invokeBinary(
+  deps: Deps,
+  actor: McpActor,
+  path: string,
+  opts: Pick<InvokeOptions, "query" | "requestId"> = {},
+): Promise<{ data: Uint8Array; mimeType: string }> {
+  const url = new URL(path, "http://internal");
+  for (const [k, v] of Object.entries(opts.query ?? {}))
+    if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
+  const headers: Record<string, string> = opts.requestId ? { "x-request-id": opts.requestId } : {};
+  const res = await (await internalRouter(deps)).request(
+    url.pathname + url.search,
+    { method: "GET", headers },
+    { actor },
+  );
+  if (!res.ok) {
+    const e = ((await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } }).error ?? {};
+    throw new McpToolError(res.status, e.code ?? "http_error", e.message ?? `Request failed (${res.status})`);
+  }
+  return {
+    data: new Uint8Array(await res.arrayBuffer()),
+    mimeType: res.headers.get("content-type") ?? "application/octet-stream",
+  };
+}
+
 /** Errors raised by MCP code itself (not by a route) use the same shape. */
 export const toolError = (status: number, code: string, message: string, details?: unknown) =>
   new McpToolError(status, code, message, details);
