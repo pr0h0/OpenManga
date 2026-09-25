@@ -58,6 +58,14 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 - **Provider batches**: send image or text generation to OpenAI's or Google's batch API for **half price**, results within 24h, opt-in per run.
 - **Cost dashboard**: today/7d/30d/lifetime, provider and operation breakdowns, reference-size experiments, regeneration/acceptance rates. **Admin**: users, jobs, queues, Kokoro status, storage, errors, rate snapshots, maintenance.
 
+## Examples
+
+Work made with OpenManga. Click to watch on YouTube.
+
+<a href="https://www.youtube.com/watch?v=pBqFZr8k-ps"><img alt="I Finally Unlocked A System, And My Luck Started At -99 — a narrated manhwa recap made with OpenManga (watch on YouTube)" src="https://img.youtube.com/vi/pBqFZr8k-ps/maxresdefault.jpg" width="720"></a>
+
+*I Finally Unlocked A System, And My Luck Started At -99* — a narrated manhwa recap.
+
 ## Screenshots
 
 From a live instance, with real projects. Click any image for full size.
