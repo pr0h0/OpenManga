@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.3] — 2026-09-25
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes. Connected agents see the new
+tool after refreshing or reconnecting their OpenManga connector.
+
+### Added
+
+- **Agents can look at images, not just their ids.** The new MCP tool `get_image` returns the picture itself: a panel's
+  current artwork, a page as readers see it (speech bubbles, sound effects and captions included), a character,
+  location, prop or style reference, or any image in a project, at 384, 1024 or 2048 px. It follows the same access
+  rules as every other tool and generates nothing.
+
 ## [0.9.2] — 2026-09-25
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes.
