@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.4] — 2026-09-26
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
+new web app.
+
+### Fixed
+
+- **An open project no longer floods the server while images generate.** Every generation update reloaded every list
+  in the project (batches, characters, locations, chapters, usage), several times per image, until the server's rate
+  limit started refusing the page's requests. Only what changed is reloaded now, and updates arriving together are
+  combined into one reload at most every 2 seconds.
+- The batch and job lists poll every 15 seconds while work runs (was 4–5), and narration progress every 10 (was 3).
+  Live updates carry the changes; polling only covers a dropped connection.
+
 ## [0.9.3] — 2026-09-25
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes. Connected agents see the new
