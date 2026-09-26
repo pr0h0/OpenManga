@@ -18,3 +18,23 @@ test("a burst of calls runs once per window, and a continuous stream still runs"
   expect(runs).toBeGreaterThanOrEqual(3);
   expect(runs).toBeLessThanOrEqual(6);
 });
+
+test("a refresh queue batches, dedupes, and lets a prefix cover the keys under it", async () => {
+  const { refreshQueue } = await import("./coalesce.ts");
+  const flushed: { key: readonly unknown[]; exact?: boolean }[][] = [];
+  const add = refreshQueue((keys) => flushed.push(keys), 20);
+  for (let i = 0; i < 100; i++) {
+    add(["project", "p1", "generations"]);
+    add(["project", "p1", "generations", "batches"]);
+    add(["project", "p1"], true);
+    add(["panel", `x${i % 3}`]);
+  }
+  expect(flushed.length).toBe(0);
+  await Bun.sleep(35);
+  expect(flushed.length).toBe(1);
+  const keys = flushed[0]!.map((k) => JSON.stringify(k.key)).sort();
+  // The exact project key does not cover anything; "generations" covers "generations/batches".
+  expect(keys).toEqual(
+    ['["panel","x0"]', '["panel","x1"]', '["panel","x2"]', '["project","p1","generations"]', '["project","p1"]'].sort(),
+  );
+});

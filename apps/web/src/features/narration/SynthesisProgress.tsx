@@ -37,7 +37,7 @@ export function SynthesisProgress({ projectId, language }: { projectId: string; 
     // Follows the work: quick while anything is running, idle otherwise.
     refetchInterval: (r) => {
       const t = r.state.data?.totals;
-      return t && t.queued + t.processing > 0 ? 3000 : 30_000;
+      return t && t.queued + t.processing > 0 ? 10_000 : 30_000;
     },
   });
   const d = q.data;
