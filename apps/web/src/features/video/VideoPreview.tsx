@@ -619,10 +619,10 @@ export function VideoPreview({
           )}
 
           {showLines && (
-            // Exactly five rows tall; it scrolls, following the shot being played.
+            // Exactly five rows tall (rows, their four dividers and the border); it scrolls, following the current shot.
             <ol
               ref={listRef}
-              className="h-[9.25rem] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
+              className="h-[calc(5*1.85rem+6px)] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
             >
               {timeline.timed.map((s, i) => {
                 const narration = s.shot.segments.map((x) => x.text).join(" ");
