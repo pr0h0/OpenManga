@@ -95,7 +95,7 @@ From a live instance, with real projects. Click any image for full size.
 | [![Film shots](docs/images/film-shots.webp)](docs/images/film-shots.webp) | [![Vertical strip reader](docs/images/vertical-reader.webp)](docs/images/vertical-reader.webp) |
 | **Film** — a chapter as 16:9 shots, one per page, rendered as a narrated video. | **Vertical strip** — the chapter as one scrolling column, seams and lettering included, exactly as it exports. |
 | [![Video preview](docs/images/video-preview.webp)](docs/images/video-preview.webp) | [![Exports](docs/images/exports.webp)](docs/images/exports.webp) |
-| **Video preview** — the cut with its camera moves and narration timing, in the browser, before committing to a render. | **Exports** — narrated videos, PDFs, webtoon strips and packages, chapter by chapter. |
+| **Video preview** — the cut with its camera moves and narration, nearly full screen in the browser, with the narration lines below; check it before committing to a render. | **Exports** — narrated videos, PDFs, webtoon strips and packages, chapter by chapter. |
 
 ### Narration, queue and cost
 
