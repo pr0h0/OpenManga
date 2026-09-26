@@ -8,7 +8,18 @@ import {
   scrollPlan,
 } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
-import { Clapperboard, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import {
+  Clapperboard,
+  ListVideo,
+  Maximize,
+  Minimize,
+  Pause,
+  Play,
+  Settings2,
+  SkipBack,
+  SkipForward,
+  TriangleAlert,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, ApiError, assetUrl, get, post } from "../../api/client.ts";
 import { ConfirmDialog, ErrorBox, Field, Modal, Spinner, toast } from "../../components/ui.tsx";
@@ -172,6 +183,21 @@ function Backdrop({ src }: { src: string }) {
   );
 }
 
+/** A remembered on/off choice; storage can be unavailable (private mode), which just means the default. */
+function readFlag(key: string, fallback: boolean) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === "1";
+  } catch {
+    return fallback;
+  }
+}
+function writeFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, value ? "1" : "0");
+  } catch {}
+}
+
 const mmss = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -307,15 +333,34 @@ export function VideoPreview({
     }
   }, [current, timeline, o.cut]);
 
+  // The picture takes whatever space the controls leave, as the largest 16:9 box that fits it both ways.
   const [stageW, setStageW] = useState(960);
-  const stageRef = useRef<HTMLDivElement | null>(null);
+  const areaRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    const el = stageRef.current;
+    const el = areaRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setStageW(el.clientWidth));
+    const ro = new ResizeObserver(() => setStageW(Math.max(160, Math.min(el.clientWidth, (el.clientHeight * W) / H))));
     ro.observe(el);
     return () => ro.disconnect();
   }, [open, preview.data]);
+
+  // Shot list and settings fold away; the choice is remembered in this browser.
+  const [showLines, setShowLines] = useState(() => readFlag("om-preview-lines", true));
+  const [showOptions, setShowOptions] = useState(() => readFlag("om-preview-options", false));
+  useEffect(() => writeFlag("om-preview-lines", showLines), [showLines]);
+  useEffect(() => writeFlag("om-preview-options", showOptions), [showOptions]);
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === rootRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void rootRef.current?.requestFullscreen().catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -327,10 +372,11 @@ export function VideoPreview({
       }
       if (e.key === "ArrowRight") seek((timeline.timed[current + 1]?.startMs ?? timeline.totalMs) + 1);
       if (e.key === "ArrowLeft") seek((timeline.timed[Math.max(0, current - 1)]?.startMs ?? 0) + 1);
+      if (e.key === "f" || e.key === "F") toggleFullscreen();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, seek, timeline, current]);
+  }, [open, seek, timeline, current, toggleFullscreen]);
 
   const [notReady, setNotReady] = useState(false);
   const render = async (acknowledgeIssues: boolean) => {
@@ -359,46 +405,72 @@ export function VideoPreview({
     }
   };
 
+  const listRef = useRef<HTMLOListElement | null>(null);
+  useEffect(() => {
+    if (!showLines) return;
+    listRef.current?.querySelector<HTMLElement>(`[data-shot="${current}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [current, showLines]);
+
   const missingAudio = timeline.timed.reduce((n, s) => n + s.missingAudio, 0);
   const noArt = o.cut === "panel" ? timeline.timed.filter((s) => s.shot.panel && !s.shot.panel.art).length : 0;
   const scale = stageW / W;
   const t = shot ? Math.min(1, Math.max(0, (clock - shot.startMs) / shot.holdMs)) : 0;
 
+  const togglePlay = () => {
+    if (clock >= timeline.totalMs) seek(0);
+    setPlaying((p) => !p);
+  };
+
+  const issues = [
+    missingAudio > 0 && `${missingAudio} narration segment(s) have no audio yet and are silent`,
+    noArt > 0 && `${noArt} panel(s) have no artwork and show their lettered page crop`,
+    (preview.data?.unplacedLines ?? 0) > 0 &&
+      `${preview.data?.unplacedLines} narration line(s) aren't linked to a page or panel and are left out`,
+  ].filter(Boolean) as string[];
+
   return (
-    <Modal open={open} onClose={onClose} title={title} wide="xl">
+    <Modal open={open} onClose={onClose} title={title} wide="full">
       {preview.isLoading ? (
-        <div className="flex h-60 items-center justify-center">
+        <div className="flex h-full items-center justify-center">
           <Spinner className="size-6" />
         </div>
       ) : preview.error ? (
         <ErrorBox error={preview.error} onRetry={() => preview.refetch()} />
       ) : (
-        <div className="space-y-3">
-          <div
-            ref={stageRef}
-            className="relative w-full overflow-hidden rounded-lg bg-black"
-            style={{ aspectRatio: "16 / 9" }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 0,
-                width: W,
-                height: H,
-                transform: `scale(${scale})`,
-                transformOrigin: "0 0",
-                overflow: "hidden",
-              }}
+        <div ref={rootRef} className={`flex h-full flex-col gap-2 ${fullscreen ? "bg-black p-3 text-white" : ""}`}>
+          {/* The picture: all the room the rest leaves. */}
+          <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center">
+            {/* Clicking the picture plays or pauses, like any video player. */}
+            <button
+              type="button"
+              className="relative block cursor-pointer overflow-hidden rounded-lg bg-black p-0"
+              style={{ width: stageW, height: (stageW * H) / W }}
+              aria-label={playing ? "Pause" : "Play"}
+              disabled={!timeline.totalMs}
+              onClick={togglePlay}
             >
-              {shot && <ShotFrame shot={shot.shot} t={t} holdMs={shot.holdMs} o={o} />}
-            </div>
-            <div className="absolute right-2 bottom-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
-              {shot?.shot.label}
-            </div>
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  width: W,
+                  height: H,
+                  transform: `scale(${scale})`,
+                  transformOrigin: "0 0",
+                  overflow: "hidden",
+                }}
+              >
+                {shot && <ShotFrame shot={shot.shot} t={t} holdMs={shot.holdMs} o={o} />}
+              </div>
+              <div className="absolute right-2 bottom-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
+                {shot?.shot.label}
+              </div>
+            </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Controls and progress: always visible. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button
               type="button"
               className="btn-ghost p-1.5"
@@ -407,15 +479,7 @@ export function VideoPreview({
             >
               <SkipBack className="size-4" />
             </button>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                if (clock >= timeline.totalMs) seek(0);
-                setPlaying((p) => !p);
-              }}
-              disabled={!timeline.totalMs}
-            >
+            <button type="button" className="btn-primary" onClick={togglePlay} disabled={!timeline.totalMs}>
               {playing ? <Pause className="size-4" /> : <Play className="size-4" />} {playing ? "Pause" : "Play"}
             </button>
             <button
@@ -439,110 +503,150 @@ export function VideoPreview({
             <span className="muted text-xs tabular-nums">
               {mmss(clock)} / {mmss(timeline.totalMs)} · shot {current + 1}/{timeline.timed.length}
             </span>
+            {issues.length > 0 && (
+              <button
+                type="button"
+                className="btn-ghost p-1.5 text-amber-500"
+                title={issues.join("\n")}
+                aria-label={`${issues.length} issue(s)`}
+                onClick={() => setShowOptions(true)}
+              >
+                <TriangleAlert className="size-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              className={`btn-ghost p-1.5 ${showLines ? "bg-[var(--panel-2)]" : ""}`}
+              aria-pressed={showLines}
+              title="Show or hide the shot list"
+              onClick={() => setShowLines((v) => !v)}
+            >
+              <ListVideo className="size-4" /> <span className="hidden sm:inline">Lines</span>
+            </button>
+            <button
+              type="button"
+              className={`btn-ghost p-1.5 ${showOptions ? "bg-[var(--panel-2)]" : ""}`}
+              aria-pressed={showOptions}
+              title="Show or hide the render settings"
+              onClick={() => setShowOptions((v) => !v)}
+            >
+              <Settings2 className="size-4" /> <span className="hidden sm:inline">Settings</span>
+            </button>
+            <button
+              type="button"
+              className="btn-ghost p-1.5"
+              aria-label={fullscreen ? "Exit full screen" : "Full screen"}
+              title={fullscreen ? "Exit full screen (F)" : "Full screen (F)"}
+              onClick={toggleFullscreen}
+            >
+              {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+            </button>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-4">
-            {!scope.panelId && (
-              <Field label="Cut">
-                <select
-                  className="input"
-                  value={o.cut}
-                  onChange={(e) => {
-                    setPlaying(false);
-                    seek(0);
-                    setO({ ...o, cut: e.target.value as Options["cut"] });
-                  }}
-                >
-                  <option value="panel">Panel cut (Ken Burns)</option>
-                  <option value="page">Page cut</option>
-                </select>
-              </Field>
-            )}
-            <Field label={`Min seconds per ${o.cut === "panel" ? "panel" : "page"}`}>
-              <input
-                className="input"
-                type="number"
-                min={0.5}
-                max={30}
-                step={0.5}
-                value={o.minHoldMs / 1000}
-                onChange={(e) => setO({ ...o, minHoldMs: Math.round(Number(e.target.value) * 1000) })}
-              />
-            </Field>
-            {o.cut === "panel" ? (
-              <Field label={`Zoom ${Math.round(o.zoom * 100)}%`}>
-                <input
-                  type="range"
-                  className="w-full"
-                  min={0}
-                  max={0.15}
-                  step={0.01}
-                  value={o.zoom}
-                  onChange={(e) => setO({ ...o, zoom: Number(e.target.value) })}
-                />
-              </Field>
-            ) : (
-              <Field label="Page framing">
-                <select
-                  className="input"
-                  value={o.framing}
-                  onChange={(e) => setO({ ...o, framing: e.target.value as Options["framing"] })}
-                >
-                  <option value="width">3/5 width, slow scroll</option>
-                  <option value="height">Whole page visible</option>
-                </select>
-              </Field>
-            )}
-            <div className="flex items-end">
-              {scope.chapterId && (
-                <button type="button" className="btn-secondary w-full" onClick={() => void render(false)}>
-                  <Clapperboard className="size-4" /> Render final video
-                </button>
+          {showOptions && (
+            <div className="shrink-0 space-y-2">
+              <div className="grid gap-3 sm:grid-cols-4">
+                {!scope.panelId && (
+                  <Field label="Cut">
+                    <select
+                      className="input"
+                      value={o.cut}
+                      onChange={(e) => {
+                        setPlaying(false);
+                        seek(0);
+                        setO({ ...o, cut: e.target.value as Options["cut"] });
+                      }}
+                    >
+                      <option value="panel">Panel cut (Ken Burns)</option>
+                      <option value="page">Page cut</option>
+                    </select>
+                  </Field>
+                )}
+                <Field label={`Min seconds per ${o.cut === "panel" ? "panel" : "page"}`}>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0.5}
+                    max={30}
+                    step={0.5}
+                    value={o.minHoldMs / 1000}
+                    onChange={(e) => setO({ ...o, minHoldMs: Math.round(Number(e.target.value) * 1000) })}
+                  />
+                </Field>
+                {o.cut === "panel" ? (
+                  <Field label={`Zoom ${Math.round(o.zoom * 100)}%`}>
+                    <input
+                      type="range"
+                      className="w-full"
+                      min={0}
+                      max={0.15}
+                      step={0.01}
+                      value={o.zoom}
+                      onChange={(e) => setO({ ...o, zoom: Number(e.target.value) })}
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Page framing">
+                    <select
+                      className="input"
+                      value={o.framing}
+                      onChange={(e) => setO({ ...o, framing: e.target.value as Options["framing"] })}
+                    >
+                      <option value="width">3/5 width, slow scroll</option>
+                      <option value="height">Whole page visible</option>
+                    </select>
+                  </Field>
+                )}
+                <div className="flex items-end">
+                  {scope.chapterId && (
+                    <button type="button" className="btn-secondary w-full" onClick={() => void render(false)}>
+                      <Clapperboard className="size-4" /> Render final video
+                    </button>
+                  )}
+                </div>
+              </div>
+              {issues.length > 0 && (
+                <p className="rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+                  {issues.join(" · ")}
+                </p>
               )}
             </div>
-          </div>
-
-          {(missingAudio > 0 || noArt > 0 || (preview.data?.unplacedLines ?? 0) > 0) && (
-            <p className="rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
-              {[
-                missingAudio && `${missingAudio} narration segment(s) have no audio yet and are silent`,
-                noArt && `${noArt} panel(s) have no artwork and show their lettered page crop`,
-                preview.data?.unplacedLines &&
-                  `${preview.data.unplacedLines} narration line(s) aren't linked to a page or panel and are left out`,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
           )}
 
-          <ol className="max-h-56 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs">
-            {timeline.timed.map((s, i) => {
-              const narration = s.shot.segments.map((x) => x.text).join(" ");
-              return (
-                <li key={s.shot.key}>
-                  <button
-                    type="button"
-                    className={`flex w-full gap-3 px-2 py-1.5 text-left hover:bg-[var(--panel-2)] ${i === current ? "bg-accent-600/15" : ""}`}
-                    onClick={() => seek(s.startMs + 1)}
-                  >
-                    <span className="w-44 shrink-0 font-medium">{s.shot.label}</span>
-                    <span className="muted w-24 shrink-0 tabular-nums">
-                      {mmss(s.startMs)} · {(s.holdMs / 1000).toFixed(1)}s
-                    </span>
-                    {o.cut === "panel" && s.shot.panel && (
-                      <span className="muted w-14 shrink-0">
-                        {kenBurnsPullsOut(s.shot.panel.shotType) ? "zoom out" : "zoom in"}
+          {showLines && (
+            // Exactly five rows tall; it scrolls, following the shot being played.
+            <ol
+              ref={listRef}
+              className="h-[9.25rem] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
+            >
+              {timeline.timed.map((s, i) => {
+                const narration = s.shot.segments.map((x) => x.text).join(" ");
+                return (
+                  <li key={s.shot.key} data-shot={i}>
+                    <button
+                      type="button"
+                      className={`flex h-[1.85rem] w-full items-center gap-3 px-2 text-left hover:bg-[var(--panel-2)] ${i === current ? "bg-accent-600/15" : ""}`}
+                      onClick={() => seek(s.startMs + 1)}
+                    >
+                      <span className="w-44 shrink-0 truncate font-medium">{s.shot.label}</span>
+                      <span className="muted w-24 shrink-0 tabular-nums">
+                        {mmss(s.startMs)} · {(s.holdMs / 1000).toFixed(1)}s
                       </span>
-                    )}
-                    {/* Truncated to keep the row one line; the title shows the whole narration on hover. */}
-                    <span className="muted truncate" title={narration || undefined}>
-                      {narration || "— no narration —"}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
+                      {o.cut === "panel" && s.shot.panel && (
+                        <span className="muted w-14 shrink-0">
+                          {kenBurnsPullsOut(s.shot.panel.shotType) ? "zoom out" : "zoom in"}
+                        </span>
+                      )}
+                      {/* Truncated to keep the row one line; the title shows the whole narration on hover. */}
+                      <span className="muted truncate" title={narration || undefined}>
+                        {narration || "— no narration —"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </div>
       )}
       <ConfirmDialog
