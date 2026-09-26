@@ -1,7 +1,7 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { toast } from "../components/ui.tsx";
-import { coalesce } from "../lib/coalesce.ts";
+import { refreshQueue } from "../lib/coalesce.ts";
 import { get, post } from "./client.ts";
 import type { Meta, SessionUser } from "./types.ts";
 
@@ -75,20 +75,32 @@ export function onProjectEvent(fn: (e: ProjectEvent) => void) {
   };
 }
 
-let chapterRefresh: { qc: QueryClient; run: () => void } | undefined;
-const refreshChapters = (qc: QueryClient) => {
-  if (chapterRefresh?.qc !== qc)
-    chapterRefresh = { qc, run: coalesce(() => qc.invalidateQueries({ queryKey: ["chapter"] }), 1500) };
-  chapterRefresh.run();
-};
+/**
+ * Refreshes triggered by live events, per query client: batched and deduplicated, at most once every 2 s. A bulk
+ * run sends several events per image, many images at once; refreshing on each one was thousands of requests a
+ * minute and tripped the API's rate limit, which then refused the page's own requests.
+ */
+const queues = new WeakMap<QueryClient, (key: readonly unknown[], exact?: boolean) => void>();
+function eventRefresh(qc: QueryClient) {
+  let q = queues.get(qc);
+  if (!q) {
+    q = refreshQueue((keys) => {
+      for (const k of keys) qc.invalidateQueries({ queryKey: k.key, exact: k.exact });
+    }, 2000);
+    queues.set(qc, q);
+  }
+  return q;
+}
 
 function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
-  const inv = (key: readonly unknown[]) => qc.invalidateQueries({ queryKey: key });
+  const inv = eventRefresh(qc);
   switch (e.type) {
     case "job.updated":
       inv(qk.generations(projectId));
       inv(["job", e.jobId]);
-      inv(qk.project(projectId));
+      // Exact: ["project", id] prefixes every project query, so refreshing it as a prefix refetched the cast,
+      // world, chapters, batches and usage on every job update.
+      inv(qk.project(projectId), true);
       if (e.status === "completed" || e.status === "failed") inv(qk.usage(projectId));
       if (e.kind === "story_rewrite" || e.kind === "story_analysis") inv(qk.story(projectId));
       if (e.kind === "page_prompts" && e.targetId) inv(qk.page(String(e.targetId)));
@@ -123,9 +135,7 @@ function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
       break;
     case "audio.updated":
     case "narration.updated":
-      // Voicing a chapter sends several events per segment. Refetching every chapter query on each one was
-      // thousands of requests a minute and tripped the rate limit, so a stream of them shares one refetch.
-      refreshChapters(qc);
+      inv(["chapter"]);
       break;
     case "export.updated":
       inv(qk.exports(projectId));

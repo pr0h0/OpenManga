@@ -42,7 +42,8 @@ export function useProjectBatches(projectId: string) {
   return useQuery({
     queryKey: batchesKey(projectId),
     queryFn: () => get<BatchesResponse>(`/projects/${projectId}/generations/batches`),
-    refetchInterval: (q) => (q.state.data?.batches.some((b) => b.state !== "finished") ? 4000 : 30_000),
+    // Live events refresh it; polling is only the fallback for a dropped event stream.
+    refetchInterval: (q) => (q.state.data?.batches.some((b) => b.state !== "finished") ? 15_000 : 60_000),
   });
 }
 

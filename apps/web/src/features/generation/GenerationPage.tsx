@@ -31,7 +31,8 @@ export function GenerationPage() {
     getNextPageParam: (last) => (last.jobs.length === PAGE ? last.jobs.at(-1)!.createdAt : undefined),
     refetchInterval: (query) => {
       const c = query.state.data?.pages[0]?.counts;
-      return c && (c.queued ?? 0) + (c.processing ?? 0) > 0 ? 5000 : false;
+      // Live events refresh the list; this only covers a dropped event stream.
+      return c && (c.queued ?? 0) + (c.processing ?? 0) > 0 ? 15_000 : false;
     },
   });
 
