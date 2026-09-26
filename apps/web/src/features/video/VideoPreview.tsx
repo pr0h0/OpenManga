@@ -437,7 +437,12 @@ export function VideoPreview({
       ) : preview.error ? (
         <ErrorBox error={preview.error} onRetry={() => preview.refetch()} />
       ) : (
-        <div ref={rootRef} className={`flex h-full flex-col gap-2 ${fullscreen ? "bg-black p-3 text-white" : ""}`}>
+        // Full screen keeps the app's own panel colours around the picture (the picture itself is black), so the lines and
+        // settings read exactly as they do in the window, in either theme.
+        <div
+          ref={rootRef}
+          className={`flex h-full flex-col gap-2 ${fullscreen ? "bg-[var(--panel)] p-3 text-[var(--text)]" : ""}`}
+        >
           {/* The picture: all the room the rest leaves. */}
           <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center">
             {/* Clicking the picture plays or pauses, like any video player. */}
