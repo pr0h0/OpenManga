@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.5] — 2026-09-27
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
+new web app.
+
+### Changed
+
+- **The video preview is nearly full screen.** It opens at 95% of the window, and the picture takes all the room the
+  controls leave. Play, previous/next, the progress bar and the time are always visible; the shot list (five rows,
+  following the shot being played) and the render settings fold away and remember how you left them. A full-screen
+  button (or the F key) fills the whole screen, and clicking the picture plays or pauses it.
+
 ## [0.9.4] — 2026-09-26
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the

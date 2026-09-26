@@ -134,7 +134,8 @@ export function Modal({
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  wide?: boolean | "xl";
+  /** "full" is 95% of the viewport in both directions, for content that wants every pixel (the video preview). */
+  wide?: boolean | "xl" | "full";
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -149,9 +150,13 @@ export function Modal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
   if (!open) return null;
+  const full = wide === "full";
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[8vh]"
+      className={clsx(
+        "fixed inset-0 z-50 flex justify-center bg-black/50",
+        full ? "items-center p-[2.5vh]" : "items-start overflow-y-auto p-4 pt-[8vh]",
+      )}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -162,7 +167,13 @@ export function Modal({
         aria-labelledby={id}
         className={clsx(
           "card w-full shadow-2xl outline-none",
-          wide === "xl" ? "max-w-5xl" : wide ? "max-w-3xl" : "max-w-lg",
+          full
+            ? "flex h-[95vh] w-[95vw] max-w-none flex-col"
+            : wide === "xl"
+              ? "max-w-5xl"
+              : wide
+                ? "max-w-3xl"
+                : "max-w-lg",
         )}
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
@@ -173,7 +184,7 @@ export function Modal({
             <X className="size-4" />
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto p-4">{children}</div>
+        <div className={full ? "min-h-0 flex-1 p-3" : "max-h-[70vh] overflow-y-auto p-4"}>{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">{footer}</div>}
       </div>
     </div>
