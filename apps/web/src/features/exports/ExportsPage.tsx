@@ -1,8 +1,8 @@
 import { NARRATION_LANGUAGES } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
-import { Download, FileDown, XCircle } from "lucide-react";
+import { Download, FileDown, Trash2, XCircle } from "lucide-react";
 import { useState } from "react";
-import { ApiError, assetUrl, get, post } from "../../api/client.ts";
+import { ApiError, assetUrl, del, get, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
 import type { ChapterListItem, ExportListItem } from "../../api/types.ts";
 import {
@@ -148,10 +148,49 @@ export function ExportsPage() {
     success: "Cancellation sent",
   });
 
+  // Deleting removes the files from disk now instead of at their 30-day expiry.
+  const [deleting, setDeleting] = useState<"all" | string | null>(null);
+  const remove = useAction(
+    (target: "all" | string) =>
+      target === "all"
+        ? del<{ exports: number; bytes: number }>(`/projects/${projectId}/exports`)
+        : del<{ exports: number; bytes: number }>(`/exports/${target}`),
+    {
+      invalidate: [qk.exports(projectId), qk.project(projectId)],
+      success: (r) => `Deleted ${r.exports} export(s), ${fmt.bytes(r.bytes)} freed`,
+      onSuccess: () => setDeleting(null),
+    },
+  );
+  const running = (st: string) => st === "queued" || st === "processing" || st === "cancel_requested";
+
   const num = (v: string) => Number(v);
   return (
     <div className="mx-auto max-w-6xl p-6">
-      <PageHeader title="Exports" subtitle="Deterministic composition from structured pages. No AI calls." />
+      <PageHeader
+        title="Exports"
+        subtitle="Deterministic composition from structured pages. No AI calls."
+        actions={
+          jobs.data?.jobs.some((j) => !running(j.status) && j.kind !== "project_import") ? (
+            <button type="button" className="btn-ghost text-red-500" onClick={() => setDeleting("all")}>
+              <Trash2 className="size-4" /> Delete all exports
+            </button>
+          ) : undefined
+        }
+      />
+      <ConfirmDialog
+        open={deleting !== null}
+        title={deleting === "all" ? "Delete all exports?" : "Delete this export?"}
+        confirmLabel="Delete"
+        danger
+        busy={remove.isPending}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting)}
+      >
+        {deleting === "all"
+          ? "Every finished export of this project and its files are deleted from disk now. Running exports are kept."
+          : "This export and its files are deleted from disk now."}{" "}
+        This cannot be undone; export again to get the files back.
+      </ConfirmDialog>
       <div className="grid gap-4 lg:grid-cols-[22rem_1fr]">
         <form
           className="card space-y-3 self-start p-4"
@@ -502,6 +541,17 @@ export function ExportsPage() {
                     {(j.status === "queued" || j.status === "processing") && (
                       <button type="button" className="btn-ghost ml-auto" onClick={() => cancel.mutate(j.id)}>
                         <XCircle className="size-4" /> Cancel
+                      </button>
+                    )}
+                    {!running(j.status) && (
+                      <button
+                        type="button"
+                        className="btn-ghost ml-auto p-1.5"
+                        aria-label="Delete export"
+                        title="Delete this export and its files"
+                        onClick={() => setDeleting(j.id)}
+                      >
+                        <Trash2 className="size-4" />
                       </button>
                     )}
                   </div>

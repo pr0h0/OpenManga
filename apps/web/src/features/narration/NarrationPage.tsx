@@ -1,12 +1,12 @@
 import { NARRATION_LANGUAGES, voiceMatchesLanguage } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { AlertTriangle, CheckCircle2, Download, Mic, Plus, Volume2, Wand2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Mic, Plus, Trash2, Volume2, Wand2 } from "lucide-react";
 import { useState } from "react";
-import { api, get, patch, post } from "../../api/client.ts";
+import { api, del, get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
 import type { ChapterListItem, NarrationDoc, PanelRow, TtsStatus } from "../../api/types.ts";
-import { ConfirmDialog, EmptyState, ErrorBox, Field, PageHeader, Spinner, toast } from "../../components/ui.tsx";
+import { ConfirmDialog, EmptyState, ErrorBox, Field, fmt, PageHeader, Spinner, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { JsonBlock } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
@@ -120,6 +120,22 @@ export function NarrationPage() {
   const cancelSynth = useAction(
     () => post<{ cancelled: number }>(`/chapters/${chapterId}/narration/synthesize/cancel`),
     { invalidate, success: (r) => `Cancelled ${r.cancelled} queued synthesis job(s)` },
+  );
+  // Deletes audio files from disk; the narration text stays and can be synthesized again.
+  const [deleteAudio, setDeleteAudio] = useState<"chapter" | "project" | null>(null);
+  const [audioScope, setAudioScope] = useState<"chapter" | "project">("chapter");
+  const removeAudio = useAction(
+    (scope: "chapter" | "project") =>
+      del<{ files: number; bytes: number }>(
+        scope === "chapter"
+          ? `/chapters/${chapterId}/narration/audio?language=${encodeURIComponent(lang)}`
+          : `/projects/${projectId}/narration/audio`,
+      ),
+    {
+      invalidate: [...invalidate, qk.project(projectId), ["narration-progress", projectId]],
+      success: (r) => `Deleted ${r.files} audio file(s), ${fmt.bytes(r.bytes)} freed`,
+      onSuccess: () => setDeleteAudio(null),
+    },
   );
   const addLine = useAction(
     () => post(`/chapters/${chapterId}/narration/lines`, { text: "New narration line.", language: lang }),
@@ -323,6 +339,17 @@ export function NarrationPage() {
                 Cancel queued synthesis
               </button>
             )}
+            <button
+              type="button"
+              className="btn-ghost text-red-500"
+              title="Delete narration audio files from disk; the text is kept"
+              onClick={() => {
+                setAudioScope("chapter");
+                setDeleteAudio("chapter");
+              }}
+            >
+              <Trash2 className="size-4" /> Delete audio
+            </button>
           </div>
 
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -385,6 +412,30 @@ export function NarrationPage() {
           </details>
         </>
       )}
+      <ConfirmDialog
+        open={deleteAudio !== null}
+        title="Delete narration audio?"
+        confirmLabel="Delete audio"
+        danger
+        busy={removeAudio.isPending}
+        onClose={() => setDeleteAudio(null)}
+        onConfirm={() => removeAudio.mutate(audioScope)}
+      >
+        <div className="space-y-2">
+          <label className="flex items-center gap-2">
+            <input type="radio" checked={audioScope === "chapter"} onChange={() => setAudioScope("chapter")} />
+            This chapter ({lang})
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" checked={audioScope === "project"} onChange={() => setAudioScope("project")} />
+            The whole project: every chapter and language, including audio of deleted lines
+          </label>
+          <p className="muted">
+            The audio files are deleted from disk now. The narration text is kept; synthesize again to get audio back
+            (free with the local voice).
+          </p>
+        </div>
+      </ConfirmDialog>
       <ConfirmDialog
         open={confirmReplace}
         title="Replace narration?"
