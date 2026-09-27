@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.7] — 2026-09-27
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
+new web app.
+
+### Added
+
+- **See how much disk a project takes.** The project overview shows the space its files use — artwork, references,
+  narration, exports and derived copies — and how much of it is in the trash. Database rows are not counted.
+- **Delete exports and narration audio, files included.** The Exports page can delete one finished export or all of
+  them; running exports are kept. The Narration page can delete the audio of a chapter (in the selected language) or
+  of the whole project; the lines stay, ready to synthesize again, and deletion is refused while synthesis is queued
+  or running. The files leave the disk at once rather than going to the trash.
+
 ## [0.9.6] — 2026-09-27
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the

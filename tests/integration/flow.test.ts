@@ -1292,6 +1292,77 @@ describe("full production flow (mock AI)", () => {
     ]);
   });
 
+  test("the overview reports the project's disk use: every stored file and derived copy, by kind", async () => {
+    type Disk = {
+      totalBytes: number;
+      trashBytes: number;
+      byCategory: { artwork: number; references: number; narration: number; exports: number; derived: number };
+    };
+    const { disk } = await alice.get<{ disk: Disk }>(`/api/projects/${projectId}`);
+    const [files] = await h.deps.db.execute<{ originals: number; variants: number }>(sql`
+      select (select coalesce(sum(byte_size), 0)::float8 from assets where project_id = ${projectId}) as originals,
+        (select coalesce(sum(v.byte_size), 0)::float8 from asset_variants v join assets a on a.id = v.asset_id
+          where a.project_id = ${projectId}) as variants`);
+    expect(disk.totalBytes).toBe(files!.originals + files!.variants);
+    const c = disk.byCategory;
+    expect(c.artwork + c.references + c.narration + c.exports + c.derived).toBe(disk.totalBytes);
+    // By now this project has artwork, references, narration audio and exports on disk.
+    expect(c.artwork).toBeGreaterThan(0);
+    expect(c.references).toBeGreaterThan(0);
+    expect(c.narration).toBeGreaterThan(0);
+    expect(c.exports).toBeGreaterThan(0);
+    expect(disk.trashBytes).toBeLessThanOrEqual(disk.totalBytes);
+  });
+
+  test("exports and narration audio can be deleted, and their files leave the disk", async () => {
+    type Disk = { byCategory: { exports: number; narration: number } };
+    const files = async (type: string) =>
+      h.deps.db.execute<{ id: string; storage_key: string }>(
+        sql`select id, storage_key from assets where project_id = ${projectId} and type = ${type}`,
+      );
+    const onDisk = async (rows: { storage_key: string }[]) =>
+      (await Promise.all(rows.map((r) => h.deps.assets.storage.exists(r.storage_key)))).filter(Boolean).length;
+
+    // One export: its files are gone from disk at once, the others stay.
+    const { jobs } = await alice.get<{ jobs: { id: string; status: string; files: { assetId: string }[] }[] }>(
+      `/api/projects/${projectId}/exports`,
+    );
+    const done = jobs.filter((j) => j.status === "completed" && j.files.length);
+    expect(done.length).toBeGreaterThan(1);
+    const exportFilesBefore = [...(await files("export"))];
+    const one = await alice.del<{ exports: number; files: number; bytes: number }>(`/api/exports/${done[0]!.id}`);
+    expect(one.exports).toBe(1);
+    expect(one.files).toBe(done[0]!.files.length);
+    expect(one.bytes).toBeGreaterThan(0);
+    expect(await onDisk(exportFilesBefore)).toBe(exportFilesBefore.length - one.files);
+
+    // All the rest.
+    const all = await alice.del<{ exports: number }>(`/api/projects/${projectId}/exports`);
+    expect(all.exports).toBeGreaterThan(0);
+    expect(await onDisk(exportFilesBefore)).toBe(0);
+    expect((await files("export")).length).toBe(0);
+
+    // A chapter's audio: gone for that chapter's segments, the text kept.
+    const audioBefore = [...(await files("audio"))];
+    expect(audioBefore.length).toBeGreaterThan(0);
+    const ch = await alice.del<{ files: number; segments: number }>(`/api/chapters/${chapterId}/narration/audio`);
+    expect(ch.files).toBeGreaterThan(0);
+    const narration = await alice.get<{ lines: { text: string; segments: { activeAudioAssetId: string | null }[] }[] }>(
+      `/api/chapters/${chapterId}/narration`,
+    );
+    expect(narration.lines.length).toBeGreaterThan(0);
+    expect(narration.lines.flatMap((l) => l.segments).every((sg) => sg.activeAudioAssetId === null)).toBe(true);
+
+    // The whole project: no audio file left anywhere.
+    await alice.del(`/api/projects/${projectId}/narration/audio`);
+    expect((await files("audio")).length).toBe(0);
+    expect(await onDisk(audioBefore)).toBe(0);
+
+    const { disk } = await alice.get<{ disk: Disk }>(`/api/projects/${projectId}`);
+    expect(disk.byCategory.exports).toBe(0);
+    expect(disk.byCategory.narration).toBe(0);
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

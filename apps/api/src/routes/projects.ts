@@ -259,9 +259,39 @@ projectRoutes.get("/:projectId", async (c) => {
         .leftJoin(stylePresets, eq(stylePresets.id, projectStyles.stylePresetId))
         .where(eq(projectStyles.id, p.currentStyleId))
     : [];
+  // Disk use: every stored file of the project with its exact size, originals and their derived copies (thumbnails,
+  // previews, prompt references), including files in the trash. Database rows are not counted.
+  const byType = await db.execute<{ category: string; bytes: number; trash: number }>(sql`
+    select case
+        when a.type in ('panel_art', 'panel_mask', 'cover') then 'artwork'
+        when a.type in ('character_reference', 'location_reference', 'prop_reference', 'style_reference', 'source_image')
+          then 'references'
+        when a.type = 'audio' then 'narration'
+        when a.type = 'export' then 'exports'
+        else 'derived' end as category,
+      coalesce(sum(a.byte_size), 0)::float8 as bytes,
+      coalesce(sum(a.byte_size) filter (where a.deleted_at is not null), 0)::float8 as trash
+    from assets a where a.project_id = ${p.id} group by 1`);
+  const [variants] = await db.execute<{ bytes: number; trash: number }>(sql`
+    select coalesce(sum(v.byte_size), 0)::float8 as bytes,
+      coalesce(sum(v.byte_size) filter (where a.deleted_at is not null), 0)::float8 as trash
+    from asset_variants v join assets a on a.id = v.asset_id where a.project_id = ${p.id}`);
+  const categories = { artwork: 0, references: 0, narration: 0, exports: 0, derived: 0 };
+  let trashBytes = variants?.trash ?? 0;
+  for (const row of byType) {
+    categories[row.category as keyof typeof categories] += row.bytes;
+    trashBytes += row.trash;
+  }
+  categories.derived += variants?.bytes ?? 0;
+  const disk = {
+    totalBytes: Object.values(categories).reduce((a, b) => a + b, 0),
+    trashBytes,
+    byCategory: categories,
+  };
   return c.json({
     project: p,
     counts,
+    disk,
     role: membership?.role ?? (user(c).role === "admin" ? "admin" : null),
     style: style ? { ...style.s, preset: style.preset } : null,
   });

@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  assets,
   audioAssets,
   audioJobs,
   chapters,
@@ -25,7 +26,7 @@ import {
 } from "@openmanga/domain";
 import { narrationV5 } from "@openmanga/prompts";
 import { Bubble, type Frame, type ProjectSettings } from "@openmanga/schemas";
-import { applyNarrationPauses } from "@openmanga/services";
+import { applyNarrationPauses, recordAudit } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -864,4 +865,115 @@ audioRoutes.post("/chapters/:id/narration/synthesize/cancel", async (c) => {
   let cancelled = 0;
   for (const j of queued) if ((await deps.jobs.cancelAudio(j.id)) === "cancelled") cancelled++;
   return c.json({ cancelled, remaining: queued.length - cancelled });
+});
+
+// ---------------------------------------------------------------- deleting narration audio
+
+/**
+ * Deletes narration audio files from disk: every take of the segments in scope (the current one and earlier ones),
+ * or, for the whole project, every audio file it has, including takes of lines deleted since. The narration text is
+ * kept; the segments simply have no audio until they are synthesized again.
+ */
+async function deleteNarrationAudio(
+  c: Context<AppEnv>,
+  projectId: string,
+  scope: { chapterId?: string; language?: string },
+) {
+  const deps = c.get("deps");
+  const segs = await deps.db
+    .select({ id: narrationSegments.id, active: narrationSegments.activeAudioAssetId })
+    .from(narrationSegments)
+    .innerJoin(narrationLines, eq(narrationLines.id, narrationSegments.narrationLineId))
+    .where(
+      and(
+        eq(narrationSegments.projectId, projectId),
+        scope.chapterId ? eq(narrationLines.chapterId, scope.chapterId) : undefined,
+        scope.language ? eq(narrationLines.language, scope.language) : undefined,
+      ),
+    );
+  const segIds = segs.map((s) => s.id);
+  const running = await deps.db
+    .select({ id: audioJobs.id })
+    .from(audioJobs)
+    .where(
+      and(
+        eq(audioJobs.projectId, projectId),
+        inArray(audioJobs.status, ["queued", "processing"]),
+        scope.chapterId ? (segIds.length ? inArray(audioJobs.segmentId, segIds) : sql`false`) : undefined,
+      ),
+    )
+    .limit(1);
+  if (running.length)
+    throw conflict("Narration is being synthesized here. Cancel the synthesis (or let it finish) first.");
+  const assetIds = new Set<string>();
+  for (const s of segs) if (s.active) assetIds.add(s.active);
+  if (scope.chapterId) {
+    if (segIds.length)
+      for (const r of await deps.db
+        .select({ id: audioAssets.assetId })
+        .from(audioAssets)
+        .where(inArray(audioAssets.segmentId, segIds)))
+        assetIds.add(r.id);
+  } else {
+    for (const r of await deps.db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(eq(assets.projectId, projectId), eq(assets.type, "audio"))))
+      assetIds.add(r.id);
+  }
+  if (segIds.length)
+    await deps.db
+      .update(narrationSegments)
+      .set({ activeAudioAssetId: null })
+      .where(inArray(narrationSegments.id, segIds));
+  const rows = assetIds.size
+    ? await deps.db
+        .select()
+        .from(assets)
+        .where(inArray(assets.id, [...assetIds]))
+    : [];
+  let bytes = 0;
+  for (const a of rows) {
+    if (a.projectId !== projectId || a.type !== "audio") continue;
+    await deps.assets.hardDelete(a);
+    bytes += a.byteSize;
+  }
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId,
+    action: "narration.audio_delete",
+    targetType: scope.chapterId ? "chapter" : "project",
+    targetId: scope.chapterId ?? projectId,
+    metadata: { files: rows.length, bytes, language: scope.language ?? null },
+    requestId: c.get("requestId"),
+  });
+  return { files: rows.length, bytes, segments: segIds.length };
+}
+
+const AudioScope = z.object({ language: z.string().trim().min(2).max(16).optional() });
+doc({
+  method: "DELETE",
+  path: "/api/chapters/:id/narration/audio",
+  summary:
+    "Delete a chapter's narration audio from disk (every take; ?language= limits it to one track). The text is kept and can be synthesized again.",
+  tag: "narration",
+  query: AudioScope,
+});
+audioRoutes.delete("/chapters/:id/narration/audio", async (c) => {
+  const chapterId = uuidParam(c, "id");
+  const project = await entityAccess(c, "chapter", chapterId, "delete");
+  const { language } = query(c, AudioScope);
+  return c.json(await deleteNarrationAudio(c, project.id, { chapterId, language }));
+});
+
+doc({
+  method: "DELETE",
+  path: "/api/projects/:projectId/narration/audio",
+  summary:
+    "Delete all of a project's narration audio from disk, including takes of deleted lines. The text is kept and can be synthesized again.",
+  tag: "narration",
+});
+audioRoutes.delete("/projects/:projectId/narration/audio", async (c) => {
+  const project = await projectAccess(c, uuidParam(c, "projectId"), "delete");
+  return c.json(await deleteNarrationAudio(c, project.id, {}));
 });
