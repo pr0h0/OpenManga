@@ -1585,6 +1585,12 @@ interface ImageDescription {
      * @example ["photoreal rendering","heavy speed lines"]
      */
     exclusions?: string[];
+    /**
+     * true when the image is a photograph or a photoreal render rather than drawn or painted art. Image prompts then ask for live-action photography.
+     * Optional — may be left out.
+     * @example false
+     */
+    photoreal?: boolean;
   };
   /**
    * The most prominent figure, as a character bible. It can be used to create a character. Leave a field empty rather than inventing what the image does not show.
@@ -1962,7 +1968,8 @@ interface ImageDescription {
     "exclusions": [
       "photoreal rendering",
       "heavy speed lines"
-    ]
+    ],
+    "photoreal": false
   },
   "character": {
     "genderPresentation": "woman",

@@ -269,5 +269,7 @@ export const StyleDefinition = z.object({
   screenTones: z.string().default(""),
   lighting: z.string().default(""),
   exclusions: z.array(z.string()).default([]),
+  /** Live-action photography rather than drawn art: prompts drop their comic/illustration wording. */
+  photoreal: z.boolean().optional(),
 });
 export type StyleDefinition = z.infer<typeof StyleDefinition>;
