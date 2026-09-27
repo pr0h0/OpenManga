@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.6] — 2026-09-27
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
+new web app.
+
+### Fixed
+
+- **The video preview keeps its narration playing in a background tab.** Switching to another tab or app used to
+  silence it after the current line while the preview kept running. Narration is now scheduled on the browser's
+  audio clock, which keeps going in the background, and the picture catches up when you come back.
+- In full screen the video preview's shot list and settings kept the theme's colours on a black background and were
+  hard to read; full screen now uses the app's own background around the picture.
+- The fifth line of the video preview's shot list is shown in full.
+
 ## [0.9.5] — 2026-09-27
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
