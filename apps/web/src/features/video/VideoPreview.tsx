@@ -437,7 +437,12 @@ export function VideoPreview({
       ) : preview.error ? (
         <ErrorBox error={preview.error} onRetry={() => preview.refetch()} />
       ) : (
-        <div ref={rootRef} className={`flex h-full flex-col gap-2 ${fullscreen ? "bg-black p-3 text-white" : ""}`}>
+        // Full screen keeps the app's own panel colours around the picture (the picture itself is black), so the lines and
+        // settings read exactly as they do in the window, in either theme.
+        <div
+          ref={rootRef}
+          className={`flex h-full flex-col gap-2 ${fullscreen ? "bg-[var(--panel)] p-3 text-[var(--text)]" : ""}`}
+        >
           {/* The picture: all the room the rest leaves. */}
           <div ref={areaRef} className="flex min-h-0 flex-1 items-center justify-center">
             {/* Clicking the picture plays or pauses, like any video player. */}
@@ -614,10 +619,10 @@ export function VideoPreview({
           )}
 
           {showLines && (
-            // Exactly five rows tall; it scrolls, following the shot being played.
+            // Exactly five rows tall (rows, their four dividers and the border); it scrolls, following the current shot.
             <ol
               ref={listRef}
-              className="h-[9.25rem] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
+              className="h-[calc(5*1.85rem+6px)] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
             >
               {timeline.timed.map((s, i) => {
                 const narration = s.shot.segments.map((x) => x.text).join(" ");
