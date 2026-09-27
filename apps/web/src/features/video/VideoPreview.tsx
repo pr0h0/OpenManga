@@ -245,70 +245,126 @@ export function VideoPreview({
   const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(false);
   const clockRef = useRef(0);
-  const started = useRef({ perf: 0, clock: 0 });
-  const audio = useRef<{ el: HTMLAudioElement; cue: number } | null>(null);
-  const audioCache = useRef(new Map<string, HTMLAudioElement>());
+  // Playback runs on the Web Audio clock, not on animation frames: a hidden tab or a covered window stops animation
+  // frames, which used to stop the next narration segment from ever starting. The audio clock keeps going, every
+  // segment is scheduled on it ahead of time, and the picture simply reads the same clock when it is on screen.
+  const player = useRef<{
+    ctx: AudioContext;
+    /** clock (ms) = base.clock + (ctx.currentTime - base.ctx) * 1000 while playing */
+    base: { clock: number; ctx: number };
+    sources: Map<number, AudioBufferSourceNode>;
+    /** Bumped on every seek or pause, so a segment still decoding for an old position is not started. */
+    epoch: number;
+  } | null>(null);
+  const buffers = useRef(new Map<string, Promise<AudioBuffer | null>>());
 
-  const stopAudio = useCallback(() => {
-    audio.current?.el.pause();
-    audio.current = null;
+  const now = useCallback(() => {
+    const p = player.current;
+    if (!p) return clockRef.current;
+    return p.base.clock + (p.ctx.currentTime - p.base.ctx) * 1000;
+  }, []);
+  const stopSources = useCallback(() => {
+    const p = player.current;
+    if (!p) return;
+    p.epoch++;
+    for (const src of p.sources.values()) {
+      try {
+        src.stop();
+      } catch {}
+    }
+    p.sources.clear();
   }, []);
   const seek = useCallback(
     (ms: number) => {
       const v = Math.min(Math.max(0, ms), timeline.totalMs);
+      stopSources();
       clockRef.current = v;
-      started.current = { perf: performance.now(), clock: v };
-      stopAudio();
+      if (player.current) player.current.base = { clock: v, ctx: player.current.ctx.currentTime };
       setClock(v);
     },
-    [timeline.totalMs, stopAudio],
+    [timeline.totalMs, stopSources],
   );
 
   useEffect(() => {
     if (!playing) return;
-    started.current = { perf: performance.now(), clock: clockRef.current };
-    let raf = 0;
-    const audioFor = (id: string) => {
-      let el = audioCache.current.get(id);
-      if (!el) {
-        el = new Audio(assetUrl(id));
-        el.preload = "auto";
-        audioCache.current.set(id, el);
+    const AudioCtx =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!player.current)
+      player.current = { ctx: new AudioCtx(), base: { clock: 0, ctx: 0 }, sources: new Map(), epoch: 0 };
+    const p = player.current;
+    void p.ctx.resume().catch(() => {});
+    p.base = { clock: clockRef.current, ctx: p.ctx.currentTime };
+    const decode = (id: string) => {
+      let b = buffers.current.get(id);
+      if (!b) {
+        b = fetch(assetUrl(id))
+          .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+          .then((data) => p.ctx.decodeAudioData(data))
+          .catch(() => null);
+        buffers.current.set(id, b);
       }
-      return el;
+      return b;
     };
+    const LOOKAHEAD_MS = 30_000;
+    // Queues every segment that overlaps the next 30 s at its exact place on the audio clock.
+    const schedule = () => {
+      const at = now();
+      const epoch = p.epoch;
+      timeline.cues.forEach((cue, i) => {
+        if (p.sources.has(i) || cue.endMs <= at || cue.startMs > at + LOOKAHEAD_MS) return;
+        p.sources.set(i, null as unknown as AudioBufferSourceNode); // reserved while it decodes
+        void decode(cue.audioAssetId).then((buf) => {
+          if (epoch !== p.epoch) return;
+          if (!buf) return void p.sources.delete(i);
+          const src = p.ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(p.ctx.destination);
+          const when = p.base.ctx + (cue.startMs - p.base.clock) / 1000;
+          const late = Math.max(0, p.ctx.currentTime - when);
+          if (late >= buf.duration) return;
+          src.start(Math.max(when, p.ctx.currentTime), late);
+          p.sources.set(i, src);
+        });
+      });
+    };
+    // Timers keep running (throttled to about once a second) in a background tab, and a tab that is playing audio is
+    // not throttled further, so a 30 s lookahead is always refilled in time.
     const tick = () => {
-      const now = started.current.clock + (performance.now() - started.current.perf);
-      if (now >= timeline.totalMs) {
-        clockRef.current = timeline.totalMs;
+      const t = now();
+      clockRef.current = Math.min(t, timeline.totalMs);
+      if (t >= timeline.totalMs) {
+        stopSources();
         setClock(timeline.totalMs);
-        stopAudio();
         setPlaying(false);
         return;
       }
-      clockRef.current = now;
-      const ci = timeline.cues.findIndex((c) => now >= c.startMs && now < c.endMs);
-      if (ci !== (audio.current?.cue ?? -1)) {
-        stopAudio();
-        if (ci >= 0) {
-          const cue = timeline.cues[ci]!;
-          const el = audioFor(cue.audioAssetId);
-          el.currentTime = (now - cue.startMs) / 1000;
-          void el.play().catch(() => {});
-          audio.current = { el, cue: ci };
-          // warm the next couple of segments
-          for (const next of timeline.cues.slice(ci + 1, ci + 3)) audioFor(next.audioAssetId);
-        }
-      }
-      setClock(now);
-      raf = requestAnimationFrame(tick);
+      schedule();
     };
-    raf = requestAnimationFrame(tick);
+    tick();
+    const timer = setInterval(tick, 250);
+    let raf = 0;
+    const frame = () => {
+      setClock(Math.min(now(), timeline.totalMs));
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
     return () => {
+      clearInterval(timer);
       cancelAnimationFrame(raf);
-      stopAudio();
+      clockRef.current = Math.min(now(), timeline.totalMs);
+      stopSources();
     };
-  }, [playing, timeline, stopAudio]);
+  }, [playing, timeline, now, stopSources]);
+
+  // The audio context is closed with the preview.
+  useEffect(
+    () => () => {
+      stopSources();
+      void player.current?.ctx.close().catch(() => {});
+      player.current = null;
+    },
+    [stopSources],
+  );
 
   useEffect(() => {
     if (!open) {
