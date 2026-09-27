@@ -185,6 +185,33 @@ export const BUILTIN_STYLE_PRESETS: { key: string; name: string; definition: Sty
       exclusions: common,
     },
   },
+  {
+    key: "realistic",
+    name: "Realistic",
+    definition: {
+      summary: "Photorealistic live-action look, like stills from a high-budget film shot on a cinema camera.",
+      lineTreatment: "No outlines or ink lines; edges come from light, focus and material.",
+      colorPolicy: "Natural, film-graded color with true-to-life skin tones.",
+      shading: "Physically accurate light falloff, soft shadows and ambient occlusion.",
+      detailLevel: "Real-world detail: skin pores, fabric weave, wear and dirt on surfaces.",
+      faceRendering:
+        "Real human faces with natural proportions and asymmetry, believable skin, consistent identity across shots.",
+      backgroundRendering: "Real locations and sets with depth of field.",
+      motionEffects: "Natural motion blur only; no drawn effects.",
+      contrast: "Cinematic, with detail kept in highlights and shadows.",
+      screenTones: "None.",
+      lighting: "Motivated practical and natural light, cinematic key, fill and rim.",
+      exclusions: [
+        ...common,
+        "drawing, illustration, painting or comic look",
+        "anime or cartoon features",
+        "outlines, ink lines or cel shading",
+        "3D render, CGI or video-game look",
+        "plastic, airbrushed skin",
+      ],
+      photoreal: true,
+    },
+  },
 ];
 
 export const COLOR_MODE_DIRECTIVES = {

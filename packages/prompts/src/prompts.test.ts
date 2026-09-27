@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CharacterBible, LocationDescription, PanelSpec, PropDescription } from "@openmanga/schemas";
+import { CharacterBible, LocationDescription, PanelSpec, PropDescription, StyleDefinition } from "@openmanga/schemas";
 import {
   allTemplateRecords,
   chapterOutlineV2,
@@ -149,6 +149,22 @@ describe("panel prompt compilation", () => {
     const turn = propReferenceV1.compile({ ...lamp, kind: "prop_multi_angle" });
     expect(turn).toContain("Create an object turnaround sheet");
     expect(turn).toContain("front, side, back and top views");
+  });
+
+  test("a photoreal style asks for live-action photography, not illustration", () => {
+    const p = panelGenerationV1.compile({
+      ...base,
+      style: {
+        ...style,
+        presetName: "Realistic",
+        definition: StyleDefinition.parse({ summary: "Photorealistic live-action look.", photoreal: true }),
+      },
+      panel: { ...base.panel, aspectRatio: 16 / 9 },
+      film: true,
+    });
+    expect(p.startsWith("Create one cinematic 16:9 film frame in photorealistic live-action style")).toBe(true);
+    expect(p).toContain("Format: photorealistic live-action cinematography");
+    expect(p).not.toMatch(/manhwa|illustration style/i);
   });
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {

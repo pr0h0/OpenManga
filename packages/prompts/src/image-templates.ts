@@ -53,6 +53,12 @@ const projectTypeLabel: Record<string, string> = {
   illustrated_story: "storybook illustration",
 };
 
+/** What the images are, for the opening line: the project type, or live-action film for a photoreal style. */
+const kindLabel = (s: StyleContext) =>
+  s.definition?.photoreal ? "live-action film" : (projectTypeLabel[s.projectType] ?? "comic");
+const PHOTOREAL_FORMAT =
+  "Format: photorealistic live-action cinematography — real people, real materials and real light, photographed with a cinema camera. Not a drawing, painting, illustration, anime or 3D render.";
+
 /** Preset colour/screentone wording that contradicts a colour project ("Black and white with grey tones"). */
 const MONOCHROME_WORDING =
   /black\s*(and|&)\s*white|monochrome|grey\s*tones|gray\s*tones|screentone|halftone|no colou?r/i;
@@ -80,7 +86,7 @@ export function styleSection(s: StyleContext) {
     // What the style avoids. Written by every built-in preset and by the style analyst, and previously dropped on
     // the floor: the definition said "no photoreal rendering" and nothing in the prompt ever said so.
     d?.exclusions?.length ? `Avoid: ${d.exclusions.map(clean).filter(Boolean).join("; ")}.` : "",
-    FORMAT_DIRECTIVES[s.projectType] ?? "",
+    d?.photoreal ? PHOTOREAL_FORMAT : (FORMAT_DIRECTIVES[s.projectType] ?? ""),
     clean(s.customDescription) && `Project-specific style: ${clean(s.customDescription)}`,
     s.colorDirective,
     s.hasStyleReference
@@ -157,7 +163,7 @@ export const characterReferenceV1: ImageTemplate<CharacterReferenceInput> = {
   compile(i) {
     const b = i.bible;
     return join([
-      `Create ${refKindText[i.kind]} for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production. This is the canonical design reference that all future panels must match.`,
+      `Create ${refKindText[i.kind]} for a ${kindLabel(i.style)} production. This is the canonical design reference that all future panels must match.`,
       styleSection(i.style),
       section("CHARACTER", [
         `${i.name} (${i.role}).`,
@@ -237,7 +243,7 @@ export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
     const d = i.description;
     const k = locationKind[i.kind ?? "location"];
     return join([
-      `Create ${k.what} of "${i.name}" for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production. It is the canonical design reference for this recurring location.`,
+      `Create ${k.what} of "${i.name}" for a ${kindLabel(i.style)} production. It is the canonical design reference for this recurring location.`,
       styleSection(i.style),
       section("LOCATION", [
         clean(d.summary),
@@ -274,7 +280,7 @@ export const propReferenceV1: ImageTemplate<PropReferenceInput> = {
   compile(i) {
     const d = i.description;
     return join([
-      `Create ${i.kind === "prop_multi_angle" ? "an object turnaround sheet" : "a clean object design reference"} of "${i.name}" for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production.`,
+      `Create ${i.kind === "prop_multi_angle" ? "an object turnaround sheet" : "a clean object design reference"} of "${i.name}" for a ${kindLabel(i.style)} production.`,
       styleSection(i.style),
       section("PROP", [
         clean(d.summary),
@@ -301,13 +307,13 @@ export type StyleReferenceInput = { style: StyleContext; subject: string };
 
 export const styleReferenceV1: ImageTemplate<StyleReferenceInput> = {
   name: "style-reference",
-  version: 4,
+  version: 5,
   kind: "image",
   description: "Style exploration image demonstrating the project's art direction.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, SUBJECT, STRICT EXCLUSIONS",
   compile(i) {
     return join([
-      `Create a style reference illustration that clearly demonstrates the art direction below for a ${projectTypeLabel[i.style.projectType] ?? "comic"} production.`,
+      `Create a style reference image that clearly demonstrates the art direction below for a ${kindLabel(i.style)} production.`,
       styleSection(i.style),
       section("SUBJECT", [
         clean(i.subject) ||
@@ -450,8 +456,8 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
 
     return join([
       i.film
-        ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${projectTypeLabel[i.style.projectType] ?? "comic"} illustration style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
-        : `Create one clean ${projectTypeLabel[i.style.projectType] ?? "comic"} panel, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
+        ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
+        : `Create one clean ${kindLabel(i.style)} panel, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
       styleSection(i.style),
       i.scene
         ? section("SCENE CONTEXT", [
@@ -615,7 +621,7 @@ export const coverV1: ImageTemplate<CoverInput> = {
   body: "ROLE / GOAL, PROJECT ART DIRECTION, STORY, CHARACTERS, COMPOSITION, STRICT EXCLUSIONS",
   compile(i) {
     return join([
-      `Create portrait cover artwork for a ${projectTypeLabel[i.style.projectType] ?? "comic"} series. Artwork only — the title will be added later by our layout software.`,
+      `Create portrait cover artwork for a ${kindLabel(i.style)} series. Artwork only — the title will be added later by our layout software.`,
       styleSection(i.style),
       section("STORY", [clean(i.summary)]),
       i.characters.length
