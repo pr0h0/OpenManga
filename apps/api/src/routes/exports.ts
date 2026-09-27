@@ -14,6 +14,7 @@ import {
 } from "@openmanga/db";
 import { providerSupports } from "@openmanga/domain";
 import { issuesForExport, projectReadiness, recordAudit } from "@openmanga/services";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -278,4 +279,67 @@ exportRoutes.get("/projects/:projectId/readiness", async (c) => {
       mockMode: deps.config.AI_MOCK_MODE,
     },
   });
+});
+
+// ---------------------------------------------------------------- deleting exports
+
+const RUNNING_EXPORT = new Set(["queued", "processing", "cancel_requested"]);
+
+/** Deletes export jobs and their files from disk now (not after the 30-day expiry). */
+async function deleteExportJobs(c: Context<AppEnv>, projectId: string, jobIds: string[]) {
+  const deps = c.get("deps");
+  if (!jobIds.length) return { exports: 0, files: 0, bytes: 0 };
+  const files = await deps.db
+    .select({ a: assets })
+    .from(exportsTable)
+    .innerJoin(assets, eq(assets.id, exportsTable.assetId))
+    .where(inArray(exportsTable.exportJobId, jobIds));
+  let bytes = 0;
+  for (const { a } of files) {
+    await deps.assets.hardDelete(a);
+    bytes += a.byteSize;
+  }
+  await deps.db.delete(exportJobs).where(and(eq(exportJobs.projectId, projectId), inArray(exportJobs.id, jobIds)));
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId,
+    action: "export.delete",
+    metadata: { exports: jobIds.length, files: files.length, bytes },
+    requestId: c.get("requestId"),
+  });
+  return { exports: jobIds.length, files: files.length, bytes };
+}
+
+doc({
+  method: "DELETE",
+  path: "/api/exports/:id",
+  summary: "Delete an export and its files from disk now. A queued or running export has to be cancelled first.",
+  tag: "exports",
+});
+exportRoutes.delete("/exports/:id", async (c) => {
+  const id = uuidParam(c, "id");
+  const [job] = await c.get("deps").db.select().from(exportJobs).where(eq(exportJobs.id, id));
+  if (!job) throw notFound("Export");
+  await projectAccess(c, job.projectId, "delete");
+  if (RUNNING_EXPORT.has(job.status)) throw conflict("This export is still running. Cancel it first.");
+  return c.json(await deleteExportJobs(c, job.projectId, [id]));
+});
+
+doc({
+  method: "DELETE",
+  path: "/api/projects/:projectId/exports",
+  summary:
+    "Delete every finished export of the project and their files from disk now. Running exports and import records are kept.",
+  tag: "exports",
+});
+exportRoutes.delete("/projects/:projectId/exports", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "delete");
+  const jobs = await c
+    .get("deps")
+    .db.select({ id: exportJobs.id, status: exportJobs.status, kind: exportJobs.kind })
+    .from(exportJobs)
+    .where(eq(exportJobs.projectId, p.id));
+  const ids = jobs.filter((j) => !RUNNING_EXPORT.has(j.status) && j.kind !== "project_import").map((j) => j.id);
+  const out = await deleteExportJobs(c, p.id, ids);
+  return c.json({ ...out, skippedRunning: jobs.filter((j) => RUNNING_EXPORT.has(j.status)).length });
 });
