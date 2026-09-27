@@ -1292,6 +1292,28 @@ describe("full production flow (mock AI)", () => {
     ]);
   });
 
+  test("the overview reports the project's disk use: every stored file and derived copy, by kind", async () => {
+    type Disk = {
+      totalBytes: number;
+      trashBytes: number;
+      byCategory: { artwork: number; references: number; narration: number; exports: number; derived: number };
+    };
+    const { disk } = await alice.get<{ disk: Disk }>(`/api/projects/${projectId}`);
+    const [files] = await h.deps.db.execute<{ originals: number; variants: number }>(sql`
+      select (select coalesce(sum(byte_size), 0)::float8 from assets where project_id = ${projectId}) as originals,
+        (select coalesce(sum(v.byte_size), 0)::float8 from asset_variants v join assets a on a.id = v.asset_id
+          where a.project_id = ${projectId}) as variants`);
+    expect(disk.totalBytes).toBe(files!.originals + files!.variants);
+    const c = disk.byCategory;
+    expect(c.artwork + c.references + c.narration + c.exports + c.derived).toBe(disk.totalBytes);
+    // By now this project has artwork, references, narration audio and exports on disk.
+    expect(c.artwork).toBeGreaterThan(0);
+    expect(c.references).toBeGreaterThan(0);
+    expect(c.narration).toBeGreaterThan(0);
+    expect(c.exports).toBeGreaterThan(0);
+    expect(disk.trashBytes).toBeLessThanOrEqual(disk.totalBytes);
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

@@ -49,6 +49,12 @@ export type ProjectOverview = {
   project: ProjectRow;
   role: "owner" | "editor" | "viewer" | "admin" | null;
   counts: Record<string, number>;
+  /** Stored files of the project (originals and derived copies, trash included), not database rows. */
+  disk?: {
+    totalBytes: number;
+    trashBytes: number;
+    byCategory: { artwork: number; references: number; narration: number; exports: number; derived: number };
+  };
   style: (ProjectStyleRow & { preset: StylePresetRow | null }) | null;
 };
 
