@@ -4,7 +4,7 @@ import { CheckCircle2, Circle, ImagePlus } from "lucide-react";
 import { useState } from "react";
 import { get, post } from "../../api/client.ts";
 import { qk } from "../../api/hooks.ts";
-import type { CastCard, JobListItem } from "../../api/types.ts";
+import type { CastCard, JobListItem, ProjectOverview } from "../../api/types.ts";
 import {
   AssetImage,
   ErrorBox,
@@ -112,6 +112,7 @@ export function OverviewPage() {
               </div>
             ))}
           </div>
+          {data.disk && <DiskUsage disk={data.disk} />}
           <ReadinessCard
             projectId={projectId}
             budgetUsd={p.settings.budgetUsd ?? null}
@@ -390,6 +391,35 @@ function ReadinessCard({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/** What the project's files take on disk: every stored original and derived copy, including the trash. */
+function DiskUsage({ disk }: { disk: NonNullable<ProjectOverview["disk"]> }) {
+  const parts: [string, number][] = [
+    ["Artwork", disk.byCategory.artwork],
+    ["References", disk.byCategory.references],
+    ["Narration audio", disk.byCategory.narration],
+    ["Exports", disk.byCategory.exports],
+    ["Previews and thumbnails", disk.byCategory.derived],
+  ];
+  return (
+    <div className="card flex flex-wrap items-baseline gap-x-4 gap-y-1 p-3">
+      <div>
+        <span className="muted text-xs">On disk </span>
+        <span className="text-lg font-semibold">{fmt.bytes(disk.totalBytes)}</span>
+      </div>
+      <div className="muted flex flex-wrap gap-x-3 gap-y-1 text-xs">
+        {parts
+          .filter(([, b]) => b > 0)
+          .map(([label, b]) => (
+            <span key={label}>
+              {label} {fmt.bytes(b)}
+            </span>
+          ))}
+        {disk.trashBytes > 0 && <span>· of which in trash {fmt.bytes(disk.trashBytes)}</span>}
+      </div>
     </div>
   );
 }
