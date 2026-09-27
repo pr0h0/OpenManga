@@ -584,6 +584,10 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       'What the style clearly avoids, one per item. Image prompts list them under "Avoid".',
       ["photoreal rendering", "heavy speed lines"],
     ],
+    "style.photoreal": [
+      "true when the image is a photograph or a photoreal render rather than drawn or painted art. Image prompts then ask for live-action photography.",
+      false,
+    ],
     character:
       "The most prominent figure, as a character bible. It can be used to create a character. Leave a field empty " +
       "rather than inventing what the image does not show.",
