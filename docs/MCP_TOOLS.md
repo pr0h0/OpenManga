@@ -3006,6 +3006,9 @@ get: the project's style history with references. set: a new style version from 
               "items": {
                 "type": "string"
               }
+            },
+            "photoreal": {
+              "type": "boolean"
             }
           }
         }
