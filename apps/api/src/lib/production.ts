@@ -22,7 +22,7 @@ import { withDeps } from "./middleware.ts";
 
 type Run = typeof productionRuns.$inferSelect;
 type Project = typeof projects.$inferSelect;
-type AiChoice = { credentialId: string | null; model?: string | null } | null;
+type AiChoice = { credentialId: string | null; model?: string | null; manual?: boolean } | null;
 export type RunOptions = {
   reviewGates: boolean;
   preparePrompts: boolean;
@@ -143,7 +143,8 @@ type Started = Pick<ProductionStep, "status" | "jobIds" | "exportJobId" | "note"
 
 const textBatch = (p: Project) => p.settings.batchPolicy === "cheapest" || p.settings.batchPolicy === "hybrid";
 const imageBatch = (p: Project) => p.settings.batchPolicy === "cheapest";
-const text = (x: Ctx) => ({ ai: x.o.ai?.text ?? null, batch: textBatch(x.project) });
+// A pasted answer cannot wait in a provider batch, so paste mode always runs now, whatever the policy says.
+const text = (x: Ctx) => ({ ai: x.o.ai?.text ?? null, batch: textBatch(x.project) && !x.o.ai?.text?.manual });
 const image = (x: Ctx) => ({ ai: x.o.ai?.image ?? null });
 
 async function chapterRows(x: Ctx) {
@@ -216,7 +217,7 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     });
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
-  async review_references(x) {
+  async review_references() {
     return {
       status: "review",
       note: "Approve the references you want kept (Cast and World pages); unapproved ones do not pin identity.",
@@ -372,7 +373,7 @@ export async function advanceRun(deps: Deps, runId: string) {
   busy.add(runId);
   try {
     const [run] = await deps.db.select().from(productionRuns).where(eq(productionRuns.id, runId));
-    if (!run || run.status !== "running") return;
+    if (run?.status !== "running") return;
     const save = async (patch: Partial<Run>) => {
       Object.assign(run, patch);
       await deps.db

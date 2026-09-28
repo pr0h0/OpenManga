@@ -104,8 +104,9 @@ its first sheet. Each reference is drawn for the item's current version, as a dr
 **Main-only reference policy.** With `settings.referencePolicy = "main"` (Project settings → Production →
 *References to generate in bulk*), these bulk runs skip characters whose role is `minor`, and locations and props
 whose current version appears in fewer than two panels; their prompt text describes them instead. The estimate counts
-them as skipped (`skippedReasons.minor`). The count comes from planned panels, so before any chapter is planned
-every location and prop is skipped. The policy only affects bulk runs (including a production run's reference
+them as skipped (`skippedReasons.minor`). The count comes from planned panels, so while nothing is planned yet (as
+when a production run draws references before it plans) every location and prop is drawn. The policy only affects
+bulk runs (including a production run's reference
 step); a reference generated on its own page is always drawn.
 
 ### Trashing a character, location or prop

@@ -32,7 +32,8 @@ YouTube package in the app) writes the publishing text from the project's title,
 cast, and the current thumbnail headline. The result is saved to `settings.youtubePackage` and edited there; the job
 keeps no copy. A video render that spans more than one chapter also writes `<name>.chapters.txt`, one
 `m:ss Chapter N: title` line per chapter with the first pinned at `0:00`. The `youtube_package` export makes no AI
-call: it zips the newest finished video of the same scope (with its `.srt` and `.chapters.txt`), the composited
+call: it zips the newest full video of the same scope (never a partial or page-selection render; with its `.srt` and
+`.chapters.txt`), the composited
 thumbnail when there is one, and the text files, with the chapter lines appended to the description. It fails if the
 text has not been written or no video has been rendered.
 

@@ -564,8 +564,14 @@ async function bulkReferences(
   // The "main only" reference policy: no references for minor characters, or for places and props that appear in
   // fewer than two panels (their prompt text is enough there).
   const mainOnly = project?.settings.referencePolicy === "main";
+  // Before anything is planned no place or prop has been used yet, so usage cannot tell a recurring one from a
+  // one-off: draw them all then (a production run draws references before it plans).
+  const [planned] =
+    mainOnly && subject !== "character"
+      ? await deps.db.select({ n: sql<number>`count(*)::int` }).from(panels).where(eq(panels.projectId, projectId))
+      : [];
   const usage =
-    mainOnly && subject !== "character" && all.length
+    mainOnly && subject !== "character" && all.length && (planned?.n ?? 0) > 0
       ? new Map(
           (
             await deps.db.execute<{ v: string; n: number }>(
@@ -577,7 +583,8 @@ async function bulkReferences(
         )
       : null;
   const minor = (r: (typeof all)[number]) =>
-    mainOnly && (subject === "character" ? r.role === "minor" : (usage?.get(String(r.versionId)) ?? 0) < 2);
+    mainOnly &&
+    (subject === "character" ? r.role === "minor" : usage !== null && (usage.get(String(r.versionId)) ?? 0) < 2);
   const rows = all.filter((r) => !minor(r));
   const versionIds = rows.map((r) => r.versionId).filter((v): v is string => Boolean(v));
   const versionCol =

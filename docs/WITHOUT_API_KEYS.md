@@ -198,9 +198,8 @@ A [production run](AI_PIPELINE.md#production-runs) takes the text choice from it
 so with *Paste it yourself* chosen each text step it starts (analysis, plans, panel prompts, narration, YouTube
 text) parks as usual, and the run waits on that step until every job has been answered. What it does not change:
 
-- **Batch policy must be *Everything now*.** With *hybrid* or *cheapest* the run asks for a provider batch, a pasted
-  answer cannot be batched, and every text request is refused (the analysis and YouTube text steps fail the run;
-  plans, prompts and narration are noted as refused).
+- **The batch policy does not apply to pasted answers.** A pasted answer cannot wait in a provider batch, so with
+  *Paste it yourself* the run asks for none, whatever the project's batch policy says.
 - **Images still need a key.** Without an image key the reference and artwork steps are refused and noted (upload
   artwork yourself), and the video thumbnail step fails the run unless the project already has a thumbnail.
 

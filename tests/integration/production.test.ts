@@ -116,4 +116,59 @@ describe("production runs", () => {
     expect(second.steps.find((s) => s.key === "analyze")?.status).toBe("skipped");
     expect(second.steps.find((s) => s.key === "thumbnail")?.status).toBe("skipped");
   }, 400_000);
+
+  test("paste mode runs even under a batch policy, and main-only references still cover an unplanned project", async () => {
+    const p = await u.post<{ project: { id: string } }>(
+      "/api/projects",
+      { title: "Economy", preset: "economy", story: { content: STORY, inputKind: "story" } },
+      201,
+    );
+    const projectId = p.project.id;
+    await u.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 20, batchPolicy: "cheapest" } });
+    const { run } = await u.post<{ run: Run }>(
+      `/api/projects/${projectId}/production-runs`,
+      {
+        reviewGates: false,
+        render: false,
+        youtube: false,
+        ai: { text: { credentialId: null, manual: true }, image: null },
+      },
+      201,
+    );
+    // The analysis waits for a pasted answer instead of being refused for asking for a batch.
+    const waiting = await waitFor(
+      async () => {
+        await advanceRun(h.deps, run.id);
+        const { runs } = await u.get<{ runs: Run[] }>(`/api/projects/${projectId}/production-runs`);
+        const analyze = runs[0]!.steps.find((s) => s.key === "analyze")!;
+        if (runs[0]!.status === "failed") throw new Error(`run failed: ${runs[0]!.reason}`);
+        return analyze.status === "running" ? analyze : null;
+      },
+      { label: "analysis queued", timeoutMs: 30_000 },
+    );
+    expect(waiting.status).toBe("running");
+    await u.post(`/api/production-runs/${run.id}/cancel`);
+
+    // Nothing is planned yet, so the main-only policy cannot tell recurring places from one-offs: all are drawn.
+    const story = await u.get<{ latest: { id: string } }>(`/api/projects/${projectId}/story`);
+    const a = await u.post<{ job: { id: string }; analysis: { id: string } }>(
+      `/api/story-revisions/${story.latest.id}/analyze`,
+      {},
+      202,
+    );
+    await waitFor(
+      async () => {
+        const r = await u.get<{ job: { status: string } }>(`/api/generations/${a.job.id}`);
+        return r.job.status === "completed" ? r : null;
+      },
+      { label: "analysis", timeoutMs: 60_000 },
+    );
+    await u.post(`/api/story-analyses/${a.analysis.id}/apply`, {});
+    const est = await u.post<{ count: number; total: number; skippedReasons: { minor: number } }>(
+      `/api/projects/${projectId}/generations/bulk`,
+      { scope: { references: "location" }, onlyMissing: true },
+    );
+    expect(est.total).toBeGreaterThan(0);
+    expect(est.skippedReasons.minor).toBe(0);
+  }, 120_000);
 });
