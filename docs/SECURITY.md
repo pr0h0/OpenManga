@@ -20,9 +20,10 @@ gate), `docs/STORAGE.md` (uploads, keys, asset serving) and `docs/PROMPT_SYSTEM.
 | Secrets | server-side only, never sent to the browser; the logger redacts by key and by value (API keys, bearer tokens, cookies, passwords); boot refuses a `SESSION_SECRET` or `POSTGRES_PASSWORD` still set to the `.env.example` placeholder |
 | Errors | sanitized envelopes `{code, message, requestId}`; stack traces only in logs and `error_events` |
 | Prompt injection | story content isolated in delimiters it cannot close, instructions only in system messages, Zod validation of every output |
-| Budget | per-project cap (new projects start at $5) refuses new AI work with 402 until raised or explicitly overridden |
+| Budget | per-project cap (new projects start at $5) refuses new AI work with 402 until raised or explicitly overridden; a production run cannot start without a cap and pauses when it reaches it |
+| Production runs | a run spends unattended, so starting, continuing or cancelling one needs `generate`; it acts as the user who started it — every step is a normal route call through the same permission gate, budget and credential checks, re-evaluated per call (a disabled account pauses the run); no MCP connection is attached |
 | Mock safety | `AI_MOCK_MODE` refused when `NODE_ENV=production` unless `AI_MOCK_ALLOW_IN_PRODUCTION=true`; the mock HTTP service is on the internal network only |
-| Audit | `audit_events` for auth, project lifecycle, approvals, deletes (including export and narration-audio deletion), migrations, bulk generation, exports, reader links, credential rotation; an agent's actions carry its connection (`service_id`) |
+| Audit | `audit_events` for auth, project lifecycle, approvals, deletes (including export and narration-audio deletion), migrations, bulk generation and bulk panel checks, production-run starts, exports, reader links, credential rotation; an agent's actions carry its connection (`service_id`) |
 | AI agents (MCP) | `/mcp` takes Bearer tokens only (OAuth 2.1 with PKCE S256, or personal access tokens), never the session; tokens are opaque and stored as HMACs; per-connection scopes, project grants and approval mode on top of normal membership; sensitive calls can wait for the user's approval; Host/Origin checks against DNS rebinding. Details in `docs/MCP.md` |
 | Network exposure | only nginx is published (loopback by default); Postgres, Redis, Kokoro, worker and mock-ai have no host ports |
 | Dev mailbox | 404 unless `DEV_MAILBOX_ENABLED=true`; admin-only in every environment (reset links must not be public) |

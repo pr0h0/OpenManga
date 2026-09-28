@@ -14,16 +14,17 @@ Code:
 | Pure geometry and timing maths (shared with the browser preview) | `packages/domain/src/video.ts` |
 | Shot list and narration lookup | `packages/services/src/video-plan.ts` |
 | Export options and defaults | `apps/api/src/routes/exports.ts`, `apps/worker/src/handlers/export.ts` |
+| YouTube package export (`youtube_package`) | `apps/worker/src/handlers/export.ts` |
 
 The browser preview (`GET /api/video-preview`, `apps/web/src/features/video/VideoPreview.tsx`) calls the same shot
 planner and the same `@openmanga/domain` helpers (through its `browser` entry), so what it plays is the plan the render
 executes. Any timing or framing rule that belongs to both therefore lives in `packages/domain/src/video.ts`, not in
 the worker.
 
-The preview covers one chapter, page or panel (the export can also take the whole project). It plays on the Web
-Audio clock: every narration segment is scheduled on the browser's audio clock ahead of time and the picture reads
-the same clock, so narration keeps playing in a background tab (where animation frames stop) and the picture catches
-up on return. It opens at 95% of the window with an optional full-screen mode.
+The preview covers one chapter, page or panel (the export can also take the whole project or a page selection). It
+plays on the Web Audio clock: every narration segment is scheduled on the browser's audio clock ahead of time and the
+picture reads the same clock, so narration keeps playing in a background tab (where animation frames stop) and the
+picture catches up on return. It opens at 95% of the window with an optional full-screen mode.
 
 ## Output target and options
 
@@ -33,33 +34,41 @@ Defaults from the export request schema; every value is overridable per export.
 | --- | --- | --- |
 | `height` | `1080` | `720`, `1080` or `1440`; width is derived 16:9 and forced even (`frameSizeFor`) |
 | `fps` | `30` | 12–60 |
-| `minHoldMs` | `2500` | Floor on every shot |
+| `minHoldMs` | `2500` | Floor on every shot. The Exports page pre-fills it with the project's target runtime `minShotSeconds` when one is set; the API default is unchanged |
 | `breathMs` | `150` | Silence after a shot's narration before the cut (`VIDEO_BREATH_MS`) |
-| `framing` | `"width"` | Page cut: `width` = page at `pageWidthRatio` with a capped scroll; `height` = whole page |
-| `pageWidthRatio` | `0.6` | Page cut, `framing: "width"` |
+| `framing` | `"width"` | Page cut: `width` = page at `pageWidthRatio` with a capped scroll; `height` = whole page; `scroll` = the `width` box travelling the whole page over its hold |
+| `pageWidthRatio` | `0.6` | Page cut, `framing: "width"` or `"scroll"` |
 | `pageHeightRatio` | `0.96` | Page cut, `framing: "height"` |
 | `maxScrollPxPerSec` | `60` | Scroll-rate cap for the page cut |
 | `zoom` | `0.06` | Panel cut: Ken Burns travel over the hold (6%) |
 | `concurrency` | `VIDEO_ENCODE_CONCURRENCY` (4) | Clips rendered and encoded at once |
+| `maxDurationMs` | unset | Partial render: stop after the shot that reaches this length (10 s to 24 h); see below |
+
+Outside the `video` bucket, the request's `pageIds` (up to 500) narrows the film to those pages; see the shot list.
 
 Encoding: H.264 `-preset veryfast -crf 20` per clip (`-tune stillimage` for the page cut, which is a still image
 under a crop; not for the panel cut, where `zoompan` moves every frame), AAC 192 kbit/s 48 kHz stereo on the mux,
 `-movflags +faststart` on both the mux and the normalised output. Faststart matters as soon as files get large: a
 multi-gigabyte upload otherwise cannot start playing until fully buffered.
 
-Each export writes two files: the MP4 and an `.srt` sidecar of the narration segments with the same base name.
+Each export writes the MP4 and an `.srt` sidecar of the narration segments with the same base name, plus a
+`.chapters.txt` when the film spans more than one chapter (see chapter timestamps).
 
 ## Shot list
 
 `planVideoShots` builds the shots from the database — chapters → pages → panels in reading order — for a scope of
-one panel, one page, one chapter, or the whole project (all nulls, chapters in order, one film).
+one panel, one page, a selection of pages (`pageIds`, played in reading order whatever order they are given in), one
+chapter, or the whole project (all nulls, chapters in order, one film). An export with `pageIds` uses the selection in
+place of its `chapterId`; the pages must belong to the project. The Exports page sends a from–to page range within the
+chosen chapter this way.
 
 - **Page cut:** one shot per page. Narration lines attached to a page, or to any panel on it, play over that page.
 - **Panel cut:** one shot per panel in reading order. A line attached to a panel plays over that panel; a line
   attached only to a page plays over that page's first panel.
 
 Lines that fall outside the scope are counted and reported as `unplacedLines` on the export, so narration silently
-left out of a film is visible rather than lost.
+left out of a film is visible rather than lost. A page, page-selection or panel scope does not count them: leaving
+the rest out is the point.
 
 ## Timing: frame-exact holds
 
@@ -105,6 +114,7 @@ mixes narrated and un-narrated pages still concats as one uniform stream.
   16:9 shot would sit pillarboxed on a blurred wash with no overflow to scroll, i.e. a completely static video.
 - `framing: "width"` → `frameW * pageWidthRatio` wide, height from the page aspect.
 - `framing: "height"` → `frameH * pageHeightRatio` tall, width from the page aspect.
+- `framing: "scroll"` → sized exactly like `width`.
 
 The page is rendered lettered (`renderPageImage`) at 1.25× the displayed width — clamped to 0.25–3× the page's own
 size — and resized to that box. When the box is taller than the frame it is cropped to frame height and the crop
@@ -117,8 +127,9 @@ hundred pixels of overflow, which a 1.1 s hold would cross at hundreds of px/s. 
 window rather than starting at the top, so a quick page shows its middle instead of only its head. The realised
 rate is reported per page as `scrollPxPerSec`.
 
-A continuous scroll cut (travel = full overflow, ignoring the cap) is the same renderer with a different
-`scrollPlan`; it is not built — see `docs/ROADMAP.md`.
+**The continuous scroll cut** is `framing: "scroll"`: the same renderer, but `scrollPlan(…, "scroll")` returns
+`y0 = 0` and travel = the whole overflow, ignoring the cap, so every page is read from its top to its bottom over its
+hold however short that is. The preview passes the framing to the same `scrollPlan`, so it plays the same move.
 
 ## Panel cut framing
 
@@ -195,9 +206,46 @@ Cues are accumulated during pass 1 from the same segment durations that drive th
 the audio. `toSrt` emits standard `HH:MM:SS,mmm` timing and the file ships next to the MP4 as
 `application/x-subrip`. Subtitles are never burned in.
 
+## Partial renders
+
+`maxDurationMs` renders only the start of a film, for checking pacing or framing before committing to a long render.
+Pass 1 stops appending once the running clock has reached the limit, after the shot that crossed it: a partial render
+always ends on a whole shot, so it runs at least `maxDurationMs` and at most one shot longer. The remaining shots are
+dropped before any clip is encoded, and the audio track, subtitles, chapter marks and the duration check all cover
+only what was kept. The Exports page offers it as "only the first … minutes", alongside the page range.
+
+## Chapter timestamps
+
+Pass 1 records where each shot starts on the film clock; the renderers turn that into the start of each chapter's
+first shot. When a film spans two or more chapters, the export adds `<name>.chapters.txt` in YouTube's description
+format (`youtubeChapters` in `packages/domain/src/video.ts`): one `m:ss` (or `h:mm:ss` from an hour on) line per
+chapter, titled `Chapter <order>: <title>`, with the first pinned to `0:00` because YouTube only reads a list that
+starts there. A single-chapter film gets no file.
+
+## YouTube package
+
+`youtube_package` is a separate export kind that renders nothing: it zips what already exists, so it makes no AI
+calls either.
+
+- **Publishing text** comes from `settings.youtubePackage` (titles, description, tags, pinned comment, thumbnail
+  headlines). A text job writes it (`POST /api/projects/:projectId/youtube-package`, kind `youtube_package`, prompt
+  `youtubePackageV1`, answer schema `YoutubePackage`, paste mode and provider batches supported), and it stays
+  editable in project settings. The export fails with an unrecoverable error until it has at least one title.
+- **The video** is the newest *completed* `video_pages` or `video_panels` export of the same scope: the same chapter,
+  or a whole-project render when no chapter is given. Nothing filters out partial or page-selection renders of that
+  chapter, so render the one you want to publish last. Without one the export fails and says so.
+
+The ZIP (built with `ZipWriter`) holds `video/` with that export's files — the MP4 streamed in chunk by chunk
+(`ZipWriter.addStream` over `AssetStorage.stream`), so a multi-gigabyte film never sits in memory — plus its `.srt`
+and `.chapters.txt`; `thumbnail.png` rendered from the project's saved thumbnail, when there is one;
+`description.txt` (the description with the chapter timestamps appended); `titles.txt`; `tags.txt`
+(comma-separated); and `pinned-comment.txt` and `thumbnail-headlines.txt` when those are not empty. Like the video
+kinds it needs the `art` and `narration` readiness areas.
+
 ## Sizing expectations
 
 Useful for judging a render before starting one: hold time is narration-bound, so runtime is roughly the sum of the
 narration plus `breathMs` per shot, with `minHoldMs` as the floor on short shots. Kokoro at speed 1.0 measures
 around 210 words per minute, so ~20 words of narration is a ~6 s shot. Encoding is roughly one core per concurrent
-clip at `veryfast`, and a 1080p panel-cut film of a few hundred shots lands in the hundreds of megabytes.
+clip at `veryfast`, and a 1080p panel-cut film of a few hundred shots lands in the hundreds of megabytes. A YouTube
+package stores the video uncompressed inside the ZIP, so it is a second copy of that film on disk.

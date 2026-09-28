@@ -243,7 +243,8 @@ export const ProjectSettings = z.object({
   narrationWordsPerPanel: z.number().int().min(5).max(80).default(21),
   /**
    * A target video length. When set, chapter plans default to a page count and narration to a words-per-panel that
-   * land each chapter on its share of it (by source length), and exports hold each shot at least minShotSeconds.
+   * land each chapter on its share of it (by source length), and the Exports page suggests minShotSeconds as the
+   * minimum hold.
    */
   targetRuntime: z
     .object({

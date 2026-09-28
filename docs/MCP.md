@@ -224,6 +224,17 @@ Not exposed (UI/REST only): multipart uploads (project import, own artwork, mask
 attachments), masked edits (they need an uploaded mask), accounts, admin, provider keys, and managing connections,
 approvals and rules.
 
+Some production features reach agents only through the schemas of existing tools. `create_export` takes the REST
+export body as is, so it accepts the `youtube_package` kind, a `pageIds` page selection, `video.framing: "scroll"`
+and a partial render's `video.maxDurationMs` (its description does not list them yet). `create_project` takes a
+production `preset` key, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
+the saved `youtubePackage` text. No tool calls the newer routes directly: production runs, writing the YouTube
+package text (`POST /api/projects/:projectId/youtube-package`), checking every panel at once
+(`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list and saving or deleting
+project templates are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
+characters. A YouTube package text job started in paste mode from the app can still be answered with
+`get_manual_prompt` / `submit_manual_answer`, like any parked job.
+
 Payloads are bounded: lists page (default 25, max 100), chapter panels are listed as summaries, story text is read
 in 50,000-character chunks, a chapter's source excerpt is cut unless asked for, prompts come only from
 `get_manual_prompt` / `get_panel_prompt`, the OpenAPI description only for matching operations, and answer schemas
@@ -255,8 +266,9 @@ provider would get and parks. Then:
    Fix only what the error names. No provider is ever used to repair a pasted answer.
 
 `get_answer_schema` returns any of the formats (`StoryAnalysis`, `StoryRewrite`, `ChapterOutline`, `ScenePages`,
-`PanelPromptDraft`, `NarrationDraft`, `ImageDescription`, `PanelCheck`) from the running version's own schemas, so a
-client should prefer: a schema the user supplied > the schema this server returns > one bundled in the client.
+`PanelPromptDraft`, `NarrationDraft`, `ImageDescription`, `PanelCheck`, `YoutubePackage`) from the running version's
+own schemas, so a client should prefer: a schema the user supplied > the schema this server returns > one bundled in
+the client.
 
 ## Spending and budgets
 

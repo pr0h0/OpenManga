@@ -217,6 +217,9 @@ Add a compose override with `deploy.resources.reservations.devices` for the koko
   (120) and that no worker still holds, fails batched panels whose submitter died, and prunes expired sessions,
   reset tokens, unused derivatives, expired exports, trashed assets, old temp files and published outbox rows
   (`docs/STORAGE.md`).
+- **Production runs** are advanced by the API process, not the worker: it checks every `running` run every 10 s, so
+  a run resumes by itself after an API restart. The guard against two passes on one run is in memory, so run a single
+  `api` replica.
 
 ## Exports: readiness, video, import
 
@@ -229,10 +232,14 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   anyway"); draft versions are informational. The same issues are written into agent packages. The endpoint also
   reports whether the caller has a usable provider key for further generation.
 - **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`, `zip_package`, `project_json`,
-  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`. `pdf.pageSize` takes `source`, A4, A5,
-  B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`, `kdp_7x10`, `kdp_8_5x11`),
-  which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is fixed-layout with the cover.
+  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `youtube_package`. `pdf.pageSize`
+  takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
+  `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
+  fixed-layout with the cover.
   Page images, PDF, CBZ, EPUB, webtoon, narration audio and timeline need a chapter (or page ids).
+  `youtube_package` makes no video of its own: it zips the newest finished video of the same scope (chapter or whole
+  project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
+  `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
 - **Deleting**: `DELETE /api/exports/:id` or `DELETE /api/projects/:id/exports` removes finished exports and their
   files from disk at once (no trash); running exports are kept.
 - **Video export (panel cut)** `video_panels`: one clip per panel in reading order, clean artwork cropped exactly as
@@ -240,12 +247,15 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   (default 6%) — wide, full and medium shots push in, close, extreme-close and insert pull out — supersampled 3×
   before `zoompan`. Lines attached only to a page play over its first panel. Hard cuts, the same audio assembly,
   loudness normalisation and duration verification as the page cut, and an `.srt` of the narration segments next to
-  the MP4 (both cuts).
-- **Video export (page cut)** `video_pages`: an MP4 per chapter — or the whole project in chapter order when
-  `chapterId` is omitted — per language, following `docs/VIDEO_EXPORT_REFERENCE.md`: pages at
-  `video.pageWidthRatio` (0.6) of the frame width with capped scroll, minimum hold (`minHoldMs`, 2500 ms),
+  the MP4 (both cuts), plus a `.chapters.txt` of YouTube chapter timestamps when the film spans more than one
+  chapter.
+- **Video export (page cut)** `video_pages`: an MP4 per chapter — or the whole project in chapter order when `chapterId`
+  is omitted, or only the given `pageIds` (either cut) — per language, following `docs/VIDEO_EXPORT_REFERENCE.md`: pages
+  at `video.pageWidthRatio` (0.6) of the frame width with capped scroll, minimum hold (`minHoldMs`, 2500 ms),
   frame-exact clips, two-pass loudness normalisation over the whole file and a duration check against the narration.
-  Defaults are 1080p at 30 fps. Requires ffmpeg, which is in the app image.
+  `video.framing` `height` shows the whole page instead, and `scroll` travels the whole page top to bottom over its
+  hold. `video.maxDurationMs` (either cut) makes a partial render for checking, ending on the whole shot that reaches
+  that length. Defaults are 1080p at 30 fps. Requires ffmpeg, which is in the app image.
 - **In-browser preview**: `GET /api/video-preview?cut=page|panel` with exactly one of `chapterId`, `pageId` or
   `panelId` returns the same shot list and narration audio the renderer uses, so the SPA can play the cut without
   encoding anything.

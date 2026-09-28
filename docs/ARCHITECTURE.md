@@ -69,7 +69,7 @@ Queues and what they carry:
 
 | Queue | Work | Concurrency env |
 | --- | --- | --- |
-| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check, image description | `TEXT_WORKER_CONCURRENCY` (4) |
+| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check, image description, YouTube package text | `TEXT_WORKER_CONCURRENCY` (4) |
 | `image-generation` | references, panels, covers, video thumbnails | `IMAGE_WORKER_CONCURRENCY` (24) |
 | `image-edit` | masked edits | `IMAGE_EDIT_WORKER_CONCURRENCY` (6) |
 | `tts` | narration synthesis | `TTS_WORKER_CONCURRENCY` (4) |
@@ -81,6 +81,25 @@ Queues and what they carry:
 BullMQ jobs default to 3 attempts with exponential backoff (5 s, jitter 0.5) under the Redis key prefix `om`. The
 worker also re-publishes `queued` jobs whose Redis entry has disappeared, 15 s after start and every 5 minutes, so a
 Redis flush or restore never strands work, and touches `/data/tmp/worker-heartbeat` every 30 s for its health check.
+
+## Production runs
+
+A production run (`production_runs`, `apps/api/src/lib/production.ts`) drives the whole pipeline for a project —
+analysis, references, chapter plans, prompts, art, narration, audio, thumbnail, YouTube text, render, YouTube package
+export — one step at a time. It adds no new job machinery: each step calls the same routes a person would, through an
+**in-process Hono router** that mounts the normal `/api` routes (`mountApiRoutes`) with the run's starting user set on
+the context. That router is not the MCP router and has no session, CSRF or rate-limit middleware; every call still
+goes through `projectAccess`, `assertBudget` and the credential checks, so the steps queue ordinary jobs through the
+outbox as above.
+
+The run is advanced **in the API process**: `POST /api/projects/:projectId/production-runs` and
+`POST /api/production-runs/:id/continue` advance it at once, and `server.ts` calls `tickProductionRuns` every 10 s for
+every run in `running`. Each pass finishes steps whose generation, audio or export jobs are done, starts the next,
+and stops at a review step (`waiting`), a job still in flight, a failure (`failed`), or a 402 from the budget
+(`paused`, so raising the cap and continuing picks up at the same step). A step looks only at what exists
+(`onlyMissing`, chapters without pages, and so on), so a restarted API resumes where the row stood. Concurrent
+passes on one run are prevented by an in-memory set, which assumes a single API process. Every change publishes a
+`production.updated` project event (`{runId, status}`) on the usual `EventBus`.
 
 ## Code layout
 

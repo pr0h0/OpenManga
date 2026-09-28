@@ -93,11 +93,20 @@ Panels send the primary (starred) approved reference, whatever its kind. When it
 multi-angle turnaround, the panel prompt (`panel-generation` v8) says so: use it for where things are and what they
 look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
 
-**Generate all locations / props** draws one reference for every location or every prop in the project, in the kind
-you pick (`scope.references` plus `scope.referenceKind` on `POST /api/projects/:projectId/generations/bulk`). It goes
-through the same estimate → confirm → optional provider batch steps as bulk panels. The estimate says how many already
-have each kind (`existing`), and "only missing" means missing the kind being drawn, so a location with a wide view can
-still get its first sheet. Each reference is drawn for the item's current version.
+**Generate all locations / props**, and **Generate all character references** on the Cast page, draw one reference
+for every location, prop or character in the project, in the kind you pick (`scope.references` of `location`, `prop`
+or `character`, plus `scope.referenceKind` on `POST /api/projects/:projectId/generations/bulk`; a character's kind is
+`full_body` (the default), `portrait`, `multi_angle` or `expression_sheet`). It goes through the same estimate →
+confirm → optional provider batch steps as bulk panels. The estimate says how many already have each kind
+(`existing`), and "only missing" means missing the kind being drawn, so a location with a wide view can still get
+its first sheet. Each reference is drawn for the item's current version, as a draft to approve like any other.
+
+**Main-only reference policy.** With `settings.referencePolicy = "main"` (Project settings → Production →
+*References to generate in bulk*), these bulk runs skip characters whose role is `minor`, and locations and props
+whose current version appears in fewer than two panels; their prompt text describes them instead. The estimate counts
+them as skipped (`skippedReasons.minor`). The count comes from planned panels, so before any chapter is planned
+every location and prop is skipped. The policy only affects bulk runs (including a production run's reference
+step); a reference generated on its own page is always drawn.
 
 ### Trashing a character, location or prop
 

@@ -1,9 +1,9 @@
 # Data model
 
-PostgreSQL via Drizzle. 65 tables in six schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+PostgreSQL via Drizzle. 66 tables in six schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
 `media.ts`, `jobs.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0019_share_links.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0020_production_runs.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -20,7 +20,9 @@ slot).
 ## Accounts (`auth.ts`)
 
 - `users` — username and email (lower-cased, each uniquely indexed), display name, role, status, and `settings`
-  (JSON `UserSettings`: per-account preferences that seed new projects).
+  (JSON `UserSettings`: per-account preferences that seed new projects, and `projectTemplates` — up to 50 saved
+  project setups `{id, name, projectType, format, colorMode, language, readingDirection, stylePresetKey, customStyle,
+  settings, createdAt}`, never a story, cast or files).
 - `auth_identities` — `(provider, provider_subject)` unique; only `local` rows are written today (`docs/AUTH.md`).
 - `password_credentials` — Argon2id hash, one row per user. `sessions` — HMAC-SHA256 of an opaque token (unique),
   expiry, last use, IP, user agent, revoked.
@@ -48,7 +50,17 @@ slot).
   | `thumbnail` | `{assetId, title, subtitle, side}` — the text-free 16:9 video thumbnail art; the headline is kept as text and composited when rendered. |
   | `contentPolicyFallback` | `{enabled, credentialId, provider, model}` — opt-in single retry of a content-policy block on another of the user's own keys. |
   | `consistencyCheck` | `{enabled, credentialId, model}` — opt-in vision QA of generated panels. |
+  | `targetRuntime` | `{minutes, wordsPerMinute (150), minShotSeconds (4), maxShotSeconds (8)}` or null — a target video length. Split across chapters by source length (`runtimeBudget`, `packages/domain/src/runtime.ts`), it gives a chapter plan its default page target and narration its words per panel. |
+  | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
+  | `batchPolicy` | `interactive` (default), `cheapest` (text and images through provider batches) or `hybrid` (text in batches, images now) — how a production run spends. |
+  | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
 
+- `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
+  `user_id` it acts as, `status` (`running|waiting|paused|completed|failed|cancelled`; `waiting` is a review step,
+  `paused` a budget cap or a disabled account), `steps` (JSON, in order: `key`, status
+  `pending|running|review|done|skipped|failed`, a note, the generation `jobIds` or `exportJobId` it waits on, a `ref`
+  a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`, `youtube` and the run's `ai` choice) and a
+  `reason` for the person. Advanced by the API (`docs/ARCHITECTURE.md`).
 - `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a
   random `token` (unique), creator, `revoked_at`. Served without a session under `/api/public/shares/:token`
   (`docs/SECURITY.md`).
@@ -114,11 +126,11 @@ slot).
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `thumbnail`, `image_describe`, `image_batch_submit`, `text_batch_submit`), queue,
-  priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
-  provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters
-  (including the run's `ai` choice), input, result, timings, `cancel_requested_at`, and
-  `retried_by_job_id` — set when a retry created a replacement, so a poller can tell a handled failure apart.
+  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`),
+  queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
+  provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
+  the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry
+  created a replacement, so a poller can tell a handled failure apart.
 - `generation_inputs` — the exact asset and variant ids sent, with `role` (`target`, `mask`, `character_ref`,
   `location_ref`, `prop_ref`, `style_ref`, `previous_panel`), order, label, sent dimensions and derivative metadata.
   `generation_outputs` — produced assets with an `activated` flag.
@@ -126,11 +138,12 @@ slot).
 - `audio_jobs` — one TTS request: segment target, options (including its `ai` choice), status, attempts, resulting
   audio asset and a `reused_cache` flag.
 - `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`,
-  `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**,
-  **`video_panels`**, and `project_import` (an import reuses the export job machinery and reports
-  `{projectId, warnings}` in `result`). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes)
-  are JSON on the job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made).
-  Deleting an export removes its job row and file at once.
+  `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**,
+  `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
+  publishing text, zipped), and `project_import` (an import reuses the export job machinery and reports
+  `{projectId, warnings}` in `result`). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
+  job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made). Deleting an
+  export removes its job row and file at once.
 - `ai_usage` — provider, model, operation, request id, token counts (text in/out, image in/out, cached), billable
   `images` and `characters`, raw usage JSON, the rate snapshot used, estimated cost, latency, success, metadata.
 - `provider_rate_snapshots` — editable per-model rates with effective dates: text in/out and cached input and image
@@ -174,8 +187,8 @@ Project by owner and update time; chapter, scene, page, panel and beat ordering;
 target and batch; assets by project and type; unique `storage_key` and variant `cache_key`; usage by created-at and by
 project; unique session token hash; unique `(provider, provider_subject)`; narration lines by
 `(chapter, language, order)`; audio cache by `(project, text hash, voice, speed)`; outbox by `(status, created_at)`
-and unique `(queue, job_id)`; unique share-link token; unique provider-batch idempotency key; every `*_versions`
-table unique on `(subject, version_number)`.
+and unique `(queue, job_id)`; unique share-link token; production runs by `(project, created_at)` and by status;
+unique provider-batch idempotency key; every `*_versions` table unique on `(subject, version_number)`.
 
 ## Interchange format
 

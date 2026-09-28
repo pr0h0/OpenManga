@@ -98,6 +98,17 @@ whose role lacks the action gets **403**. A trashed project (`deleted_at` set) a
 MCP connection needs a real role in the project, and the connection must also have been granted that project (403
 `project_not_granted` otherwise).
 
+Bulk panel checks (`POST /api/projects/:projectId/checks`) need `generate` on the project, plus `read` on the page or
+chapter they are scoped to. A production run needs `generate` to start (`POST /api/projects/:projectId/production-runs`,
+which also refuses a project with no budget cap), continue or cancel, and `read` to list. The run then acts as the user
+who started it: the API calls the ordinary routes in-process with that user on the context, so each step goes through
+`projectAccess` with that user's current role; if the account is disabled the run pauses. No MCP connection is attached,
+so connection scopes and project grants play no part.
+
+Project templates are the caller's own: `POST /api/projects/:projectId/template` needs only `read` on the project
+and saves its setup into the caller's `users.settings.projectTemplates` (at most 50); `DELETE /api/auth/templates/:id`
+removes one, and `GET /api/production-presets` returns the built-in presets with the caller's templates.
+
 Creating or revoking a reader link (`share_links`) needs `manage`; listing them needs `read`. The link itself is
 opened with no session at all — see `docs/SECURITY.md`.
 
