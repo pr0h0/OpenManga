@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, Circle, ImagePlus } from "lucide-react";
-import { useState } from "react";
-import { get, post } from "../../api/client.ts";
+import { CheckCircle2, Circle, Download, ImagePlus, MonitorPlay } from "lucide-react";
+import { useEffect, useState } from "react";
+import { get, patch, post } from "../../api/client.ts";
 import { qk } from "../../api/hooks.ts";
 import type { CastCard, JobListItem, ProjectOverview } from "../../api/types.ts";
 import {
@@ -32,6 +32,7 @@ export function OverviewPage() {
     queryFn: () => get<{ characters: CastCard[] }>(`/projects/${projectId}/characters`),
   });
   const [coverOpen, setCoverOpen] = useState(false);
+  const [thumbOpen, setThumbOpen] = useState(false);
   if (!data) return null;
   const { project: p, counts, style } = data;
   const c = counts as Record<string, number>;
@@ -88,9 +89,14 @@ export function OverviewPage() {
         title={p.title}
         subtitle={p.description || "No description"}
         actions={
-          <button type="button" className="btn-secondary" onClick={() => setCoverOpen(true)}>
-            <ImagePlus className="size-4" /> Generate cover
-          </button>
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setThumbOpen(true)}>
+              <MonitorPlay className="size-4" /> Generate thumbnail
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setCoverOpen(true)}>
+              <ImagePlus className="size-4" /> Generate cover
+            </button>
+          </>
         }
       />
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -177,6 +183,7 @@ export function OverviewPage() {
           </div>
         </div>
         <aside className="space-y-4">
+          {p.settings.thumbnail && <ThumbnailCard projectId={projectId} saved={p.settings.thumbnail} />}
           <div className="card overflow-hidden">
             <AssetImage assetId={p.coverAssetId} variant={null} alt="Cover artwork" className="aspect-[2/3] w-full" />
             <div className="muted p-2 text-xs">
@@ -212,17 +219,109 @@ export function OverviewPage() {
         title={p.title}
         cast={cast.data?.characters ?? []}
       />
+      <CoverModal
+        thumbnail
+        open={thumbOpen}
+        onClose={() => setThumbOpen(false)}
+        projectId={projectId}
+        title={p.settings.thumbnail?.title || p.title}
+        cast={cast.data?.characters ?? []}
+      />
+    </div>
+  );
+}
+
+type Thumbnail = { assetId: string; title: string; subtitle: string; side: "left" | "right" };
+
+/** The video thumbnail with its headline composited live: rewording it redraws nothing and costs nothing. */
+function ThumbnailCard({ projectId, saved }: { projectId: string; saved: Thumbnail }) {
+  const qc = useQueryClient();
+  const [t, setT] = useState(saved);
+  const [shown, setShown] = useState(saved);
+  // Keyed on the values: a refetch of the project returns a new but equal object, which must not wipe typing.
+  useEffect(() => {
+    setT(saved);
+    setShown(saved);
+  }, [saved.assetId, saved.title, saved.subtitle, saved.side]);
+  // The preview follows typing after a pause, not on every key.
+  useEffect(() => {
+    const h = setTimeout(() => setShown(t), 500);
+    return () => clearTimeout(h);
+  }, [t]);
+  const url = (download: boolean) =>
+    `/api/projects/${projectId}/thumbnail.png?${new URLSearchParams({
+      title: shown.title,
+      subtitle: shown.subtitle,
+      side: shown.side,
+      v: saved.assetId,
+      ...(download ? { download: "1" } : { width: "640" }),
+    })}`;
+  const dirty = t.title !== saved.title || t.subtitle !== saved.subtitle || t.side !== saved.side;
+  return (
+    <div className="card overflow-hidden">
+      <img src={url(false)} alt="Video thumbnail" className="aspect-video w-full bg-[var(--panel-2)] object-cover" />
+      <div className="space-y-2 p-2">
+        <input
+          className="input"
+          aria-label="Headline"
+          placeholder="Headline"
+          value={t.title}
+          maxLength={120}
+          onChange={(e) => setT({ ...t, title: e.target.value })}
+        />
+        <input
+          className="input"
+          aria-label="Subtitle"
+          placeholder="Subtitle (optional)"
+          value={t.subtitle}
+          maxLength={120}
+          onChange={(e) => setT({ ...t, subtitle: e.target.value })}
+        />
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <select
+            className="input w-auto"
+            aria-label="Headline side"
+            value={t.side}
+            onChange={(e) => setT({ ...t, side: e.target.value as Thumbnail["side"] })}
+          >
+            <option value="left">Headline left</option>
+            <option value="right">Headline right</option>
+          </select>
+          {dirty && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={async () => {
+                try {
+                  await patch(`/projects/${projectId}`, { settings: { thumbnail: t } });
+                  await qc.invalidateQueries({ queryKey: qk.project(projectId), exact: true });
+                } catch (e) {
+                  toast.error(e);
+                }
+              }}
+            >
+              Save
+            </button>
+          )}
+          <a className="btn-secondary ml-auto" href={url(true)}>
+            <Download className="size-4" /> 1280×720 PNG
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
 
 function CoverModal({
+  thumbnail,
   open,
   onClose,
   projectId,
   title,
   cast,
 }: {
+  /** A 16:9 video thumbnail instead of the portrait cover. */
+  thumbnail?: boolean;
   open: boolean;
   onClose: () => void;
   projectId: string;
@@ -231,6 +330,7 @@ function CoverModal({
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ title, subtitle: "", composition: "", characterIds: [] as string[] });
+  const [side, setSide] = useState<"left" | "right">("left");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const aiImage = useAiBody("image");
@@ -238,7 +338,7 @@ function CoverModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Generate cover"
+      title={thumbnail ? "Generate video thumbnail" : "Generate cover"}
       footer={
         <>
           <AiChip cap="image" className="mr-auto" />
@@ -253,9 +353,13 @@ function CoverModal({
               setBusy(true);
               setError(null);
               try {
-                await post(`/projects/${projectId}/cover`, { ...aiImage(), ...form });
+                await post(`/projects/${projectId}/${thumbnail ? "thumbnail" : "cover"}`, {
+                  ...aiImage(),
+                  ...form,
+                  ...(thumbnail ? { side } : {}),
+                });
                 await qc.invalidateQueries({ queryKey: qk.generations(projectId) });
-                toast.info("Cover generation queued");
+                toast.info(thumbnail ? "Thumbnail generation queued" : "Cover generation queued");
                 onClose();
               } catch (e) {
                 setError(e);
@@ -270,7 +374,21 @@ function CoverModal({
       }
     >
       <div className="space-y-3">
-        <Field label="Title (composited by the app, not drawn by the model)">
+        {thumbnail && (
+          <Field label="Headline side (the art keeps that side clear)">
+            <select className="input" value={side} onChange={(e) => setSide(e.target.value as "left" | "right")}>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </Field>
+        )}
+        <Field
+          label={
+            thumbnail
+              ? "Headline (composited by the app, editable later for free)"
+              : "Title (composited by the app, not drawn by the model)"
+          }
+        >
           <input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
         </Field>
         <Field label="Subtitle">

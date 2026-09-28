@@ -37,6 +37,7 @@ import {
   propReferenceV1,
   type StyleContext,
   styleReferenceV1,
+  thumbnailV1,
 } from "@openmanga/prompts";
 import { CharacterBible, type PanelSpec, type ProjectSettings } from "@openmanga/schemas";
 import type { AssetRecord, AssetService } from "./assets.ts";
@@ -864,6 +865,8 @@ export class GenerationPlanner {
     projectId: string,
     userId: string | null,
     c: { title: string; subtitle: string; composition: string; characterIds: string[]; ai?: AiChoice | null },
+    /** A 16:9 video thumbnail instead of the portrait cover, headline on this side. */
+    thumbnail?: { side: "left" | "right" },
   ) {
     const run = await this.imageRun(c.ai, userId);
     const project = await this.project(projectId);
@@ -902,33 +905,38 @@ export class GenerationPlanner {
         await this.derivativeInput(styleRef, "style_ref", "project style", null, project.settings, run.provider),
       );
     const summary = project.description;
-    const prompt = coverV1.compile({
+    const coverInput = {
       style,
       title: c.title,
       subtitle: c.subtitle,
       summary,
       composition: c.composition,
       characters: promptChars,
-    });
+    };
+    const template = thumbnail ? thumbnailV1 : coverV1;
+    const prompt = thumbnail
+      ? thumbnailV1.compile({ ...coverInput, side: thumbnail.side })
+      : coverV1.compile(coverInput);
     return this.db.transaction((tx) =>
       this.jobs.createGenerationJob(tx, {
         projectId,
         userId,
-        kind: "cover",
+        kind: thumbnail ? "thumbnail" : "cover",
         priority: 2,
         targetType: "project",
         targetId: projectId,
-        templateName: coverV1.name,
-        templateVersion: coverV1.version,
+        templateName: template.name,
+        templateVersion: template.version,
         compiledPrompt: prompt,
         provider: run.provider,
         model: run.model,
         parameters: {
           ai: run.ai,
           quality: project.settings.imageQuality ?? this.image?.quality ?? "low",
-          aspectRatio: 2 / 3,
+          aspectRatio: thumbnail ? 16 / 9 : 2 / 3,
           title: c.title,
           subtitle: c.subtitle,
+          ...(thumbnail ? { side: thumbnail.side } : {}),
         },
         input: { characterIds: c.characterIds },
         inputs,

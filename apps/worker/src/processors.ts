@@ -38,6 +38,7 @@ const GENERATION_HANDLERS: Record<
   panel_check: panelCheck,
   image_describe: imageDescribe,
   cover: coverGeneration,
+  thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,
   text_batch_submit: textBatchSubmit,
 };

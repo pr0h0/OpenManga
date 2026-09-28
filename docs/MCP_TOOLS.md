@@ -797,6 +797,37 @@ Change a project's title, description, type, language, reading direction, colour
         "author": {
           "type": "string"
         },
+        "thumbnail": {
+          "type": "object",
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "title": {
+              "default": "",
+              "type": "string",
+              "maxLength": 120
+            },
+            "subtitle": {
+              "default": "",
+              "type": "string",
+              "maxLength": 120
+            },
+            "side": {
+              "default": "left",
+              "type": "string",
+              "enum": [
+                "left",
+                "right"
+              ]
+            }
+          },
+          "required": [
+            "assetId"
+          ]
+        },
         "lettering": {
           "type": "object",
           "properties": {
