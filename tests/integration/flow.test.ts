@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
 import { sharp } from "@openmanga/image-utils";
+import { unzipSync } from "fflate";
+import { PDFDocument } from "pdf-lib";
 import { FakeImageAIProvider } from "../../packages/ai-image/src/index.ts";
 import { type startHarness as Start, startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -672,6 +674,9 @@ describe("full production flow (mock AI)", () => {
       "png_pages",
       "webtoon",
       "pdf",
+      "pdf_kdp",
+      "cbz",
+      "epub",
       "narration_audio",
       "project_json",
       "zip_package",
@@ -680,9 +685,10 @@ describe("full production flow (mock AI)", () => {
       const r = await alice.post<{ job: { id: string } }>(
         `/api/projects/${projectId}/exports`,
         {
-          kind,
+          kind: kind === "pdf_kdp" ? "pdf" : kind,
           chapterId: kind === "project_json" || kind === "zip_package" || kind === "agent_package" ? null : chapterId,
           audio: { format: "wav", normalize: false },
+          ...(kind === "pdf_kdp" ? { pdf: { pageSize: "kdp_6x9" } } : {}),
         },
         202,
       );
@@ -713,6 +719,26 @@ describe("full production flow (mock AI)", () => {
           expect(names).toContain(f);
       }
       if (kind === "pdf") expect(new TextDecoder().decode(buf.slice(0, 5))).toBe("%PDF-");
+      if (kind === "pdf_kdp") {
+        // 6" x 9" trim plus KDP bleed (0.125" wide, 0.25" tall), trim box marking the cut, outside edge first.
+        const page = (await PDFDocument.load(buf)).getPage(0);
+        expect(page.getSize()).toEqual({ width: 441, height: 666 });
+        expect(page.getTrimBox()).toMatchObject({ x: 0, y: 9, width: 432, height: 648 });
+      }
+      if (kind === "cbz") {
+        const names = Object.keys(unzipSync(buf));
+        expect(names).toContain("ComicInfo.xml");
+        expect(names).toContain("0001.jpg");
+        expect(f.fileName.endsWith(".cbz")).toBe(true);
+      }
+      if (kind === "epub") {
+        // EPUB readers require "mimetype" as the first entry, uncompressed: its name sits at byte 30.
+        expect(new TextDecoder().decode(buf.slice(30, 38))).toBe("mimetype");
+        const files = unzipSync(buf);
+        const opf = new TextDecoder().decode(files["OEBPS/content.opf"]);
+        expect(opf).toContain("pre-paginated");
+        expect(files["OEBPS/p0001.xhtml"]).toBeDefined();
+      }
       if (kind === "project_json") expect(JSON.parse(new TextDecoder().decode(buf)).schemaVersion).toBe(1);
     }
   }, 240_000);

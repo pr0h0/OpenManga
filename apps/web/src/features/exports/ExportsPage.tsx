@@ -23,6 +23,8 @@ const KINDS = [
   { value: "png_pages", label: "PNG page sequence", chapter: true },
   { value: "jpg_pages", label: "JPG page sequence", chapter: true },
   { value: "pdf", label: "PDF", chapter: true },
+  { value: "cbz", label: "CBZ comic archive (Komga, Kavita, comic readers)", chapter: true },
+  { value: "epub", label: "EPUB e-book (Kindle, Apple Books, Kobo)", chapter: true },
   { value: "webtoon", label: "Webtoon vertical strip", chapter: true },
   { value: "narration_audio", label: "Narration audio package", chapter: true },
   { value: "timeline", label: "Timeline manifest (JSON)", chapter: true },
@@ -36,6 +38,8 @@ const AREAS: Record<string, ("art" | "narration")[]> = {
   png_pages: ["art"],
   jpg_pages: ["art"],
   pdf: ["art"],
+  cbz: ["art"],
+  epub: ["art"],
   webtoon: ["art"],
   zip_package: ["art"],
   narration_audio: ["narration"],
@@ -240,7 +244,12 @@ export function ExportsPage() {
               )}
             </>
           )}
-          {(kind === "png_pages" || kind === "jpg_pages" || kind === "pdf" || kind === "agent_package") && (
+          {(kind === "png_pages" ||
+            kind === "jpg_pages" ||
+            kind === "pdf" ||
+            kind === "cbz" ||
+            kind === "epub" ||
+            kind === "agent_package") && (
             <Field label={`Scale ×${scale}`}>
               <input
                 type="range"
@@ -253,7 +262,10 @@ export function ExportsPage() {
               />
             </Field>
           )}
-          {(kind === "jpg_pages" || (kind === "webtoon" && webtoon.format === "jpg")) && (
+          {(kind === "jpg_pages" ||
+            kind === "cbz" ||
+            kind === "epub" ||
+            (kind === "webtoon" && webtoon.format === "jpg")) && (
             <Field label={`JPG quality ${jpgQuality}`}>
               <input
                 type="range"
@@ -276,8 +288,28 @@ export function ExportsPage() {
                   {["source", "A4", "A5", "B5", "letter", "tankobon"].map((s) => (
                     <option key={s}>{s}</option>
                   ))}
+                  <optgroup label="Amazon KDP print (full bleed)">
+                    {[
+                      ["kdp_5x8", '5" × 8"'],
+                      ["kdp_5_5x8_5", '5.5" × 8.5"'],
+                      ["kdp_6x9", '6" × 9"'],
+                      ["kdp_7x10", '7" × 10"'],
+                      ["kdp_8_5x11", '8.5" × 11"'],
+                    ].map(([v, l]) => (
+                      <option key={v} value={v}>
+                        KDP {l}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </Field>
+              {pdf.pageSize.startsWith("kdp_") && (
+                <p className="muted col-span-2 text-xs">
+                  Interior file for Amazon KDP with bleed: art fills each page edge to edge and is trimmed 0.125" at the
+                  outside edges, so keep lettering off the very edge. Upload the cover separately. KDP expects 300 DPI,
+                  so raise the scale if the pages are small, and a paperback needs at least 24 pages.
+                </p>
+              )}
               <Field label="DPI">
                 <input
                   type="number"

@@ -44,6 +44,8 @@ export const EXPORT_AREAS: Record<Exclude<ExportKind, "project_import">, ("art" 
   png_pages: ["art"],
   jpg_pages: ["art"],
   pdf: ["art"],
+  cbz: ["art"],
+  epub: ["art"],
   webtoon: ["art"],
   zip_package: ["art"],
   project_json: [],
