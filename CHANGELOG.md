@@ -5,6 +5,46 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.10.0] — 2026-09-28
+
+Upgrading: pull the new images and restart. One migration (`0019_share_links`), applied by the migrate service on
+start; no configuration changes. Reload open tabs to get the new web app.
+
+### Added
+
+- **Reader links.** Share a project or one chapter as an unlisted, read-only link from the overview's Share button;
+  anyone with it can read the lettered pages without an account, page by page (tap or arrow keys, following the
+  reading direction) or as one long scroll. Revoke a link to close it at once.
+- **Video thumbnails.** Generate thumbnail draws text-free 16:9 art that keeps one side clear; the headline is
+  composited by the app, so it can be reworded or moved to the other side for free and downloaded as a 1280×720 PNG.
+  It never replaces the cover.
+- **Print and e-reader exports.** PDF in Amazon KDP trim sizes (5×8 to 8.5×11) printed full bleed with the trim box
+  set; CBZ comic archives with ComicInfo.xml (series, number, writer, language, right-to-left) for Komga, Kavita and
+  comic readers; fixed-layout EPUB with the cover, reading in the book's direction.
+- **Move bubbles off faces.** The consistency check now also reports where each face is. In the page editor's
+  lettering tools, "Move bubbles off faces" re-places the bubbles and captions of a page, chapter or project off the
+  faces and points each tail at its speaker. Panels without a current check are left as they are.
+- **Play chapter** on the Pages / Shots list, and **previous / next chapter** links on the chapter page.
+- **Generate all locations / props** lets you pick the kind of reference (wide view, panorama or sheet; single view
+  or turnaround) and says how many already have each kind.
+
+### Changed
+
+- **Phones.** The header's links move into a menu button, and no page scrolls sideways any more: grid columns, selects,
+  long ids and file names, and toolbars all fit a 390 px screen.
+- The chapter page's actions are grouped: review actions first, each model picker next to the AI action it controls,
+  delete last. The page editor's inspector tabs all fit.
+- The panel consistency check is a visible **Run check** button (and **Check again** once checked) instead of a
+  clickable status label.
+- A trashed character, location or prop shows the images that went to the trash with it, dimmed, with a Restore
+  button.
+
+### Fixed
+
+- The Realistic style in a black-and-white project asks for black-and-white photography instead of manga ink and
+  screentones, and a non-film realistic panel is no longer called a "live-action film panel".
+- MCP `get_image` no longer returns images that are in the trash.
+
 ## [0.9.9] — 2026-09-28
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
