@@ -253,6 +253,13 @@ export function SettingsPage() {
           <Field label="Webtoon max chunk height (px)">{num("webtoonChunkHeight", 1000, 40000)}</Field>
         </section>
 
+        <RuntimeSection
+          projectId={projectId}
+          saved={data.project.settings.targetRuntime ?? null}
+          value={s.targetRuntime ?? null}
+          onChange={(v) => setS("targetRuntime", v)}
+        />
+
         <LetteringSection value={s.lettering} onChange={(v) => setS("lettering", v)} />
 
         <ConsistencySection value={s.consistencyCheck} onChange={(v) => setS("consistencyCheck", v)} />
@@ -602,6 +609,125 @@ function ConsistencySection({
       ) : (
         cur.enabled &&
         !cur.credentialId && <p className="text-xs text-amber-600">Pick a key above, or checks are skipped.</p>
+      )}
+    </section>
+  );
+}
+
+type Runtime = NonNullable<ProjectSettings["targetRuntime"]>;
+type RuntimeReport = {
+  totalWords: number | null;
+  estimatedMinutes: number;
+  chapters: {
+    id: string;
+    order: number;
+    title: string;
+    budget: { words: number; shots: number; pages: number } | null;
+    planned: { pages: number; panels: number };
+    narrationWords: number;
+    estimatedMinutes: number;
+  }[];
+};
+
+/**
+ * Target runtime: a length to aim for. Chapter plans then default to a page count, and narration to words per
+ * panel, that land each chapter on its share; the table compares that budget with what exists so far.
+ */
+function RuntimeSection({
+  projectId,
+  saved,
+  value,
+  onChange,
+}: {
+  projectId: string;
+  saved: Runtime | null;
+  value: Runtime | null;
+  onChange: (v: Runtime | null) => void;
+}) {
+  // Keyed on the saved target, so the table refreshes once an edit has been autosaved.
+  const report = useQuery({
+    queryKey: ["project", projectId, "runtime", JSON.stringify(saved)],
+    queryFn: () => get<RuntimeReport>(`/projects/${projectId}/runtime`),
+  });
+  const set = (p: Partial<Runtime>) => value && onChange({ ...value, ...p });
+  const n = (k: keyof Runtime, min: number, max: number, step = 1) => (
+    <input
+      className="input"
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={value?.[k] ?? ""}
+      onChange={(e) => e.target.value !== "" && set({ [k]: Number(e.target.value) })}
+    />
+  );
+  return (
+    <section className="card space-y-3 p-4">
+      <h2 className="font-medium">Target runtime</h2>
+      <p className="muted text-xs">
+        Aim the video at a length. Chapter plans then default to a page count, and narration to a number of words per
+        panel, that give each chapter its share of it (by the length of its source text), and each shot stays between
+        the shortest and longest length below.
+      </p>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={Boolean(value)}
+          onChange={(e) =>
+            onChange(
+              e.target.checked ? { minutes: 30, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 } : null,
+            )
+          }
+        />
+        Aim for a runtime
+      </label>
+      {value && (
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Field label="Minutes">{n("minutes", 1, 600)}</Field>
+          <Field label="Words per minute" hint="≈150 for calm narration">
+            {n("wordsPerMinute", 80, 260)}
+          </Field>
+          <Field label="Shortest shot (s)">{n("minShotSeconds", 1, 30, 0.5)}</Field>
+          <Field label="Longest shot (s)">{n("maxShotSeconds", 2, 60, 0.5)}</Field>
+        </div>
+      )}
+      {report.data && report.data.chapters.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="muted">
+              <tr>
+                <th className="py-1 pr-2">Chapter</th>
+                {saved && <th className="py-1 pr-2">Budget</th>}
+                <th className="py-1 pr-2">Planned</th>
+                <th className="py-1 pr-2">Narration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.data.chapters.map((c) => (
+                <tr key={c.id} className="border-t border-[var(--border)]">
+                  <td className="max-w-48 truncate py-1 pr-2">
+                    {c.order}. {c.title}
+                  </td>
+                  {saved && (
+                    <td className="py-1 pr-2">
+                      {c.budget ? `${c.budget.words} words · ${c.budget.shots} shots · ${c.budget.pages} pages` : "—"}
+                    </td>
+                  )}
+                  <td className="py-1 pr-2">
+                    {c.planned.pages} pages · {c.planned.panels} panels
+                  </td>
+                  <td className="py-1 pr-2">
+                    {c.narrationWords} words · ≈{c.estimatedMinutes} min
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted mt-2 text-xs">
+            Narration so far adds up to about <strong>{report.data.estimatedMinutes} min</strong>
+            {saved ? ` of the ${saved.minutes} min target` : ""}.
+          </p>
+        </div>
       )}
     </section>
   );

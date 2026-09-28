@@ -217,6 +217,19 @@ export const ProjectSettings = z.object({
   narrationSpeed: z.number().min(0.5).max(2).default(1),
   /** Narration length target; ~21 words is about 6 seconds of Kokoro speech per panel. */
   narrationWordsPerPanel: z.number().int().min(5).max(80).default(21),
+  /**
+   * A target video length. When set, chapter plans default to a page count and narration to a words-per-panel that
+   * land each chapter on its share of it (by source length), and exports hold each shot at least minShotSeconds.
+   */
+  targetRuntime: z
+    .object({
+      minutes: z.number().min(1).max(600),
+      wordsPerMinute: z.number().int().min(80).max(260).default(150),
+      minShotSeconds: z.number().min(1).max(30).default(4),
+      maxShotSeconds: z.number().min(2).max(60).default(8),
+    })
+    .nullable()
+    .optional(),
   referenceMaxWidth: z.number().int().min(16).max(2048).optional(),
   referenceMaxHeight: z.number().int().min(16).max(2048).optional(),
   webtoonGap: z.number().int().min(0).max(1000).default(40),

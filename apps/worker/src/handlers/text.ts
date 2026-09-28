@@ -29,7 +29,14 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { LAYOUT_TEMPLATES, languageName, segmentNarration } from "@openmanga/domain";
+import {
+  LAYOUT_TEMPLATES,
+  languageName,
+  type RuntimeTarget,
+  runtimeBudget,
+  segmentNarration,
+  wordsPerPanelFor,
+} from "@openmanga/domain";
 import {
   chapterOutlineV2,
   chapterPlanningV6,
@@ -222,6 +229,28 @@ export async function youtubePackage(deps: WorkerDeps, job: GenerationJob) {
     })
     .where(eq(projects.id, p.id));
   return { titles: r.data.titles.length, tags: r.data.tags.length };
+}
+
+/** With a target runtime, the words per panel that land this chapter on its share of it; otherwise null. */
+async function runtimeWordsPerPanel(
+  deps: WorkerDeps,
+  projectId: string,
+  settings: { targetRuntime?: RuntimeTarget | null; format: "comic" | "film" | "vertical" } | undefined,
+  chapterId: string,
+  panelCount: number,
+) {
+  const t = settings?.targetRuntime;
+  if (!t) return null;
+  const chs = await deps.db
+    .select({ id: chapters.id, source: chapters.sourceExcerpt, summary: chapters.summary })
+    .from(chapters)
+    .where(eq(chapters.projectId, projectId));
+  const budget = runtimeBudget(
+    t,
+    chs.map((c) => ({ id: c.id, sourceChars: (c.source || c.summary).length })),
+    settings.format,
+  ).chapters.find((c) => c.id === chapterId);
+  return budget ? wordsPerPanelFor(t, budget.words, panelCount) : null;
 }
 
 /** Structured project context for planning: keys the model can reference, never the entire story history. */
@@ -678,7 +707,12 @@ export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
     .select({ settings: projects.settings, language: projects.language })
     .from(projects)
     .where(eq(projects.id, job.projectId));
-  const wordsPerPanel = Number(job.input.wordsPerPanel ?? project?.settings.narrationWordsPerPanel ?? 21);
+  const wordsPerPanel = Number(
+    job.input.wordsPerPanel ??
+      (await runtimeWordsPerPanel(deps, job.projectId, project?.settings, String(job.input.chapterId), pns.length)) ??
+      project?.settings.narrationWordsPerPanel ??
+      21,
+  );
   const language = String(job.input.language || project?.language || "en");
   // ponytail: one request per chapter; chapters over 200 panels get narration for the first 200 only.
   const promptPanels = pns.slice(0, 200);

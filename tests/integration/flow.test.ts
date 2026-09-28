@@ -1640,6 +1640,46 @@ describe("full production flow (mock AI)", () => {
     expect(done.failureReason).toContain("Render the");
   });
 
+  test("target runtime: a budget per chapter that chapter plans aim at", async () => {
+    await alice.patch(`/api/projects/${projectId}`, {
+      settings: { targetRuntime: { minutes: 3, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 } },
+    });
+    type Report = {
+      totalWords: number;
+      estimatedMinutes: number;
+      chapters: {
+        id: string;
+        budget: { words: number; shots: number; pages: number } | null;
+        planned: { pages: number };
+      }[];
+    };
+    const report = await alice.get<Report>(`/api/projects/${projectId}/runtime`);
+    expect(report.totalWords).toBe(450);
+    const mine = report.chapters.find((ch) => ch.id === chapterId)!;
+    expect(mine.budget!.pages).toBeGreaterThan(0);
+    expect(report.chapters.reduce((s, ch) => s + ch.budget!.words, 0)).toBeGreaterThanOrEqual(449);
+
+    // A plan without an explicit page target takes the chapter's budget.
+    const extra = await alice.post<{ chapter: { id: string } }>(
+      `/api/projects/${projectId}/chapters`,
+      {
+        title: "Runtime check",
+        sourceExcerpt: "Woo Jin walked home in the rain. The door was open. Someone waited inside.",
+      },
+      201,
+    );
+    const budgeted = (await alice.get<Report>(`/api/projects/${projectId}/runtime`)).chapters.find(
+      (ch) => ch.id === extra.chapter.id,
+    )!.budget!;
+    const plan = await alice.post<{ job: Job }>(`/api/chapters/${extra.chapter.id}/plan`, {}, 202);
+    const job = await alice.get<{ job: { input: { targetPages: number | null } } }>(`/api/generations/${plan.job.id}`);
+    expect(job.job.input.targetPages).toBe(budgeted.pages);
+    await waitJob(alice, plan.job.id);
+    await alice.del(`/api/chapters/${extra.chapter.id}`);
+    await alice.patch(`/api/projects/${projectId}`, { settings: { targetRuntime: null } });
+    expect((await alice.get<Report>(`/api/projects/${projectId}/runtime`)).chapters[0]!.budget).toBeNull();
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,
