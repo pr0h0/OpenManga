@@ -246,6 +246,16 @@ export function narrationDraftFor(panels: { id: string; beat?: string }[], words
 
 export const StoryRewrite = z.object({ content: str.min(1), notes: optStr });
 
+/** Text for publishing a narrated video on YouTube, written once and edited by hand afterwards. */
+export const YoutubePackage = z.object({
+  titles: z.array(str.min(1).max(100)).min(1).max(8),
+  description: str.min(1).max(4500),
+  tags: z.array(str.min(1).max(60)).max(30).default([]),
+  pinnedComment: optStr,
+  thumbnailHeadlines: z.array(str.min(1).max(60)).max(8).default([]),
+});
+export type YoutubePackage = z.infer<typeof YoutubePackage>;
+
 /** Vision check of a generated panel against the cast it was supposed to show. */
 export const PanelCheck = z.object({
   peopleCount: z.number().int().min(0).max(100),

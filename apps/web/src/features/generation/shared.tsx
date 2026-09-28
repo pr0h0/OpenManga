@@ -16,6 +16,7 @@ export const KIND_LABELS: Record<string, string> = {
   panel_edit: "Panel edit",
   cover: "Cover",
   thumbnail: "Video thumbnail",
+  youtube_package: "YouTube package",
 };
 
 export const JOB_STATUSES = [

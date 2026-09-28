@@ -224,6 +224,16 @@ export const ProjectSettings = z.object({
   webtoonWidth: z.number().int().min(320).max(2000).default(800),
   worldNotes: z.string().default(""),
   author: z.string().default(""),
+  /** Publishing text for the video (titles, description, tags…): written by a text job, then edited freely. */
+  youtubePackage: z
+    .object({
+      titles: z.array(z.string().max(100)).max(8).default([]),
+      description: z.string().max(4500).default(""),
+      tags: z.array(z.string().max(60)).max(30).default([]),
+      pinnedComment: z.string().max(2000).default(""),
+      thumbnailHeadlines: z.array(z.string().max(60)).max(8).default([]),
+    })
+    .optional(),
   /** The YouTube thumbnail: text-free 16:9 art, with the headline composited by the app whenever it is rendered. */
   thumbnail: z
     .object({

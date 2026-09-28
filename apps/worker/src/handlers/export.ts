@@ -38,11 +38,18 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { buildTimeline, chunkStrip } from "@openmanga/domain";
+import { buildTimeline, chunkStrip, youtubeChapters } from "@openmanga/domain";
 import { extForMime, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
-import { loadRenderPage, renderCover, renderPageImage, renderStrip, renderWebtoonBlocks } from "@openmanga/services";
+import {
+  loadRenderPage,
+  renderCover,
+  renderPageImage,
+  renderStrip,
+  renderThumbnail,
+  renderWebtoonBlocks,
+} from "@openmanga/services";
 import { withTempDir } from "@openmanga/storage";
 import { PDFDocument, ReadingDirection } from "pdf-lib";
 import type { WorkerDeps } from "../context.ts";
@@ -451,7 +458,65 @@ async function buildExport(
           durationMs: out.durationMs,
         },
         { name: `${name}.srt`, data: new TextEncoder().encode(out.srt), mime: "application/x-subrip" },
+        ...(await chapterFile(deps, out.chapterStarts, name)),
       ];
+    }
+    case "youtube_package": {
+      // Packs what already exists (exports make no AI calls): the newest finished video of the same scope, with
+      // its subtitles and chapter timestamps, the thumbnail and the saved publishing text.
+      const yt = project.settings.youtubePackage;
+      if (!yt?.titles.length)
+        throw new UnrecoverableError("Write the YouTube package first (Exports → YouTube package)");
+      const [video] = await deps.db
+        .select({ id: exportJobs.id })
+        .from(exportJobs)
+        .where(
+          and(
+            eq(exportJobs.projectId, project.id),
+            inArray(exportJobs.kind, ["video_pages", "video_panels"]),
+            eq(exportJobs.status, "completed"),
+            opts.chapterId ? eq(exportJobs.chapterId, opts.chapterId) : isNull(exportJobs.chapterId),
+          ),
+        )
+        .orderBy(desc(exportJobs.createdAt))
+        .limit(1);
+      if (!video)
+        throw new UnrecoverableError(
+          `Render the ${opts.chapterId ? "chapter's" : "whole project's"} video first; the package reuses the newest one`,
+        );
+      const files = await deps.db
+        .select({ name: exportsTable.fileName, a: assets })
+        .from(exportsTable)
+        .innerJoin(assets, eq(assets.id, exportsTable.assetId))
+        .where(eq(exportsTable.exportJobId, video.id));
+      const enc = new TextEncoder();
+      const zip = new ZipWriter(join(dir, "youtube.zip"));
+      let chaptersText = "";
+      for (const [i, f] of files.entries()) {
+        if (f.name.endsWith(".mp4")) await zip.addStream(`video/${f.name}`, deps.assets.storage.stream(f.a.storageKey));
+        else {
+          const data = await deps.assets.read(f.a);
+          if (f.name.endsWith(".chapters.txt")) chaptersText = new TextDecoder().decode(data).trim();
+          await zip.add(`video/${f.name}`, data);
+        }
+        await progress(((i + 1) / files.length) * 0.8);
+      }
+      const thumb = project.settings.thumbnail;
+      const art = thumb ? await deps.assets.get(thumb.assetId) : null;
+      if (thumb && art && !art.deletedAt)
+        await zip.add(
+          "thumbnail.png",
+          await renderThumbnail(await deps.assets.read(art), thumb.title, thumb.subtitle, thumb.side),
+        );
+      const description = chaptersText ? `${yt.description.trim()}\n\n${chaptersText}` : yt.description.trim();
+      await zip.add("description.txt", enc.encode(`${description}\n`));
+      await zip.add("titles.txt", enc.encode(`${yt.titles.join("\n")}\n`));
+      await zip.add("tags.txt", enc.encode(`${yt.tags.join(", ")}\n`));
+      if (yt.pinnedComment.trim()) await zip.add("pinned-comment.txt", enc.encode(`${yt.pinnedComment.trim()}\n`));
+      if (yt.thumbnailHeadlines.length)
+        await zip.add("thumbnail-headlines.txt", enc.encode(`${yt.thumbnailHeadlines.join("\n")}\n`));
+      await progress(1);
+      return [{ name: `${prefix}_youtube.zip`, path: await zip.close(), mime: "application/zip" }];
     }
     case "project_import":
       throw new UnrecoverableError("Project imports are handled by the import processor");
@@ -551,6 +616,29 @@ async function buildExport(
       return [{ name: `${base}_package.zip`, path: await zip.close(), mime: "application/zip" }];
     }
   }
+}
+
+/** "0:00 Chapter 1: …" lines for a video description, when the film spans more than one chapter. */
+async function chapterFile(deps: WorkerDeps, starts: { chapterId: string; startMs: number }[], name: string) {
+  if (starts.length < 2) return [];
+  const rows = await deps.db
+    .select({ id: chapters.id, order: chapters.order, title: chapters.title })
+    .from(chapters)
+    .where(
+      inArray(
+        chapters.id,
+        starts.map((s) => s.chapterId),
+      ),
+    );
+  const text = youtubeChapters(
+    starts.map((s) => {
+      const ch = rows.find((r) => r.id === s.chapterId);
+      return { startMs: s.startMs, title: ch ? `Chapter ${ch.order}: ${ch.title}` : "Chapter" };
+    }),
+  );
+  return text
+    ? [{ name: `${name}.chapters.txt`, data: new TextEncoder().encode(`${text}\n`), mime: "text/plain" }]
+    : [];
 }
 
 function addImagePage(

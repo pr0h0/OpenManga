@@ -46,6 +46,7 @@ import {
   storyRewriteV1,
   stripOutlineV2,
   stripPlanningV2,
+  youtubePackageV1,
 } from "@openmanga/prompts";
 import {
   ChapterOutline,
@@ -58,6 +59,7 @@ import {
   ScenePages,
   StoryAnalysis,
   StoryRewrite,
+  YoutubePackage,
 } from "@openmanga/schemas";
 import { applyChapterPlan, applyNarrationPauses } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -185,6 +187,41 @@ export async function storyRewrite(deps: WorkerDeps, job: GenerationJob) {
     return row!;
   });
   return { storyRevisionId: created.id, revisionNumber: created.revisionNumber, notes: r.data.notes };
+}
+
+/** Publishing text for the project's video, saved on the project (and editable there) rather than on the job. */
+export async function youtubePackage(deps: WorkerDeps, job: GenerationJob) {
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!p) throw new InputError("Project no longer exists");
+  const chs = await deps.db
+    .select({ order: chapters.order, title: chapters.title, summary: chapters.summary })
+    .from(chapters)
+    .where(eq(chapters.projectId, p.id))
+    .orderBy(asc(chapters.order));
+  const cast = await deps.db
+    .select({ name: characters.name, role: characters.role })
+    .from(characters)
+    .where(and(eq(characters.projectId, p.id), isNull(characters.deletedAt)));
+  const r = await structured(
+    deps,
+    job,
+    youtubePackageV1.build({
+      project: { title: p.title, description: p.description, type: p.projectType, language: p.language },
+      chapters: chs,
+      cast,
+      headline: p.settings.thumbnail?.title || p.title,
+    }),
+    YoutubePackage,
+    "YoutubePackage",
+    8000,
+  );
+  await deps.db
+    .update(projects)
+    .set({
+      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(r.data)}::jsonb)`,
+    })
+    .where(eq(projects.id, p.id));
+  return { titles: r.data.titles.length, tags: r.data.tags.length };
 }
 
 /** Structured project context for planning: keys the model can reference, never the entire story history. */

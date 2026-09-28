@@ -18,6 +18,7 @@ import {
 import { ProgressBar } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { YoutubePackageCard } from "./YoutubePackage.tsx";
 
 const KINDS = [
   { value: "png_pages", label: "PNG page sequence", chapter: true },
@@ -33,6 +34,7 @@ const KINDS = [
   { value: "agent_package", label: "Agent hand-off package (everything linked)", chapter: false },
   { value: "video_pages", label: "Narrated video — page cut (MP4)", chapter: false },
   { value: "video_panels", label: "Narrated video — panel cut, Ken Burns (MP4)", chapter: false },
+  { value: "youtube_package", label: "YouTube package (newest video + thumbnail + text)", chapter: false },
 ] as const;
 const AREAS: Record<string, ("art" | "narration")[]> = {
   png_pages: ["art"],
@@ -47,6 +49,7 @@ const AREAS: Record<string, ("art" | "narration")[]> = {
   agent_package: ["art", "narration"],
   video_pages: ["art", "narration"],
   video_panels: ["art", "narration"],
+  youtube_package: ["art", "narration"],
 };
 const USES_LANGUAGE = new Set(["narration_audio", "timeline", "agent_package", "video_pages", "video_panels"]);
 const isVideo = (k: string) => k === "video_pages" || k === "video_panels";
@@ -105,7 +108,7 @@ export function ExportsPage() {
 
   const scopeChapter = needsChapter
     ? selectedChapter
-    : kind === "agent_package" || isVideo(kind)
+    : kind === "agent_package" || isVideo(kind) || kind === "youtube_package"
       ? agentChapter || null
       : null;
   const lang = language || overview?.project.language || "en";
@@ -202,6 +205,7 @@ export function ExportsPage() {
           ) : undefined
         }
       />
+      <YoutubePackageCard />
       <ConfirmDialog
         open={deleting !== null}
         title={deleting === "all" ? "Delete all exports?" : "Delete this export?"}
@@ -244,11 +248,13 @@ export function ExportsPage() {
               </select>
             </Field>
           )}
-          {(kind === "agent_package" || isVideo(kind)) && (
+          {(kind === "agent_package" || isVideo(kind) || kind === "youtube_package") && (
             <>
               <Field label="Chapters">
                 <select className="input" value={agentChapter} onChange={(e) => setAgentChapter(e.target.value)}>
-                  <option value="">{isVideo(kind) ? "Whole project (one video)" : "All chapters"}</option>
+                  <option value="">
+                    {isVideo(kind) || kind === "youtube_package" ? "Whole project (one video)" : "All chapters"}
+                  </option>
                   {chapters.data?.chapters.map((c) => (
                     <option key={c.id} value={c.id}>
                       Ch. {c.order} — {c.title}

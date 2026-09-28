@@ -7,6 +7,7 @@ import {
   PanelPromptDraft,
   ScenePages,
   StoryRewrite,
+  YoutubePackage,
 } from "./planning.ts";
 import { StoryAnalysis } from "./story.ts";
 import { ImageDescription } from "./vision.ts";
@@ -24,6 +25,7 @@ export const ANSWER_SCHEMAS = {
   NarrationDraft: NarrationDraftV2,
   ImageDescription,
   PanelCheck,
+  YoutubePackage,
 } satisfies Record<string, z.ZodType>;
 
 /** Prefixes every key of a shared group, so a sub-object that appears in several answers is explained once. */
@@ -275,6 +277,28 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "chapters[].beats": [
       "The chapter's main beats, in order, one per item.",
       ["Ines lands at Vell", "Tomas refuses to leave", "the storm comes in"],
+    ],
+  },
+
+  YoutubePackage: {
+    "": "Text for publishing the narrated video on YouTube. Saved on the project and editable afterwards.",
+    titles: [
+      "Title options, strongest first, each under 100 characters.",
+      ["The Keeper Who Never Left the Light", "She Came to Fix the Lamp. The Lamp Had Other Plans."],
+    ],
+    description: [
+      "The video description: a hook, what the story is about without spoiling the ending, and a line inviting " +
+        "viewers to continue. Chapter timestamps are added by the app, so leave them out.",
+      "An engineer sent to shut down the last lighthouse at Vell finds its old keeper still on duty…",
+    ],
+    tags: ["Search tags, most specific first.", ["lighthouse story", "narrated comic", "mystery"]],
+    pinnedComment: [
+      "A comment to pin under the video, usually a question that invites replies. Empty for none.",
+      "Would you have stayed with Tomas, or taken the last boat?",
+    ],
+    thumbnailHeadlines: [
+      "Short thumbnail headlines (two to five words) to choose from.",
+      ["HE NEVER LEFT", "THE LAST KEEPER"],
     ],
   },
 

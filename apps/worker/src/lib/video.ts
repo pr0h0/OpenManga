@@ -140,6 +140,8 @@ async function buildFilm<S extends Shot>(
   };
   const cues: { startMs: number; endMs: number; text: string }[] = [];
   const holds: { frames: number; holdSec: number }[] = [];
+  /** Where each shot starts in the film, for chapter timestamps. */
+  const startsMs: number[] = [];
   let totalFrames = 0;
   let clockMs = 0;
   try {
@@ -164,6 +166,7 @@ async function buildFilm<S extends Shot>(
       const narrationMs = joined ? parseWav(joined).durationMs : 0;
       // Whole frames, so the clip and its padded audio are exactly the same length (no -shortest, no drift).
       const { frames, holdMs } = holdFor(narrationMs, Boolean(joined), opts.minHoldMs, opts.fps, opts.breathMs);
+      startsMs.push(clockMs);
       let t = clockMs;
       for (const [k, part] of parts.entries()) {
         cues.push({ startMs: t, endMs: t + part.ms, text: part.text });
@@ -309,6 +312,7 @@ async function buildFilm<S extends Shot>(
     path: outPath,
     srt: toSrt(cues),
     durationMs: videoMs,
+    startsMs,
     stats: {
       audioMs,
       videoMs,
@@ -322,6 +326,16 @@ async function buildFilm<S extends Shot>(
 }
 
 type Scoped = VideoOptions & { language?: string; scope?: VideoScope };
+
+/** The first shot of each chapter and where it starts, in film order. */
+function chapterStarts(shots: { page: { chapterId: string } }[], startsMs: number[]) {
+  const out: { chapterId: string; startMs: number }[] = [];
+  shots.forEach((s, i) => {
+    if (out.at(-1)?.chapterId !== s.page.chapterId)
+      out.push({ chapterId: s.page.chapterId, startMs: startsMs[i] ?? 0 });
+  });
+  return out;
+}
 
 async function plan(deps: WorkerDeps, project: Project, chapterId: string | null, opts: Scoped, cut: "page" | "panel") {
   const language = opts.language || project.language;
@@ -391,6 +405,7 @@ export async function renderPageCutVideo(
     width: frameW,
     height: frameH,
     durationMs: film.durationMs,
+    chapterStarts: chapterStarts(shots, film.startsMs),
     report: { language, ...film.stats, pages: shots.map((s) => s.report), unplacedLines },
   };
 }
@@ -464,6 +479,7 @@ export async function renderPanelCutVideo(
     width: frameW,
     height: frameH,
     durationMs: film.durationMs,
+    chapterStarts: chapterStarts(shots, film.startsMs),
     report: { language, ...film.stats, panels: shots.map((s) => s.report), unplacedLines },
   };
 }
