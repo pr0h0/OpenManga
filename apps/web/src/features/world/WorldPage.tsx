@@ -124,7 +124,7 @@ function EntityGrid({ kind }: { kind: "locations" | "props" }) {
               params={{ projectId, entityId: e.id }}
               className="block"
             >
-              <AssetImage assetId={e.previewAssetId} alt={e.name} className="aspect-[4/3] w-full" />
+              <AssetImage assetId={e.previewAssetId} alt={e.name} className="aspect-[4/3] w-full" trashed={trash} />
               <div className="space-y-1 p-3">
                 <div className="truncate font-medium">{e.name}</div>
                 <div className="flex flex-wrap items-center gap-1 text-xs">

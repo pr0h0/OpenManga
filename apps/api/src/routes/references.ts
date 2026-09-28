@@ -2,6 +2,7 @@ import {
   and,
   assets,
   assetVariants,
+  type DbOrTx,
   desc,
   eq,
   inArray,
@@ -9,6 +10,7 @@ import {
   REFERENCE_KINDS,
   type ReferenceKind,
   referenceAssets,
+  sql,
 } from "@openmanga/db";
 import { canTransition } from "@openmanga/domain";
 import { isStale, recordAudit, versionFingerprint, versionFingerprints } from "@openmanga/services";
@@ -90,6 +92,37 @@ export async function listReferences(c: Context<AppEnv>, subject: Subject, versi
         params: v.params,
       })),
   }));
+}
+
+const SUBJECT_TABLES = {
+  character: { versions: "character_versions", owner: "character_id", ref: "character_version_id" },
+  location: { versions: "location_versions", owner: "location_id", ref: "location_version_id" },
+  prop: { versions: "prop_versions", owner: "prop_id", ref: "prop_version_id" },
+} as const;
+
+/**
+ * A character, location or prop in the trash takes its reference images with it, stamped with the subject's own
+ * trash time; restoring it (at = null, trashedAt = that time) brings back exactly those, not images the user
+ * trashed on their own earlier.
+ */
+export async function trashSubjectImages(
+  db: DbOrTx,
+  subject: keyof typeof SUBJECT_TABLES,
+  id: string,
+  at: Date | null,
+  trashedAt?: Date | null,
+) {
+  const t = SUBJECT_TABLES[subject];
+  const mine = sql`id in (select r.asset_id from reference_assets r join ${sql.raw(t.versions)} v on v.id = r.${sql.raw(t.ref)}
+    where v.${sql.raw(t.owner)} = ${id})`;
+  if (at)
+    await db.execute(
+      sql`update assets set deleted_at = ${at.toISOString()}::timestamptz where deleted_at is null and ${mine}`,
+    );
+  else if (trashedAt)
+    await db.execute(
+      sql`update assets set deleted_at = null where deleted_at = ${trashedAt.toISOString()}::timestamptz and ${mine}`,
+    );
 }
 
 export const GenerateRef = z.object({

@@ -26,7 +26,7 @@ import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
 import { body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
-import { listReferences, mountReferenceEndpoints } from "./references.ts";
+import { listReferences, mountReferenceEndpoints, trashSubjectImages } from "./references.ts";
 
 export const worldRoutes = new Hono<AppEnv>();
 
@@ -176,7 +176,11 @@ function versionedEntity<K extends "location" | "prop">(kind: K) {
   worldRoutes.delete(`/${plural}/:id`, async (c) => {
     const id = uuidParam(c, "id");
     const p = await entityAccess(c, kind, id, "write");
-    await c.get("deps").db.update(table).set({ deletedAt: new Date() }).where(eq(table.id, id));
+    const now = new Date();
+    await c.get("deps").db.transaction(async (tx) => {
+      await tx.update(table).set({ deletedAt: now }).where(eq(table.id, id));
+      await trashSubjectImages(tx, kind, id, now);
+    });
     await recordAudit(c.get("deps").db, {
       userId: user(c).id,
       projectId: p.id,
@@ -189,7 +193,11 @@ function versionedEntity<K extends "location" | "prop">(kind: K) {
   worldRoutes.post(`/${plural}/:id/restore`, async (c) => {
     const id = uuidParam(c, "id");
     await entityAccess(c, kind, id, "write");
-    await c.get("deps").db.update(table).set({ deletedAt: null }).where(eq(table.id, id));
+    await c.get("deps").db.transaction(async (tx) => {
+      const [row] = await tx.select({ at: table.deletedAt }).from(table).where(eq(table.id, id));
+      await tx.update(table).set({ deletedAt: null }).where(eq(table.id, id));
+      await trashSubjectImages(tx, kind, id, null, row?.at);
+    });
     return c.json({ ok: true });
   });
 

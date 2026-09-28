@@ -172,6 +172,8 @@ export type ArtworkVersion = {
 export type JobListItem = Omit<GenerationJobRow, "compiledPrompt" | "input"> & {
   costUsd: number;
   outputAssetId: string | null;
+  /** The output image has been trashed since. */
+  outputDeleted: boolean;
 };
 export type JobDetail = {
   job: GenerationJobRow;
@@ -179,7 +181,7 @@ export type JobDetail = {
     variant: AssetVariantRow | null;
     sentAs: "prompt_ref_derivative" | "full_resolution";
   })[];
-  outputs: GenerationOutputRow[];
+  outputs: (GenerationOutputRow & { deleted: boolean })[];
   usage: AiUsageRow[];
   retries: { id: string; status: string; createdAt: string }[];
   totals: {

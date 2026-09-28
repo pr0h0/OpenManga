@@ -1363,6 +1363,58 @@ describe("full production flow (mock AI)", () => {
     expect(disk.byCategory.narration).toBe(0);
   });
 
+  test("a deleted image leaves the generation history; a trashed character takes its images, restore brings them back", async () => {
+    const created = await alice.post<{ character: { id: string; currentVersionId: string } }>(
+      `/api/projects/${projectId}/characters`,
+      { name: "Vesna", description: { hair: "short grey bob" } },
+      201,
+    );
+    const ch = created.character;
+    const gen = async () => {
+      const g = await alice.post<{ job: Job }>(
+        `/api/character-versions/${ch.currentVersionId}/references/generate`,
+        { kind: "portrait" },
+        202,
+      );
+      expect((await waitJob(alice, g.job.id)).job.status).toBe("completed");
+      return g.job.id;
+    };
+    const [first, second] = [await gen(), await gen()];
+    type Listed = { id: string; outputAssetId: string | null; outputDeleted: boolean };
+    const listed = async (id: string) =>
+      (await alice.get<{ jobs: Listed[] }>(`/api/projects/${projectId}/generations?limit=200`)).jobs.find(
+        (j) => j.id === id,
+      )!;
+    const output = async (id: string) =>
+      (await alice.get<{ outputs: { assetId: string; deleted: boolean }[] }>(`/api/generations/${id}`)).outputs[0]!;
+    const firstAsset = (await output(first)).assetId;
+    const secondAsset = (await output(second)).assetId;
+    expect((await listed(first)).outputAssetId).toBe(firstAsset);
+
+    // Deleting one image: its job stays, without the picture, and the file is no longer served outside the trash.
+    const { references } = await alice.get<{ references: { id: string; assetId: string }[] }>(
+      `/api/characters/${ch.id}`,
+    );
+    await alice.del(`/api/references/${references.find((r) => r.assetId === firstAsset)!.id}`);
+    expect(await listed(first)).toMatchObject({ outputAssetId: null, outputDeleted: true });
+    expect((await output(first)).deleted).toBe(true);
+    expect((await alice.raw("GET", `/cdn/a/${firstAsset}`)).status).toBe(404);
+    expect((await alice.raw("GET", `/cdn/a/${firstAsset}?trash=1`)).status).toBe(200);
+
+    // Trashing the character takes its other image; restoring it brings back that one, not the one deleted before.
+    await alice.del(`/api/characters/${ch.id}`);
+    expect(await listed(second)).toMatchObject({ outputAssetId: null, outputDeleted: true });
+    expect((await alice.raw("GET", `/cdn/a/${secondAsset}?v=thumbnail`)).status).toBe(404);
+    await alice.post(`/api/characters/${ch.id}/restore`);
+    expect(await listed(second)).toMatchObject({ outputAssetId: secondAsset, outputDeleted: false });
+    expect((await alice.raw("GET", `/cdn/a/${secondAsset}`)).status).toBe(200);
+    expect((await listed(first)).outputDeleted).toBe(true);
+
+    // The deleted image can be restored from its job.
+    await alice.post(`/api/assets/${firstAsset}/restore`);
+    expect((await listed(first)).outputAssetId).toBe(firstAsset);
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

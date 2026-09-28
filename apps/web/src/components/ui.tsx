@@ -308,8 +308,11 @@ export function AssetImage({
   alt,
   className,
   fit = "cover",
+  trashed,
 }: {
   assetId: string | null | undefined;
+  /** In a trash view: ask for the image even though it is in the trash. */
+  trashed?: boolean;
   variant?: "thumbnail" | "preview" | undefined | null;
   alt: string;
   className?: string;
@@ -328,7 +331,7 @@ export function AssetImage({
     );
   return (
     <img
-      src={assetUrl(assetId, variant ?? undefined)}
+      src={assetUrl(assetId, variant ?? undefined, undefined, trashed)}
       alt={alt}
       loading="lazy"
       onError={() => setFailed(true)}

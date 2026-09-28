@@ -94,7 +94,12 @@ export function CastPage() {
               params={{ projectId, characterId: c.id }}
               className="block"
             >
-              <AssetImage assetId={c.portraitAssetId} alt={`${c.name} portrait`} className="aspect-[3/4] w-full" />
+              <AssetImage
+                assetId={c.portraitAssetId}
+                alt={`${c.name} portrait`}
+                className="aspect-[3/4] w-full"
+                trashed={trash}
+              />
             </Link>
             <div className="space-y-1 p-3">
               <Link

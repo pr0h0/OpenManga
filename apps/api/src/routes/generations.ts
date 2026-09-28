@@ -2,6 +2,7 @@ import { parsePrompt } from "@openmanga/ai-text";
 import {
   aiUsage,
   and,
+  assets,
   assetVariants,
   desc,
   eq,
@@ -81,9 +82,13 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
     .select({
       job: generationJobs,
       costUsd: sql<number>`(select coalesce(sum(estimated_cost_usd),0)::float from ai_usage where generation_job_id = "generation_jobs"."id")`,
-      outputAssetId: sql<
-        string | null
-      >`(select asset_id from generation_outputs where job_id = "generation_jobs"."id" order by created_at desc limit 1)`,
+      // The latest output, and whether it has since been trashed: the job stays in the history, its image does not.
+      output: sql<{
+        id: string;
+        deleted: boolean;
+      } | null>`(select json_build_object('id', o.asset_id, 'deleted', a.deleted_at is not null)
+        from generation_outputs o join assets a on a.id = o.asset_id
+        where o.job_id = "generation_jobs"."id" order by o.created_at desc limit 1)`,
     })
     .from(generationJobs)
     .where(where)
@@ -104,7 +109,9 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
       compiledPrompt: undefined,
       input: undefined,
       costUsd: j.costUsd,
-      outputAssetId: j.outputAssetId,
+      outputAssetId: j.output && !j.output.deleted ? j.output.id : null,
+      /** Trashed since; restorable from the job's page until the trash is emptied. */
+      outputDeleted: j.output?.deleted ?? false,
     })),
     counts,
     /** Pass back as ?cursor= for the next page. Null on the last page. */
@@ -137,7 +144,11 @@ generationRoutes.get("/generations/:id", async (c) => {
   const variants = variantIds.length
     ? await db.select().from(assetVariants).where(inArray(assetVariants.id, variantIds))
     : [];
-  const outputs = await db.select().from(generationOutputs).where(eq(generationOutputs.jobId, job.id));
+  const outputs = await db
+    .select({ o: generationOutputs, deletedAt: assets.deletedAt })
+    .from(generationOutputs)
+    .innerJoin(assets, eq(assets.id, generationOutputs.assetId))
+    .where(eq(generationOutputs.jobId, job.id));
   const usage = await db.select().from(aiUsage).where(eq(aiUsage.generationJobId, job.id)).orderBy(aiUsage.createdAt);
   const retries = await db
     .select({ id: generationJobs.id, status: generationJobs.status, createdAt: generationJobs.createdAt })
@@ -150,7 +161,7 @@ generationRoutes.get("/generations/:id", async (c) => {
       variant: variants.find((v) => v.id === i.variantId) ?? null,
       sentAs: i.variantId ? "prompt_ref_derivative" : "full_resolution",
     })),
-    outputs,
+    outputs: outputs.map((r) => ({ ...r.o, deleted: r.deletedAt !== null })),
     usage,
     retries,
     totals: {
