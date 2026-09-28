@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useCallback, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
-import type { CastCard, ChapterDetail, ChapterRow, LocationCard } from "../../api/types.ts";
+import type { CastCard, ChapterDetail, ChapterListItem, ChapterRow, LocationCard } from "../../api/types.ts";
 import {
   ErrorBox,
   PageHeader,
@@ -31,6 +31,11 @@ export function ChapterDetailPage() {
   const { data, error, isLoading, refetch } = useQuery({
     queryKey: qk.chapter(chapterId),
     queryFn: () => get<ChapterDetail>(`/chapters/${chapterId}`),
+  });
+  // For the previous / next chapter links: the same list the chapters page shows, usually already cached.
+  const siblings = useQuery({
+    queryKey: qk.chapters(projectId),
+    queryFn: () => get<{ chapters: ChapterListItem[] }>(`/projects/${projectId}/chapters`),
   });
   const locations = useQuery({
     queryKey: qk.locations(projectId),
@@ -64,12 +69,43 @@ export function ChapterDetailPage() {
       </div>
     );
   const ch = data.chapter;
+  const ordered = [...(siblings.data?.chapters ?? [])].sort((a, b) => a.order - b.order);
+  const at = ordered.findIndex((c) => c.id === ch.id);
+  const [prev, next] = at < 0 ? [undefined, undefined] : [ordered[at - 1], ordered[at + 1]];
 
   return (
     <div className="space-y-5 p-6">
-      <Link to="/projects/$projectId/chapters" params={{ projectId }} className="muted text-xs hover:underline">
-        ← Chapters
-      </Link>
+      <nav className="flex flex-wrap items-center gap-2 text-xs" aria-label="Chapters">
+        <Link to="/projects/$projectId/chapters" params={{ projectId }} className="muted mr-auto hover:underline">
+          ← Chapters
+        </Link>
+        {prev && (
+          <Link
+            to="/projects/$projectId/chapters/$chapterId"
+            params={{ projectId, chapterId: prev.id }}
+            className="btn-secondary max-w-full px-2 py-1 text-xs"
+            title={`Chapter ${prev.order}: ${prev.title}`}
+          >
+            <ChevronLeft className="size-3.5 shrink-0" />
+            <span className="max-w-48 truncate">
+              Ch. {prev.order}: {prev.title}
+            </span>
+          </Link>
+        )}
+        {next && (
+          <Link
+            to="/projects/$projectId/chapters/$chapterId"
+            params={{ projectId, chapterId: next.id }}
+            className="btn-secondary max-w-full px-2 py-1 text-xs"
+            title={`Chapter ${next.order}: ${next.title}`}
+          >
+            <span className="max-w-48 truncate">
+              Ch. {next.order}: {next.title}
+            </span>
+            <ChevronRight className="size-3.5 shrink-0" />
+          </Link>
+        )}
+      </nav>
       <PageHeader
         title={`Chapter ${ch.order}: ${ch.title}`}
         subtitle={
