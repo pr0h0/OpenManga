@@ -14,6 +14,7 @@ import {
   locations,
   panels,
   props,
+  type ReferenceKind,
   referenceAssets,
   sql,
 } from "@openmanga/db";
@@ -357,7 +358,14 @@ const Scope = z.object({
   panelIds: z.array(z.string().uuid()).max(500).optional(),
   /** Every location or every prop in the project: one reference each, for its current version. */
   references: z.enum(["location", "prop"]).optional(),
+  /** Which kind of reference to draw for each: a wide view, panorama or sheet of a location; a prop's single view or turnaround. */
+  referenceKind: z.enum(["location", "location_panorama", "location_sheet", "prop", "prop_multi_angle"]).optional(),
 });
+
+const REFERENCE_KINDS_FOR = {
+  location: ["location", "location_panorama", "location_sheet"],
+  prop: ["prop", "prop_multi_angle"],
+} as const;
 export const BulkInput = z.object({
   scope: Scope,
   onlyMissing: z.boolean().default(true),
@@ -504,22 +512,25 @@ async function bulkReferences(
 ) {
   const deps = c.get("deps");
   const table = subject === "location" ? locations : props;
+  const kinds: readonly string[] = REFERENCE_KINDS_FOR[subject];
+  const kind = input.scope.referenceKind ?? subject;
+  if (!kinds.includes(kind)) throw badRequest(`A ${subject} has no ${kind} reference`);
   const rows = await deps.db
     .select({ id: table.id, name: table.name, versionId: table.currentVersionId })
     .from(table)
     .where(and(eq(table.projectId, projectId), isNull(table.deletedAt)));
   const versionIds = rows.map((r) => r.versionId).filter((v): v is string => Boolean(v));
   const versionCol = subject === "location" ? referenceAssets.locationVersionId : referenceAssets.propVersionId;
-  const withReference = new Set(
-    versionIds.length
-      ? (
-          await deps.db
-            .select({ v: versionCol })
-            .from(referenceAssets)
-            .where(and(inArray(versionCol, versionIds), sql`${referenceAssets.status} <> 'superseded'`))
-        ).map((r) => r.v)
-      : [],
-  );
+  const refs = versionIds.length
+    ? await deps.db
+        .selectDistinct({ v: versionCol, kind: referenceAssets.kind })
+        .from(referenceAssets)
+        .where(and(inArray(versionCol, versionIds), sql`${referenceAssets.status} <> 'superseded'`))
+    : [];
+  // "Only missing" means missing the kind being drawn: a location with a wide view can still get its first sheet.
+  const withReference = new Set(refs.filter((r) => r.kind === kind).map((r) => r.v));
+  /** What the project already has, per kind: how many of its locations/props have at least one of each. */
+  const existing = Object.fromEntries(kinds.map((k) => [k, refs.filter((r) => r.kind === k).length]));
   const inProgress = new Set(
     versionIds.length
       ? (
@@ -564,6 +575,8 @@ async function bulkReferences(
     provider: { provider: chosen.provider, model: chosen.model },
     batch: input.batch,
     rateSnapshot: rate ? { provider: rate.provider, model: rate.model, effectiveFrom: rate.effectiveFrom } : null,
+    referenceKind: kind,
+    existing,
   };
   if (!input.confirm)
     return c.json({
@@ -581,7 +594,7 @@ async function bulkReferences(
   for (const r of eligible) {
     try {
       jobs.push(
-        await deps.planner.enqueueReference(subject, r.versionId!, subject, user(c).id, {
+        await deps.planner.enqueueReference(subject, r.versionId!, kind as ReferenceKind, user(c).id, {
           ai: input.ai,
           batchId,
           allowOverBudget,

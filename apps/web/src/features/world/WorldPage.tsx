@@ -99,8 +99,20 @@ function EntityGrid({ kind }: { kind: "locations" | "props" }) {
             noun={{
               one: `${singular} reference`,
               many: `${singular} references`,
-              missing: `Only ${kind} without a reference`,
+              missing: `Only ${kind} without this kind of reference`,
             }}
+            kinds={
+              singular === "location"
+                ? [
+                    { value: "location", label: "Wide view" },
+                    { value: "location_panorama", label: "Panorama" },
+                    { value: "location_sheet", label: "Sheet of its sides" },
+                  ]
+                : [
+                    { value: "prop", label: "Single view" },
+                    { value: "prop_multi_angle", label: "Turnaround" },
+                  ]
+            }
           />
         )}
       </div>

@@ -191,6 +191,7 @@ characterRoutes.get("/characters/:id", async (c) => {
     c,
     "character",
     versions.map((v) => v.id),
+    ch.deletedAt,
   );
   const usage = versions.length
     ? await db.execute<{ version_id: string; n: number }>(

@@ -38,6 +38,7 @@ export function ReferencePanel({
   references,
   outfits,
   onChanged,
+  trashed,
 }: {
   subject: Subject;
   versionPath: string;
@@ -46,6 +47,8 @@ export function ReferencePanel({
   references: Reference[];
   outfits?: CharacterOutfitRow[];
   onChanged: () => void;
+  /** The subject is in the trash, and these images with it: shown dimmed until it is restored. */
+  trashed?: boolean;
 }) {
   const projectId = useProjectId();
   const kinds = KINDS[subject];
@@ -130,7 +133,7 @@ export function ReferencePanel({
   };
 
   return (
-    <section className="card p-4" aria-label="References">
+    <section className={trashed ? "card p-4 opacity-60" : "card p-4"} aria-label="References">
       <div className="mb-3 flex flex-wrap items-end gap-2">
         <h2 className="mr-auto font-semibold">Canonical references</h2>
         {kinds.length > 1 && (
@@ -256,6 +259,7 @@ export function ReferencePanel({
                   alt={`${r.kind} reference`}
                   className="aspect-[3/4] w-full"
                   fit="contain"
+                  trashed={trashed}
                 />
               </button>
               <div className="space-y-1.5 p-2 text-xs">
@@ -355,7 +359,7 @@ export function ReferencePanel({
       >
         {viewing && (
           <img
-            src={assetUrl(viewing.asset.id)}
+            src={assetUrl(viewing.asset.id, undefined, undefined, trashed)}
             alt="Full resolution reference"
             className="mx-auto max-h-[65vh] object-contain"
           />
