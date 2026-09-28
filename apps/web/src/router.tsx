@@ -97,6 +97,14 @@ const mailbox = createRoute({
   component: lazyRouteComponent(() => import("./features/auth/DevMailboxPage.tsx"), "DevMailboxPage"),
 });
 
+// Public: a share link's reader needs no account.
+const reader = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/read/$token",
+  staticData: { title: "Reader" },
+  component: lazyRouteComponent(() => import("./features/reader/ReaderPage.tsx"), "ReaderPage"),
+});
+
 const shell = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
@@ -305,6 +313,7 @@ const routeTree = rootRoute.addChildren([
   forgot,
   reset,
   mailbox,
+  reader,
   shell.addChildren([
     dashboard,
     newProject,
