@@ -19,6 +19,7 @@ async function assetProject(ctx: ToolContext, assetId: string) {
 async function assetImage(ctx: ToolContext, assetId: string, size: Size) {
   const asset = await ctx.deps.assets.get(assetId);
   if (!asset?.mimeType.startsWith("image/")) throw toolError(404, "not_found", "Not an image");
+  if (asset.deletedAt) throw toolError(404, "not_found", "This image is in the trash");
   const v = await ctx.deps.assets.ensureResized(asset, VARIANT[size], SIZES[size]);
   if (!v) throw toolError(404, "not_found", "Not an image");
   return {

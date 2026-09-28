@@ -7,6 +7,7 @@ import {
   eq,
   inArray,
   isNull,
+  or,
   REFERENCE_KINDS,
   type ReferenceKind,
   referenceAssets,
@@ -39,14 +40,28 @@ const versionColumn = {
   style: referenceAssets.projectStyleId,
 } as const;
 
-export async function listReferences(c: Context<AppEnv>, subject: Subject, versionIds: string[]) {
+/**
+ * A subject's reference images. For a subject in the trash (`trashedAt`), also the images that went to the trash
+ * with it, so its page still shows what restoring it brings back.
+ */
+export async function listReferences(
+  c: Context<AppEnv>,
+  subject: Subject,
+  versionIds: string[],
+  trashedAt?: Date | null,
+) {
   if (!versionIds.length) return [];
   const { db } = c.get("deps");
   const rows = await db
     .select({ ref: referenceAssets, asset: assets })
     .from(referenceAssets)
     .innerJoin(assets, eq(assets.id, referenceAssets.assetId))
-    .where(and(inArray(versionColumn[subject], versionIds), isNull(assets.deletedAt)))
+    .where(
+      and(
+        inArray(versionColumn[subject], versionIds),
+        or(isNull(assets.deletedAt), trashedAt ? eq(assets.deletedAt, trashedAt) : undefined),
+      ),
+    )
     .orderBy(desc(referenceAssets.createdAt));
   const fingerprints = await versionFingerprints(db, subject, versionIds);
   const variants = rows.length

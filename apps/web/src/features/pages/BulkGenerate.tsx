@@ -13,6 +13,7 @@ type Scope = {
   panelIds?: string[];
   /** Every location or every prop: one reference each. */
   references?: "location" | "prop";
+  referenceKind?: string;
 };
 
 /** What the run makes, in the words the dialog uses. */
@@ -37,6 +38,8 @@ type Estimate = {
   batch?: boolean;
   preflight?: Preflight;
   credentials?: { text: boolean; image: boolean; mockMode: boolean };
+  /** Reference runs: how many of the locations/props already have each kind of reference. */
+  existing?: Record<string, number>;
 };
 
 type Preflight = {
@@ -106,14 +109,18 @@ export function BulkGenerateButton({
   label,
   className,
   noun = PANELS,
+  kinds,
 }: {
   projectId: string;
   scope: Scope;
   label: string;
   className?: string;
   noun?: Noun;
+  /** Reference runs: the kinds that can be drawn, first is the default. */
+  kinds?: { value: string; label: string }[];
 }) {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
+  const [kind, setKind] = useState(kinds?.[0]?.value);
   const [onlyMissing, setOnlyMissing] = useState(true);
   const [batch, setBatch] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -122,13 +129,13 @@ export function BulkGenerateButton({
 
   // Both toggles pass their new value in: state set in the same handler is not visible to this closure yet, so
   // reading `batch` here priced the run against the previous setting and left the estimate a click behind.
-  const ask = async (missing = onlyMissing, asBatch = batch) => {
+  const ask = async (missing = onlyMissing, asBatch = batch, refKind = kind) => {
     setBusy(true);
     try {
       setEstimate(
         await post<Estimate>(`/projects/${projectId}/generations/bulk`, {
           ...aiImage(),
-          scope,
+          scope: refKind ? { ...scope, referenceKind: refKind } : scope,
           onlyMissing: missing,
           batch: asBatch,
         }),
@@ -144,7 +151,7 @@ export function BulkGenerateButton({
     try {
       const r = await post<{ batchId: string | null; jobs: unknown[]; failures?: { error: string }[] }>(
         `/projects/${projectId}/generations/bulk`,
-        { ...aiImage(), scope, onlyMissing, confirm: true, batch },
+        { ...aiImage(), scope: kind ? { ...scope, referenceKind: kind } : scope, onlyMissing, confirm: true, batch },
       );
       setEstimate(null);
       if (!r.batchId) toast.info("Nothing to generate");
@@ -183,6 +190,37 @@ export function BulkGenerateButton({
       >
         {estimate && (
           <div className="space-y-3">
+            {kinds && (
+              <div className="space-y-1 rounded-md bg-[var(--panel-2)] p-2 text-sm">
+                <label className="flex items-center gap-2">
+                  <span className="shrink-0">Draw</span>
+                  <select
+                    className="input"
+                    value={kind}
+                    disabled={busy}
+                    onChange={(e) => {
+                      setKind(e.target.value);
+                      void ask(onlyMissing, batch, e.target.value);
+                    }}
+                  >
+                    {kinds.map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {estimate.existing && (
+                  <p className="muted text-xs">
+                    Already have:{" "}
+                    {kinds
+                      .map((k) => `${estimate.existing?.[k.value] ?? 0} with a ${k.label.toLowerCase()}`)
+                      .join(", ")}
+                    {estimate.total != null ? ` (of ${estimate.total})` : ""}.
+                  </p>
+                )}
+              </div>
+            )}
             {nothing ? (
               <p>
                 <strong>Nothing to generate.</strong> All {estimate.total ?? estimate.skipped} {noun.many} are skipped

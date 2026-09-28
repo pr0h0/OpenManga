@@ -1404,6 +1404,9 @@ describe("full production flow (mock AI)", () => {
     // Trashing the character takes its other image; restoring it brings back that one, not the one deleted before.
     await alice.del(`/api/characters/${ch.id}`);
     expect(await listed(second)).toMatchObject({ outputAssetId: null, outputDeleted: true });
+    // Its page still shows the image that went with it (and only that one), for restoring.
+    const trashedDetail = await alice.get<{ references: { assetId: string }[] }>(`/api/characters/${ch.id}`);
+    expect(trashedDetail.references.map((r) => r.assetId)).toEqual([secondAsset]);
     expect((await alice.raw("GET", `/cdn/a/${secondAsset}?v=thumbnail`)).status).toBe(404);
     await alice.post(`/api/characters/${ch.id}/restore`);
     expect(await listed(second)).toMatchObject({ outputAssetId: secondAsset, outputDeleted: false });
@@ -1413,6 +1416,28 @@ describe("full production flow (mock AI)", () => {
     // The deleted image can be restored from its job.
     await alice.post(`/api/assets/${firstAsset}/restore`);
     expect((await listed(first)).outputAssetId).toBe(firstAsset);
+  });
+
+  test("generating all location references: pick the kind, and see what the project already has", async () => {
+    type Est = { count: number; total: number; existing: Record<string, number>; referenceKind: string };
+    const est = (referenceKind?: string) =>
+      alice.post<Est>(`/api/projects/${projectId}/generations/bulk`, {
+        scope: { references: "location", ...(referenceKind ? { referenceKind } : {}) },
+      });
+    const wide = await est();
+    expect(wide.referenceKind).toBe("location");
+    expect(Object.keys(wide.existing).sort()).toEqual(["location", "location_panorama", "location_sheet"]);
+    const sheets = await est("location_sheet");
+    // Nothing has a sheet yet, so every location is due one, whatever wide views exist.
+    expect(sheets.existing.location_sheet).toBe(0);
+    expect(sheets.count).toBe(sheets.total);
+    expect(
+      (
+        await alice.raw("POST", `/api/projects/${projectId}/generations/bulk`, {
+          scope: { references: "location", referenceKind: "prop_multi_angle" },
+        })
+      ).status,
+    ).toBe(400);
   });
 
   test("duplicate, search, archive, trash", async () => {

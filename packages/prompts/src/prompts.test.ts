@@ -167,6 +167,24 @@ describe("panel prompt compilation", () => {
     expect(p).not.toMatch(/manhwa|illustration style/i);
   });
 
+  test("a photoreal style in black and white is photography, and a comic panel is a film still", () => {
+    const real = {
+      ...style,
+      presetName: "Realistic",
+      definition: StyleDefinition.parse({ summary: "Photorealistic live-action look.", photoreal: true }),
+    };
+    const bw = panelGenerationV1.compile({
+      ...base,
+      style: {
+        ...real,
+        colorDirective: "Black and white manga ink artwork with screentones, no color and no grey wash.",
+      },
+    });
+    expect(bw).toContain("Black-and-white photograph");
+    expect(bw).not.toMatch(/manga ink|screentones,/i);
+    expect(bw.startsWith("Create one clean photorealistic live-action film still, ")).toBe(true);
+  });
+
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
     expect(panelGenerationV1.version).toBe(8);
