@@ -17,6 +17,7 @@ import {
 } from "../../components/ui.tsx";
 import { ActiveBatches } from "../generation/BatchStatus.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
+import { PreviewVideoButton } from "../video/VideoPreview.tsx";
 import { BulkGenerateButton, LayoutThumb } from "./BulkGenerate.tsx";
 
 /**
@@ -174,6 +175,17 @@ export function PagesPage() {
                 </option>
               ))}
             </select>
+            {chapterId && pages.length > 0 && (
+              <PreviewVideoButton
+                projectId={projectId}
+                scope={{ chapterId }}
+                label="Play chapter"
+                title={(() => {
+                  const c = chapters.data.find((x) => x.id === chapterId);
+                  return c ? `Preview — Chapter ${c.order}: ${c.title}` : "Preview";
+                })()}
+              />
+            )}
             {chapterId && totalPanels > 0 && (
               <BulkGenerateButton
                 projectId={projectId}

@@ -682,6 +682,16 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
         "with the check.",
       false,
     ],
+    faces: [
+      "Every clearly visible face, as a box in fractions of the image (0 to 1, from the top-left corner). Speech " +
+        "bubbles are moved off these boxes and their tails pointed at the speaker's face.",
+      [{ name: "Ines", x: 0.18, y: 0.12, width: 0.16, height: 0.2 }],
+    ],
+    "faces[].name": ["The expected character whose face it is, as listed in the prompt, or unknown.", "Ines"],
+    "faces[].x": ["Left edge of the face box, as a fraction of the image width.", 0.18],
+    "faces[].y": ["Top edge of the face box, as a fraction of the image height.", 0.12],
+    "faces[].width": ["Width of the face box, as a fraction of the image width.", 0.16],
+    "faces[].height": ["Height of the face box, as a fraction of the image height.", 0.2],
     notes: ["Anything else worth noting. Saved with the check.", "Tomas is partly hidden behind the door."],
   },
 };

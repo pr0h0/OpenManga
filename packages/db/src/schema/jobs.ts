@@ -18,6 +18,8 @@ export type GenerationKind =
   | "panel_edit"
   | "panel_check"
   | "cover"
+  /** A 16:9 YouTube thumbnail background; its headline is composited by the app. */
+  | "thumbnail"
   /** Describe an uploaded reference image as reusable style / character / location descriptions. */
   | "image_describe"
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
@@ -171,6 +173,8 @@ export type ExportKind =
   | "png_pages"
   | "jpg_pages"
   | "pdf"
+  | "cbz"
+  | "epub"
   | "webtoon"
   | "zip_package"
   | "project_json"

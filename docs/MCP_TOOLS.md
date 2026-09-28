@@ -797,6 +797,37 @@ Change a project's title, description, type, language, reading direction, colour
         "author": {
           "type": "string"
         },
+        "thumbnail": {
+          "type": "object",
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "title": {
+              "default": "",
+              "type": "string",
+              "maxLength": 120
+            },
+            "subtitle": {
+              "default": "",
+              "type": "string",
+              "maxLength": 120
+            },
+            "side": {
+              "default": "left",
+              "type": "string",
+              "enum": [
+                "left",
+                "right"
+              ]
+            }
+          },
+          "required": [
+            "assetId"
+          ]
+        },
         "lettering": {
           "type": "object",
           "properties": {
@@ -7297,7 +7328,7 @@ Queue speech synthesis for one segment (segmentId) or every missing/stale segmen
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF, webtoon strip, ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -7319,6 +7350,8 @@ Queue an export job: pages as PNG/JPG, PDF, webtoon strip, ZIP package, project 
         "png_pages",
         "jpg_pages",
         "pdf",
+        "cbz",
+        "epub",
         "webtoon",
         "zip_package",
         "project_json",
@@ -7381,7 +7414,12 @@ Queue an export job: pages as PNG/JPG, PDF, webtoon strip, ZIP package, project 
             "A5",
             "B5",
             "letter",
-            "tankobon"
+            "tankobon",
+            "kdp_5x8",
+            "kdp_5_5x8_5",
+            "kdp_6x9",
+            "kdp_7x10",
+            "kdp_8_5x11"
           ]
         },
         "marginMm": {

@@ -14,6 +14,7 @@ import {
   locations,
   panels,
   props,
+  type ReferenceKind,
   referenceAssets,
   sql,
 } from "@openmanga/db";
@@ -24,8 +25,8 @@ import {
   PRIORITY,
   providerSupports,
 } from "@openmanga/domain";
-import { ANSWER_FIELD_DOCS, renderInterface, schemaFromPrompt } from "@openmanga/schemas";
-import { generationPreflight, projectBudget, recordAudit } from "@openmanga/services";
+import { ANSWER_FIELD_DOCS, ProjectSettings, renderInterface, schemaFromPrompt } from "@openmanga/schemas";
+import { generationPreflight, projectBudget, recordAudit, renderThumbnail } from "@openmanga/services";
 import { mockTextCompletion } from "@openmanga/testing";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -357,7 +358,14 @@ const Scope = z.object({
   panelIds: z.array(z.string().uuid()).max(500).optional(),
   /** Every location or every prop in the project: one reference each, for its current version. */
   references: z.enum(["location", "prop"]).optional(),
+  /** Which kind of reference to draw for each: a wide view, panorama or sheet of a location; a prop's single view or turnaround. */
+  referenceKind: z.enum(["location", "location_panorama", "location_sheet", "prop", "prop_multi_angle"]).optional(),
 });
+
+const REFERENCE_KINDS_FOR = {
+  location: ["location", "location_panorama", "location_sheet"],
+  prop: ["prop", "prop_multi_angle"],
+} as const;
 export const BulkInput = z.object({
   scope: Scope,
   onlyMissing: z.boolean().default(true),
@@ -504,22 +512,25 @@ async function bulkReferences(
 ) {
   const deps = c.get("deps");
   const table = subject === "location" ? locations : props;
+  const kinds: readonly string[] = REFERENCE_KINDS_FOR[subject];
+  const kind = input.scope.referenceKind ?? subject;
+  if (!kinds.includes(kind)) throw badRequest(`A ${subject} has no ${kind} reference`);
   const rows = await deps.db
     .select({ id: table.id, name: table.name, versionId: table.currentVersionId })
     .from(table)
     .where(and(eq(table.projectId, projectId), isNull(table.deletedAt)));
   const versionIds = rows.map((r) => r.versionId).filter((v): v is string => Boolean(v));
   const versionCol = subject === "location" ? referenceAssets.locationVersionId : referenceAssets.propVersionId;
-  const withReference = new Set(
-    versionIds.length
-      ? (
-          await deps.db
-            .select({ v: versionCol })
-            .from(referenceAssets)
-            .where(and(inArray(versionCol, versionIds), sql`${referenceAssets.status} <> 'superseded'`))
-        ).map((r) => r.v)
-      : [],
-  );
+  const refs = versionIds.length
+    ? await deps.db
+        .selectDistinct({ v: versionCol, kind: referenceAssets.kind })
+        .from(referenceAssets)
+        .where(and(inArray(versionCol, versionIds), sql`${referenceAssets.status} <> 'superseded'`))
+    : [];
+  // "Only missing" means missing the kind being drawn: a location with a wide view can still get its first sheet.
+  const withReference = new Set(refs.filter((r) => r.kind === kind).map((r) => r.v));
+  /** What the project already has, per kind: how many of its locations/props have at least one of each. */
+  const existing = Object.fromEntries(kinds.map((k) => [k, refs.filter((r) => r.kind === k).length]));
   const inProgress = new Set(
     versionIds.length
       ? (
@@ -564,6 +575,8 @@ async function bulkReferences(
     provider: { provider: chosen.provider, model: chosen.model },
     batch: input.batch,
     rateSnapshot: rate ? { provider: rate.provider, model: rate.model, effectiveFrom: rate.effectiveFrom } : null,
+    referenceKind: kind,
+    existing,
   };
   if (!input.confirm)
     return c.json({
@@ -581,7 +594,7 @@ async function bulkReferences(
   for (const r of eligible) {
     try {
       jobs.push(
-        await deps.planner.enqueueReference(subject, r.versionId!, subject, user(c).id, {
+        await deps.planner.enqueueReference(subject, r.versionId!, kind as ReferenceKind, user(c).id, {
           ai: input.ai,
           batchId,
           allowOverBudget,
@@ -916,4 +929,64 @@ generationRoutes.post("/projects/:projectId/cover", async (c) => {
   const job = await deps.planner.enqueueCover(p.id, user(c).id, input);
   await deps.jobs.kick();
   return c.json({ job }, 202);
+});
+
+const ThumbnailInput = CoverInput.extend({ side: z.enum(["left", "right"]).default("left") });
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/thumbnail",
+  summary:
+    "Generate a 16:9 video thumbnail background (text-free). The headline is composited by GET /api/projects/:projectId/thumbnail.png.",
+  tag: "generations",
+  body: ThumbnailInput,
+});
+generationRoutes.post("/projects/:projectId/thumbnail", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "generate");
+  const { side, ...input } = await body(c, ThumbnailInput);
+  await assertBudget(c, p.id);
+  await checkImageChoice(c, input.ai);
+  const deps = c.get("deps");
+  const job = await deps.planner.enqueueCover(p.id, user(c).id, input, { side });
+  await deps.jobs.kick();
+  return c.json({ job }, 202);
+});
+
+const ThumbnailRender = z.object({
+  title: z.string().max(120).optional(),
+  subtitle: z.string().max(120).optional(),
+  side: z.enum(["left", "right"]).optional(),
+  width: z.coerce.number().int().min(320).max(1920).default(1280),
+  download: z.enum(["0", "1"]).default("0"),
+});
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/thumbnail.png",
+  summary:
+    "The video thumbnail as a PNG: the generated art with the headline composited. title/subtitle/side override the saved ones, so a reworded headline costs nothing.",
+  tag: "generations",
+  query: ThumbnailRender,
+});
+generationRoutes.get("/projects/:projectId/thumbnail.png", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const q = query(c, ThumbnailRender);
+  const deps = c.get("deps");
+  const t = ProjectSettings.parse(p.settings).thumbnail;
+  const art = t ? await deps.assets.get(t.assetId) : null;
+  if (!t || !art || art.deletedAt) throw notFound("Thumbnail");
+  const png = await renderThumbnail(
+    await deps.assets.read(art),
+    q.title ?? t.title,
+    q.subtitle ?? t.subtitle,
+    q.side ?? t.side,
+    q.width,
+  );
+  return c.body(png.slice().buffer as ArrayBuffer, 200, {
+    "content-type": "image/png",
+    "cache-control": "private, no-store",
+    ...(q.download === "1"
+      ? {
+          "content-disposition": `attachment; filename="${p.title.replace(/[^\w.\- ]/g, "_").slice(0, 80)}_thumbnail.png"`,
+        }
+      : {}),
+  });
 });

@@ -29,6 +29,8 @@ export const ExportOptions = z.object({
     "png_pages",
     "jpg_pages",
     "pdf",
+    "cbz",
+    "epub",
     "webtoon",
     "zip_package",
     "project_json",
@@ -44,7 +46,22 @@ export const ExportOptions = z.object({
   jpgQuality: z.number().int().min(40).max(100).default(90),
   pdf: z
     .object({
-      pageSize: z.enum(["source", "A4", "A5", "B5", "letter", "tankobon"]).default("source"),
+      /** kdp_* are Amazon KDP trim sizes, printed full bleed (margin and bleed are then ignored). */
+      pageSize: z
+        .enum([
+          "source",
+          "A4",
+          "A5",
+          "B5",
+          "letter",
+          "tankobon",
+          "kdp_5x8",
+          "kdp_5_5x8_5",
+          "kdp_6x9",
+          "kdp_7x10",
+          "kdp_8_5x11",
+        ])
+        .default("source"),
       marginMm: z.number().min(0).max(50).default(0),
       bleedMm: z.number().min(0).max(10).default(0),
       dpi: z.number().int().min(72).max(600).default(300),
@@ -107,7 +124,7 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
   const input = await body(c, ExportOptions);
   if (
-    ["png_pages", "jpg_pages", "pdf", "webtoon", "narration_audio", "timeline"].includes(input.kind) &&
+    ["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon", "narration_audio", "timeline"].includes(input.kind) &&
     !input.chapterId &&
     !input.pageIds?.length
   ) {

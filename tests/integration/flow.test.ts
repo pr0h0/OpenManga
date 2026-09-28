@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
 import { sharp } from "@openmanga/image-utils";
+import { unzipSync } from "fflate";
+import { PDFDocument } from "pdf-lib";
 import { FakeImageAIProvider } from "../../packages/ai-image/src/index.ts";
 import { type startHarness as Start, startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -672,6 +674,9 @@ describe("full production flow (mock AI)", () => {
       "png_pages",
       "webtoon",
       "pdf",
+      "pdf_kdp",
+      "cbz",
+      "epub",
       "narration_audio",
       "project_json",
       "zip_package",
@@ -680,9 +685,10 @@ describe("full production flow (mock AI)", () => {
       const r = await alice.post<{ job: { id: string } }>(
         `/api/projects/${projectId}/exports`,
         {
-          kind,
+          kind: kind === "pdf_kdp" ? "pdf" : kind,
           chapterId: kind === "project_json" || kind === "zip_package" || kind === "agent_package" ? null : chapterId,
           audio: { format: "wav", normalize: false },
+          ...(kind === "pdf_kdp" ? { pdf: { pageSize: "kdp_6x9" } } : {}),
         },
         202,
       );
@@ -713,6 +719,26 @@ describe("full production flow (mock AI)", () => {
           expect(names).toContain(f);
       }
       if (kind === "pdf") expect(new TextDecoder().decode(buf.slice(0, 5))).toBe("%PDF-");
+      if (kind === "pdf_kdp") {
+        // 6" x 9" trim plus KDP bleed (0.125" wide, 0.25" tall), trim box marking the cut, outside edge first.
+        const page = (await PDFDocument.load(buf)).getPage(0);
+        expect(page.getSize()).toEqual({ width: 441, height: 666 });
+        expect(page.getTrimBox()).toMatchObject({ x: 0, y: 9, width: 432, height: 648 });
+      }
+      if (kind === "cbz") {
+        const names = Object.keys(unzipSync(buf));
+        expect(names).toContain("ComicInfo.xml");
+        expect(names).toContain("0001.jpg");
+        expect(f.fileName.endsWith(".cbz")).toBe(true);
+      }
+      if (kind === "epub") {
+        // EPUB readers require "mimetype" as the first entry, uncompressed: its name sits at byte 30.
+        expect(new TextDecoder().decode(buf.slice(30, 38))).toBe("mimetype");
+        const files = unzipSync(buf);
+        const opf = new TextDecoder().decode(files["OEBPS/content.opf"]);
+        expect(opf).toContain("pre-paginated");
+        expect(files["OEBPS/p0001.xhtml"]).toBeDefined();
+      }
       if (kind === "project_json") expect(JSON.parse(new TextDecoder().decode(buf)).schemaVersion).toBe(1);
     }
   }, 240_000);
@@ -1404,6 +1430,9 @@ describe("full production flow (mock AI)", () => {
     // Trashing the character takes its other image; restoring it brings back that one, not the one deleted before.
     await alice.del(`/api/characters/${ch.id}`);
     expect(await listed(second)).toMatchObject({ outputAssetId: null, outputDeleted: true });
+    // Its page still shows the image that went with it (and only that one), for restoring.
+    const trashedDetail = await alice.get<{ references: { assetId: string }[] }>(`/api/characters/${ch.id}`);
+    expect(trashedDetail.references.map((r) => r.assetId)).toEqual([secondAsset]);
     expect((await alice.raw("GET", `/cdn/a/${secondAsset}?v=thumbnail`)).status).toBe(404);
     await alice.post(`/api/characters/${ch.id}/restore`);
     expect(await listed(second)).toMatchObject({ outputAssetId: secondAsset, outputDeleted: false });
@@ -1413,6 +1442,145 @@ describe("full production flow (mock AI)", () => {
     // The deleted image can be restored from its job.
     await alice.post(`/api/assets/${firstAsset}/restore`);
     expect((await listed(first)).outputAssetId).toBe(firstAsset);
+  });
+
+  test("generating all location references: pick the kind, and see what the project already has", async () => {
+    type Est = { count: number; total: number; existing: Record<string, number>; referenceKind: string };
+    const est = (referenceKind?: string) =>
+      alice.post<Est>(`/api/projects/${projectId}/generations/bulk`, {
+        scope: { references: "location", ...(referenceKind ? { referenceKind } : {}) },
+      });
+    const wide = await est();
+    expect(wide.referenceKind).toBe("location");
+    expect(Object.keys(wide.existing).sort()).toEqual(["location", "location_panorama", "location_sheet"]);
+    const sheets = await est("location_sheet");
+    // Nothing has a sheet yet, so every location is due one, whatever wide views exist.
+    expect(sheets.existing.location_sheet).toBe(0);
+    expect(sheets.count).toBe(sheets.total);
+    expect(
+      (
+        await alice.raw("POST", `/api/projects/${projectId}/generations/bulk`, {
+          scope: { references: "location", referenceKind: "prop_multi_angle" },
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  test("video thumbnail: 16:9 art with the headline composited on request, never replacing the cover", async () => {
+    const before = await alice.get<{ project: { coverAssetId: string | null } }>(`/api/projects/${projectId}`);
+    const r = await alice.post<{ job: Job }>(
+      `/api/projects/${projectId}/thumbnail`,
+      { title: "The rooftop duel", subtitle: "Chapter 1", side: "right" },
+      202,
+    );
+    expect((await waitJob(alice, r.job.id)).job.status).toBe("completed");
+    const after = await alice.get<{
+      project: {
+        coverAssetId: string | null;
+        settings: { thumbnail?: { assetId: string; title: string; subtitle: string; side: string } };
+      };
+    }>(`/api/projects/${projectId}`);
+    expect(after.project.coverAssetId).toBe(before.project.coverAssetId);
+    expect(after.project.settings.thumbnail).toMatchObject({
+      title: "The rooftop duel",
+      subtitle: "Chapter 1",
+      side: "right",
+    });
+
+    const png = await alice.raw("GET", `/api/projects/${projectId}/thumbnail.png`);
+    expect(png.status).toBe(200);
+    const meta = await sharp(new Uint8Array(await png.arrayBuffer())).metadata();
+    expect([meta.width, meta.height]).toEqual([1280, 720]);
+    // Rewording renders a different image from the same art, and the saved headline can be changed.
+    const reworded = await alice.raw("GET", `/api/projects/${projectId}/thumbnail.png?title=Betrayal&width=640`);
+    expect((await sharp(new Uint8Array(await reworded.arrayBuffer())).metadata()).width).toBe(640);
+    await alice.patch(`/api/projects/${projectId}`, {
+      settings: { thumbnail: { ...after.project.settings.thumbnail!, title: "Betrayal" } },
+    });
+    const saved = await alice.get<{ project: { settings: { thumbnail?: { title: string } } } }>(
+      `/api/projects/${projectId}`,
+    );
+    expect(saved.project.settings.thumbnail?.title).toBe("Betrayal");
+    expect((await bob.raw("GET", `/api/projects/${projectId}/thumbnail.png`)).status).toBeGreaterThanOrEqual(403);
+  });
+
+  test("reader links: public and read-only, scoped to their chapter, closed by revoking", async () => {
+    const anon = h.client();
+    const { share } = await alice.post<{ share: { id: string; token: string } }>(
+      `/api/projects/${projectId}/shares`,
+      { chapterId },
+      201,
+    );
+    const book = await anon.get<{
+      project: { title: string };
+      chapters: { id: string; pages: { id: string; width: number }[] }[];
+    }>(`/api/public/shares/${share.token}`);
+    expect(book.chapters.map((ch) => ch.id)).toEqual([chapterId]);
+    const first = book.chapters[0]!.pages[0]!;
+    const png = await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`);
+    expect(png.status).toBe(200);
+    expect((await sharp(new Uint8Array(await png.arrayBuffer())).metadata()).width).toBeLessThanOrEqual(400);
+
+    // A page outside the shared chapter is not reachable through the link.
+    const other = await alice.post<{ chapter: { id: string } }>(
+      `/api/projects/${projectId}/chapters`,
+      { title: "Epilogue" },
+      201,
+    );
+    const otherPage = await alice.post<{ page: { id: string } }>(`/api/chapters/${other.chapter.id}/pages`, {}, 201);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}/pages/${otherPage.page.id}.png`)).status).toBe(
+      404,
+    );
+
+    // Only the owner shares; the list shows live links; revoking closes the link at once.
+    expect((await bob.raw("POST", `/api/projects/${projectId}/shares`, {})).status).toBeGreaterThanOrEqual(403);
+    const listed = await alice.get<{ shares: { id: string }[] }>(`/api/projects/${projectId}/shares`);
+    expect(listed.shares.map((x) => x.id)).toContain(share.id);
+    await alice.del(`/api/shares/${share.id}`);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}`)).status).toBe(404);
+    expect((await anon.raw("GET", `/api/public/shares/nonsense`)).status).toBe(404);
+    await alice.del(`/api/chapters/${other.chapter.id}`);
+  });
+
+  test("bubbles move off the faces the consistency check found, tails pointing at the speaker", async () => {
+    type Box = { x: number; y: number; width: number; height: number };
+    const doc = await alice.get<{ panels: { id: string; characterVersionIds: string[]; frame: Box }[] }>(
+      `/api/pages/${pageId}`,
+    );
+    const pn = doc.panels.find((p) => p.characterVersionIds.length)!;
+    const cast = await alice.get<{ characters: { id: string; currentVersion: { id: string } | null }[] }>(
+      `/api/projects/${projectId}/characters`,
+    );
+    const speaker = cast.characters.find((ch) => pn.characterVersionIds.includes(ch.currentVersion?.id ?? ""))!;
+    const f = pn.frame;
+    // Placed by hand right where the (mock) faces are: the middle band of the panel.
+    const on = { x: f.x + f.width * 0.3, y: f.y + f.height * 0.4, width: f.width * 0.3, height: f.height * 0.12 };
+    const { dialogue } = await alice.post<{ dialogue: { id: string } }>(
+      `/api/pages/${pageId}/dialogue`,
+      { panelId: pn.id, text: "Over here!", characterId: speaker.id, bubble: on },
+      201,
+    );
+    // Without a check there is nothing to go on, and nothing moves.
+    const before = await alice.post<{ panels: number; withoutFaces: number }>(
+      `/api/pages/${pageId}/lettering/fit-faces`,
+      {},
+    );
+    expect(before.withoutFaces).toBeGreaterThan(0);
+
+    const chk = await alice.post<{ job: Job }>(`/api/panels/${pn.id}/check`, {}, 202);
+    expect((await waitJob(alice, chk.job.id)).job.status).toBe("completed");
+    const r = await alice.post<{ panels: number; bubbles: number }>(`/api/pages/${pageId}/lettering/fit-faces`, {});
+    expect(r.panels).toBeGreaterThan(0);
+    const after = await alice.get<{
+      dialogue: { id: string; bubble: Box & { tailTarget?: { x: number; y: number } } }[];
+    }>(`/api/pages/${pageId}`);
+    const b = after.dialogue.find((d) => d.id === dialogue.id)!.bubble;
+    expect(b.y + b.height <= on.y || b.y >= on.y + on.height).toBe(true);
+    // The tail ends inside the panel, on the speaker's face band rather than straight below the bubble.
+    expect(b.tailTarget!.y).toBeGreaterThan(b.y + b.height);
+    expect(b.tailTarget!.x).toBeGreaterThanOrEqual(f.x);
+    expect(b.tailTarget!.x).toBeLessThanOrEqual(f.x + f.width);
+    await alice.del(`/api/dialogue/${dialogue.id}`);
   });
 
   test("duplicate, search, archive, trash", async () => {

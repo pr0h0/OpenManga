@@ -403,6 +403,61 @@ export function chunkBlocks<T extends { height: number }>(blocks: T[], maxHeight
   return chunks;
 }
 
+/** Greedy word wrap into at most `maxLines` lines of about `perLine` characters; the rest joins the last line. */
+function wrapWords(text: string, perLine: number, maxLines: number) {
+  const lines: string[] = [];
+  for (const w of text.trim().split(/\s+/).filter(Boolean)) {
+    const last = lines.at(-1);
+    if (last !== undefined && (last.length + 1 + w.length <= perLine || lines.length === maxLines))
+      lines[lines.length - 1] = `${last} ${w}`;
+    else lines.push(w);
+  }
+  return lines;
+}
+
+/**
+ * Video thumbnail, 1280×720: the model's text-free art with the headline composited on the clear side, large,
+ * heavy and outlined so it reads at the size of a list entry. Rendered on request, so rewording it is free.
+ */
+export async function renderThumbnail(
+  art: Uint8Array,
+  title: string,
+  subtitle: string,
+  side: "left" | "right",
+  width = 1280,
+) {
+  const height = Math.round((width * 9) / 16);
+  const bg = await renderPanelArt(art, width, height, { focalX: 0.5, focalY: 0.5, scale: 1 });
+  const text = title.toUpperCase().trim();
+  // Up to three balanced lines: a long headline gets longer lines, not an overflowing last one.
+  const lines = wrapWords(text, Math.max(10, Math.ceil(text.length / 3) + 2), 3);
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  // Heavy capitals are ~0.72 em wide: size the longest line to ~55% of the width, never wider.
+  const size = Math.round(Math.min(height / 4.5, (width * 0.55) / (longest * 0.72)));
+  const x = side === "left" ? Math.round(width * 0.05) : Math.round(width * 0.95);
+  const anchor = side === "left" ? "start" : "end";
+  const blockH = lines.length * size * 1.02 + (subtitle ? size * 0.55 : 0);
+  const top = (height - blockH) / 2 + size * 0.85;
+  const shade = side === "left" ? `x1="0" x2="1"` : `x1="1" x2="0"`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+<defs><linearGradient id="s" ${shade} y1="0" y2="0"><stop offset="0" stop-color="#000" stop-opacity="0.7"/><stop offset="0.6" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+<rect width="${width}" height="${height}" fill="url(#s)"/>
+${lines
+  .map(
+    (l, i) =>
+      `<text x="${x}" y="${top + i * size * 1.02}" text-anchor="${anchor}" font-family="'DejaVu Sans', sans-serif" font-weight="900" font-size="${size}" fill="${i === lines.length - 1 ? "#ffd400" : "#fff"}" stroke="#000" stroke-width="${size / 9}" paint-order="stroke" stroke-linejoin="round">${esc(l)}</text>`,
+  )
+  .join("\n")}
+${subtitle ? `<text x="${x}" y="${top + lines.length * size * 1.02 + size * 0.15}" text-anchor="${anchor}" font-family="'DejaVu Sans', sans-serif" font-weight="700" font-size="${Math.round(size * 0.4)}" fill="#fff" stroke="#000" stroke-width="${size / 30}" paint-order="stroke">${esc(subtitle)}</text>` : ""}
+</svg>`;
+  return new Uint8Array(
+    await sharp(bg)
+      .composite([{ input: Buffer.from(svg) }])
+      .png()
+      .toBuffer(),
+  );
+}
+
 /** Cover: artwork from the model + app-composited title/subtitle/author (never model-rendered text). */
 export async function renderCover(art: Uint8Array, title: string, subtitle: string, author: string, width = 1200) {
   const height = Math.round(width * 1.5);

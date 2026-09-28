@@ -1,7 +1,7 @@
 import type { CharacterBible, ImageDescription } from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { AlertTriangle, GitBranch, Info, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, GitBranch, Info, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useCallback, useState } from "react";
 import { ApiError, del, get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
@@ -49,6 +49,10 @@ export function CharacterDetailPage() {
     (body: { name?: string; role?: string; currentVersionId?: string }) => patch(`/characters/${characterId}`, body),
     inv,
   );
+  const restore = useAction(() => post(`/characters/${characterId}/restore`), {
+    ...inv,
+    success: "Character restored",
+  });
   const trash = useAction(() => del(`/characters/${characterId}`), {
     ...inv,
     success: "Character moved to trash",
@@ -92,6 +96,16 @@ export function CharacterDetailPage() {
       <Link to="/projects/$projectId/cast" params={{ projectId }} className="muted text-xs hover:underline">
         ← Cast
       </Link>
+      {ch.deletedAt && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md bg-amber-500/10 p-3 text-sm">
+          <span className="mr-auto">
+            This character is in the trash, with its reference images. Restoring it brings them back.
+          </span>
+          <button type="button" className="btn-secondary" disabled={restore.isPending} onClick={() => restore.mutate()}>
+            <RotateCcw className="size-4" /> Restore
+          </button>
+        </div>
+      )}
       <PageHeader
         title={
           <input
@@ -287,6 +301,7 @@ export function CharacterDetailPage() {
               references={data.references}
               outfits={data.outfits}
               onChanged={refresh}
+              trashed={Boolean(ch.deletedAt)}
             />
           </div>
         )}

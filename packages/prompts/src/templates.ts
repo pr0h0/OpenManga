@@ -419,13 +419,14 @@ export const panelCheckV1 = defineTextTemplate<{
   beat: string;
 }>({
   name: "panel-check",
-  version: 1,
+  version: 2,
   description: "Vision QA: does a generated panel show the expected cast at the expected headcount?",
   system: [
-    templateHeader("panel-check", 1),
+    templateHeader("panel-check", 2),
     "You are a strict continuity checker for comic panel artwork. You receive one panel image and the list of characters that should appear.",
     "Count every distinct person or humanoid figure visible (including background figures and partial bodies). Decide which expected characters are clearly present using their appearance notes. Anyone visible who is not one of the expected characters counts as unexpected.",
     "Report readableText=true only when the image contains legible letters or words (signs, speech bubbles, captions, UI).",
+    "List every clearly visible face in faces: a tight box around the face (forehead to chin) in fractions of the image, measured from the top-left corner, named with the expected character it belongs to, or unknown.",
     "Be literal: judge only what is visible, not what the story implies.",
     DATA_RULE,
     schemaInstructions("PanelCheck", PanelCheck),

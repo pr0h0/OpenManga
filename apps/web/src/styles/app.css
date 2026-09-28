@@ -60,6 +60,13 @@ body,
 #root {
   height: 100%;
 }
+@layer base {
+  /* Grid items default to min-width: auto, so one long select option or unbroken id widened a whole column (and
+     the page) past a phone's screen. */
+  .grid > * {
+    min-width: 0;
+  }
+}
 body {
   background: var(--bg);
   color: var(--text);
@@ -85,7 +92,7 @@ body {
   @apply btn bg-red-600 text-white hover:bg-red-700;
 }
 @utility input {
-  @apply w-full rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-sm outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20 placeholder:text-[var(--muted)];
+  @apply w-full max-w-full rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-1.5 text-sm outline-none focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20 placeholder:text-[var(--muted)];
 }
 @utility label {
   @apply mb-1 block text-xs font-medium text-[var(--muted)];

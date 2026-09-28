@@ -59,6 +59,15 @@ const kindLabel = (s: StyleContext) =>
 const PHOTOREAL_FORMAT =
   "Format: photorealistic live-action cinematography — real people, real materials and real light, photographed with a cinema camera. Not a drawing, painting, illustration, anime or 3D render.";
 
+/**
+ * The project's colour mode as the image model should read it. A photoreal style in a black-and-white project is
+ * black-and-white photography: the manga colour mode's "ink artwork with screentones" would undo the style.
+ */
+const colorDirective = (s: StyleContext) =>
+  s.definition?.photoreal && !/full colou?r/i.test(s.colorDirective)
+    ? "Black-and-white photograph: natural grey tones, no ink lines, no screentones."
+    : s.colorDirective;
+
 /** Preset colour/screentone wording that contradicts a colour project ("Black and white with grey tones"). */
 const MONOCHROME_WORDING =
   /black\s*(and|&)\s*white|monochrome|grey\s*tones|gray\s*tones|screentone|halftone|no colou?r/i;
@@ -88,7 +97,7 @@ export function styleSection(s: StyleContext) {
     d?.exclusions?.length ? `Avoid: ${d.exclusions.map(clean).filter(Boolean).join("; ")}.` : "",
     d?.photoreal ? PHOTOREAL_FORMAT : (FORMAT_DIRECTIVES[s.projectType] ?? ""),
     clean(s.customDescription) && `Project-specific style: ${clean(s.customDescription)}`,
-    s.colorDirective,
+    colorDirective(s),
     s.hasStyleReference
       ? `Match the rendering style of reference image ${s.hasStyleReference} (style only, not its content).`
       : "",
@@ -457,7 +466,7 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
     return join([
       i.film
         ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
-        : `Create one clean ${kindLabel(i.style)} panel, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
+        : `Create one clean ${i.style.definition?.photoreal ? "photorealistic live-action film still" : `${kindLabel(i.style)} panel`}, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
       styleSection(i.style),
       i.scene
         ? section("SCENE CONTEXT", [
@@ -595,7 +604,7 @@ export const panelEditV1: ImageTemplate<PanelEditInput> = {
           )
         : "",
       section("STYLE", [
-        `Keep the existing ${i.style.presetName ?? "art"} style. ${i.style.colorDirective}`,
+        `Keep the existing ${i.style.presetName ?? "art"} style. ${colorDirective(i.style)}`,
         "Blend seamlessly at the mask edge: match line weight, shading, color, lighting direction and perspective of the surrounding art.",
         FINISH,
       ]),
@@ -643,6 +652,43 @@ export const coverV1: ImageTemplate<CoverInput> = {
   },
 };
 
+export type ThumbnailInput = CoverInput & { side: "left" | "right" };
+
+export const thumbnailV1: ImageTemplate<ThumbnailInput> = {
+  name: "thumbnail",
+  version: 1,
+  kind: "image",
+  description: "16:9 video thumbnail background without text (the headline is composited by the app).",
+  body: "ROLE / GOAL, PROJECT ART DIRECTION, STORY, CHARACTERS, COMPOSITION, STRICT EXCLUSIONS",
+  compile(i) {
+    const clear = i.side === "left" ? "left" : "right";
+    const subject = i.side === "left" ? "right" : "left";
+    return join([
+      `Create a 16:9 thumbnail image for a narrated ${kindLabel(i.style)} video. Artwork only — a bold headline will be added later by our layout software.`,
+      styleSection(i.style),
+      section("STORY", [clean(i.summary)]),
+      i.characters.length
+        ? section(
+            "CHARACTERS",
+            i.characters.map(
+              (c) =>
+                `${c.name}${c.referenceImageIndex ? ` (the person in reference image ${c.referenceImageIndex})` : ""}: ${clean(c.appearance)}`,
+            ),
+          )
+        : "",
+      section("COMPOSITION", [
+        clean(i.composition) ||
+          "One striking moment from the story: the main character close up with a strong, readable emotion.",
+        `Put the focal subject in the ${subject} half, large, with the face clearly visible even at a small size.`,
+        `Keep the ${clear} 40% of the frame darker and uncluttered for the headline.`,
+        "High contrast, saturated key colours and a clear silhouette: it has to read as a small image in a list.",
+      ]),
+      section("PRESENTATION", [FULL_BLEED, FINISH]),
+      section("STRICT EXCLUSIONS", [...STRICT_BASE, "No title or headline text.", "Do not change character identity."]),
+    ]);
+  },
+};
+
 export const IMAGE_TEMPLATES = [
   characterReferenceV1,
   locationReferenceV1,
@@ -651,4 +697,5 @@ export const IMAGE_TEMPLATES = [
   panelGenerationV1,
   panelEditV1,
   coverV1,
+  thumbnailV1,
 ];

@@ -46,6 +46,7 @@ import { loadRenderPage, renderCover, renderPageImage, renderStrip, renderWebtoo
 import { withTempDir } from "@openmanga/storage";
 import { PDFDocument, ReadingDirection } from "pdf-lib";
 import type { WorkerDeps } from "../context.ts";
+import { type BookMeta, comicInfoXml, epubFiles } from "../lib/ebook.ts";
 import { renderPageCutVideo, renderPanelCutVideo, type VideoOptions } from "../lib/video.ts";
 import { ZipWriter } from "../lib/zip.ts";
 import { buildAgentPackage } from "./agent-package.ts";
@@ -87,6 +88,14 @@ const PAGE_SIZES_PT: Record<string, [number, number]> = {
   tankobon: [362.83, 515.91],
 };
 const mm = (v: number) => (v / 25.4) * 72;
+/** Amazon KDP trim sizes in inches. Printed with bleed: the page is 0.125" wider and 0.25" taller than the trim. */
+const KDP_TRIM_IN: Record<string, [number, number]> = {
+  kdp_5x8: [5, 8],
+  kdp_5_5x8_5: [5.5, 8.5],
+  kdp_6x9: [6, 9],
+  kdp_7x10: [7, 10],
+  kdp_8_5x11: [8.5, 11],
+};
 
 export async function processExport(deps: WorkerDeps, bullJob: Job) {
   const id = String(bullJob.data.exportJobId);
@@ -267,7 +276,8 @@ async function buildExport(
       if (readingDir === "rtl") pdf.catalog.getOrCreateViewerPreferences().setReadingDirection(ReadingDirection.R2L);
       pdf.setTitle(`${project.title} — ${chapterTitle}`);
       pdf.setCreator("OpenManga");
-      if (project.coverAssetId) {
+      // A KDP interior carries no cover: the cover is a separate file uploaded next to it.
+      if (project.coverAssetId && !KDP_TRIM_IN[opts.pdf.pageSize]) {
         const cover = await deps.assets.get(project.coverAssetId);
         if (cover) {
           const png = await renderCover(
@@ -282,7 +292,7 @@ async function buildExport(
       for (const [i, pid] of ordered.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
         const img = await renderPageImage(page, "png", { scale: opts.scale });
-        addImagePage(pdf, await pdf.embedPng(img.data), img.width, img.height, opts);
+        addImagePage(pdf, await pdf.embedPng(img.data), img.width, img.height, opts, i);
         await progress((i + 1) / ordered.length);
       }
       return [{ name: `${prefix}.pdf`, data: await pdf.save(), mime: "application/pdf" }];
@@ -452,6 +462,64 @@ async function buildExport(
       await progress(1);
       return [{ name: pkg.name, path: pkg.path, mime: "application/zip" }];
     }
+    case "cbz":
+    case "epub": {
+      const ids = await pageIdsFor(deps, opts, project.id);
+      if (!ids.length) throw new UnrecoverableError("No pages to export");
+      const meta: BookMeta = {
+        id: job.id,
+        title: opts.chapterId ? `${project.title} — ${chapterTitle}` : project.title,
+        series: project.title,
+        number: opts.chapterId ? chapter?.order : undefined,
+        author: project.settings.author ?? "",
+        summary: project.description,
+        language: project.language,
+        rtl: project.readingDirection === "rtl",
+        blackAndWhite: project.colorMode !== "full_color",
+      };
+      const images: { file: string; data: Uint8Array; width: number; height: number }[] = [];
+      let hasCover = false;
+      if (job.kind === "epub" && project.coverAssetId) {
+        const cover = await deps.assets.get(project.coverAssetId);
+        if (cover) {
+          const png = await renderCover(await deps.assets.read(cover), project.title, chapterTitle, meta.author);
+          const jpg = await sharp(png)
+            .jpeg({ quality: opts.jpgQuality, mozjpeg: true })
+            .toBuffer({ resolveWithObject: true });
+          images.push({
+            file: "cover.jpg",
+            data: new Uint8Array(jpg.data),
+            width: jpg.info.width,
+            height: jpg.info.height,
+          });
+          hasCover = true;
+        }
+      }
+      for (const [i, pid] of ids.entries()) {
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const img = await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
+        images.push({
+          file: `${String(i + 1).padStart(4, "0")}.jpg`,
+          data: img.data,
+          width: img.width,
+          height: img.height,
+        });
+        await progress(((i + 1) / ids.length) * 0.95);
+      }
+      const enc = new TextEncoder();
+      if (job.kind === "cbz") {
+        const zip = new ZipWriter(join(dir, "book.cbz"));
+        for (const im of images) await zip.add(im.file, im.data);
+        await zip.add("ComicInfo.xml", enc.encode(comicInfoXml(meta, images.length)));
+        return [{ name: `${prefix}.cbz`, path: await zip.close(), mime: "application/vnd.comicbook+zip" }];
+      }
+      const zip = new ZipWriter(join(dir, "book.epub"));
+      // Must be the first entry, stored uncompressed (ZipWriter never compresses).
+      await zip.add("mimetype", enc.encode("application/epub+zip"));
+      for (const f of epubFiles(meta, images, hasCover)) await zip.add(f.name, enc.encode(f.text));
+      for (const im of images) await zip.add(`OEBPS/images/${im.file}`, im.data);
+      return [{ name: `${prefix}.epub`, path: await zip.close(), mime: "application/epub+zip" }];
+    }
     case "zip_package": {
       const zip = new ZipWriter(join(dir, "package.zip"));
       const { doc } = await buildInterchange(deps, project, opts.includeAssets, progress, zip);
@@ -489,7 +557,22 @@ function addImagePage(
   pxW: number,
   pxH: number,
   opts: Opts,
+  /** Interior page index, for which edge is the outside one in a KDP book. */
+  index = 0,
 ) {
+  const kdp = KDP_TRIM_IN[opts.pdf.pageSize];
+  if (kdp) {
+    // Full bleed to KDP's spec: the art covers the whole page (cropping a sliver at the edges) and the trim box
+    // marks where the book is cut — bleed on the outside edge, which is the right of a recto (odd) page.
+    const [tw, th] = [kdp[0] * 72, kdp[1] * 72];
+    const [pageW, pageH] = [tw + 9, th + 18];
+    const page = pdf.addPage([pageW, pageH]);
+    const k = Math.max(pageW / pxW, pageH / pxH);
+    page.drawImage(image, { x: (pageW - pxW * k) / 2, y: (pageH - pxH * k) / 2, width: pxW * k, height: pxH * k });
+    page.setTrimBox(index % 2 === 0 ? 0 : 9, 9, tw, th);
+    page.setBleedBox(0, 0, pageW, pageH);
+    return;
+  }
   const bleed = mm(opts.pdf.bleedMm);
   const margin = mm(opts.pdf.marginMm);
   let pageW: number;

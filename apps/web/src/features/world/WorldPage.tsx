@@ -82,7 +82,7 @@ function EntityGrid({ kind }: { kind: "locations" | "props" }) {
   const singular = kind === "locations" ? "location" : "prop";
   return (
     <>
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
           <Plus className="size-4" /> New {singular}
         </button>
@@ -99,8 +99,20 @@ function EntityGrid({ kind }: { kind: "locations" | "props" }) {
             noun={{
               one: `${singular} reference`,
               many: `${singular} references`,
-              missing: `Only ${kind} without a reference`,
+              missing: `Only ${kind} without this kind of reference`,
             }}
+            kinds={
+              singular === "location"
+                ? [
+                    { value: "location", label: "Wide view" },
+                    { value: "location_panorama", label: "Panorama" },
+                    { value: "location_sheet", label: "Sheet of its sides" },
+                  ]
+                : [
+                    { value: "prop", label: "Single view" },
+                    { value: "prop_multi_angle", label: "Turnaround" },
+                  ]
+            }
           />
         )}
       </div>

@@ -142,6 +142,7 @@ function versionedEntity<K extends "location" | "prop">(kind: K) {
       c,
       kind,
       versions.map((v) => v.id),
+      e.deletedAt,
     );
     return c.json({ [kind]: e, versions, references });
   });

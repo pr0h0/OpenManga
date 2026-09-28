@@ -224,6 +224,15 @@ export const ProjectSettings = z.object({
   webtoonWidth: z.number().int().min(320).max(2000).default(800),
   worldNotes: z.string().default(""),
   author: z.string().default(""),
+  /** The YouTube thumbnail: text-free 16:9 art, with the headline composited by the app whenever it is rendered. */
+  thumbnail: z
+    .object({
+      assetId: z.string().uuid(),
+      title: z.string().max(120).default(""),
+      subtitle: z.string().max(120).default(""),
+      side: z.enum(["left", "right"]).default("left"),
+    })
+    .optional(),
   lettering: LetteringDefaults.optional(),
   /** Hard spending ceiling for AI generation in USD (estimated from recorded usage). Unset = no cap. */
   budgetUsd: z.number().min(0).max(1_000_000).nullable().optional(),

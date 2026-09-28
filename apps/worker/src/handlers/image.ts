@@ -11,6 +11,7 @@ import {
   projects,
   type ReferenceKind,
   referenceAssets,
+  sql,
 } from "@openmanga/db";
 import { ProviderError } from "@openmanga/domain";
 import { probeImage, type ReferenceParams, toEditMask } from "@openmanga/image-utils";
@@ -402,12 +403,13 @@ export async function coverGeneration(deps: WorkerDeps, job: GenerationJob) {
   const inputs = await inputsOf(deps, job.id);
   const references: ImageInputFile[] = [];
   for (const i of inputs) references.push(await loadInputFile(deps, i));
+  const thumbnail = job.kind === "thumbnail";
   const r = await (await imageProviderFor(deps, job)).generate({
     prompt: job.compiledPrompt ?? "",
-    aspectRatio: 2 / 3,
+    aspectRatio: thumbnail ? 16 / 9 : 2 / 3,
     quality: String(job.parameters.quality ?? deps.config.IMAGE_QUALITY),
     references,
-    label: "cover",
+    label: thumbnail ? "thumbnail" : "cover",
   });
   await recordImageUsage(deps, job, r, inputs);
   const { asset, cancelled } = await finalizeOutput(
@@ -415,11 +417,23 @@ export async function coverGeneration(deps: WorkerDeps, job: GenerationJob) {
     job,
     r,
     "cover",
-    { title: job.parameters.title, subtitle: job.parameters.subtitle },
+    { title: job.parameters.title, subtitle: job.parameters.subtitle, ...(thumbnail ? { thumbnail: true } : {}) },
     null,
   );
   if (cancelled) throw new JobCancelledError();
-  await deps.db.update(projects).set({ coverAssetId: asset.id }).where(eq(projects.id, job.projectId));
+  if (thumbnail) {
+    // The headline stays text in the settings, so it can be reworded without redrawing the art.
+    const t = {
+      assetId: asset.id,
+      title: String(job.parameters.title ?? ""),
+      subtitle: String(job.parameters.subtitle ?? ""),
+      side: job.parameters.side === "right" ? "right" : "left",
+    };
+    await deps.db
+      .update(projects)
+      .set({ settings: sql`${projects.settings} || jsonb_build_object('thumbnail', ${JSON.stringify(t)}::jsonb)` })
+      .where(eq(projects.id, job.projectId));
+  } else await deps.db.update(projects).set({ coverAssetId: asset.id }).where(eq(projects.id, job.projectId));
   await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));
   return { assetId: asset.id };
 }

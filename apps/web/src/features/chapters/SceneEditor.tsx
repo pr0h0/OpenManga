@@ -116,7 +116,7 @@ export function SceneEditor({
 
   return (
     <div className="rounded-lg border border-[var(--border)]">
-      <div className="flex items-center">
+      <div className="flex flex-wrap items-center">
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 p-3 text-left"
@@ -135,7 +135,7 @@ export function SceneEditor({
           <span className="muted ml-auto text-xs">{scene.beats.length} beats</span>
         </button>
         {projectId && (
-          <div className="shrink-0 pr-2">
+          <div className="flex max-w-full flex-wrap items-center gap-1 px-2 pb-2 sm:pb-0">
             <BulkGenerateButton
               projectId={projectId}
               scope={{ sceneId: scene.id }}

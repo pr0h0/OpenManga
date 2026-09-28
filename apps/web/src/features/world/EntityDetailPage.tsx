@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { GitBranch, Trash2 } from "lucide-react";
+import { GitBranch, RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { del, get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
@@ -57,6 +57,10 @@ function EntityDetail({ kind }: { kind: Kind }) {
     (fromVersionId: string) => post<{ version: Version }>(`/${plural}/${entityId}/versions`, { fromVersionId }),
     { ...inv, success: (r) => `Created v${r.version.versionNumber}`, onSuccess: (r) => setSelected(r.version.id) },
   );
+  const restore = useAction(() => post(`/${plural}/${entityId}/restore`), {
+    invalidate: [key, listKey],
+    success: "Restored",
+  });
   const trash = useAction(() => del(`/${plural}/${entityId}`), {
     invalidate: [listKey],
     success: "Moved to trash",
@@ -83,6 +87,16 @@ function EntityDetail({ kind }: { kind: Kind }) {
       <Link to="/projects/$projectId/world" params={{ projectId }} className="muted text-xs hover:underline">
         ← World
       </Link>
+      {entity.deletedAt && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md bg-amber-500/10 p-3 text-sm">
+          <span className="mr-auto">
+            {`This ${kind}`} is in the trash, with its reference images. Restoring it brings them back.
+          </span>
+          <button type="button" className="btn-secondary" disabled={restore.isPending} onClick={() => restore.mutate()}>
+            <RotateCcw className="size-4" /> Restore
+          </button>
+        </div>
+      )}
       <PageHeader
         title={
           <input
@@ -173,6 +187,7 @@ function EntityDetail({ kind }: { kind: Kind }) {
               versionStatus={version.status}
               references={data.references}
               onChanged={refresh}
+              trashed={Boolean(entity.deletedAt)}
             />
           </div>
         )}

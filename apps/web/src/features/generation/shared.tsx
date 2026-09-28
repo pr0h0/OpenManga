@@ -15,6 +15,7 @@ export const KIND_LABELS: Record<string, string> = {
   panel_generation: "Panel",
   panel_edit: "Panel edit",
   cover: "Cover",
+  thumbnail: "Video thumbnail",
 };
 
 export const JOB_STATUSES = [
