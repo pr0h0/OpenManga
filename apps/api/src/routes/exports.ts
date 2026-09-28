@@ -39,6 +39,7 @@ export const ExportOptions = z.object({
     "agent_package",
     "video_pages",
     "video_panels",
+    "youtube_package",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),

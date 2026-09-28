@@ -6,7 +6,15 @@
 import type { WorkerDeps } from "../context.ts";
 import type { GenerationJob } from "../lib/runner.ts";
 import { panelCheck } from "./qa.ts";
-import { chapterPlan, imageDescribe, narrationText, pagePrompts, storyAnalysis, storyRewrite } from "./text.ts";
+import {
+  chapterPlan,
+  imageDescribe,
+  narrationText,
+  pagePrompts,
+  storyAnalysis,
+  storyRewrite,
+  youtubePackage,
+} from "./text.ts";
 
 export type GenerationHandler = (deps: WorkerDeps, job: GenerationJob) => Promise<Record<string, unknown>>;
 
@@ -18,4 +26,5 @@ export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   narration_text: narrationText,
   panel_check: panelCheck,
   image_describe: imageDescribe,
+  youtube_package: youtubePackage,
 };

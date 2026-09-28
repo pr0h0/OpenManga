@@ -174,7 +174,8 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "PanelPromptDraft",
         "NarrationDraft",
         "ImageDescription",
-        "PanelCheck"
+        "PanelCheck",
+        "YoutubePackage"
       ]
     }
   },
@@ -796,6 +797,48 @@ Change a project's title, description, type, language, reading direction, colour
         },
         "author": {
           "type": "string"
+        },
+        "youtubePackage": {
+          "type": "object",
+          "properties": {
+            "titles": {
+              "default": [],
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "description": {
+              "default": "",
+              "type": "string",
+              "maxLength": 4500
+            },
+            "tags": {
+              "default": [],
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 60
+              }
+            },
+            "pinnedComment": {
+              "default": "",
+              "type": "string",
+              "maxLength": 2000
+            },
+            "thumbnailHeadlines": {
+              "default": [],
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 60
+              }
+            }
+          }
         },
         "thumbnail": {
           "type": "object",
@@ -7359,7 +7402,8 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "timeline",
         "agent_package",
         "video_pages",
-        "video_panels"
+        "video_panels",
+        "youtube_package"
       ]
     },
     "chapterId": {

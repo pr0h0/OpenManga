@@ -25,6 +25,7 @@ import {
   PRIORITY,
   providerSupports,
 } from "@openmanga/domain";
+import { youtubePackageV1 } from "@openmanga/prompts";
 import { ANSWER_FIELD_DOCS, ProjectSettings, renderInterface, schemaFromPrompt } from "@openmanga/schemas";
 import { generationPreflight, projectBudget, recordAudit, renderThumbnail } from "@openmanga/services";
 import { mockTextCompletion } from "@openmanga/testing";
@@ -33,7 +34,16 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, assertBudget, checkImageChoice } from "../lib/ai.ts";
+import {
+  AiChoiceInput,
+  assertBatchable,
+  assertBudget,
+  BatchInput,
+  batchParameters,
+  checkImageChoice,
+  queueTextBatchSubmit,
+  textRun,
+} from "../lib/ai.ts";
 import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
@@ -947,6 +957,49 @@ generationRoutes.post("/projects/:projectId/thumbnail", async (c) => {
   await checkImageChoice(c, input.ai);
   const deps = c.get("deps");
   const job = await deps.planner.enqueueCover(p.id, user(c).id, input, { side });
+  await deps.jobs.kick();
+  return c.json({ job }, 202);
+});
+
+const YoutubePackageInput = z.object({ ai: AiChoiceInput, batch: BatchInput });
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/youtube-package",
+  summary:
+    "Write the YouTube package (title options, description, tags, pinned comment, thumbnail headlines) with the text model. Saved to settings.youtubePackage, where it can be edited.",
+  tag: "generations",
+  body: YoutubePackageInput,
+});
+generationRoutes.post("/projects/:projectId/youtube-package", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "generate");
+  const { ai, batch } = await body(c, YoutubePackageInput);
+  const deps = c.get("deps");
+  await assertBudget(c, p.id);
+  const run = await textRun(c, ai);
+  assertBatchable(c, batch, run.provider);
+  const batchId = batch ? crypto.randomUUID() : null;
+  const job = await deps.db.transaction((tx) =>
+    deps.jobs.createGenerationJob(
+      tx,
+      {
+        projectId: p.id,
+        userId: user(c).id,
+        kind: "youtube_package",
+        priority: PRIORITY.single,
+        targetType: "project",
+        targetId: p.id,
+        batchId,
+        templateName: youtubePackageV1.name,
+        templateVersion: youtubePackageV1.version,
+        provider: run.provider,
+        model: run.model,
+        parameters: { ...run.parameters, ...batchParameters(batch) },
+        input: {},
+      },
+      { enqueue: !batch },
+    ),
+  );
+  if (batchId) await queueTextBatchSubmit(c, { projectId: p.id, batchId, ai });
   await deps.jobs.kick();
   return c.json({ job }, 202);
 });

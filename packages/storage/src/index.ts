@@ -10,6 +10,8 @@ export interface AssetStorage {
   /** Stores a file from disk without loading it into memory. */
   putFile(key: string, srcPath: string): Promise<StoredObjectMetadata>;
   read(key: string): Promise<Uint8Array>;
+  /** The object as a stream, for files too large to hold in memory (videos). */
+  stream(key: string): ReadableStream<Uint8Array>;
   exists(key: string): Promise<boolean>;
   delete(key: string): Promise<void>;
   getMetadata(key: string): Promise<StoredObjectMetadata | null>;
@@ -77,6 +79,10 @@ export class LocalAssetStorage implements AssetStorage {
 
   async read(key: string) {
     return new Uint8Array(await readFile(this.path(key)));
+  }
+
+  stream(key: string) {
+    return Bun.file(this.path(key)).stream();
   }
 
   async exists(key: string) {

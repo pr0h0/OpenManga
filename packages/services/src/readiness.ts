@@ -53,6 +53,7 @@ export const EXPORT_AREAS: Record<Exclude<ExportKind, "project_import">, ("art" 
   timeline: ["narration"],
   agent_package: ["art", "narration"],
   video_pages: ["art", "narration"],
+  youtube_package: ["art", "narration"],
   video_panels: ["art", "narration"],
 };
 

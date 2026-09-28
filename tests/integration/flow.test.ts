@@ -1603,6 +1603,43 @@ describe("full production flow (mock AI)", () => {
     ).toBeGreaterThanOrEqual(403);
   });
 
+  test("YouTube package: the text is written and editable, and the export needs a rendered video", async () => {
+    const r = await alice.post<{ job: Job }>(`/api/projects/${projectId}/youtube-package`, {}, 202);
+    expect((await waitJob(alice, r.job.id)).job.status).toBe("completed");
+    const p = await alice.get<{
+      project: { settings: { youtubePackage?: { titles: string[]; description: string; tags: string[] } } };
+    }>(`/api/projects/${projectId}`);
+    const pkg = p.project.settings.youtubePackage!;
+    expect(pkg.titles.length).toBeGreaterThan(0);
+    expect(pkg.description.length).toBeGreaterThan(0);
+    await alice.patch(`/api/projects/${projectId}`, {
+      settings: { youtubePackage: { ...pkg, titles: ["My own title"] } },
+    });
+    const edited = await alice.get<{ project: { settings: { youtubePackage?: { titles: string[] } } } }>(
+      `/api/projects/${projectId}`,
+    );
+    expect(edited.project.settings.youtubePackage?.titles).toEqual(["My own title"]);
+
+    // Exports make no AI calls and render nothing new: without a finished video there is nothing to package.
+    const ex = await alice.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "youtube_package", chapterId, acknowledgeIssues: true },
+      202,
+    );
+    const done = await waitFor(
+      async () => {
+        const l = await alice.get<{ jobs: { id: string; status: string; failureReason: string | null }[] }>(
+          `/api/projects/${projectId}/exports`,
+        );
+        const j = l.jobs.find((x) => x.id === ex.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "youtube package", timeoutMs: 60_000 },
+    );
+    expect(done.status).toBe("failed");
+    expect(done.failureReason).toContain("Render the");
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

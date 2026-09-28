@@ -16,6 +16,7 @@ const OPERATION_LABELS: Record<string, string> = {
   cover: "Covers",
   story_analysis: "Story analysis",
   story_rewrite: "Story rewrite",
+  youtube_package: "YouTube package",
   chapter_plan: "Planning",
   page_prompts: "Prompt prep",
   narration_text: "Narration text",

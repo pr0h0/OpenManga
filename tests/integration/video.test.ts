@@ -204,6 +204,43 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     );
     expect(`${wholeDone.status}:${wholeDone.failureReason ?? ""}`).toBe("completed:");
     expect(wholeDone.files[0]!.fileName).toContain("_project_");
+    // A film spanning chapters also gets YouTube chapter timestamps, and the package bundles it all.
+    const wholeFiles = await u.get<{ jobs: { id: string; files: { fileName: string; assetId: string }[] }[] }>(
+      `/api/projects/${projectId}/exports`,
+    );
+    const stamps = wholeFiles.jobs
+      .find((j) => j.id === whole.job.id)!
+      .files.find((f) => f.fileName.endsWith(".chapters.txt"));
+    if (stamps) {
+      const text = await (await u.raw("GET", `/cdn/a/${stamps.assetId}`)).text();
+      expect(text.startsWith("0:00 Chapter 1")).toBe(true);
+    }
+    await u.patch(`/api/projects/${projectId}`, {
+      settings: {
+        youtubePackage: { titles: ["T"], description: "D", tags: ["a"], pinnedComment: "Q?", thumbnailHeadlines: [] },
+      },
+    });
+    const pk = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "youtube_package", acknowledgeIssues: true },
+      202,
+    );
+    const pkDone = await waitFor(
+      async () => {
+        const l = await u.get<{
+          jobs: { id: string; status: string; failureReason: string | null; files: { assetId: string }[] }[];
+        }>(`/api/projects/${projectId}/exports`);
+        const j = l.jobs.find((x) => x.id === pk.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "youtube package", timeoutMs: 120_000 },
+    );
+    expect(`${pkDone.status}:${pkDone.failureReason ?? ""}`).toBe("completed:");
+    const zipNames = new TextDecoder("latin1").decode(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${pkDone.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    for (const f of ["description.txt", "titles.txt", "tags.txt", "pinned-comment.txt", "video/", ".mp4", ".srt"])
+      expect(zipNames).toContain(f);
 
     // A page selection renders only those pages: shorter than the chapter, and still a valid film.
     const chapterPages = await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`);

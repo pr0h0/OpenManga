@@ -30,6 +30,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   panel_generation: "image-generation",
   panel_edit: "image-edit",
   panel_check: "text-ai",
+  youtube_package: "text-ai",
   image_describe: "text-ai",
   cover: "image-generation",
   thumbnail: "image-generation",
