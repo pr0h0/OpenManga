@@ -767,6 +767,44 @@ Change a project's title, description, type, language, reading direction, colour
           "minimum": 5,
           "maximum": 80
         },
+        "targetRuntime": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "minutes": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 600
+                },
+                "wordsPerMinute": {
+                  "default": 150,
+                  "type": "integer",
+                  "minimum": 80,
+                  "maximum": 260
+                },
+                "minShotSeconds": {
+                  "default": 4,
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 30
+                },
+                "maxShotSeconds": {
+                  "default": 8,
+                  "type": "number",
+                  "minimum": 2,
+                  "maximum": 60
+                }
+              },
+              "required": [
+                "minutes"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "referenceMaxWidth": {
           "type": "integer",
           "minimum": 16,

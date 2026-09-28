@@ -1,7 +1,7 @@
 import { NARRATION_LANGUAGES } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileDown, Trash2, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, assetUrl, del, get, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
 import type { ChapterListItem, ExportListItem } from "../../api/types.ts";
@@ -101,6 +101,11 @@ export function ExportsPage() {
   const [maxMinutes, setMaxMinutes] = useState("");
   const [pageRange, setPageRange] = useState({ from: "", to: "" });
   const [notReady, setNotReady] = useState<Issue[] | null>(null);
+  // A project with a target runtime holds each shot at least its shortest shot length.
+  const minShot = overview?.project.settings.targetRuntime?.minShotSeconds;
+  useEffect(() => {
+    if (minShot) setVideo((v) => ({ ...v, minHoldMs: Math.round(minShot * 1000) }));
+  }, [minShot]);
 
   const needsChapter = KINDS.find((k) => k.value === kind)!.chapter;
   const [agentChapter, setAgentChapter] = useState("");
