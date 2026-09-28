@@ -14,6 +14,7 @@ import { del, patch, post } from "../../../api/client.ts";
 import { qk, useAction } from "../../../api/hooks.ts";
 import type { PageDocument } from "../../../api/types.ts";
 import { ConfirmDialog, clsx, toast } from "../../../components/ui.tsx";
+import { CheckPanelsButton } from "../../generation/CheckPanels.tsx";
 import { useProject } from "../../project/ProjectLayout.tsx";
 import { type DocBubble, type DocSfx, useEditor } from "./store.ts";
 
@@ -627,6 +628,20 @@ export function LetteringTab({ data, panelId }: { data: PageDocument; panelId: s
           >
             <ScanFace className="size-3.5" /> Move bubbles off faces
           </button>
+          <div className="flex flex-wrap items-center gap-1">
+            <CheckPanelsButton
+              projectId={data.page.projectId}
+              scope={
+                scope === "page"
+                  ? { pageId: data.page.id }
+                  : scope === "chapter"
+                    ? { chapterId: data.page.chapterId }
+                    : {}
+              }
+              label={`Check panels (${scope})`}
+              className="btn-secondary flex-1 text-xs"
+            />
+          </div>
           <button
             type="button"
             className="btn-secondary w-full text-xs text-red-500"
