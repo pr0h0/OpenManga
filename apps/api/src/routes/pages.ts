@@ -32,7 +32,9 @@ import {
   clampFrame,
   defaultTailTarget,
   draftBubble,
+  type FaceBox,
   faceAvoidZone,
+  facesOnPage,
   layoutByKey,
   PRIORITY,
   placeBubble,
@@ -40,8 +42,10 @@ import {
   resolveLettering,
   splitFrame,
   swapTemplate,
+  tailTowardFace,
   templateFrames,
 } from "@openmanga/domain";
+import { computeCrop } from "@openmanga/image-utils";
 import { panelCheckV1, panelPromptsV4 } from "@openmanga/prompts";
 import {
   asPatch,
@@ -1543,6 +1547,106 @@ pageRoutes.post("/pages/:id/lettering/apply-defaults", async (c) => {
           .where(eq(soundEffects.id, sf.id));
         counts.sfx++;
       }
+    }
+  });
+  return c.json({ ok: true, pages: pageIds.length, ...counts });
+});
+
+const FitFaces = z.object({ scope: z.enum(["page", "chapter", "project"]).default("page") });
+doc({
+  method: "POST",
+  path: "/api/pages/:id/lettering/fit-faces",
+  summary:
+    "Move speech bubbles and captions off the faces in the artwork and point each tail at its speaker's face, on a page, chapter or project. Uses the faces found by the consistency check; panels without one are left as they are and counted. Zero image calls.",
+  tag: "lettering",
+  body: FitFaces,
+});
+pageRoutes.post("/pages/:id/lettering/fit-faces", async (c) => {
+  const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
+  const { scope } = await body(c, FitFaces);
+  const { db } = c.get("deps");
+  const scopePages =
+    scope === "page"
+      ? [page]
+      : scope === "chapter"
+        ? await db.select().from(pages).where(eq(pages.chapterId, page.chapterId))
+        : await db.select().from(pages).where(eq(pages.projectId, project.id));
+  const pageIds = scopePages.map((p) => p.id);
+  const pnls = pageIds.length ? await db.select().from(panels).where(inArray(panels.pageId, pageIds)) : [];
+  const artIds = pnls.map((p) => p.activeArtworkAssetId).filter((x): x is string => Boolean(x));
+  const arts = artIds.length
+    ? await db
+        .select({ id: assets.id, width: assets.width, height: assets.height })
+        .from(assets)
+        .where(inArray(assets.id, artIds))
+    : [];
+  const lines = pageIds.length
+    ? await db.select().from(dialogueLines).where(inArray(dialogueLines.pageId, pageIds))
+    : [];
+  const captions = pageIds.length
+    ? await db.select().from(narrationLines).where(inArray(narrationLines.pageId, pageIds))
+    : [];
+  const cast = await db
+    .select({ id: characters.id, name: characters.name })
+    .from(characters)
+    .where(eq(characters.projectId, project.id));
+  const nameOf = new Map(cast.map((ch) => [ch.id, ch.name.toLowerCase()]));
+  const counts = { panels: 0, bubbles: 0, captions: 0, withoutFaces: 0 };
+  await db.transaction(async (tx) => {
+    for (const pn of pnls) {
+      const inPanel = lines.filter((l) => l.panelId === pn.id);
+      const boxes = captions.filter((n) => n.panelId === pn.id && n.box);
+      if (!inPanel.length && !boxes.length) continue;
+      const qa = pn.qa as { assetId?: string; stale?: boolean; faces?: FaceBox[] } | null;
+      const art = arts.find((a) => a.id === pn.activeArtworkAssetId);
+      // Faces only count for the artwork they were found in.
+      if (!qa?.faces || qa.stale || qa.assetId !== pn.activeArtworkAssetId || !art?.width || !art.height) {
+        counts.withoutFaces++;
+        continue;
+      }
+      const pg = scopePages.find((p) => p.id === pn.pageId)!;
+      const crop = computeCrop(
+        art.width,
+        art.height,
+        (pn.frame.width * pg.width) / (pn.frame.height * pg.height),
+        pn.imageTransform,
+      );
+      const faces = facesOnPage(qa.faces, pn.frame, { width: art.width, height: art.height }, crop);
+      const placed: { x: number; y: number; width: number; height: number }[] = [];
+      const place = (text: string, b: Bubble) =>
+        placeBubble({
+          panel: pn.frame,
+          text,
+          fontSize: b.fontSize,
+          pageW: pg.width,
+          pageH: pg.height,
+          avoid: [...faces, ...placed],
+          readingDirection: pg.readingDirection ?? project.readingDirection,
+          size: { width: b.width, height: b.height },
+        });
+      for (const l of inPanel.sort((a, b) => a.order - b.order)) {
+        const rect = place(l.text, l.bubble);
+        placed.push(rect);
+        const speaker = l.characterId ? nameOf.get(l.characterId) : undefined;
+        const face = speaker ? faces.find((f) => f.name.toLowerCase() === speaker) : undefined;
+        const bubble = Bubble.parse({
+          ...l.bubble,
+          ...rect,
+          tailTarget: face ? tailTowardFace(rect, face) : defaultTailTarget(rect, pn.frame),
+        });
+        await tx.update(dialogueLines).set({ bubble }).where(eq(dialogueLines.id, l.id));
+        counts.bubbles++;
+      }
+      for (const n of boxes) {
+        const rect = place(n.text, n.box!);
+        placed.push(rect);
+        await tx
+          .update(narrationLines)
+          .set({ box: Bubble.parse({ ...n.box!, ...rect }) })
+          .where(eq(narrationLines.id, n.id));
+        counts.captions++;
+      }
+      counts.panels++;
     }
   });
   return c.json({ ok: true, pages: pageIds.length, ...counts });

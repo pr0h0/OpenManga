@@ -8,7 +8,7 @@ import {
 } from "@openmanga/domain/browser";
 import type { Bubble, BubbleType, SfxStyle } from "@openmanga/schemas";
 import { useQueryClient } from "@tanstack/react-query";
-import { Crosshair, MessageSquarePlus, Minimize2, Paintbrush, Trash2, Zap } from "lucide-react";
+import { Crosshair, MessageSquarePlus, Minimize2, Paintbrush, ScanFace, Trash2, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { del, patch, post } from "../../../api/client.ts";
 import { qk, useAction } from "../../../api/hooks.ts";
@@ -499,6 +499,26 @@ export function LetteringTab({ data, panelId }: { data: PageDocument; panelId: s
     }
     setApplying(false);
   };
+  const fitFaces = async () => {
+    setApplying(true);
+    try {
+      await useEditor.getState().flush();
+      const r = await post<{ panels: number; bubbles: number; captions: number; withoutFaces: number }>(
+        `/pages/${data.page.id}/lettering/fit-faces`,
+        { scope },
+      );
+      toast.success(
+        `Moved ${r.bubbles + r.captions} text boxes off faces in ${r.panels} panel${r.panels === 1 ? "" : "s"}` +
+          (r.withoutFaces
+            ? `. ${r.withoutFaces} panel${r.withoutFaces === 1 ? " has" : "s have"} no face data yet: run the consistency check on ${r.withoutFaces === 1 ? "it" : "them"} first.`
+            : ""),
+      );
+      await qc.invalidateQueries({ queryKey: ["page"] });
+    } catch (e) {
+      toast.error(e);
+    }
+    setApplying(false);
+  };
   const [confirmClear, setConfirmClear] = useState(false);
   const clearLettering = async () => {
     setApplying(true);
@@ -598,6 +618,15 @@ export function LetteringTab({ data, panelId }: { data: PageDocument; panelId: s
               <Paintbrush className="size-3.5" /> Apply styles + fit
             </button>
           </div>
+          <button
+            type="button"
+            className="btn-secondary w-full text-xs"
+            disabled={applying}
+            onClick={fitFaces}
+            title="Uses the faces found by the consistency check; moves bubbles and captions off them and points tails at the speaker"
+          >
+            <ScanFace className="size-3.5" /> Move bubbles off faces
+          </button>
           <button
             type="button"
             className="btn-secondary w-full text-xs text-red-500"

@@ -418,6 +418,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
       const d = (data[0] ?? {}) as { panels?: { id?: string }[] };
       return mockNarration(story, d.panels ?? []);
     }
+    case "panel-check-v2":
     case "panel-check-v1": {
       const d = (data[0] ?? {}) as { expected?: { name: string }[] };
       const names = (d.expected ?? []).map((e) => e.name);
@@ -430,6 +431,10 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         unexpectedPeople: 0,
         // [[mock:qa-text]] in the beat reports text drawn in the art.
         readableText: /\[\[mock:qa-text\]\]/.test(user),
+        // One face per character present, side by side across the upper middle of the image.
+        faces: names
+          .filter((n) => !missing.includes(n))
+          .map((name, i) => ({ name, x: 0.15 + i * 0.4, y: 0.3, width: 0.25, height: 0.3 })),
         notes: "mock check",
       };
     }

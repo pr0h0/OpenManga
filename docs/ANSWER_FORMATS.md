@@ -2130,6 +2130,43 @@ interface PanelCheck {
    */
   readableText?: boolean;
   /**
+   * Every clearly visible face, as a box in fractions of the image (0 to 1, from the top-left corner). Speech bubbles are moved off these boxes and their tails pointed at the speaker's face.
+   * At most 30 items.
+   * Optional — defaults to [] when left out.
+   */
+  faces?: {
+    /**
+     * The expected character whose face it is, as listed in the prompt, or unknown.
+     * Optional — defaults to "unknown" when left out.
+     * @example "Ines"
+     */
+    name?: string;
+    /**
+     * Left edge of the face box, as a fraction of the image width.
+     * Between 0 and 1.
+     * @example 0.18
+     */
+    x: number;
+    /**
+     * Top edge of the face box, as a fraction of the image height.
+     * Between 0 and 1.
+     * @example 0.12
+     */
+    y: number;
+    /**
+     * Width of the face box, as a fraction of the image width.
+     * Between 0 and 1.
+     * @example 0.16
+     */
+    width: number;
+    /**
+     * Height of the face box, as a fraction of the image height.
+     * Between 0 and 1.
+     * @example 0.2
+     */
+    height: number;
+  }[];
+  /**
    * Anything else worth noting. Saved with the check.
    * Optional — defaults to "" when left out.
    * @example "Tomas is partly hidden behind the door."
@@ -2150,6 +2187,15 @@ interface PanelCheck {
   "missingCharacters": [],
   "unexpectedPeople": 0,
   "readableText": false,
+  "faces": [
+    {
+      "name": "Ines",
+      "x": 0.18,
+      "y": 0.12,
+      "width": 0.16,
+      "height": 0.2
+    }
+  ],
   "notes": "Tomas is partly hidden behind the door."
 }
 ```

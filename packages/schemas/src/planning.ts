@@ -253,6 +253,20 @@ export const PanelCheck = z.object({
   missingCharacters: strList,
   unexpectedPeople: z.number().int().min(0).max(100).default(0),
   readableText: z.boolean().default(false),
+  /** Every visible face, as a box in fractions of the image: bubbles are moved off them and point at the speaker. */
+  faces: z
+    .array(
+      z.object({
+        name: z.string().trim().default("unknown"),
+        x: z.number().min(0).max(1),
+        y: z.number().min(0).max(1),
+        width: z.number().min(0).max(1),
+        height: z.number().min(0).max(1),
+      }),
+    )
+    .max(30)
+    .optional()
+    .default([]),
   notes: optStr,
 });
 export type PanelCheck = z.infer<typeof PanelCheck>;
