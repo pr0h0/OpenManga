@@ -16,6 +16,7 @@ import {
 } from "../../components/ui.tsx";
 import { VERSION_ACTIONS } from "../cast/fields.tsx";
 import { ActiveBatches } from "../generation/BatchStatus.tsx";
+import { CheckPanelsButton } from "../generation/CheckPanels.tsx";
 import { BulkGenerateButton } from "../pages/BulkGenerate.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
@@ -159,6 +160,11 @@ export function ChapterDetailPage() {
                   label="Generate all missing panels"
                   className="btn-secondary"
                 />
+              </span>
+            )}
+            {data.pages.length > 0 && (
+              <span className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg bg-[var(--panel-2)] p-0.5">
+                <CheckPanelsButton projectId={projectId} scope={{ chapterId }} />
               </span>
             )}
             <DeleteChapterButton

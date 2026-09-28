@@ -1583,6 +1583,26 @@ describe("full production flow (mock AI)", () => {
     await alice.del(`/api/dialogue/${dialogue.id}`);
   });
 
+  test("check all panels: priced first, then one check per panel with artwork, skipping ones already checked", async () => {
+    type Est = { count: number; total: number; skippedReasons: { noArtwork: number; alreadyChecked: number } };
+    const est = await alice.post<Est>(`/api/projects/${projectId}/checks`, { scope: { chapterId } });
+    expect(est.total).toBeGreaterThan(0);
+    expect(est.count + est.skippedReasons.noArtwork + est.skippedReasons.alreadyChecked).toBeLessThanOrEqual(est.total);
+    const run = await alice.post<{ jobs: { id: string; panelId: string }[] }>(
+      `/api/projects/${projectId}/checks`,
+      { scope: { chapterId }, confirm: true },
+      202,
+    );
+    expect(run.jobs.length).toBe(est.count);
+    for (const j of run.jobs) expect((await waitJob(alice, j.id)).job.status).toBe("completed");
+    // Every panel with art now has a current check with faces, so a second run finds nothing to do.
+    const again = await alice.post<Est>(`/api/projects/${projectId}/checks`, { scope: { chapterId } });
+    expect(again.count).toBe(0);
+    expect(
+      (await bob.raw("POST", `/api/projects/${projectId}/checks`, { scope: { chapterId } })).status,
+    ).toBeGreaterThanOrEqual(403);
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,
