@@ -1680,6 +1680,72 @@ describe("full production flow (mock AI)", () => {
     expect((await alice.get<Report>(`/api/projects/${projectId}/runtime`)).chapters[0]!.budget).toBeNull();
   });
 
+  test("production presets and templates seed new projects; bulk character references follow the policy", async () => {
+    type P = { presets: { key: string }[]; templates: { id: string; name: string }[] };
+    const list = await alice.get<P>("/api/production-presets");
+    expect(list.presets.map((x) => x.key)).toContain("youtube-recap-30");
+
+    const recap = await alice.post<{
+      project: {
+        id: string;
+        settings: {
+          imageQuality: string;
+          referencePolicy: string;
+          batchPolicy: string;
+          targetRuntime?: { minutes: number };
+        };
+      };
+    }>(
+      "/api/projects",
+      { title: "Recap preset", projectType: "manhwa", format: "film", preset: "youtube-recap-30" },
+      201,
+    );
+    expect(recap.project.settings).toMatchObject({
+      imageQuality: "low",
+      referencePolicy: "main",
+      batchPolicy: "hybrid",
+    });
+    expect(recap.project.settings.targetRuntime?.minutes).toBe(30);
+    expect((await alice.raw("POST", "/api/projects", { title: "x", preset: "nope" })).status).toBe(400);
+
+    // Save the recap's setup as a template, start another project from it, then delete the template.
+    const { template } = await alice.post<{ template: { id: string } }>(
+      `/api/projects/${recap.project.id}/template`,
+      { name: "My recap" },
+      201,
+    );
+    expect((await alice.get<P>("/api/production-presets")).templates.map((t) => t.name)).toContain("My recap");
+    const fromTemplate = await alice.post<{
+      project: { settings: { batchPolicy: string; targetRuntime?: { minutes: number } } };
+    }>("/api/projects", { title: "From template", format: "film", preset: `template:${template.id}` }, 201);
+    expect(fromTemplate.project.settings.batchPolicy).toBe("hybrid");
+    expect(fromTemplate.project.settings.targetRuntime?.minutes).toBe(30);
+    await alice.del(`/api/auth/templates/${template.id}`);
+    expect((await alice.get<P>("/api/production-presets")).templates).toHaveLength(0);
+
+    // Bulk character references: every character, or with the "main" policy none of the minor ones.
+    const all = await alice.post<{ total: number; skippedReasons: { minor: number } }>(
+      `/api/projects/${projectId}/generations/bulk`,
+      { scope: { references: "character", referenceKind: "portrait" }, onlyMissing: false },
+    );
+    expect(all.total).toBeGreaterThan(0);
+    expect(all.skippedReasons.minor).toBe(0);
+    const cast = await alice.get<{ characters: { id: string; role: string }[] }>(
+      `/api/projects/${projectId}/characters`,
+    );
+    const minor = cast.characters.find((c) => c.role !== "protagonist")!;
+    await alice.patch(`/api/characters/${minor.id}`, { role: "minor" });
+    await alice.patch(`/api/projects/${projectId}`, { settings: { referencePolicy: "main" } });
+    const main = await alice.post<{ count: number; skippedReasons: { minor: number } }>(
+      `/api/projects/${projectId}/generations/bulk`,
+      { scope: { references: "character", referenceKind: "portrait" }, onlyMissing: false },
+    );
+    expect(main.skippedReasons.minor).toBeGreaterThanOrEqual(1);
+    await alice.patch(`/api/projects/${projectId}`, { settings: { referencePolicy: "all" } });
+    await alice.patch(`/api/characters/${minor.id}`, { role: minor.role });
+    for (const id of [recap.project.id]) await alice.post(`/api/projects/${id}/status`, { action: "trash" });
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

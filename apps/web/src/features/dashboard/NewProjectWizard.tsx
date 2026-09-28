@@ -45,6 +45,34 @@ export function NewProjectWizard() {
     format: "comic",
   });
   const [story, setStory] = useState({ inputKind: "story", title: "", content: "" });
+  // A production preset or saved template seeds the fields below and, on creation, the project's settings.
+  const production = useQuery({
+    queryKey: ["production-presets"],
+    queryFn: () =>
+      get<{
+        presets: {
+          key: string;
+          name: string;
+          description: string;
+          projectType: string;
+          format: string;
+          stylePresetKey: string;
+          colorMode: string;
+        }[];
+        templates: {
+          id: string;
+          name: string;
+          projectType: string;
+          format: string;
+          stylePresetKey?: string | null;
+          customStyle: string;
+          colorMode: string;
+          language: string;
+          readingDirection?: string;
+        }[];
+      }>("/production-presets"),
+  });
+  const [preset, setPreset] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
@@ -75,6 +103,7 @@ export function NewProjectWizard() {
       if (!pid) {
         const r = await post<{ project: { id: string } }>("/projects", {
           ...details,
+          ...(preset ? { preset } : {}),
           readingDirection: details.readingDirection || undefined,
           story: story.content.trim()
             ? { content: story.content, inputKind: story.inputKind, title: story.title }
@@ -128,6 +157,72 @@ export function NewProjectWizard() {
 
       {step === 0 && (
         <div className="card space-y-4 p-5">
+          {production.data && (
+            <fieldset>
+              <legend className="label">Start from</legend>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  aria-pressed={!preset}
+                  className={clsx("card p-3 text-left text-sm", !preset && "ring-2 ring-accent-500")}
+                  onClick={() => setPreset(null)}
+                >
+                  <div className="font-medium">Blank</div>
+                  <div className="muted text-xs">Choose everything below yourself.</div>
+                </button>
+                {production.data.presets.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    aria-pressed={preset === p.key}
+                    className={clsx("card p-3 text-left text-sm", preset === p.key && "ring-2 ring-accent-500")}
+                    onClick={() => {
+                      setPreset(p.key);
+                      setDetails((d) => ({
+                        ...d,
+                        projectType: p.projectType,
+                        format: p.format,
+                        stylePresetKey: p.stylePresetKey,
+                        colorMode: p.colorMode,
+                      }));
+                    }}
+                  >
+                    <div className="font-medium">{p.name}</div>
+                    <div className="muted text-xs">{p.description}</div>
+                  </button>
+                ))}
+                {production.data.templates.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    aria-pressed={preset === `template:${t.id}`}
+                    className={clsx(
+                      "card p-3 text-left text-sm",
+                      preset === `template:${t.id}` && "ring-2 ring-accent-500",
+                    )}
+                    onClick={() => {
+                      setPreset(`template:${t.id}`);
+                      setDetails((d) => ({
+                        ...d,
+                        projectType: t.projectType,
+                        format: t.format,
+                        stylePresetKey: t.stylePresetKey ?? d.stylePresetKey,
+                        customStyle: t.customStyle,
+                        colorMode: t.colorMode,
+                        language: t.language,
+                        readingDirection: t.readingDirection ?? "",
+                      }));
+                    }}
+                  >
+                    <div className="font-medium">{t.name}</div>
+                    <div className="muted text-xs">
+                      Your template · {t.format} · {t.projectType}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Title">
               <input

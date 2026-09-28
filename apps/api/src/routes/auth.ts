@@ -130,6 +130,23 @@ authRoutes.patch("/settings", requireUser, async (c) => {
   return c.json({ settings: row!.settings });
 });
 
+doc({
+  method: "DELETE",
+  path: "/api/auth/templates/:id",
+  summary: "Delete one of your project templates",
+  tag: "auth",
+});
+authRoutes.delete("/templates/:id", requireUser, async (c) => {
+  const u = user(c);
+  const id = c.req.param("id");
+  const settings = UserSettings.parse({
+    ...u.settings,
+    projectTemplates: (u.settings.projectTemplates ?? []).filter((t) => t.id !== id),
+  });
+  await c.get("deps").db.update(users).set({ settings }).where(eq(users.id, u.id));
+  return c.json({ ok: true });
+});
+
 doc({ method: "GET", path: "/api/auth/sessions", summary: "List active sessions", tag: "auth" });
 authRoutes.get("/sessions", requireUser, async (c) => {
   const u = user(c);

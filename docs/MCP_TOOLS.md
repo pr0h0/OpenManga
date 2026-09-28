@@ -591,6 +591,10 @@ Create a new project (optionally with its first story revision in `story`). Need
         "vertical"
       ]
     },
+    "preset": {
+      "type": "string",
+      "maxLength": 80
+    },
     "story": {
       "type": "object",
       "properties": {
@@ -752,6 +756,21 @@ Change a project's title, description, type, language, reading direction, colour
             "low",
             "medium",
             "high"
+          ]
+        },
+        "referencePolicy": {
+          "type": "string",
+          "enum": [
+            "all",
+            "main"
+          ]
+        },
+        "batchPolicy": {
+          "type": "string",
+          "enum": [
+            "interactive",
+            "cheapest",
+            "hybrid"
           ]
         },
         "narrationVoice": {

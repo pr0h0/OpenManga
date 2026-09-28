@@ -200,9 +200,26 @@ export const stripPageHeight = (width: number, height: StripPanelHeight = "norma
  * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
  * server default still applies and a project created before the preference existed is untouched.
  */
+/** A project's setup saved for reuse: its type, format, style and settings, never its story, cast or files. */
+export const ProjectTemplate = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  projectType: z.string().max(40),
+  format: z.enum(["comic", "film", "vertical"]),
+  colorMode: z.string().max(40),
+  language: z.string().max(16),
+  readingDirection: z.string().max(16).optional(),
+  stylePresetKey: z.string().max(64).nullable().optional(),
+  customStyle: z.string().max(4000).default(""),
+  settings: z.record(z.string(), z.unknown()).default({}),
+  createdAt: z.string(),
+});
+export type ProjectTemplate = z.infer<typeof ProjectTemplate>;
+
 export const UserSettings = z.object({
   /** Kokoro voice id used for new projects' narration. */
   narrationVoice: z.string().trim().max(64).optional(),
+  projectTemplates: z.array(ProjectTemplate).max(50).optional(),
 });
 export type UserSettings = z.infer<typeof UserSettings>;
 
@@ -213,6 +230,13 @@ export const ProjectSettings = z.object({
   pageGutter: z.number().min(0).max(0.1).default(0.015),
   pageMargin: z.number().min(0).max(0.2).default(0.03),
   imageQuality: z.enum(["low", "medium", "high"]).default("low"),
+  /** Which references bulk runs draw: everything, or only the main cast and places used in more than one panel. */
+  referencePolicy: z.enum(["all", "main"]).default("all"),
+  /**
+   * How a production run spends: everything now, everything through half-price provider batches (up to 24 h), or
+   * text in batches and images now.
+   */
+  batchPolicy: z.enum(["interactive", "cheapest", "hybrid"]).default("interactive"),
   narrationVoice: z.string().default("af_heart"),
   narrationSpeed: z.number().min(0.5).max(2).default(1),
   /** Narration length target; ~21 words is about 6 seconds of Kokoro speech per panel. */

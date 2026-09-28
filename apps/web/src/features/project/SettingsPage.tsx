@@ -260,6 +260,37 @@ export function SettingsPage() {
           onChange={(v) => setS("targetRuntime", v)}
         />
 
+        <section className="card space-y-3 p-4">
+          <h2 className="font-medium">Production</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="References to generate in bulk"
+              hint="Main only skips minor characters, and places and props used in fewer than two panels."
+            >
+              <select
+                className="input"
+                value={s.referencePolicy ?? "all"}
+                onChange={(e) => setS("referencePolicy", e.target.value as ProjectSettings["referencePolicy"])}
+              >
+                <option value="all">All</option>
+                <option value="main">Main cast and recurring places only</option>
+              </select>
+            </Field>
+            <Field label="Production runs spend" hint="Provider batches are half price and take up to 24 hours.">
+              <select
+                className="input"
+                value={s.batchPolicy ?? "interactive"}
+                onChange={(e) => setS("batchPolicy", e.target.value as ProjectSettings["batchPolicy"])}
+              >
+                <option value="interactive">Everything now</option>
+                <option value="hybrid">Text in batches, images now</option>
+                <option value="cheapest">Everything in batches (cheapest)</option>
+              </select>
+            </Field>
+          </div>
+          <SaveTemplate projectId={projectId} defaultName={data.project.title} />
+        </section>
+
         <LetteringSection value={s.lettering} onChange={(v) => setS("lettering", v)} />
 
         <ConsistencySection value={s.consistencyCheck} onChange={(v) => setS("consistencyCheck", v)} />
@@ -730,5 +761,39 @@ function RuntimeSection({
         </div>
       )}
     </section>
+  );
+}
+
+/** Save this project's setup as a template for new projects (the story, cast and files stay here). */
+function SaveTemplate({ projectId, defaultName }: { projectId: string; defaultName: string }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-3">
+      <Field label="Save as template" hint="Type, format, style and settings; new projects can start from it.">
+        <input className="input" placeholder={defaultName} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <button
+        type="button"
+        className="btn-secondary"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await post(`/projects/${projectId}/template`, { name: name.trim() || defaultName });
+            await qc.invalidateQueries({ queryKey: ["production-presets"] });
+            toast.success("Template saved — it is offered when you create a project");
+            setName("");
+          } catch (e) {
+            toast.error(e);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        Save template
+      </button>
+    </div>
   );
 }
