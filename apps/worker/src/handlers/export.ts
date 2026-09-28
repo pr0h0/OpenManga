@@ -428,7 +428,9 @@ async function buildExport(
         ...opts.video,
       };
       const render = job.kind === "video_panels" ? renderPanelCutVideo : renderPageCutVideo;
-      const out = await render(deps, project, opts.chapterId, { ...v, language: opts.language }, dir, progress);
+      // A page selection narrows the film to those pages; otherwise the chapter, or the whole project.
+      const scope = opts.pageIds?.length ? { pageIds: opts.pageIds } : undefined;
+      const out = await render(deps, project, opts.chapterId, { ...v, language: opts.language, scope }, dir, progress);
       deps.logger.info("video export rendered", {
         exportJobId: job.id,
         kind: job.kind,
