@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.9.9] — 2026-09-28
+
+Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
+new web app.
+
+### Changed
+
+- **Deleted images leave the generation history.** A generation keeps its row, cost and prompt, but once its image is
+  deleted the row shows it as deleted instead of the picture. The job's page offers **Restore image** while it is
+  still in the trash.
+- **Trashing a character, location or prop trashes its reference images too.** Restoring it brings back exactly those
+  images, not ones deleted separately before. Items already in the trash before this release keep their images live.
+- Trashed images are served only to the trash views (asset library, cast and world trash).
+
 ## [0.9.8] — 2026-09-28
 
 Upgrading: pull the new images and restart. No migrations and no configuration changes. Reload open tabs to get the
