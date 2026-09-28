@@ -90,10 +90,13 @@ export function ExportsPage() {
     height: 1080,
     fps: 30,
     minHoldMs: 2500,
-    framing: "width" as "width" | "height",
+    framing: "width" as "width" | "height" | "scroll",
     pageWidthRatio: 0.6,
     zoom: 0.06,
   });
+  // Partial renders: the first N minutes, and/or a range of pages within the chosen chapter.
+  const [maxMinutes, setMaxMinutes] = useState("");
+  const [pageRange, setPageRange] = useState({ from: "", to: "" });
   const [notReady, setNotReady] = useState<Issue[] | null>(null);
 
   const needsChapter = KINDS.find((k) => k.value === kind)!.chapter;
@@ -106,6 +109,18 @@ export function ExportsPage() {
       ? agentChapter || null
       : null;
   const lang = language || overview?.project.language || "en";
+  const rangeChapter = useQuery({
+    queryKey: qk.chapter(agentChapter),
+    queryFn: () => get<{ pages: { id: string; order: number }[] }>(`/chapters/${agentChapter}`),
+    enabled: isVideo(kind) && Boolean(agentChapter),
+  });
+  const rangePageIds = (() => {
+    if (!isVideo(kind) || !agentChapter || (!pageRange.from && !pageRange.to)) return undefined;
+    const pgs = rangeChapter.data?.pages ?? [];
+    const lo = Number(pageRange.from) || 1;
+    const hi = Number(pageRange.to) || Number.POSITIVE_INFINITY;
+    return pgs.filter((p) => p.order >= lo && p.order <= hi).map((p) => p.id);
+  })();
   const create = useAction(
     (acknowledgeIssues: boolean) =>
       post(`/projects/${projectId}/exports`, {
@@ -117,7 +132,13 @@ export function ExportsPage() {
         webtoon,
         audio,
         includeAssets,
-        video,
+        video: {
+          ...video,
+          ...(isVideo(kind) && Number(maxMinutes) > 0
+            ? { maxDurationMs: Math.round(Number(maxMinutes) * 60_000) }
+            : {}),
+        },
+        ...(rangePageIds?.length ? { pageIds: rangePageIds } : {}),
         ...(USES_LANGUAGE.has(kind) ? { language: lang } : {}),
         acknowledgeIssues,
       }),
@@ -467,6 +488,42 @@ export function ExportsPage() {
                   <option value={1440}>1440p</option>
                 </select>
               </Field>
+              <Field label="Only the first … minutes (for a check)">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="Whole video"
+                  value={maxMinutes}
+                  onChange={(e) => setMaxMinutes(e.target.value)}
+                />
+              </Field>
+              {agentChapter && (
+                <Field label="Pages (from – to)">
+                  <div className="flex items-center gap-1">
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      placeholder="first"
+                      aria-label="From page"
+                      value={pageRange.from}
+                      onChange={(e) => setPageRange({ ...pageRange, from: e.target.value })}
+                    />
+                    <span className="muted">–</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      placeholder="last"
+                      aria-label="To page"
+                      value={pageRange.to}
+                      onChange={(e) => setPageRange({ ...pageRange, to: e.target.value })}
+                    />
+                  </div>
+                </Field>
+              )}
               <Field label={kind === "video_panels" ? "Min seconds per panel" : "Min seconds per page"}>
                 <input
                   className="input"
@@ -498,9 +555,10 @@ export function ExportsPage() {
                     <select
                       className="input"
                       value={video.framing}
-                      onChange={(e) => setVideo({ ...video, framing: e.target.value as "width" | "height" })}
+                      onChange={(e) => setVideo({ ...video, framing: e.target.value as typeof video.framing })}
                     >
                       <option value="width">3/5 frame width, slow scroll (readable)</option>
+                      <option value="scroll">3/5 frame width, scroll the whole page (continuous)</option>
                       <option value="height">Whole page visible (small text)</option>
                     </select>
                   </Field>
@@ -509,7 +567,9 @@ export function ExportsPage() {
               <p className="muted col-span-2 text-xs">
                 {kind === "video_panels"
                   ? "Each panel's clean artwork (cropped as on the page, no bubbles) fills the frame for its own narration over a blurred copy of itself. Wide shots slowly push in, close-ups pull out. Panels without art use their lettered page crop."
-                  : "Each page is shown for the length of its own narration (at least the minimum) over a blurred copy of itself; tall pages scroll at most 60 px/s."}{" "}
+                  : video.framing === "scroll"
+                    ? "Each page is shown for the length of its own narration (at least the minimum) over a blurred copy of itself, scrolling from its top to its bottom over that time."
+                    : "Each page is shown for the length of its own narration (at least the minimum) over a blurred copy of itself; tall pages scroll at most 60 px/s."}{" "}
                 Hard cuts. Audio is loudness-normalised once over the whole film, the file is checked against the
                 narration length, and an .srt subtitle file is included.
               </p>

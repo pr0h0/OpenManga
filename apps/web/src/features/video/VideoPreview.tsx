@@ -55,7 +55,7 @@ type Options = {
   cut: "page" | "panel";
   minHoldMs: number;
   zoom: number;
-  framing: "width" | "height";
+  framing: "width" | "height" | "scroll";
   pageWidthRatio: number;
   pageHeightRatio: number;
   maxScrollPxPerSec: number;
@@ -89,7 +89,7 @@ function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdM
   if (o.cut === "page" || !shot.panel) {
     const box = pageShotBox(pg.width, pg.height, W, H, o);
     const src = pageImage(pg.id, pg.updatedAt);
-    const { y0, travel } = scrollPlan(box.h - H, holdMs / 1000, o.maxScrollPxPerSec);
+    const { y0, travel } = scrollPlan(box.h - H, holdMs / 1000, o.maxScrollPxPerSec, o.framing);
     const top = box.h > H ? -(y0 + travel * t) : (H - box.h) / 2;
     return (
       <>
@@ -654,6 +654,7 @@ export function VideoPreview({
                       onChange={(e) => setO({ ...o, framing: e.target.value as Options["framing"] })}
                     >
                       <option value="width">3/5 width, slow scroll</option>
+                      <option value="scroll">3/5 width, scroll the whole page</option>
                       <option value="height">Whole page visible</option>
                     </select>
                   </Field>

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { holdFor, kenBurnsZoomAt, pageShotBox, panelShotBox, VIDEO_BREATH_MS } from "./video.ts";
+import { holdFor, kenBurnsZoomAt, pageShotBox, panelShotBox, scrollPlan, VIDEO_BREATH_MS } from "./video.ts";
 
 test("holds are frame-exact: narration + breath, at least the minimum", () => {
   // Segments are silence-trimmed when stored, so the breath is small and is the only pause added at a cut.
@@ -36,4 +36,14 @@ test("vertical reading order breaks same-row ties left to right regardless of in
   const f = (x: number, y: number) => ({ id: `${x},${y}`, frame: { x, y, width: 0.4, height: 0.3 } });
   const shuffled = [f(0.5, 0.6), f(0.03, 0.03), f(0.03, 0.6)];
   expect(readingOrder(shuffled, "vertical").map((p) => p.id)).toEqual(["0.03,0.03", "0.03,0.6", "0.5,0.6"]);
+});
+
+test("the continuous scroll framing travels the whole page, however short the hold", () => {
+  expect(scrollPlan(900, 2, 60)).toEqual({ y0: 390, travel: 120 });
+  expect(scrollPlan(900, 2, 60, "scroll")).toEqual({ y0: 0, travel: 900 });
+  expect(scrollPlan(0, 2, 60, "scroll")).toEqual({ y0: 0, travel: 0 });
+  // Framed like "width", not like the whole-page "height".
+  expect(pageShotBox(800, 2400, 1920, 1080, { framing: "scroll", pageWidthRatio: 0.6, pageHeightRatio: 0.96 })).toEqual(
+    pageShotBox(800, 2400, 1920, 1080, { framing: "width", pageWidthRatio: 0.6, pageHeightRatio: 0.96 }),
+  );
 });
