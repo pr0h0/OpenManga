@@ -154,7 +154,7 @@ assetRoutes.delete("/assets/:id", requireUser, async (c) => {
 // ---------------------------------------------------------------- CDN
 
 /**
- * /cdn/a/:id[?v=thumbnail|prompt_ref|preview][&download=name]
+ * /cdn/a/:id[?v=thumbnail|prompt_ref|preview][&download=name][&trash=1]
  * The API authorizes, then hands the file to nginx via X-Accel-Redirect (internal location).
  * Without nginx (dev/tests) the bytes are streamed directly.
  */
@@ -166,6 +166,9 @@ cdnRoutes.get("/a/:id", async (c) => {
   const deps = c.get("deps");
   const [a] = await deps.db.select().from(assets).where(eq(assets.id, id));
   if (!a) throw notFound("Asset");
+  // Trashed images are shown only where the trash is being looked at (?trash=1), so a deleted image does not
+  // live on in the generation history or anywhere else that still holds its id.
+  if (a.deletedAt && c.req.query("trash") !== "1") throw notFound("Asset");
   if (a.visibility !== "public") {
     const me = c.get("user");
     if (!me) throw new ApiError(401, "unauthenticated", "Please sign in");
