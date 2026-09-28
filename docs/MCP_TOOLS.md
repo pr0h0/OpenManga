@@ -7428,7 +7428,7 @@ Queue speech synthesis for one segment (segmentId) or every missing/stale segmen
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)

@@ -476,6 +476,9 @@ async function buildExport(
             inArray(exportJobs.kind, ["video_pages", "video_panels"]),
             eq(exportJobs.status, "completed"),
             opts.chapterId ? eq(exportJobs.chapterId, opts.chapterId) : isNull(exportJobs.chapterId),
+            // The full film only: not a page selection or a first-minutes check render of the same scope.
+            sql`coalesce(jsonb_array_length(${exportJobs.options}->'pageIds'), 0) = 0`,
+            sql`${exportJobs.options}->'video'->'maxDurationMs' is null`,
           ),
         )
         .orderBy(desc(exportJobs.createdAt))

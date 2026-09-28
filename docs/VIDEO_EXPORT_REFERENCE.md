@@ -232,8 +232,8 @@ calls either.
   `youtubePackageV1`, answer schema `YoutubePackage`, paste mode and provider batches supported), and it stays
   editable in project settings. The export fails with an unrecoverable error until it has at least one title.
 - **The video** is the newest *completed* `video_pages` or `video_panels` export of the same scope: the same chapter,
-  or a whole-project render when no chapter is given. Nothing filters out partial or page-selection renders of that
-  chapter, so render the one you want to publish last. Without one the export fails and says so.
+  or a whole-project render when no chapter is given. Partial renders (`maxDurationMs`) and page selections
+  (`pageIds`) are passed over: the package always takes the full film. Without one the export fails and says so.
 
 The ZIP (built with `ZipWriter`) holds `video/` with that export's files — the MP4 streamed in chunk by chunk
 (`ZipWriter.addStream` over `AssetStorage.stream`), so a multi-gigabyte film never sits in memory — plus its `.srt`

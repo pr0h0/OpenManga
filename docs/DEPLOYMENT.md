@@ -237,7 +237,7 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
   fixed-layout with the cover.
   Page images, PDF, CBZ, EPUB, webtoon, narration audio and timeline need a chapter (or page ids).
-  `youtube_package` makes no video of its own: it zips the newest finished video of the same scope (chapter or whole
+  `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
   project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
   `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
 - **Deleting**: `DELETE /api/exports/:id` or `DELETE /api/projects/:id/exports` removes finished exports and their

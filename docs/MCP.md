@@ -226,7 +226,8 @@ approvals and rules.
 
 Some production features reach agents only through the schemas of existing tools. `create_export` takes the REST
 export body as is, so it accepts the `youtube_package` kind, a `pageIds` page selection, `video.framing: "scroll"`
-and a partial render's `video.maxDurationMs` (its description does not list them yet). `create_project` takes a
+and a partial render's `video.maxDurationMs` (its description names the YouTube package; the others are in its
+schema). `create_project` takes a
 production `preset` key, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
 the saved `youtubePackage` text. No tool calls the newer routes directly: production runs, writing the YouTube
 package text (`POST /api/projects/:projectId/youtube-package`), checking every panel at once
