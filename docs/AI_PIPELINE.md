@@ -13,6 +13,7 @@
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
+| YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
 `export`); see `docs/ARCHITECTURE.md` for the queue table and `docs/PROMPT_SYSTEM.md` for the templates.
@@ -25,6 +26,15 @@ The video thumbnail (`POST /api/projects/:projectId/thumbnail`, same body as the
 16:9 art that keeps that side dark and clear. The title and subtitle stay text in `settings.thumbnail`, and
 `GET /api/projects/:projectId/thumbnail.png` composites them at request time (1280 px wide by default), so rewording
 the headline or moving it to the other side costs nothing. It never replaces the cover.
+
+The YouTube package (`POST /api/projects/:projectId/youtube-package`, `ai` and `batch` like any text step; Exports →
+YouTube package in the app) writes the publishing text from the project's title, description, chapter summaries and
+cast, and the current thumbnail headline. The result is saved to `settings.youtubePackage` and edited there; the job
+keeps no copy. A video render that spans more than one chapter also writes `<name>.chapters.txt`, one
+`m:ss Chapter N: title` line per chapter with the first pinned at `0:00`. The `youtube_package` export makes no AI
+call: it zips the newest finished video of the same scope (with its `.srt` and `.chapters.txt`), the composited
+thumbnail when there is one, and the text files, with the chapter lines appended to the description. It fails if the
+text has not been written or no video has been rendered.
 
 **No server-level provider keys.** Every text and image run uses a key a user added. The only server-side AI paths are
 `AI_MOCK_MODE` (in-process fakes, the zero-key demo) and local Kokoro TTS. A run without a credential is refused with
@@ -215,6 +225,8 @@ Reference derivatives are sized per provider — see `docs/IMAGE_REFERENCES.md`.
   jobs from Redis and marks them `paused` (reason in `failure_reason`); running jobs finish. A job failing with `auth`
   or `quota` pauses the rest of its batch automatically. Resume re-arms the jobs' outbox rows — same job ids, so
   BullMQ dedupes.
+- **Production runs** never ask to go over: a run can only start when the project has a cap, and a
+  `budget_exceeded` refusal pauses the run until the cap is raised (see [Production runs](#production-runs)).
 - **Queue recovery**: the worker re-publishes `queued` generation, audio and export jobs whose Redis entry has
   disappeared (15 s after startup, then every 5 minutes), so a Redis flush or restore never strands jobs.
 
@@ -242,6 +254,16 @@ deterministically — missing expected characters, unexpected people, headcount 
 art — and stored on `panels.qa`; the page grid outlines mismatches and the Panel tab's badge names the first problem,
 shows the model's notes on hover, and has a **Run check** button (**Check again** once checked;
 `POST /api/panels/:id/check`). The check's prompt is saved on its job like every other text step's.
+
+**Check all panels** (`POST /api/projects/:projectId/checks`, scope a page, a chapter or neither for the whole
+project) queues the same check for every panel with artwork, at most 500 at a time. Without `confirm: true` it only
+returns the count, what it skipped (no artwork, already being checked, already checked) and an estimated cost. By
+default (`onlyUnchecked`) it skips panels whose current artwork already has a check with face boxes. It uses the
+project's consistency-check key when one is set, else the caller's text choice, and can be sent as a provider
+batch. The button is on the chapter page, the Storyboard page and the page editor's lettering tools. The
+**Storyboard** page (`/projects/:id/storyboard`) shows every panel of a chapter, filtered to all, no artwork,
+failed, needs review, check mismatch or not checked; arrow keys move, Enter opens the panel in the editor, and C
+(check) and G (regenerate) ask before they spend.
 
 The check also lists every clearly visible face as a box (fractions of the image) named with the expected character
 or `unknown`. **Move bubbles off faces** in the page editor's lettering tools
@@ -313,8 +335,9 @@ your own.
 
 ## Provider batches (half price, up to 24h)
 
-Bulk image generation (panels, or every location or prop reference) and the text steps (story analysis and
-rewrite, chapter planning, panel prompts, narration text, consistency check, image description) can be sent to a
+Bulk image generation (panels, or every character, location or prop reference) and the text steps (story
+analysis and rewrite, chapter planning, panel prompts, narration text, consistency check, image description,
+YouTube package) can be sent to a
 provider's batch API instead of running now, at half the interactive price: `batch: true` on the request, or
 **Send as a provider batch** in the bulk dialog. OpenAI and Google only; a batch request on any other provider is
 refused with 400 (in `AI_MOCK_MODE` it simply runs normally). A consistency check queued after a batched panel is
@@ -338,3 +361,68 @@ Spend is recorded against a `:batch` model at half rate, so batch cost is visibl
 sees the real figure. Each chunk's idempotency key is derived from the job ids in it and echoed in the provider's
 own metadata, so a crash between submitting and persisting finds the batch already paid for instead of buying a
 second one.
+
+## Target runtime
+
+`settings.targetRuntime = { minutes, wordsPerMinute (150), minShotSeconds (4), maxShotSeconds (8) }`, set in
+Project settings → Target runtime, aims the video at a length. `runtimeBudget` (`packages/domain/src/runtime.ts`)
+splits `minutes × wordsPerMinute` narration words across chapters in proportion to each chapter's source text,
+turns each share into shots at the middle of the allowed shot length, and into a page target (shots ÷ 3.5 for a
+comic, one page per shot for film and vertical strips, capped at 60). With a target set:
+
+- a chapter plan requested without `targetPages` is asked for that chapter's page target;
+- narration text requested without `wordsPerPanel` uses `wordsPerPanelFor`, the words per panel that land the
+  chapter on its word share, kept between what the shortest and longest shot hold (and within 5–80), instead of
+  `settings.narrationWordsPerPanel`;
+- the Exports page starts the video's minimum hold at `minShotSeconds`.
+
+`GET /api/projects/:projectId/runtime` returns each chapter's budget (words, shots, pages) beside what is planned and
+written so far, and the minutes the current narration adds up to at that pace.
+
+## Production presets, templates and policies
+
+A new project can start from a production preset (`packages/domain/src/presets.ts`, listed by
+`GET /api/production-presets`) or from one of the user's saved templates: `preset` on `POST /api/projects` is a
+preset key or `template:<id>`, and its settings are merged into the new project's (the wizard fills type, format,
+style and colour mode from it). The presets are *YouTube recap, 30 min* and *1 hour* (film, low quality, a target
+runtime, main-only references, hybrid and cheapest batching), *Manga chapters*, *Webtoon episodes* (medium quality,
+all references, no batching) and *Economy draft*. **Save as template** (`POST /api/projects/:projectId/template`)
+stores a project's type, format, colour mode, language, style and settings in the user's settings
+(`projectTemplates`, at most 50; the thumbnail, YouTube text and page size are left out); story, cast and files are
+never copied. Templates are listed and deleted (`DELETE /api/auth/templates/:id`) in Account.
+
+Two settings, under Project settings → Production:
+
+- `referencePolicy` — `all` (default) or `main`: bulk reference runs skip minor characters, and locations and props
+  used in fewer than two panels. See [IMAGE_REFERENCES](IMAGE_REFERENCES.md).
+- `batchPolicy` — how a production run spends: `interactive` (default, everything now), `hybrid` (text steps as
+  provider batches, images now) or `cheapest` (text and bulk images as provider batches; the thumbnail is drawn now). It applies to production runs
+  only; a run started by hand still chooses `batch` itself.
+
+## Production runs
+
+`POST /api/projects/:projectId/production-runs` (the **Production run** card on the project overview) runs the
+whole pipeline as a list of steps, stored in `production_runs` (migration `0020`), each calling the same API route a
+person would, as the user who started it (`apps/api/src/lib/production.ts`):
+
+analyse → review → apply → references (characters, locations, props) → review → plan every chapter → prepare panel
+prompts → generate missing artwork → write narration → synthesize narration → video thumbnail → YouTube package text
+→ review → render the video → YouTube package export.
+
+- **Reuse.** Every step does only what is missing: analysis is skipped once the project has chapters, references
+  and artwork are drawn only where missing, only unplanned chapters are planned, narration is written only for
+  chapters without lines, and the thumbnail and YouTube text are skipped when they exist.
+- **Options.** `reviewGates` (default on) pauses the run as `waiting` after the analysis, after the references and
+  before the render, until **Continue** (`POST /api/production-runs/:id/continue`). With gates off, the newest draft
+  reference of each subject without an approved one is approved automatically. `preparePrompts` and `render` default
+  on; `youtube` defaults on for film projects. `ai.text` and `ai.image` are the run's provider choices.
+- **Budget.** A run spends without asking at each step, so it is refused unless the project has a budget cap, and a
+  `budget_exceeded` refusal pauses it; raising the cap and continuing picks up at the same step.
+- **Batching** follows `settings.batchPolicy`; a step waits for its batch like any other job. With paste mode as
+  the text choice a text step waits for its answers the same way (see
+  [WITHOUT_API_KEYS](WITHOUT_API_KEYS.md#production-runs)).
+- **Failures.** A failed analysis, or a step whose jobs all failed, fails the run; elsewhere a partial failure is
+  noted on the step and the run carries on. Continue retries the failed step, reusing whatever it already made.
+  Stop (`POST /api/production-runs/:id/cancel`) ends the run; jobs it already queued still finish.
+
+The API process advances running runs every 10 seconds; one project has at most one active run.

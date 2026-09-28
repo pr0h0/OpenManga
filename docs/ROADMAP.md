@@ -1,70 +1,9 @@
 # Roadmap
 
-What is shipped, what is being considered, and what will not be built. Nothing here carries a date or a promise;
-items move when someone builds them. The shipped list is a summary; release-by-release detail (agents over MCP,
-experts, reader links, thumbnails and more) is in [CHANGELOG.md](../CHANGELOG.md).
+Only unfinished work: what is being considered, and what will not be built. Everything that has shipped is in
+[CHANGELOG.md](../CHANGELOG.md). Nothing here carries a date or a promise; items move when someone builds them.
 
-## Shipped
-
-- **Comic and film projects.** Comic projects lay out pages of panels; film projects (`settings.format = "film"`)
-  use a 1920×1080 page with no margins, so every page is one full-frame 16:9 shot. The format is locked once pages
-  exist (409) and comic projects are not converted — create a film project instead.
-- **Story → cast → references → planning → panels → lettering → narration.** Chapter planning for film projects
-  uses a shot-planning prompt (one shot per page, no dialogue or SFX) and the plan applier splits any multi-panel
-  page into one page per shot.
-- **Video exports.** Page cut (`video_pages`) and panel cut (`video_panels`): clean panel art cropped as on the
-  page, Ken Burns push-in on wide shots and pull-out on close shots (3× supersampled `zoompan`), hard cuts, an
-  `.srt` sidecar, and a lettered page crop as the fallback when a panel has no artwork. See
-  `docs/VIDEO_EXPORT_REFERENCE.md`.
-- **In-browser video preview.** "Preview video" on a chapter, "Play chapter" on the Pages / Shots list, "Preview
-  page/shot video" in the page editor, "Preview move" on a panel, and "Preview in browser first" on Exports.
-  `GET /api/video-preview` returns the same shot plan the render uses, and the player reproduces holds, framing,
-  scroll and the Ken Burns curve from the same `@openmanga/domain` helpers.
-- **Other exports:** PNG/JPG page images, PDF (including Amazon KDP trim sizes, full bleed), CBZ with
-  `ComicInfo.xml`, fixed-layout EPUB, webtoon strips, narration audio, timeline, agent package, project JSON and zip
-  packages, plus project import.
-- **Streaming project import.** Packages stream to disk entry by entry instead of being held in worker memory, so
-  import memory no longer depends on package size; `IMPORT_MAX_UPLOAD_MB` (4 GiB by default) bounds disk and time.
-- **Multi-language narration** — one narration track per language over the same artwork.
-- **Readiness gate and preflight** before anything is spent, a per-project budget cap, batch pause on quota or auth
-  failures, and an opt-in vision consistency check on generated panels.
-- **Provider batch APIs**, for image *and* text generation, at half price with results within 24h — see
-  [AI_PIPELINE](AI_PIPELINE.md#provider-batches-half-price-up-to-24h). Two things this entry predicted turned out
-  wrong when it was built: text batching came almost free rather than needing a second path (the provider is
-  swapped, so every text handler batches unchanged), and panel *edits* are still excluded — not for size limits
-  but because a full-resolution target and mask are a poor fit for a 24h wait.
-- **Describe a reference image** into reusable style, character and location descriptions.
-
-## Next
-
-The largest gap is orchestration: every production step exists, but a person still drives each one by hand. These
-items are ordered so each makes the next cheaper.
-
-- **Production runs (one-click autopilot).** A resumable run over a whole project: analyse → apply → required
-  references → plan every chapter → prepare prompts → generate missing artwork → write narration → synthesize →
-  thumbnail → preview → final render. Each step reuses the existing job, skips work already done, stops at review
-  gates and at the budget cap, and survives a restart. It brings the project-wide actions with it (plan all
-  chapters, prepare all prompts, generate all missing art chunked past the 500-panel bulk cap, write and synthesize
-  all narration) and a per-run batch policy: interactive, cheapest (provider batches, up to 24h) or hybrid.
-- **Target runtime.** A project-level target (for example 30 or 60 minutes) with words per minute and minimum and
-  maximum shot length, turned into per-chapter shot and narration budgets at analysis and planning time. Today only
-  `narrationWordsPerPanel` and the export's minimum hold exist, so length is found out after rendering.
-- **Production presets, templates and economy mode.** One bundle of settings chosen when a project is created:
-  format, style, voice, image quality, shot length, runtime, batch policy and which references to make (skip them for
-  minor characters and one-off locations, generate the rest in bulk, characters included). Ships with presets such
-  as "YouTube recap, 30 min" and "1 hour", and "Save as template" copies a project's settings without its story,
-  cast or assets.
-- **Review at scale.** Check all panels: the vision consistency check for a page, chapter or project in one run,
-  with a cost estimate, feeding the drift flags and *Move bubbles off faces*. A dense storyboard grid of every panel
-  with filters (failed, needs review, no art, check mismatch) and keyboard shortcuts; spending keys ask first.
-- **YouTube package.** Chapter timestamps from the render's own shot timings (free and exact), plus a publishing
-  bundle: title options, description, tags, a pinned comment and thumbnail headline variants written by a text job
-  and stored beforehand (exports make no AI calls), exported as one folder with the video, thumbnail and `.srt`.
-- **Partial renders.** Render a range of pages or the first few minutes for a check before the full film.
-- **Continuous scroll cut for video.** The same renderer as the page cut with travel set to the full page overflow
-  instead of the capped rate. Small; the panel cut shipped without it.
-
-## Later
+## Planned
 
 - **Shots as first-class video units.** Per-shot settings for motion (static, pan, push-in, pull-out, with an
   override and variety across neighbouring shots instead of today's automatic push or pull by shot type), fade to

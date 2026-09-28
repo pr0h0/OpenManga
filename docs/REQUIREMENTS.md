@@ -30,6 +30,10 @@ Postgres and Redis are ordinary instances — an external managed Postgres 17 or
 lives there. (Losing it is survivable — the worker re-publishes still-queued jobs from the database on startup and
 every five minutes — but it is not a supported configuration.)
 
+Run one `api` container, as `docker-compose.yml` does. Production runs are advanced by a 10-second timer inside the
+API process, guarded in memory against advancing the same run twice; several API replicas would each advance the
+same runs.
+
 If you run the worker outside Docker, ffmpeg must be on `PATH`. The worker uses it for narration WAV assembly,
 two-pass loudness normalisation and MP4 video export; there is no fallback path.
 
@@ -107,7 +111,9 @@ Data volumes:
   iterated on heavily can hold several times the artwork it displays.
 - **Exports** (PNG/JPG/PDF/CBZ/EPUB/webtoon/MP4/timeline and packages) are written into the same volume and expire after
   30 days; the Exports page can also delete them, files included, at once. A video export of a whole project is the
-  single largest artefact the app produces and can rival the project's artwork in size. Prompt derivatives are purged
+  single largest artefact the app produces and can rival the project's artwork in size. A YouTube package export
+  copies the newest video into its ZIP uncompressed, so each package is another full copy of that film (built in
+  `tmp-data`, then stored). Prompt derivatives are purged
   after 30 days unused, trashed assets after 30 days.
 - **`postgres-data`** stays small: a database with about 100 chapters and 2,000 panels measured 64 MB. Story text,
   plans, prompts and bubble geometry are all rows; no image bytes are stored in Postgres.

@@ -13,6 +13,7 @@ Every binary the system produces or accepts — references, panel art, masks, th
 put(key, data): Promise<StoredObjectMetadata>
 putFile(key, srcPath)      // copy a file from disk without buffering it in memory (exports, video)
 read(key): Promise<Uint8Array>
+stream(key): ReadableStream<Uint8Array>  // for files too large to hold in memory (videos)
 exists(key) / delete(key) / getMetadata(key)
 internalPath(key): string  // relative path handed to nginx for X-Accel-Redirect
 ```
@@ -25,6 +26,14 @@ Keys are server-generated, opaque and sharded: `newStorageKey(prefix, ext)` retu
 `<type>/<aa>/<bb>/<32 hex>.<ext>` from 16 random bytes. Every key is validated against
 `/^[a-z0-9][a-z0-9/_.-]*$/` with no `..`, no `//` and no trailing slash, and the resolved path must stay under the
 root. An uploaded filename is never used in a path — it is kept only as metadata.
+
+Export archives are written to a file in the job's temp directory by the worker's `ZipWriter`
+(`apps/worker/src/lib/zip.ts`) and stored with `putFile`. `ZipWriter.addStream` adds an entry chunk by chunk from a
+stream, which is how a finished MP4 goes into a `youtube_package` zip without being read into memory. That package
+holds `video/` (the newest completed `video_pages` or `video_panels` export of the same scope: the MP4, its `.srt` and,
+when the film spans more than one chapter, its `.chapters.txt` of YouTube timestamps), `thumbnail.png` (the project's
+thumbnail with its headline composited, when there is one), `description.txt` (with the chapter timestamps appended),
+`titles.txt`, `tags.txt`, and `pinned-comment.txt` and `thumbnail-headlines.txt` when those are set.
 
 ## Serving (`/cdn`)
 

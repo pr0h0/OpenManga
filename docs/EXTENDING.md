@@ -226,7 +226,8 @@ compiled sections; this section is only about editing the registry.
      `shotPlanningV3` / `stripPlanningV2` / `chapterPlanningV6` by format, the scene-by-scene passes
      `chapterOutlineV2` + `scenePagesV2` and their strip/shot twins, `panelPromptsV4`, `narrationV5`).
    - The API route that *creates* the job stamps `templateName` / `templateVersion` on the row —
-     `apps/api/src/routes/stories.ts`, `chapters.ts`, `pages.ts`, `audio.ts` (narration text), `vision.ts`.
+     `apps/api/src/routes/stories.ts`, `chapters.ts`, `pages.ts`, `audio.ts` (narration text), `vision.ts`,
+     `generations.ts` (the YouTube package text).
      Forgetting this makes the row claim a version that never ran.
 
 5. **Mock providers need no change for a version bump.** `mockTextCompletion` in `packages/testing/src/mock-text.ts`
@@ -295,7 +296,9 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
 
    `{ data }` is in-memory bytes; `{ path }` is a file already on disk. **Large outputs stream to disk** — multi-file
    exports build through `ZipWriter` (`apps/worker/src/lib/zip.ts`, stored uncompressed, only the current entry in
-   memory) and return `{ path: await zip.close() }`; video exports return the rendered file's path. Single small
+   memory) and return `{ path: await zip.close() }`; video exports return the rendered file's path. An entry too large
+   for memory goes in with `zip.addStream(name, stream)` from `deps.assets.storage.stream(key)`, as `youtube_package`
+   does with the video it repackages. Single small
    outputs (a PDF, a timeline JSON, an `.srt`) return `{ data }`. `AssetService.store` accepts the same
    `{ data } | { filePath }` split, so either one is stored without a round trip through memory.
 
@@ -343,7 +346,7 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
    (`apps/api/src/routes/assets.ts`, `cdnRoutes.get("/a/:id")`), which authorizes, then hands off to nginx with
    `X-Accel-Redirect` (invariant 10). Nothing to add there.
 
-5. **`apps/web/src/features/exports/ExportsPage.tsx` — add an entry to `KINDS` (line 22).**
+5. **`apps/web/src/features/exports/ExportsPage.tsx` — add an entry to `KINDS` (line 23).**
 
    ```ts
    const KINDS = [
@@ -499,7 +502,8 @@ progress model — `progress(p)` writes the column, publishes `export.updated` w
 cancellation checkpoint (§3).
 
 Events are declared as the `AppEvent` union in `packages/queue/src/index.ts`: `job.updated`, `panel.updated`,
-`reference.updated`, `analysis.updated`, `chapter.updated`, `audio.updated`, `export.updated`, `narration.updated`.
+`reference.updated`, `analysis.updated`, `chapter.updated`, `audio.updated`, `export.updated`, `narration.updated`,
+`production.updated`.
 `EventBus.publish` writes to `om:events:project:<id>` on Redis pub/sub; the API streams it at
 `GET /api/projects/:projectId/events` (`apps/api/src/routes/system.ts`, with `x-accel-buffering: no` and a ~14 s
 ping). **A new event type needs a matching `case` in `invalidateFor` in `apps/web/src/api/hooks.ts`**, or the SPA
@@ -512,12 +516,40 @@ Add the name to `QUEUES` in `packages/queue/src/index.ts`, add a processor in `a
 `createExportJob`-style creator that calls `addToOutbox`, and extend `JobService.reconcileQueue` — it only walks the
 three known job tables, so a fourth would not be recovered after a Redis flush.
 
+### A production run step
+
+Production runs (`apps/api/src/lib/production.ts`) are not a queue: the API process advances each running run every
+10 s (`tickProductionRuns`, started in `apps/api/src/server.ts`) and after each start or continue. A step does its work
+by calling the same REST routes a person would, in-process and as the run's user, through a private router built from
+`mountApiRoutes` — so access checks, preflight and the budget cap all apply, and a new step never creates jobs
+itself. (The render steps pass `acknowledgeIssues: true`, so readiness issues do not stop them.)
+
+1. **Add the key to `STEPS`** in the order it should run, and a label to `STEP_LABELS` (a `Record` over `STEPS`, so
+   the compiler asks for it). If an option turns it on or off, filter it in `initialSteps`, and add the option to
+   `RunOptions`, to `StartRun` in `apps/api/src/routes/production.ts`, to the `options` column type on
+   `productionRuns` (`packages/db/src/schema/projects.ts`) and to the checkboxes in
+   `apps/web/src/features/project/ProductionRun.tsx`.
+2. **Add its starter to `START`.** This is a `Record<string, …>` looked up with `!`, so a missing entry is not a
+   compiler error: the step fails at runtime. The starter calls routes with `x.call(method, path, body)` — `text(x)`
+   carries the run's text AI choice and the batch flag from the project's `batchPolicy`; image steps pass `image(x)`
+   plus `batch: imageBatch(x.project)` — and returns `{ status, jobIds | exportJobId, note }`: `running` to wait,
+   `done` or `skipped` to move on. Skip what already exists — a second run on a finished
+   project must not spend again (the integration test asserts this).
+3. **Completion is generic.** `check` waits for every job in `jobIds` (or the `exportJobId`) to reach a final state;
+   a step that queues other work (as `audio` does) needs its own branch there. Only `analyze` fails the run on a
+   partial failure; elsewhere failures become a note unless every job failed.
+4. **A review step** is a key starting with `review_` that returns `{ status: "review", note }`; it is dropped
+   unless `reviewGates` is on, and the run waits there until `POST /api/production-runs/:id/continue`.
+
+A route refusing with `budget_exceeded` (or 402) pauses the run instead of failing it. Runs are advanced under an
+in-process guard, which assumes a single API process.
+
 ---
 
-## 5. Add a layout template or a style preset
+## 5. Add a layout template, a style preset or a production preset
 
-Both are single-file additions. They differ in one important way: **layout templates live only in code**, while
-**style presets are seeded into the database** and read back from it.
+All are single-file additions. They differ in one important way: **layout templates and production presets live only
+in code**, while **style presets are seeded into the database** and read back from it.
 
 ### A layout template
 
@@ -620,6 +652,21 @@ Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a 
 
 ---
 
+### A production preset
+
+A production preset is the one choice at project creation that sets format, style, image quality, target runtime,
+reference policy and batch policy.
+
+1. **`packages/domain/src/presets.ts` — append to `PRODUCTION_PRESETS`** (typed `ProductionPreset`, five today).
+   `projectType`, `format`, `stylePresetKey` (a `BUILTIN_STYLE_PRESETS` key) and `colorMode` fill the new-project
+   wizard's own fields; the API applies only `settings`. `POST /api/projects` with `preset: "<key>"` merges `settings`
+   over the server defaults (the format's page size still wins) and validates the result with `ProjectSettings`; an
+   unknown key is 400. A setting the type does not have yet goes in both `ProductionPreset.settings` and
+   `ProjectSettings` (`packages/schemas/src/editor.ts`).
+2. **Nothing else.** No bootstrap: `GET /api/production-presets` returns the list straight from code, together with
+   the caller's saved project templates (`preset: "template:<id>"`), and the wizard reads it. The module is exported
+   from `@openmanga/domain/browser` as well.
+
 ## 6. Add a database migration
 
 1. **Edit the Drizzle schema** in `packages/db/src/schema/` — `common.ts` (enums and shared helpers), `auth.ts`,
@@ -676,8 +723,9 @@ Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a 
 2. **Mount it in `mountApiRoutes` (`apps/api/src/app.ts`).** Five routers get a prefix (`/auth`, `/dev`, `/admin`,
    `/projects`, `/usage`); the rest are mounted at `/` and own several top-level paths themselves, so
    `chapterRoutes.get("/projects/:projectId/chapters", …)` serves `/api/projects/:projectId/chapters`.
-   `mountApiRoutes` is used twice: by the public `/api` sub-app and by the private router MCP tools call
-   (`apps/api/src/mcp/runtime.ts`), so an agent runs exactly the browser's handler. A router agents must never reach
+   `mountApiRoutes` is used three times: by the public `/api` sub-app, by the private router MCP tools call
+   (`apps/api/src/mcp/runtime.ts`) and by the production-run runner (`apps/api/src/lib/production.ts`), so an agent
+   or a run executes exactly the browser's handler. A router agents must never reach
    is mounted outside it, as `/api/agents` and `/api/public` are. The whole `/api` sub-app already has `loadSession`,
    `csrf`, rate limiting, and `requireUser` for everything except `/auth/*`, `/meta`, `/docs*` and `/public/*`. Add
    per-route `requireUser` only when mounting outside `/api` (as `/cdn` does).

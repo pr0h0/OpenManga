@@ -33,6 +33,7 @@ versions stay in the array so old jobs remain reproducible.
 | `narration` | 1–5 | 5 | `apps/api/src/routes/audio.ts`, `apps/worker/src/handlers/text.ts` |
 | `panel-check` | 2 | 2 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/qa.ts` (vision QA; v2 also asks for face boxes) |
 | `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
+| `youtube-package` | 1 | 1 | `apps/api/src/routes/generations.ts`, `apps/worker/src/handlers/text.ts` (video publishing text: titles, description, tags, pinned comment, thumbnail headlines) |
 | `image-describe` | 1 | 1 | `apps/api/src/routes/vision.ts`, `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |

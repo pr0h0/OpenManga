@@ -6,7 +6,7 @@ is synthesised locally. Nothing in this mode contacts a provider, and nothing is
 
 | Step | With a key | Without one |
 | --- | --- | --- |
-| Story analysis, rewrite, planning, panel prompts, narration text, consistency check, describe | the provider answers | **you paste the answer** |
+| Story analysis, rewrite, planning, panel prompts, narration text, consistency check, describe, YouTube package text | the provider answers | **you paste the answer** |
 | Panel artwork, references | the provider draws | **you upload the image** |
 | Covers, video thumbnails, masked edits | the provider draws | not available without an image key |
 | Narration audio | a TTS key, or local Kokoro | local Kokoro, unchanged |
@@ -182,7 +182,7 @@ many as the story needs):
 ```
 
 Every other operation works the same way with its own schema: `ChapterOutline` then one `ScenePages` per scene,
-`PanelPromptDraft`, `NarrationDraft`, `StoryRewrite`, `PanelCheck`, `ImageDescription`. You never have to write one from memory — the prompt you
+`PanelPromptDraft`, `NarrationDraft`, `StoryRewrite`, `PanelCheck`, `ImageDescription`, `YoutubePackage`. You never have to write one from memory — the prompt you
 copied contains it.
 
 ## Artwork
@@ -191,6 +191,18 @@ copied contains it.
 tab. It fills the same slot generation would, appears in the ordinary version history, and can be superseded or
 reverted like any generated version. See
 [AI pipeline → Bring your own artwork](AI_PIPELINE.md#bring-your-own-artwork).
+
+## Production runs
+
+A [production run](AI_PIPELINE.md#production-runs) takes the text choice from its picker like any other operation,
+so with *Paste it yourself* chosen each text step it starts (analysis, plans, panel prompts, narration, YouTube
+text) parks as usual, and the run waits on that step until every job has been answered. What it does not change:
+
+- **Batch policy must be *Everything now*.** With *hybrid* or *cheapest* the run asks for a provider batch, a pasted
+  answer cannot be batched, and every text request is refused (the analysis and YouTube text steps fail the run;
+  plans, prompts and narration are noted as refused).
+- **Images still need a key.** Without an image key the reference and artwork steps are refused and noted (upload
+  artwork yourself), and the video thumbnail step fails the run unless the project already has a thumbnail.
 
 ## Limits
 
