@@ -18,9 +18,8 @@ curl -fsS http://127.0.0.1:3480/readyz
 
 `.env.example` marks exactly which variables are required; everything below that block has a working default. Only the
 variables listed in the `x-app-env` block of `docker-compose.yml` are forwarded into the containers, so a setting the
-config schema accepts but compose does not pass needs adding there before putting it in `.env`. Today that is
-`OPENAI_BATCH_MAX_ENQUEUED_TOKENS`, `BATCH_POLL_INTERVAL_SECONDS` and `STALLED_JOB_TIMEOUT_MINUTES`: they appear in
-`.env.example`, but under compose they stay at their defaults until added to `x-app-env`. (`KOKORO_WORKERS` and
+config schema accepts but compose does not pass needs adding there before putting it in `.env`. Every setting in
+the config schema is forwarded today except `API_PORT`, which is fixed inside the container. (`KOKORO_WORKERS` and
 `KOKORO_THREADS` go to the kokoro service instead.) The
 `migrate` service (`apps/api/src/cli/bootstrap.ts`) applies migrations, syncs prompt templates, style presets and
 provider rate snapshots, re-encrypts stored provider keys onto the current key, and creates the initial admin if the
