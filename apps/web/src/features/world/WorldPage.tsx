@@ -82,7 +82,7 @@ function EntityGrid({ kind }: { kind: "locations" | "props" }) {
   const singular = kind === "locations" ? "location" : "prop";
   return (
     <>
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
           <Plus className="size-4" /> New {singular}
         </button>

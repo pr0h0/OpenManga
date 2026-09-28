@@ -258,7 +258,7 @@ export function AiChip({ cap, className }: { cap: AiCapability; className?: stri
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
   return (
-    <div ref={ref} className={clsx("relative inline-block", className)}>
+    <div ref={ref} className={clsx("relative inline-block max-w-full", className)}>
       <button
         type="button"
         className="btn-ghost max-w-64 truncate px-2 py-1 text-xs"
