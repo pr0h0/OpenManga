@@ -37,11 +37,70 @@ experts, reader links, thumbnails and more) is in [CHANGELOG.md](../CHANGELOG.md
 
 ## Next
 
+The largest gap is orchestration: every production step exists, but a person still drives each one by hand. These
+items are ordered so each makes the next cheaper.
+
+- **Production runs (one-click autopilot).** A resumable run over a whole project: analyse → apply → required
+  references → plan every chapter → prepare prompts → generate missing artwork → write narration → synthesize →
+  thumbnail → preview → final render. Each step reuses the existing job, skips work already done, stops at review
+  gates and at the budget cap, and survives a restart. It brings the project-wide actions with it (plan all
+  chapters, prepare all prompts, generate all missing art chunked past the 500-panel bulk cap, write and synthesize
+  all narration) and a per-run batch policy: interactive, cheapest (provider batches, up to 24h) or hybrid.
+- **Target runtime.** A project-level target (for example 30 or 60 minutes) with words per minute and minimum and
+  maximum shot length, turned into per-chapter shot and narration budgets at analysis and planning time. Today only
+  `narrationWordsPerPanel` and the export's minimum hold exist, so length is found out after rendering.
+- **Production presets, templates and economy mode.** One bundle of settings chosen when a project is created:
+  format, style, voice, image quality, shot length, runtime, batch policy and which references to make (skip them for
+  minor characters and one-off locations, generate the rest in bulk, characters included). Ships with presets such
+  as "YouTube recap, 30 min" and "1 hour", and "Save as template" copies a project's settings without its story,
+  cast or assets.
+- **Review at scale.** Check all panels: the vision consistency check for a page, chapter or project in one run,
+  with a cost estimate, feeding the drift flags and *Move bubbles off faces*. A dense storyboard grid of every panel
+  with filters (failed, needs review, no art, check mismatch) and keyboard shortcuts; spending keys ask first.
+- **YouTube package.** Chapter timestamps from the render's own shot timings (free and exact), plus a publishing
+  bundle: title options, description, tags, a pinned comment and thumbnail headline variants written by a text job
+  and stored beforehand (exports make no AI calls), exported as one folder with the video, thumbnail and `.srt`.
+- **Partial renders.** Render a range of pages or the first few minutes for a check before the full film.
 - **Continuous scroll cut for video.** The same renderer as the page cut with travel set to the full page overflow
   instead of the capped rate. Small; the panel cut shipped without it.
 
 ## Later
 
+- **Shots as first-class video units.** Per-shot settings for motion (static, pan, push-in, pull-out, with an
+  override and variety across neighbouring shots instead of today's automatic push or pull by shot type), fade to
+  black at scene breaks, disabling a shot without deleting it, and one narration line spanning several shots with
+  start and end offsets (today a shot can carry several lines, but not the other way round). The renderer and the
+  browser preview share the timing helpers, so both change together.
+- **Music and ambience.** Background music per scene mood, ducked under narration before loudness normalisation,
+  and ambience beds tagged from the scene's time, weather and mood. From a library the user supplies, so nothing
+  with unclear licensing ships in the repository.
+- **Vertical video for Shorts.** A 9:16 (and 1:1) video profile for the renderer and preview, and a Shorts cut: a
+  30–60 s trailer built from key shots of a project. Framed from existing art rather than generated at 9:16, which
+  providers return squeezed.
+- **Incremental rendering.** Keep rendered sections between exports and re-render only what changed, driven by a
+  dependency graph of what is stale (story → plan → prompts → art → narration → audio → render) with one "update
+  production" action. Staleness already exists for narration audio, references and checks; loudness normalisation
+  runs over the whole film, so audio is always re-mixed.
+- **Dedicated render workers.** Video renders and imports on their own queue, so a long render never holds up other
+  exports, and a `WORKER_QUEUES` setting so a separate worker container can take only renders.
+- **Translated lettering.** Translate bubbles and captions per language and export each edition from the same art,
+  as narration already is per language.
+- **Pose and sketch guides.** Upload a rough sketch or pose for a panel and send it with the prompt as a layout
+  reference, for fewer rerolls.
+- **Project members.** An invite flow and panel comments. `project_members` and its owner / editor / viewer roles
+  exist, but nothing adds a member yet.
+- **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
+- **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
+  Burns shots. Costly per clip, so opt-in and budgeted.
+- **Expert output actions.** Turn an expert's reply into something applied: a new project from a concept, a
+  replacement premise, an outline, or the YouTube package fields, through a structured extraction step.
+- **Video branding.** A logo watermark and optional intro and outro cards on video exports.
+- **Agent (MCP) additions.** Tools to delete exports, narration audio and images, and not asking again for a scope a
+  user has already declined.
+- **End-to-end tests in CI.** The existing `scripts/e2e.sh` on a nightly or manual workflow against the full stack
+  with mock AI.
+- **Cached reader-link renders.** Reader pages render on every request; keep them as asset variants if a link ever
+  draws real traffic.
 - **Instance-wide budget ceiling.** The per-project cap exists; an instance-wide ceiling is the better control for
   a shared install, but with registration off by default multi-user is the rare case.
 - **Streaming PDF and webtoon strips.** ZIP-based exports and video stream to disk. PDF and stitched webtoon strips
@@ -57,7 +116,7 @@ experts, reader links, thumbnails and more) is in [CHANGELOG.md](../CHANGELOG.md
 | Item | Why not | What would change it |
 | --- | --- | --- |
 | **Automatic image-provider failover** | Silently switching image models mid-chapter breaks visual consistency, which is the point of the product. Quota and auth failures already pause the batch so you can pick another key and resume. The narrow safe case did ship: a content-policy block retries once on a fallback provider you nominate and flags the panel for review (see `docs/AI_PIPELINE.md`). | A text-model failover chain is asked for, or image failover can be limited to the same model family. |
-| **Teams and organisations** (seats, org billing, tenancy) | Per-project sharing with roles already exists (`project_members`). Orgs and billing only matter for a hosted multi-tenant service; this is a self-hosted app. | A hosted offering is decided. Tenancy would need to land before that launch — retrofitting it later is costly. |
+| **Teams and organisations** (seats, org billing, tenancy) | Per-project roles exist (`project_members`; the invite flow is under Later). Orgs and billing only matter for a hosted multi-tenant service; this is a self-hosted app. | A hosted offering is decided. Tenancy would need to land before that launch — retrofitting it later is costly. |
 | **Crossfades between shots** | Hard cuts read correctly for narrated comic and film output, and crossfades would break the frame-exact hold arithmetic the duration check depends on. | Enough demand to justify reworking the timing model. |
 | **Burned-in subtitles** | The `.srt` sidecar covers players and uploads without baking one language into the pixels. | — |
 | **Converting comic projects to film** | A conversion means re-planning and regenerating every panel at a new aspect, i.e. a fresh project with extra steps. | — |
