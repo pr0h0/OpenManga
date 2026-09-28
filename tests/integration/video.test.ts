@@ -159,6 +159,50 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     expect(`${wholeDone.status}:${wholeDone.failureReason ?? ""}`).toBe("completed:");
     expect(wholeDone.files[0]!.fileName).toContain("_project_");
 
+    // A page selection renders only those pages: shorter than the chapter, and still a valid film.
+    const chapterPages = await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`);
+    expect(chapterPages.pages.length).toBeGreaterThan(1);
+    const picked = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      {
+        kind: "video_pages",
+        chapterId,
+        pageIds: [chapterPages.pages[0]!.id],
+        video: { height: 720, fps: 24, minHoldMs: 2000 },
+        acknowledgeIssues: true,
+      },
+      202,
+    );
+    const pickedDone = await waitFor(
+      async () => {
+        const l = await u.get<{
+          jobs: { id: string; status: string; failureReason: string | null; files: { assetId: string }[] }[];
+        }>(`/api/projects/${projectId}/exports`);
+        const j = l.jobs.find((x) => x.id === picked.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "page-selection video export", timeoutMs: 240_000 },
+    );
+    expect(`${pickedDone.status}:${pickedDone.failureReason ?? ""}`).toBe("completed:");
+    const pickedPath = `${process.env.TMPDIR ?? "/tmp"}/mf-video-picked.mp4`;
+    await Bun.write(
+      pickedPath,
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${pickedDone.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    const pickedInfo = JSON.parse(
+      Bun.spawnSync([
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "json",
+        pickedPath,
+      ]).stdout.toString(),
+    ) as { format: { duration: string } };
+    expect(Number(pickedInfo.format.duration)).toBeLessThan(Number(info.format.duration));
+
     // Panel cut (Ken Burns) with an .srt alongside
     const pc = await u.post<{ job: { id: string } }>(
       `/api/projects/${projectId}/exports`,
