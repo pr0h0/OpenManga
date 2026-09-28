@@ -1466,6 +1466,44 @@ describe("full production flow (mock AI)", () => {
     ).toBe(400);
   });
 
+  test("video thumbnail: 16:9 art with the headline composited on request, never replacing the cover", async () => {
+    const before = await alice.get<{ project: { coverAssetId: string | null } }>(`/api/projects/${projectId}`);
+    const r = await alice.post<{ job: Job }>(
+      `/api/projects/${projectId}/thumbnail`,
+      { title: "The rooftop duel", subtitle: "Chapter 1", side: "right" },
+      202,
+    );
+    expect((await waitJob(alice, r.job.id)).job.status).toBe("completed");
+    const after = await alice.get<{
+      project: {
+        coverAssetId: string | null;
+        settings: { thumbnail?: { assetId: string; title: string; subtitle: string; side: string } };
+      };
+    }>(`/api/projects/${projectId}`);
+    expect(after.project.coverAssetId).toBe(before.project.coverAssetId);
+    expect(after.project.settings.thumbnail).toMatchObject({
+      title: "The rooftop duel",
+      subtitle: "Chapter 1",
+      side: "right",
+    });
+
+    const png = await alice.raw("GET", `/api/projects/${projectId}/thumbnail.png`);
+    expect(png.status).toBe(200);
+    const meta = await sharp(new Uint8Array(await png.arrayBuffer())).metadata();
+    expect([meta.width, meta.height]).toEqual([1280, 720]);
+    // Rewording renders a different image from the same art, and the saved headline can be changed.
+    const reworded = await alice.raw("GET", `/api/projects/${projectId}/thumbnail.png?title=Betrayal&width=640`);
+    expect((await sharp(new Uint8Array(await reworded.arrayBuffer())).metadata()).width).toBe(640);
+    await alice.patch(`/api/projects/${projectId}`, {
+      settings: { thumbnail: { ...after.project.settings.thumbnail!, title: "Betrayal" } },
+    });
+    const saved = await alice.get<{ project: { settings: { thumbnail?: { title: string } } } }>(
+      `/api/projects/${projectId}`,
+    );
+    expect(saved.project.settings.thumbnail?.title).toBe("Betrayal");
+    expect((await bob.raw("GET", `/api/projects/${projectId}/thumbnail.png`)).status).toBeGreaterThanOrEqual(403);
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

@@ -32,6 +32,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   panel_check: "text-ai",
   image_describe: "text-ai",
   cover: "image-generation",
+  thumbnail: "image-generation",
   image_batch_submit: "image-batch",
   text_batch_submit: "image-batch",
 };

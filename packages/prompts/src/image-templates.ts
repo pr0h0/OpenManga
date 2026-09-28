@@ -652,6 +652,43 @@ export const coverV1: ImageTemplate<CoverInput> = {
   },
 };
 
+export type ThumbnailInput = CoverInput & { side: "left" | "right" };
+
+export const thumbnailV1: ImageTemplate<ThumbnailInput> = {
+  name: "thumbnail",
+  version: 1,
+  kind: "image",
+  description: "16:9 video thumbnail background without text (the headline is composited by the app).",
+  body: "ROLE / GOAL, PROJECT ART DIRECTION, STORY, CHARACTERS, COMPOSITION, STRICT EXCLUSIONS",
+  compile(i) {
+    const clear = i.side === "left" ? "left" : "right";
+    const subject = i.side === "left" ? "right" : "left";
+    return join([
+      `Create a 16:9 thumbnail image for a narrated ${kindLabel(i.style)} video. Artwork only — a bold headline will be added later by our layout software.`,
+      styleSection(i.style),
+      section("STORY", [clean(i.summary)]),
+      i.characters.length
+        ? section(
+            "CHARACTERS",
+            i.characters.map(
+              (c) =>
+                `${c.name}${c.referenceImageIndex ? ` (the person in reference image ${c.referenceImageIndex})` : ""}: ${clean(c.appearance)}`,
+            ),
+          )
+        : "",
+      section("COMPOSITION", [
+        clean(i.composition) ||
+          "One striking moment from the story: the main character close up with a strong, readable emotion.",
+        `Put the focal subject in the ${subject} half, large, with the face clearly visible even at a small size.`,
+        `Keep the ${clear} 40% of the frame darker and uncluttered for the headline.`,
+        "High contrast, saturated key colours and a clear silhouette: it has to read as a small image in a list.",
+      ]),
+      section("PRESENTATION", [FULL_BLEED, FINISH]),
+      section("STRICT EXCLUSIONS", [...STRICT_BASE, "No title or headline text.", "Do not change character identity."]),
+    ]);
+  },
+};
+
 export const IMAGE_TEMPLATES = [
   characterReferenceV1,
   locationReferenceV1,
@@ -660,4 +697,5 @@ export const IMAGE_TEMPLATES = [
   panelGenerationV1,
   panelEditV1,
   coverV1,
+  thumbnailV1,
 ];
