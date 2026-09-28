@@ -29,7 +29,10 @@ describe("credential encryption and key rotation", () => {
     expect(a).not.toContain("secret");
     expect(ring.decrypt(a)).toBe("sk-live-secret-1234");
     const parts = a.split(".");
-    parts[4] = `${parts[4]!.slice(0, -2)}AA`;
+    // Change a character in the middle: the last base64 characters can carry only padding bits, or already be "AA".
+    const t = parts[4]!;
+    const mid = Math.floor(t.length / 2);
+    parts[4] = `${t.slice(0, mid)}${t[mid] === "A" ? "B" : "A"}${t.slice(mid + 1)}`;
     expect(() => ring.decrypt(parts.join("."))).toThrow();
     expect(() => new KeyRing({ ...cfg, CREDENTIALS_ENCRYPTION_KEY: "short" })).toThrow();
   });
