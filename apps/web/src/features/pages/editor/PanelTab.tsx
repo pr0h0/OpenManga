@@ -1,6 +1,17 @@
 import { CameraAngle, PanelSpec, ShotType } from "@openmanga/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Copy, Lock, Move, SplitSquareHorizontal, SplitSquareVertical, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  Lock,
+  Move,
+  RefreshCw,
+  ScanEye,
+  SplitSquareHorizontal,
+  SplitSquareVertical,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { get, patch, post, put } from "../../../api/client.ts";
 import { qk, useAction } from "../../../api/hooks.ts";
@@ -683,19 +694,37 @@ function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasA
       : qa?.verdict === "ok" && !qa.stale
         ? "chip bg-emerald-500/15 text-emerald-600"
         : "chip";
+  const title = qa
+    ? `${qa.problems.length ? qa.problems.join("; ") : "Expected cast and headcount match"}${qa.notes ? `. ${qa.notes}` : ""}${qa.model ? ` — ${qa.model}` : ""}`
+    : "A vision model checks the artwork shows the expected characters, and finds their faces for bubble placement";
+  // Never checked: a real button, so it reads as something to do rather than a status.
+  if (!qa)
+    return (
+      <button
+        type="button"
+        className="btn-secondary px-2 py-0.5 text-xs"
+        disabled={check.isPending}
+        title={title}
+        onClick={() => check.mutate()}
+      >
+        <ScanEye className="size-3.5" /> {check.isPending ? "Queuing…" : "Run check"}
+      </button>
+    );
   return (
-    <button
-      type="button"
-      className={cls}
-      disabled={check.isPending}
-      title={
-        qa
-          ? `${qa.problems.length ? qa.problems.join("; ") : "Expected cast and headcount match"}${qa.notes ? `. ${qa.notes}` : ""}${qa.model ? ` — ${qa.model}` : ""}. Click to check again.`
-          : "Run the vision consistency check (Project settings → Consistency check)"
-      }
-      onClick={() => check.mutate()}
-    >
-      {label}
-    </button>
+    <span className="inline-flex items-center gap-1">
+      <span className={cls} title={title}>
+        {label}
+      </span>
+      <button
+        type="button"
+        className="btn-ghost p-1"
+        disabled={check.isPending}
+        title="Check again"
+        aria-label="Check again"
+        onClick={() => check.mutate()}
+      >
+        <RefreshCw className={check.isPending ? "size-3.5 animate-spin" : "size-3.5"} />
+      </button>
+    </span>
   );
 }
