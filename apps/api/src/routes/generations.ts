@@ -4,6 +4,7 @@ import {
   and,
   assets,
   assetVariants,
+  characters,
   desc,
   eq,
   generationInputs,
@@ -13,6 +14,7 @@ import {
   isNull,
   locations,
   panels,
+  projects,
   props,
   type ReferenceKind,
   referenceAssets,
@@ -367,12 +369,25 @@ const Scope = z.object({
   chapterId: z.string().uuid().optional(),
   panelIds: z.array(z.string().uuid()).max(500).optional(),
   /** Every location or every prop in the project: one reference each, for its current version. */
-  references: z.enum(["location", "prop"]).optional(),
+  references: z.enum(["character", "location", "prop"]).optional(),
   /** Which kind of reference to draw for each: a wide view, panorama or sheet of a location; a prop's single view or turnaround. */
-  referenceKind: z.enum(["location", "location_panorama", "location_sheet", "prop", "prop_multi_angle"]).optional(),
+  referenceKind: z
+    .enum([
+      "full_body",
+      "portrait",
+      "multi_angle",
+      "expression_sheet",
+      "location",
+      "location_panorama",
+      "location_sheet",
+      "prop",
+      "prop_multi_angle",
+    ])
+    .optional(),
 });
 
 const REFERENCE_KINDS_FOR = {
+  character: ["full_body", "portrait", "multi_angle", "expression_sheet"],
   location: ["location", "location_panorama", "location_sheet"],
   prop: ["prop", "prop_multi_angle"],
 } as const;
@@ -517,20 +532,60 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
 async function bulkReferences(
   c: Context<AppEnv>,
   projectId: string,
-  subject: "location" | "prop",
+  subject: "character" | "location" | "prop",
   input: z.infer<typeof BulkInput>,
 ) {
   const deps = c.get("deps");
-  const table = subject === "location" ? locations : props;
   const kinds: readonly string[] = REFERENCE_KINDS_FOR[subject];
-  const kind = input.scope.referenceKind ?? subject;
+  const kind = input.scope.referenceKind ?? (subject === "character" ? "full_body" : subject);
   if (!kinds.includes(kind)) throw badRequest(`A ${subject} has no ${kind} reference`);
-  const rows = await deps.db
-    .select({ id: table.id, name: table.name, versionId: table.currentVersionId })
-    .from(table)
-    .where(and(eq(table.projectId, projectId), isNull(table.deletedAt)));
+  const [project] = await deps.db
+    .select({ settings: projects.settings })
+    .from(projects)
+    .where(eq(projects.id, projectId));
+  const all =
+    subject === "character"
+      ? await deps.db
+          .select({
+            id: characters.id,
+            name: characters.name,
+            versionId: characters.currentVersionId,
+            role: characters.role,
+          })
+          .from(characters)
+          .where(and(eq(characters.projectId, projectId), isNull(characters.deletedAt)))
+      : await (() => {
+          const table = subject === "location" ? locations : props;
+          return deps.db
+            .select({ id: table.id, name: table.name, versionId: table.currentVersionId, role: sql<string>`''` })
+            .from(table)
+            .where(and(eq(table.projectId, projectId), isNull(table.deletedAt)));
+        })();
+  // The "main only" reference policy: no references for minor characters, or for places and props that appear in
+  // fewer than two panels (their prompt text is enough there).
+  const mainOnly = project?.settings.referencePolicy === "main";
+  const usage =
+    mainOnly && subject !== "character" && all.length
+      ? new Map(
+          (
+            await deps.db.execute<{ v: string; n: number }>(
+              subject === "location"
+                ? sql`select location_version_id as v, count(*)::int as n from panels where project_id = ${projectId} and location_version_id is not null group by 1`
+                : sql`select v, count(*)::int as n from panels, jsonb_array_elements_text(prop_version_ids) as v where project_id = ${projectId} group by 1`,
+            )
+          ).map((r) => [r.v, r.n]),
+        )
+      : null;
+  const minor = (r: (typeof all)[number]) =>
+    mainOnly && (subject === "character" ? r.role === "minor" : (usage?.get(String(r.versionId)) ?? 0) < 2);
+  const rows = all.filter((r) => !minor(r));
   const versionIds = rows.map((r) => r.versionId).filter((v): v is string => Boolean(v));
-  const versionCol = subject === "location" ? referenceAssets.locationVersionId : referenceAssets.propVersionId;
+  const versionCol =
+    subject === "character"
+      ? referenceAssets.characterVersionId
+      : subject === "location"
+        ? referenceAssets.locationVersionId
+        : referenceAssets.propVersionId;
   const refs = versionIds.length
     ? await deps.db
         .selectDistinct({ v: versionCol, kind: referenceAssets.kind })
@@ -573,10 +628,11 @@ async function bulkReferences(
   const rate = await deps.usage.rateFor(chosen.provider, input.batch ? batchModel(chosen.model) : chosen.model);
   const estimate = {
     count: eligible.length,
-    skipped: rows.length - eligible.length,
-    total: rows.length,
+    skipped: all.length - eligible.length,
+    total: all.length,
     skippedReasons: {
       inProgress: rows.filter((r) => r.versionId && inProgress.has(r.versionId)).length,
+      minor: all.length - rows.length,
       hasReference: rows.filter(
         (r) => input.onlyMissing && r.versionId && withReference.has(r.versionId) && !inProgress.has(r.versionId),
       ).length,

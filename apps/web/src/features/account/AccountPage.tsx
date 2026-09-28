@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
-import { get, patch, post } from "../../api/client.ts";
+import { del, get, patch, post } from "../../api/client.ts";
 import { qk, useAction, useMe } from "../../api/hooks.ts";
 import type { TtsStatus } from "../../api/types.ts";
 import { ErrorBox, Field, fmt, PageHeader, Spinner, toast } from "../../components/ui.tsx";
@@ -92,6 +92,7 @@ export function AccountPage() {
     <div className="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
       <PageHeader title="Account" subtitle={me ? `${me.username} · ${me.email} · ${me.role}` : undefined} />
       <NarrationDefaults />
+      <ProjectTemplates />
       <ProviderKeys />
       <form onSubmit={change} className="card space-y-3 p-4">
         <h2 className="font-medium">Change password</h2>
@@ -167,5 +168,40 @@ export function AccountPage() {
         </ul>
       </div>
     </div>
+  );
+}
+
+/** Templates saved from projects' settings; new projects can start from them. */
+function ProjectTemplates() {
+  const qc = useQueryClient();
+  const list = useQuery({
+    queryKey: ["production-presets"],
+    queryFn: () =>
+      get<{ templates: { id: string; name: string; format: string; createdAt: string }[] }>("/production-presets"),
+  });
+  const remove = useAction((id: string) => del(`/auth/templates/${id}`), {
+    success: "Template deleted",
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["production-presets"] }),
+  });
+  if (!list.data?.templates.length) return null;
+  return (
+    <section className="card space-y-2 p-4">
+      <h2 className="font-medium">Project templates</h2>
+      <ul className="divide-y divide-[var(--border)] text-sm">
+        {list.data.templates.map((t) => (
+          <li key={t.id} className="flex items-center gap-2 py-2">
+            <span className="mr-auto">
+              {t.name}{" "}
+              <span className="muted text-xs">
+                · {t.format} · saved {fmt.ago(t.createdAt)}
+              </span>
+            </span>
+            <button type="button" className="btn-ghost text-xs text-red-500" onClick={() => remove.mutate(t.id)}>
+              Delete
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

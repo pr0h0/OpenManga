@@ -1,0 +1,85 @@
+/**
+ * Production presets: one choice at project creation that sets format, style, quality, runtime and how much gets
+ * generated. `settings` is merged into the new project's settings; the rest fills the wizard's own fields.
+ */
+export type ProductionPreset = {
+  key: string;
+  name: string;
+  description: string;
+  projectType: "manga" | "manhwa" | "webtoon" | "comic" | "illustrated_story";
+  format: "comic" | "film" | "vertical";
+  stylePresetKey: string;
+  colorMode: "full_color" | "grayscale" | "bw_manga";
+  settings: {
+    imageQuality: "low" | "medium" | "high";
+    targetRuntime: { minutes: number; wordsPerMinute: number; minShotSeconds: number; maxShotSeconds: number } | null;
+    referencePolicy: "all" | "main";
+    batchPolicy: "interactive" | "cheapest" | "hybrid";
+  };
+};
+
+export const PRODUCTION_PRESETS: ProductionPreset[] = [
+  {
+    key: "youtube-recap-30",
+    name: "YouTube recap, 30 min",
+    description:
+      "16:9 shots narrated over a Ken Burns video, about 30 minutes. Low image quality, references for the main cast only.",
+    projectType: "manhwa",
+    format: "film",
+    stylePresetKey: "manhwa",
+    colorMode: "full_color",
+    settings: {
+      imageQuality: "low",
+      targetRuntime: { minutes: 30, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 },
+      referencePolicy: "main",
+      batchPolicy: "hybrid",
+    },
+  },
+  {
+    key: "youtube-recap-60",
+    name: "YouTube recap, 1 hour",
+    description:
+      "The 30-minute recap at twice the length, with longer shots and provider batches wherever they apply, for half the price.",
+    projectType: "manhwa",
+    format: "film",
+    stylePresetKey: "manhwa",
+    colorMode: "full_color",
+    settings: {
+      imageQuality: "low",
+      targetRuntime: { minutes: 60, wordsPerMinute: 150, minShotSeconds: 5, maxShotSeconds: 10 },
+      referencePolicy: "main",
+      batchPolicy: "cheapest",
+    },
+  },
+  {
+    key: "manga-chapter",
+    name: "Manga chapters",
+    description: "Black-and-white manga pages read right to left, every character and place drawn from a reference.",
+    projectType: "manga",
+    format: "comic",
+    stylePresetKey: "shonen",
+    colorMode: "bw_manga",
+    settings: { imageQuality: "medium", targetRuntime: null, referencePolicy: "all", batchPolicy: "interactive" },
+  },
+  {
+    key: "webtoon-episode",
+    name: "Webtoon episodes",
+    description: "A vertical scrolling strip for phones, in full colour, generated as it is reviewed.",
+    projectType: "webtoon",
+    format: "vertical",
+    stylePresetKey: "modern-webtoon",
+    colorMode: "full_color",
+    settings: { imageQuality: "medium", targetRuntime: null, referencePolicy: "all", batchPolicy: "interactive" },
+  },
+  {
+    key: "economy",
+    name: "Economy draft",
+    description:
+      "The cheapest way to see a whole story: low quality, main-cast references only, and everything that can wait sent as a half-price batch.",
+    projectType: "manhwa",
+    format: "comic",
+    stylePresetKey: "manhwa",
+    colorMode: "full_color",
+    settings: { imageQuality: "low", targetRuntime: null, referencePolicy: "main", batchPolicy: "cheapest" },
+  },
+];

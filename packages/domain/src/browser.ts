@@ -7,6 +7,7 @@ export * from "./layout.ts";
 export * from "./lettering.ts";
 export * from "./narration.ts";
 export * from "./permissions.ts";
+export * from "./presets.ts";
 export * from "./provider.ts";
 export * from "./providers.ts";
 export * from "./runtime.ts";

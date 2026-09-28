@@ -16,7 +16,7 @@ import {
   sql,
   stylePresets,
 } from "@openmanga/db";
-import { canTransition } from "@openmanga/domain";
+import { canTransition, PRODUCTION_PRESETS } from "@openmanga/domain";
 import { LocationDescription, PropDescription, StyleDefinition } from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
 import type { Context } from "hono";
@@ -304,6 +304,16 @@ versionedEntity("location");
 versionedEntity("prop");
 
 // ---------------------------------------------------------------- styles
+
+doc({
+  method: "GET",
+  path: "/api/production-presets",
+  summary: "Production presets for new projects, and the caller's saved project templates",
+  tag: "projects",
+});
+worldRoutes.get("/production-presets", (c) =>
+  c.json({ presets: PRODUCTION_PRESETS, templates: user(c).settings.projectTemplates ?? [] }),
+);
 
 doc({ method: "GET", path: "/api/style-presets", summary: "Built-in and project style presets", tag: "styles" });
 worldRoutes.get("/style-presets", async (c) => {
