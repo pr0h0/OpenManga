@@ -18,6 +18,7 @@ import {
   toast,
 } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
+import { ProductionRunCard } from "./ProductionRun.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
 import { ShareDialog } from "./ShareDialog.tsx";
 
@@ -188,6 +189,7 @@ export function OverviewPage() {
           </div>
         </div>
         <aside className="space-y-4">
+          <ProductionRunCard projectId={projectId} format={p.settings.format} />
           {p.settings.thumbnail && <ThumbnailCard projectId={projectId} saved={p.settings.thumbnail} />}
           <div className="card overflow-hidden">
             <AssetImage assetId={p.coverAssetId} variant={null} alt="Cover artwork" className="aspect-[2/3] w-full" />
