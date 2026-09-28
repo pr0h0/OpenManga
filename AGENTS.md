@@ -1,12 +1,12 @@
 # OpenManga — agent guide
 
-Self-hosted AI manhwa/webtoon studio: story → analysis → cast/world → references → planning → panels → lettering → narration → export.
+Self-hosted AI manhwa/webtoon/video studio: story → analysis → cast/world → references → planning → panels → lettering → narration → export.
 
 ## Stack & package manager
 - **Bun only** (never npm/pnpm/yarn). Bun workspace: `apps/*`, `packages/*`. TypeScript strict.
 - API: Hono + Zod + Drizzle (PostgreSQL). Queue: BullMQ on Redis with a transactional outbox. Web: React + Vite (`base=/app/`) + TanStack Router/Query + Tailwind v4 + Zustand + react-konva.
 - Kokoro TTS is the only Python service (`services/kokoro`).
-- Everything runs in Docker; nginx is the only public entrypoint (`/app`, `/api`, `/cdn`, `/healthz`).
+- Everything runs in Docker; nginx is the only public entrypoint (`/app`, `/api`, `/cdn`, `/mcp` + `/oauth/` + `/.well-known/oauth-*`, `/healthz`, `/readyz`).
 
 ## Commands (run inside a container to keep the host clean: `./scripts/bunx.sh <cmd>`)
 | Task | Command |
@@ -30,13 +30,14 @@ Self-hosted AI manhwa/webtoon studio: story → analysis → cast/world → refe
 - `packages/schemas` Zod contracts for AI output, editor documents, interchange format.
 - `packages/domain` pure logic (layouts, bubbles, text wrap, narration segmentation, cost, permissions, retry/limiter). `@openmanga/domain/browser` is web-safe.
 - `packages/prompts` versioned prompt templates (text + image). Change prompt ⇒ bump version.
-- `packages/ai-text` text providers (OpenAI-compatible, DeepSeek, Anthropic, Gemini, Meta) + fake. `packages/ai-image` image providers (OpenAI, Gemini, Meta) + fake. `packages/audio` Kokoro/fake TTS + WAV/ffmpeg.
+- `packages/ai-text` text providers (OpenAI-compatible, DeepSeek, Anthropic, Gemini, Meta) + fake. `packages/ai-image` image providers (OpenAI, Gemini, Meta, OpenRouter) + fake. Both also hold the OpenAI/Gemini batch clients. `packages/audio` Kokoro, cloud (OpenAI, Gemini, ElevenLabs) and fake TTS + WAV/ffmpeg.
 - `packages/image-utils` Sharp: sniffing, sanitizing, derivatives, crop, masks. `packages/storage` `AssetStorage` + local impl.
+- `packages/auth` passwords, sessions, tokens. `packages/queue` BullMQ queues + outbox relay. `packages/mail` mail interface + the dev mailbox provider. `packages/logger` logging with secret redaction. `packages/testing` mock text/media scenarios.
 - `packages/services` shared API/worker services: assets, usage, jobs+outbox, `GenerationPlanner` (reference selection & prompt compile), analysis/plan appliers.
 - `apps/api` HTTP routes by domain (`src/routes/*`). `apps/worker` queue processors + compositor/exports. `apps/mock-ai` mock provider HTTP service. `apps/web` SPA.
 
 ## Invariants (do not break)
-1. Only `packages/ai-image` knows image request formats and only `packages/ai-text` knows text ones; a run's provider comes from the credential it names, never from server config. There are no server-held provider keys: outside `AI_MOCK_MODE` a run without a usable credential is refused with 422 `credentials_required`. Image quality defaults to `low`.
+1. Only `packages/ai-image` knows image request formats and only `packages/ai-text` knows text ones; a run's provider comes from the credential it names, never from server config. There are no server-held provider keys: outside `AI_MOCK_MODE` a provider run without a usable credential is refused with 422 `credentials_required` (paste-mode text runs need none). Image quality defaults to `low`.
 2. Canonical references are full resolution and never modified. Requests send **small cached derivatives** (default fit inside 192×288). Edit targets and masks are sent **full resolution**.
 3. Identity comes from approved canonical character references; previous panels are continuity-only and attached last.
 4. Approved/locked versions are immutable; changes create new versions. Panels keep their character version until explicitly migrated.
@@ -46,7 +47,7 @@ Self-hosted AI manhwa/webtoon studio: story → analysis → cast/world → refe
 8. Long AI work always goes through the queue; jobs are created with their outbox row in one transaction.
 9. Story content is untrusted data inside delimiters; never interpolate it as instructions.
 10. Keys never leave the server; logs redact secrets. User BYOK keys are AES-GCM encrypted at rest, returned only as `…last4`, and usable only by their owner. Assets are served only after authorization (X-Accel-Redirect).
-11. MCP tools (`apps/api/src/mcp`) call the REST route handlers in-process through a private router, never business logic of their own; every tool is registered in `mcp/tools/*` with its scopes, sensitivity and `classify`, and `docs/MCP_TOOLS.md` is regenerated from the registry (`bun scripts/mcp-docs.ts`).
+11. MCP tools (`apps/api/src/mcp`) do their work by calling the REST route handlers in-process through a private router, not by duplicating business logic; every tool is registered in `mcp/tools/*` with its scopes and sensitivity (plus `classify` for anything that is not a plain read), and `docs/MCP_TOOLS.md` is regenerated from the registry (`bun scripts/mcp-docs.ts`).
 
 ## Where to look next
 Deep docs live in `docs/`; the README has an index of them. Two are the usual starting points:

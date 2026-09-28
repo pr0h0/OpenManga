@@ -1,6 +1,7 @@
 # Authentication & authorization
 
-Password auth with server-side sessions, a double-submit CSRF token and one project permission gate. The pieces live
+Password auth with server-side sessions, a double-submit CSRF token and one project permission gate. AI agents use
+Bearer tokens on `/mcp` instead (see *Agents* below and `docs/MCP.md`). The pieces live
 in `packages/auth` (hashing, tokens, the `AuthService`), `apps/api/src/lib/middleware.ts` (cookies, CSRF, rate limits),
 `apps/api/src/lib/access.ts` (the gate) and `packages/domain/src/permissions.ts` (the role matrix).
 
@@ -27,8 +28,9 @@ in `packages/auth` (hashing, tokens, the `AuthService`), `apps/api/src/lib/middl
   128 characters, requires the row to be unrevoked and unexpired and the user to be `active`, and writes `last_used_at`
   only when it is more than 5 minutes stale, so a busy session is not a write per request.
 - Rotation: login revokes the old row and issues a new one; changing the password and completing a reset revoke **all**
-  of the user's sessions. `POST /api/auth/logout`, `POST /api/auth/logout-all`, list at `GET /api/auth/sessions`.
-  Disabling a user or changing their role revokes their sessions.
+  of the user's sessions (a password change then issues a fresh one for the caller). `POST /api/auth/logout`,
+  `POST /api/auth/logout-all`, list at `GET /api/auth/sessions`. Disabling a user or changing their role revokes
+  their sessions.
 
 ## CSRF
 
@@ -36,7 +38,7 @@ Double-submit token: the `om_csrf` cookie is readable by JavaScript (minted on a
 and must be echoed in the `x-csrf-token` header on every method outside `GET`/`HEAD`/`OPTIONS`, including login and
 register — the SPA seeds the cookie with its opening `GET /api/auth/me`. Comparison is timing-safe; a mismatch is 403
 `csrf_failed`. Combined with `SameSite=Lax`. The middleware covers the whole `/api` router; `/cdn` is a read-only
-sub-app and only loads the session.
+sub-app and only loads the session. `/mcp` and `/oauth/*` sit outside `/api` and use neither cookies nor CSRF.
 
 ## Throttling
 
@@ -44,16 +46,24 @@ sub-app and only loads the session.
 | --- | --- | --- | --- |
 | All of `/api` | user id, else client IP | 60 s | `RATE_LIMIT_PER_MINUTE` (default 600) |
 | `register`, `login`, both password-reset routes | client IP | 60 s | 30 |
+| `POST /api/auth/password` | user id | 60 s | 10 |
+| OAuth client registration | client IP | 1 h | 20 |
+| OAuth `authorize`, `token`, `revoke` (each) | client IP | 60 s | 60 |
+| `/mcp` | connection | 60 s | `MCP_RATE_LIMIT_PER_MINUTE` (default 240) |
 
-Both are fixed-window Redis counters that set `x-ratelimit-limit`, `x-ratelimit-remaining` and `retry-after`, answer
-429 `rate_limited` when exceeded, and **fail open** if Redis errors so a Redis blip cannot lock everyone out.
+All are fixed-window Redis counters that answer 429 `rate_limited` with `retry-after` when exceeded (the `rateLimit`
+middleware also sets `x-ratelimit-limit` and `x-ratelimit-remaining`), and **fail open** if Redis errors so a Redis
+blip cannot lock everyone out. As a backstop that does not need Redis, nginx limits `login`, `register` and
+`password-reset/request` to 30 requests a minute per client address (burst 20).
 
-Login attempts are counted per `identifier + IP`. Past `LOGIN_MAX_ATTEMPTS` (default 10) the response is 429
-`login_throttled` with an estimated wait, and each further failure extends the key's TTL exponentially
-(`60 * 2^(count - max + 1)` seconds, capped at one hour). A successful login deletes the counter.
+Login attempts are counted twice: per `identifier + IP` against `LOGIN_MAX_ATTEMPTS` (default 10), and per identifier
+alone against five times that, which is what a distributed attempt runs into. Past either limit the response is 429
+`login_throttled` with an estimated wait; each failure sets the key's TTL to `60 * 2^(count - max + 1)` seconds (at
+least 60, capped at one hour). A successful login deletes both counters.
 
-The client IP comes from nginx, which prefers `CF-Connecting-IP` when present and otherwise uses the socket address —
-so both limiters key on the real client behind a Cloudflare tunnel.
+The client IP comes from nginx as `X-Real-IP`. nginx takes it from `CF-Connecting-IP` only when the request arrives
+from a private or loopback network (cloudflared or another proxy beside it) and otherwise uses the socket address, so
+the limiters key on the real client behind a Cloudflare tunnel and a forged header from the internet is ignored.
 
 ## Password reset (mock email)
 
@@ -64,8 +74,8 @@ message to `dev_emails` and logs a masked recipient; there is no SMTP provider y
 
 Responses never reveal whether an account exists. `POST /api/auth/password-reset/confirm` claims the token atomically
 (`WHERE token_hash = … AND used_at IS NULL AND expires_at > now()`) and revokes every session for that user. The
-mailbox is 404 unless `DEV_MAILBOX_ENABLED=true` or `NODE_ENV != production`, and when it is enabled in production it
-is additionally admin-only.
+mailbox is 404 unless `DEV_MAILBOX_ENABLED=true` (default false, in every environment), and even then it is
+admin-only, since every message in it carries a reset link.
 
 ## Authorization
 
@@ -84,16 +94,33 @@ A disabled user is refused everything. The effective role is the `project_member
 the caller owns the project. Someone with no role at all gets **404** so project existence does not leak; a member
 whose role lacks the action gets **403**. A trashed project (`deleted_at` set) allows only `read`, `delete` and
 `manage`. Admins get `read` and `manage` on any project — note that "admin" does not imply `write`, `generate` or
-`delete` on a project they are not a member of.
+`delete` on a project they are not a member of. That admin reach is not extended to AI agents: a call made through an
+MCP connection needs a real role in the project, and the connection must also have been granted that project (403
+`project_not_granted` otherwise).
 
-Assets are authorized by project membership before nginx is asked to serve the file; see `docs/STORAGE.md`.
+Creating or revoking a reader link (`share_links`) needs `manage`; listing them needs `read`. The link itself is
+opened with no session at all — see `docs/SECURITY.md`.
+
+Assets are authorized before nginx is asked to serve the file — the asset's owner, or `read` on its project — and a
+trashed asset is not served outside the trash views; see `docs/STORAGE.md`.
 
 ## Identities and OAuth
 
 `auth_identities (provider, provider_subject)` is unique and links an external identity to an internal user, so one
 user can hold several and the internal id is never a provider id. Today the only rows written are
-`provider: "local", provider_subject: <user id>` at account creation — **no OAuth route is implemented**; the table is
-the schema half of that future work.
+`provider: "local", provider_subject: <user id>` at account creation — **signing in with an external OAuth provider is
+not implemented**; the table is the schema half of that future work.
+
+OAuth does exist in the other direction: OpenManga is an OAuth 2.1 authorization server for its own MCP endpoint.
+
+## Agents (MCP)
+
+`/mcp` accepts only `Authorization: Bearer` tokens — an OAuth access token (authorization code with PKCE S256,
+public clients only, rotating refresh tokens) or a personal access token (`om_pat_…`, shown once, optional expiry).
+Both resolve to a connection (`user_services`) that acts as its user, limited by its scopes, project grants and
+approval mode. Tokens are opaque and stored only as `HMAC-SHA256` under `MCP_TOKEN_SECRET`, or a key derived from
+`SESSION_SECRET` when that is unset. The consent page and the connection list are ordinary session routes
+(`/api/agents/*`) that the MCP tools themselves cannot reach. `docs/MCP.md` has the details.
 
 Provider API keys are a separate thing entirely: users bring their own, and they are encrypted per user. See
 `docs/AI_PIPELINE.md` for how a run picks one and `docs/SECURITY.md` for the encryption and rotation story.

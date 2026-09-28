@@ -1,6 +1,6 @@
 name: Release images
 
-# Published images track tagged releases only; nothing is pushed from main.
+# Published images track tagged releases only; no branch push publishes an image.
 on:
   push:
     tags: ["v*"]

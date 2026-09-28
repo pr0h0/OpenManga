@@ -16,8 +16,14 @@ Code:
 | Export options and defaults | `apps/api/src/routes/exports.ts`, `apps/worker/src/handlers/export.ts` |
 
 The browser preview (`GET /api/video-preview`, `apps/web/src/features/video/VideoPreview.tsx`) calls the same shot
-planner and the same `@openmanga/domain` helpers, so what it plays is the plan the render executes. Any timing or
-framing rule that belongs to both therefore lives in `packages/domain/src/video.ts`, not in the worker.
+planner and the same `@openmanga/domain` helpers (through its `browser` entry), so what it plays is the plan the render
+executes. Any timing or framing rule that belongs to both therefore lives in `packages/domain/src/video.ts`, not in
+the worker.
+
+The preview covers one chapter, page or panel (the export can also take the whole project). It plays on the Web
+Audio clock: every narration segment is scheduled on the browser's audio clock ahead of time and the picture reads
+the same clock, so narration keeps playing in a background tab (where animation frames stop) and the picture catches
+up on return. It opens at 95% of the window with an optional full-screen mode.
 
 ## Output target and options
 

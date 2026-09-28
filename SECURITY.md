@@ -7,7 +7,7 @@ authorization, upload handling, asset access, secret redaction, prompt-injection
 ## Supported versions
 
 Only the **latest release** receives security fixes. OpenManga is maintained by one person; backporting to older tags
-is not something that can be promised, so it is not promised. Fixes land on `main` and go out in the next tag. If you
+is not something that can be promised, so it is not promised. Fixes land on `staging`, are released to `master`, and go out in the next tag. If you
 are self-hosting, track the latest tag.
 
 ## Reporting a vulnerability
@@ -38,8 +38,9 @@ your own instance is welcome; do not test against anyone else's.
 **In scope** — the application in this repository: the API, the worker, the web client, the shared packages, the
 Kokoro service, and the Docker and nginx configuration published here. Things worth reporting include authentication
 or session flaws, authorization bypass between projects or users, exposure of a stored provider key beyond its owner,
-unauthorized asset access, path traversal in asset storage, injection reachable from story or prompt content, and
-remote code execution.
+unauthorized asset access, an MCP connection (OAuth client or access token) acting beyond the scopes and projects it
+was granted, a public reader link exposing more than the project or chapter it shares, path traversal in asset
+storage, injection reachable from story or prompt content, and remote code execution.
 
 **Out of scope:**
 

@@ -26,15 +26,16 @@ One `*.test.ts` next to the code it covers. What each package asserts:
 | `packages/logger` | secrets redacted by key and by value |
 | `packages/storage` | put/read/exists/metadata/delete, `putFile` sha256, path-traversal rejection, key opacity, temp cleanup on failure |
 | `packages/image-utils` | derivative sizing and aspect preservation, upscale disabled, deterministic cache key and byte-identical output, MIME sniffing, metadata stripping, crop selection, edit-mask transparency, size-menu selection |
-| `packages/schemas` | story/plan/panel-spec/editor validation, graceful enum degradation, narration v2 coverage rules |
-| `packages/domain` | layout geometry (≥10 templates, no overlaps, RTL mirroring, split/swap/reading order), bubble geometry and tails, text wrap and bubble placement avoiding faces, narration segmentation and timeline, cost estimation and rate selection by date, permissions and approval transitions, retry classification and the concurrency limiter, content lint and distress grammar, video holds and Ken Burns direction |
-| `packages/prompts` | section order and determinism of compiled panel prompts, delimiter isolation (a story cannot close its own tag), unique name+version registry, art-direction binding per planner version, colour-mode and format directives |
-| `packages/ai-text` | DeepSeek, Anthropic and Meta providers against fake HTTP: request shape, usage parsing, 429/5xx retry, 401 and policy non-retry, timeout, connection reset, streamed delta assembly; JSON extraction from prose/fences/cut-off responses and the repair call |
-| `packages/ai-image` | OpenAI, Gemini, Meta and OpenRouter providers: generation, multipart edits with references, full-res target plus mask ordering, aspect-ratio mapping, safety blocks as non-retryable, invalid image classification, 429 retry-after |
+| `packages/schemas` | story/plan/panel-spec/editor validation, graceful enum degradation, narration v2 coverage rules, partial patches, every paste-mode answer schema documented with a valid example and `docs/ANSWER_FORMATS.md` up to date |
+| `packages/domain` | layout geometry (≥10 templates, no overlaps, RTL mirroring, split/swap/reading order), bubble geometry and tails, text wrap and bubble placement avoiding faces, narration segmentation and timeline, cost estimation and rate selection by date, permissions and approval transitions, retry classification and the concurrency limiter, content lint and distress grammar, video holds and Ken Burns direction, webtoon strip seams (butt, gap, bleed, dissolve, fade), faces mapped through the panel crop and tails ending at the face, the build label |
+| `packages/prompts` | section order and determinism of compiled panel prompts, delimiter isolation (a story cannot close its own tag), unique name+version registry, art-direction binding per planner version, colour-mode and format directives, the built-in experts' prompts |
+| `packages/ai-text` | DeepSeek, Anthropic and Meta providers against fake HTTP: request shape, usage parsing, 429/5xx retry, 401 and policy non-retry, timeout, connection reset, streamed delta assembly; JSON extraction from prose/fences/cut-off responses and the repair call; batch chunking, OpenAI and Gemini batch submit/poll, refusals as content-policy failures |
+| `packages/ai-image` | OpenAI, Gemini, Meta and OpenRouter providers: generation, multipart edits with references, full-res target plus mask ordering, aspect-ratio mapping, safety blocks as non-retryable, invalid image classification, 429 retry-after; batch chunking under the OpenAI enqueued-token ceiling and reference uploads |
 | `packages/audio` | WAV parse/concat with silence, `trimSilenceWav`, Kokoro states, OpenAI/Gemini/ElevenLabs PCM wrapped to 24 kHz mono WAV, voice lists |
 | `packages/services` | credential encryption and rotation (round trip, tamper rejection, `SESSION_SECRET`-derived key, dual-key window, legacy v1), custom-endpoint SSRF blocking, model listing, deterministic compositor (page/webtoon/cover), chapter slicing, no server provider fallback without a key |
-| `apps/worker` | video scroll capping, Ken Burns direction, even dimensions, SRT cue formatting, focus-aware pan; `ZipWriter` output |
-| `apps/web` | editor crop store panning and clamping |
+| `apps/worker` | video scroll capping, Ken Burns direction, even dimensions, SRT cue formatting, focus-aware pan; `ZipWriter` output and `extractZip` zip-bomb refusal; CBZ `ComicInfo.xml` and fixed-layout EPUB |
+| `apps/api` | MCP tool catalogue well-formed and `docs/MCP_TOOLS.md` up to date; uploaded non-images and undecodable PNGs rejected |
+| `apps/web` | editor crop store panning and clamping, update coalescing, page titles, AI key picker defaults, API client body encoding |
 
 Optional real Kokoro (skipped unless the URL is set):
 `KOKORO_SMOKE_URL=http://kokoro:8000 bun test packages/audio`.
@@ -55,9 +56,15 @@ database and removes both directories. Config is fixed to `AI_MOCK_MODE=true`, `
 
 | Spec | Covers |
 | --- | --- |
-| `flow.test.ts` | auth (register, login by username and email, logout, reset via dev mailbox, CSRF and auth enforcement); the production flow — project + story, analysis → review → apply, reference generation → approval → small derivative, chapter planning, layout swap/duplicate/split/reorder, prompt inspector, panel generation using derivatives, regeneration with activate/revert, masked edit with full-res target and mask, zero-image-call lettering, bulk generation with estimate and progress, narration text → TTS → timeline, video preview shot plan, every export kind, readiness gate, narration languages and pauses, consistency check, BYOK credential encryption/ownership/per-run choice, budget cap with batch pause/resume and queue recovery, cross-user asset authorization, usage accounting, content-policy hardening (lint, stale references, migration guard, preflight), duplicate/search/archive/trash; failure modes (non-retryable provider error, unrepairable vs repairable JSON, content-policy retry budget and the replacement-job pointer) |
-| `import.test.ts` | `zip_package` round trip into a new project owned by another user, a ZIP wrapped in one extra directory, `project_json` import with warnings, garbage documents rejected |
+| `flow.test.ts` | auth (register, login by username and email, logout, reset via dev mailbox, CSRF and auth enforcement); the production flow — project + story, analysis → review → apply, reference generation → approval → small derivative, chapter planning, layout swap/duplicate/split/reorder, prompt inspector, panel generation using derivatives, regeneration with activate/revert, masked edit with full-res target and mask, zero-image-call lettering, bulk generation with estimate and progress, narration text → TTS → timeline, video preview shot plan, exports (page PNG, PDF with a KDP trim size, CBZ, EPUB, webtoon, narration, project JSON, zip and agent packages), readiness gate, narration languages and pauses, consistency check, BYOK credential encryption/ownership/per-run choice, budget cap with batch pause/resume and queue recovery, cross-user asset authorization, usage accounting, content-policy hardening (lint, stale references, migration guard, preflight), chapter delete, disk usage, deleting exports and narration audio, deleted images and trashed cast, bulk location references, video thumbnails, reader links, moving bubbles off faces, duplicate/search/archive/trash; failure modes (non-retryable provider error, unrepairable vs repairable JSON, content-policy retry budget and the replacement-job pointer) |
+| `import.test.ts` | `zip_package` round trip into a new project owned by another user, a ZIP wrapped in one extra directory, `project_json` import with warnings, uploads over `IMPORT_MAX_UPLOAD_MB` refused, an archive with two projects, multipart uploads, garbage documents rejected |
 | `video.test.ts` | MP4 length matches narration, silent pages held for the minimum duration, film projects plan full-frame 16:9 pages and export Ken Burns video. Skipped unless `ffmpeg` and `ffprobe` are on `PATH` |
+| `mcp.test.ts` | MCP discovery and auth, tool listing, paste-mode pipeline over MCP, `get_image`, idempotency keys, scopes and project restrictions, approvals, token revocation, OAuth 2.1 (registration, PKCE, refresh rotation, CIMD) |
+| `batch.test.ts`, `bulk-references.test.ts` | provider batches for panels, text and references: park, poll, ingest at the batch rate, partial failures, no double submit |
+| `manual-text.test.ts` | paste mode: prompts, schema rejection, per-scene chapter plans, image questions, the whole text pipeline with no key |
+| `experts.test.ts` | built-in and custom experts, project chats, images, paste-mode replies, streaming |
+| `recovery.test.ts`, `tts-race.test.ts` | job redelivery, the stalled-job sweep, a dead batch submitter, permanent project deletion, a segment deleted while voiced |
+| `continuity.test.ts`, `outfits.test.ts`, `letter-from-plan.test.ts`, `upload-art.test.ts`, `vertical.test.ts`, `vision.test.ts` | scene continuity, outfits over a chapter, lettering from the plan, uploaded artwork, vertical strips, image descriptions and character versions |
 
 ## Mock scenarios
 
@@ -82,9 +89,9 @@ curl -X POST http://mock-ai:4010/__mock/scenario \
 
 Runs through nginx (or the public domain) against a deployed stack: routing and SPA fallback, `/healthz`, `/readyz`,
 auth, project + story, analysis, SSE, reference generation and derivative size (checked against `/api/meta`
-`referenceDefaults`), planning, panel generation, masked edit, lettering, narration with **real local Kokoro**, all
-export kinds, CDN authorization (401 unauthenticated, 200 with a variant, 404 on the raw protected path) and usage
-accounting.
+`referenceDefaults`), planning, panel generation, masked edit, lettering, narration with **real local Kokoro**,
+exports (page PNG, webtoon, PDF, narration audio, zip package), CDN authorization (401 unauthenticated, 200 with a
+variant, 404 on the raw protected path) and usage accounting.
 
 ```bash
 docker run --rm --network openmanga_edge -v "$PWD":/repo -w /repo oven/bun:1.4-debian bun scripts/smoke.ts http://nginx
@@ -110,11 +117,13 @@ is ignored).
 
 ## CI
 
-`.github/workflows/ci.yml` on pushes to `main` and pull requests, with `postgres:17-alpine` and `redis:7-alpine`
-services: install (`--frozen-lockfile`), `bunx biome ci .`, typecheck both tsconfigs, unit tests, integration tests
-(`--timeout 300000`, ffmpeg and DejaVu/Comic Neue fonts installed first), web build, then a build of the app and nginx
-images. A second job checks every non-merge commit in a pull request carries a matching `Signed-off-by` line.
-E2E and the smoke script are not run in CI.
+`.github/workflows/ci.yml` on pushes to `main`, `master` and `staging` and on pull requests, with `postgres:17-alpine`
+and `redis:7-alpine` services: install (`--frozen-lockfile`), `bunx biome ci .`, typecheck both tsconfigs, unit tests,
+integration tests (`--timeout 300000`, ffmpeg and DejaVu/Comic Neue fonts installed first), web build, then a build of
+the app and nginx images. A second job checks every non-merge commit in a pull request carries a matching
+`Signed-off-by` line (bot commits are exempt, and so are GitHub's own squash commits in a `staging` → `master` release
+pull request). E2E and the smoke script are not run in CI.
 
 `.github/workflows/release.yml` builds and pushes `openmanga-app`, `openmanga-nginx` and `openmanga-kokoro` to
-`ghcr.io/pr0h0/` on a `v*` tag (linux/amd64 only; arm64 is a self-build — see `docs/REQUIREMENTS.md`).
+`ghcr.io/pr0h0/` on a `v*` tag, or by hand for an existing tag (linux/amd64 only; arm64 is a self-build — see
+`docs/REQUIREMENTS.md`).

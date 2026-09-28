@@ -4,17 +4,27 @@
 | --- | --- | --- | --- |
 | Story analysis | `story_analysis` / text-ai | `story-analysis` v2 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
-| Chapter planning | `chapter_plan` / text-ai | `page-planning` v6, or `shot-planning` v3 for a film project and `strip-planning` v2 for a vertical strip | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
+| Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v2 then `scene-pages` v2 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v6, `shot-planning` v3 or `strip-planning` v2 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
 | Narration text | `narration_text` / text-ai | `narration` v5 | narration lines → TTS segments |
-| References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v4 | full-resolution canonical asset + a draft `reference_assets` row |
+| References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
 | Panels | `panel_generation` / image-generation | `panel-generation` v8 | a new `panel_art` asset, activated on the panel |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
-| Panel QA | `panel_check` / text-ai | `panel-check` v1 | `panels.qa` verdict from a vision model (opt-in) |
+| Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
+| Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
 `export`); see `docs/ARCHITECTURE.md` for the queue table and `docs/PROMPT_SYSTEM.md` for the templates.
+
+A job keeps its row, compiled prompt and cost after its image is deleted: the generation history then shows the
+output as deleted (`outputDeleted`) instead of the picture, and the job's page offers **Restore image** while the
+image is still in the trash.
+
+The video thumbnail (`POST /api/projects/:projectId/thumbnail`, same body as the cover plus `side: left|right`) draws
+16:9 art that keeps that side dark and clear. The title and subtitle stay text in `settings.thumbnail`, and
+`GET /api/projects/:projectId/thumbnail.png` composites them at request time (1280 px wide by default), so rewording
+the headline or moving it to the other side costs nothing. It never replaces the cover.
 
 **No server-level provider keys.** Every text and image run uses a key a user added. The only server-side AI paths are
 `AI_MOCK_MODE` (in-process fakes, the zero-key demo) and local Kokoro TTS. A run without a credential is refused with
@@ -125,6 +135,11 @@ description (which the cover is drawn from).
   tones" and "Full color artwork" (measured: seinen presets rendered monochrome in colour projects).
 - **`projectType` is direction, not a label**: each type adds a format line (manga ink values, manhwa polished
   digital, webtoon phone-legible, comic bold inking, storybook painterly).
+- **Photoreal styles**: a style definition with `photoreal: true` (the built-in **Realistic** preset, or a style
+  described from a photograph) replaces the format line with live-action cinematography, calls the images
+  "live-action film" in every opening line, and asks for a "photorealistic live-action film still" instead of a
+  panel. In a project that is not full colour it asks for black-and-white photography instead of the colour mode's
+  ink and screentones.
 - **Audio**: TTS segments are silence-trimmed when stored (`TTS_TRIM_SILENCE`, `TTS_TRIM_THRESHOLD_DB` −45 dBFS,
   `TTS_TRIM_KEEP_MS` 25 ms), so `pauseAfterMs` (350 ms) and the video breath (`VIDEO_BREATH_MS` = 150 ms in
   `packages/domain/src/video.ts`) are the only pauses at a cut. Untrimmed cached audio is not reused. Before this,
@@ -194,8 +209,8 @@ Reference derivatives are sized per provider — see `docs/IMAGE_REFERENCES.md`.
 
 - **Budget cap** (`settings.budgetUsd`, **$5** on a new project): the API refuses new AI work with 402
   `budget_exceeded` once recorded spend reaches the cap; the web client asks and retries with
-  `x-allow-over-budget: 1`. Bulk estimates include the budget, and queued batch jobs re-check it when they start,
-  pausing the batch instead of overspending.
+  `x-allow-over-budget: 1`. Bulk estimates include the budget, a confirmed bulk run is refused when its estimate
+  would reach the cap, and queued batch jobs re-check it when they start, pausing the batch instead of overspending.
 - **Pause/resume batches**: `POST /api/generations/batches/:batchId/pause|resume`. Pausing removes not-yet-started
   jobs from Redis and marks them `paused` (reason in `failure_reason`); running jobs finish. A job failing with `auth`
   or `quota` pauses the rest of its batch automatically. Resume re-arms the jobs' outbox rows — same job ids, so
@@ -221,12 +236,18 @@ accepts `language`, defaulting to the project language.
 
 `settings.consistencyCheck = { enabled, credentialId, model }`. After a panel generation or edit activates new
 artwork, a `panel_check` job sends the 1024 px preview plus the expected cast (names and appearance) to a
-vision-capable text model (`panel-check` v1, schema `PanelCheck`). The expected appearance uses the outfit the panel
+vision-capable text model (`panel-check` v2, schema `PanelCheck`). The expected appearance uses the outfit the panel
 resolves to (see `docs/IMAGE_REFERENCES.md`), not the bible's default wardrobe. The verdict is computed
 deterministically — missing expected characters, unexpected people, headcount mismatch, readable text drawn in the
 art — and stored on `panels.qa`; the page grid outlines mismatches and the Panel tab's badge names the first problem,
-shows the model's notes on hover, and has a "check again" action (`POST /api/panels/:id/check`). The check's prompt is
-saved on its job like every other text step's. DeepSeek
+shows the model's notes on hover, and has a **Run check** button (**Check again** once checked;
+`POST /api/panels/:id/check`). The check's prompt is saved on its job like every other text step's.
+
+The check also lists every clearly visible face as a box (fractions of the image) named with the expected character
+or `unknown`. **Move bubbles off faces** in the page editor's lettering tools
+(`POST /api/pages/:id/lettering/fit-faces`, for a page, chapter or project) uses those boxes to re-place bubbles and
+captions off the faces and point each tail at its speaker's face, with no image call. Panels without a current check
+(none yet, stale, or made for other artwork) are left as they are and counted. DeepSeek
 cannot read images, so this needs a BYOK vision model. Text providers accept `images` on chat messages (OpenAI-style
 content parts, Anthropic image blocks).
 
@@ -292,9 +313,12 @@ your own.
 
 ## Provider batches (half price, up to 24h)
 
-Any image or text generation can be sent to a provider's batch API instead of running now, at half the
-interactive price: `batch: true` on the request, or **Send as a provider batch** on bulk panel generation.
-OpenAI and Google only; a key whose provider has no batch API falls back to generating normally. See
+Bulk image generation (panels, or every location or prop reference) and the text steps (story analysis and
+rewrite, chapter planning, panel prompts, narration text, consistency check, image description) can be sent to a
+provider's batch API instead of running now, at half the interactive price: `batch: true` on the request, or
+**Send as a provider batch** in the bulk dialog. OpenAI and Google only; a batch request on any other provider is
+refused with 400 (in `AI_MOCK_MODE` it simply runs normally). A consistency check queued after a batched panel is
+batched too. See
 [COSTS](COSTS.md#provider-batches-half-price-up-to-24h) for the pricing and the provider table.
 
 The lifecycle is two-phase, because no handler may wait hours inside a worker slot:

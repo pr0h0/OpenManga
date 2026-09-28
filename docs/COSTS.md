@@ -78,12 +78,12 @@ Measured per chapter:
 Output is about **74% of tokens and over 90% of the cost**, because every model charges several times more for output
 than input. Optimising prompt size barely moves the bill; choosing a cheaper model does.
 
-Text rates per 1M tokens, as seeded in `provider_rate_snapshots`:
+Text rates per 1M tokens (the seeded `provider_rate_snapshots` rows, plus DeepSeek's off-peak price for comparison):
 
 | Model | Input | Output |
 | --- | --- | --- |
-| `deepseek-flash` (off-peak) | $0.15 | $0.60 |
-| `deepseek-flash` (peak) | $0.30 | $1.20 |
+| `deepseek-flash` (off-peak, not seeded) | $0.15 | $0.60 |
+| `deepseek-flash` (peak, seeded) | $0.30 | $1.20 |
 | `gpt-5.6-luna` | $0.20 | $1.20 |
 | `gpt-5-mini` | $0.25 | $2.00 |
 
@@ -106,14 +106,16 @@ size — never the prompts.
 
 ## Provider batches: half price, up to 24h
 
-Image and text generation can be sent to a provider's batch API instead of running now, at **50% of the
-interactive price**. A 400-panel project drops from roughly $6 to $3. The trade-off is latency: a batch targets
-**24 hours**, against minutes on the synchronous path at 24 concurrent requests — in practice the batches
-measured here returned in minutes, but nothing guarantees that.
+Bulk image generation and the text steps can be sent to a provider's batch API instead of running now, at **50% of
+the interactive price**. A 400-panel project drops from roughly $6 to $3. The trade-off is latency: a batch targets
+**24 hours**, against minutes on the synchronous path — in practice the batches measured here returned in minutes,
+but nothing guarantees that.
 
-Opt in per run: **Send as a provider batch** on bulk panel generation, or `batch: true` on a generation request.
-Everything else is unchanged — the panels wait at the provider instead of generating now, and no worker slot is
-held while they do.
+Opt in per run: **Send as a provider batch** in the bulk dialog (panels, or Generate all locations / props), or
+`batch: true` on a text request (story analysis and rewrite, chapter plan, panel prompts, narration text,
+consistency check, image description). A single panel, reference or cover cannot be batched on its own.
+Everything else is unchanged — the work waits at the provider instead of running now, and no worker slot is held
+while it does.
 
 | | batchable | why not |
 |---|---|---|
@@ -123,7 +125,8 @@ held while they do.
 | Anthropic | not yet | has a batch API; no implementation here, so it is not offered rather than quietly running at full price |
 | Meta, OpenRouter | **no** | no batch API |
 
-A run on a key that cannot batch falls back to generating normally rather than failing.
+A batch request on a key that cannot batch is refused with a 400 that says so, rather than quietly running at full
+price. (In `AI_MOCK_MODE` it runs normally.)
 
 **Batch spend is reported separately.** A batched call is recorded against a `:batch` model — `gpt-image-2:batch`
 — seeded at half the interactive rate, so the cost dashboard and the budget cap both see the real figure and you
@@ -149,13 +152,14 @@ Three controls, all in the app:
   narration…) with call counts and failures, and a 30-day daily chart by provider. Mock-provider cost is reported
   separately so it never mixes into real spend. (`apps/api/src/routes/usage.ts`,
   `apps/web/src/features/usage/UsageDashboard.tsx`)
-- **Per-project budget cap** — `settings.budgetUsd`. Once recorded spend reaches the cap the API refuses new AI work
-  with `402 budget_exceeded`; the web client asks the user and retries with `x-allow-over-budget: 1`. It is a
-  confirmation, not a hard stop, so a cap can never dead-end you mid-chapter. Queued batch jobs re-check the budget
-  when they start and pause the batch rather than overspend. (`apps/api/src/lib/ai.ts`)
-- **Estimate before queueing** — the bulk-generation dialog first calls the endpoint without `confirm`, which returns
-  the panel count and an estimated cost plus the project's budget state (spent, remaining, and whether this batch
-  would cross the cap) and queues nothing. You confirm against a number.
+- **Per-project budget cap** — `settings.budgetUsd`, **$5** on a new project. Once recorded spend reaches the cap the
+  API refuses new AI work with `402 budget_exceeded`; the web client asks the user and retries with
+  `x-allow-over-budget: 1`. It is a confirmation, not a hard stop, so a cap can never dead-end you mid-chapter. Queued
+  batch jobs re-check the budget when they start and pause the batch rather than overspend. (`apps/api/src/lib/ai.ts`)
+- **Estimate before queueing** — the bulk-generation dialog (panels, or Generate all locations / props) first calls
+  the endpoint without `confirm`, which returns the count and an estimated cost plus the project's budget state
+  (limit, spent, remaining, whether it is already used up) and queues nothing. You confirm against a number; a
+  confirmed run whose estimate would reach the cap gets the same `402` and confirmation.
   (`apps/api/src/routes/generations.ts`, `apps/web/src/features/pages/BulkGenerate.tsx`)
 
 Usage is recorded from the provider's own reported token counts, not guessed, so the dashboard reflects what you will

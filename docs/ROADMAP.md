@@ -1,7 +1,8 @@
 # Roadmap
 
 What is shipped, what is being considered, and what will not be built. Nothing here carries a date or a promise;
-items move when someone builds them.
+items move when someone builds them. The shipped list is a summary; release-by-release detail (agents over MCP,
+experts, reader links, thumbnails and more) is in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Shipped
 
@@ -15,12 +16,15 @@ items move when someone builds them.
   page, Ken Burns push-in on wide shots and pull-out on close shots (3× supersampled `zoompan`), hard cuts, an
   `.srt` sidecar, and a lettered page crop as the fallback when a panel has no artwork. See
   `docs/VIDEO_EXPORT_REFERENCE.md`.
-- **In-browser video preview.** "Preview video" on a chapter, "Preview page/shot video" in the page editor,
-  "Preview move" on a panel, and "Preview in browser first" on Exports. `GET /api/video-preview` returns the same
-  shot plan the render uses, and the player reproduces holds, framing, scroll and the Ken Burns curve from the same
-  `@openmanga/domain` helpers.
-- **Other exports:** PNG/JPG page images, PDF, webtoon strips, narration audio, timeline, agent package, project
-  JSON and zip packages, plus project import.
+- **In-browser video preview.** "Preview video" on a chapter, "Play chapter" on the Pages / Shots list, "Preview
+  page/shot video" in the page editor, "Preview move" on a panel, and "Preview in browser first" on Exports.
+  `GET /api/video-preview` returns the same shot plan the render uses, and the player reproduces holds, framing,
+  scroll and the Ken Burns curve from the same `@openmanga/domain` helpers.
+- **Other exports:** PNG/JPG page images, PDF (including Amazon KDP trim sizes, full bleed), CBZ with
+  `ComicInfo.xml`, fixed-layout EPUB, webtoon strips, narration audio, timeline, agent package, project JSON and zip
+  packages, plus project import.
+- **Streaming project import.** Packages stream to disk entry by entry instead of being held in worker memory, so
+  import memory no longer depends on package size; `IMPORT_MAX_UPLOAD_MB` (4 GiB by default) bounds disk and time.
 - **Multi-language narration** — one narration track per language over the same artwork.
 - **Readiness gate and preflight** before anything is spent, a per-project budget cap, batch pause on quota or auth
   failures, and an opt-in vision consistency check on generated panels.
@@ -34,14 +38,12 @@ items move when someone builds them.
 ## Next
 
 - **Continuous scroll cut for video.** The same renderer as the page cut with travel set to the full page overflow
-  instead of the capped rate. Small, deferred with the panel cut.
+  instead of the capped rate. Small; the panel cut shipped without it.
 
 ## Later
 
 - **Instance-wide budget ceiling.** The per-project cap exists; an instance-wide ceiling is the better control for
   a shared install, but with registration off by default multi-user is the rare case.
-- **Streaming project import.** Import holds the upload in worker memory (1 GiB cap). Fine for current exports;
-  very large projects would need a streaming unzip. Revisit when imports near the cap become common.
 - **Streaming PDF and webtoon strips.** ZIP-based exports and video stream to disk. PDF and stitched webtoon strips
   are still built in memory, but both are scoped to one chapter, so size is bounded. ZIPs use no ZIP64 (4 GiB cap,
   with a clear error). Revisit when whole-project PDFs are requested or ZIP packages approach 4 GiB.
@@ -61,4 +63,4 @@ items move when someone builds them.
 | **Converting comic projects to film** | A conversion means re-planning and regenerating every panel at a new aspect, i.e. a fresh project with extra steps. | — |
 | **6-panel and larger grid layouts** | Pages are capped at 5 panels by product decision: legibility and fewer blank strips. | The cap changes. |
 | **Managed hosting, SLAs, provider billing** | Out of scope for a self-hosted project. | — |
-| **Telemetry or analytics** | There is none, and there will not be. Outbound requests go only to the AI providers you configure, plus the one-time model download for local TTS. | — |
+| **Telemetry or analytics** | There is none, and there will not be. Outbound requests go only to the AI providers you configure, the one-time model download for local TTS, and the client metadata document an MCP agent names when it connects by URL. | — |
