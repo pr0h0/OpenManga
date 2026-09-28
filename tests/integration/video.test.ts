@@ -140,6 +140,52 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     // At least all narration, plus minimum holds for any silent pages.
     expect(Number(info.format.duration) * 1000).toBeGreaterThanOrEqual(timeline.totalDurationMs * 0.9);
 
+    // A partial render in the continuous scroll framing: whole shots up to the first 10 s, shorter than the chapter.
+    const part = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      {
+        kind: "video_pages",
+        chapterId,
+        video: { height: 720, fps: 24, minHoldMs: 2000, framing: "scroll", maxDurationMs: 10_000 },
+        acknowledgeIssues: true,
+      },
+      202,
+    );
+    const partDone = await waitFor(
+      async () => {
+        const l = await u.get<{
+          jobs: { id: string; status: string; failureReason: string | null; files: { assetId: string }[] }[];
+        }>(`/api/projects/${projectId}/exports`);
+        const j = l.jobs.find((x) => x.id === part.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "partial video export", timeoutMs: 240_000 },
+    );
+    expect(`${partDone.status}:${partDone.failureReason ?? ""}`).toBe("completed:");
+    const partPath = `${process.env.TMPDIR ?? "/tmp"}/mf-video-part.mp4`;
+    await Bun.write(
+      partPath,
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${partDone.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    const partSec = Number(
+      (
+        JSON.parse(
+          Bun.spawnSync([
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            partPath,
+          ]).stdout.toString(),
+        ) as { format: { duration: string } }
+      ).format.duration,
+    );
+    expect(partSec).toBeGreaterThanOrEqual(10);
+    expect(partSec).toBeLessThan(Number(info.format.duration));
+
     // Whole project: no chapterId renders every chapter into one film.
     const whole = await u.post<{ job: { id: string } }>(
       `/api/projects/${projectId}/exports`,

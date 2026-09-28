@@ -6,6 +6,7 @@ import {
   frameSizeFor,
   holdFor,
   kenBurnsPullsOut,
+  type PageFraming,
   pageShotBox,
   panelShotBox,
   scrollPlan,
@@ -25,8 +26,11 @@ export type VideoOptions = {
   height: number;
   fps: number;
   minHoldMs: number;
-  /** Page cut. "width": page at pageWidthRatio of the frame width with a capped slow scroll; "height": whole page. */
-  framing: "width" | "height";
+  /**
+   * Page cut. "width": page at pageWidthRatio of the frame width with a capped slow scroll; "height": whole page;
+   * "scroll": the width framing, travelling the whole page from top to bottom over its hold.
+   */
+  framing: PageFraming;
   pageWidthRatio: number;
   pageHeightRatio: number;
   maxScrollPxPerSec: number;
@@ -36,6 +40,8 @@ export type VideoOptions = {
   breathMs?: number;
   /** Clips rendered and encoded at once (shots are independent until the final concat). */
   concurrency?: number;
+  /** A partial render: stop after the shot that reaches this length. */
+  maxDurationMs?: number;
 };
 
 type Project = { id: string; language: string; readingDirection: "ltr" | "rtl" | "vertical" };
@@ -175,6 +181,11 @@ async function buildFilm<S extends Shot>(
         missingAudio: missing,
       });
       await progress(0.02 + ((i + 1) / shots.length) * 0.08);
+      // A partial render ends on a whole shot once the requested length is reached.
+      if (opts.maxDurationMs && clockMs >= opts.maxDurationMs && i < shots.length - 1) {
+        shots.splice(i + 1);
+        break;
+      }
     }
   } catch (e) {
     await audioFile.close().catch(() => {});
@@ -365,7 +376,7 @@ export async function renderPageCutVideo(
     const fgPath = join(dir, `fg-${n}.png`);
     await Bun.write(bgPath, await backdrop(png.data, frameW, frameH));
     await Bun.write(fgPath, new Uint8Array(await sharp(png.data).resize(fgW, fgH, { fit: "fill" }).png().toBuffer()));
-    const { y0, travel } = scrollPlan(fgH - frameH, holdSec, opts.maxScrollPxPerSec);
+    const { y0, travel } = scrollPlan(fgH - frameH, holdSec, opts.maxScrollPxPerSec, opts.framing);
     shot.report.scrollPxPerSec = travel ? Math.round(travel / holdSec) : 0;
     const fg =
       fgH > frameH

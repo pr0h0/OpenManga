@@ -7560,7 +7560,8 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "string",
           "enum": [
             "width",
-            "height"
+            "height",
+            "scroll"
           ]
         },
         "pageWidthRatio": {
@@ -7592,6 +7593,11 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "integer",
           "minimum": 0,
           "maximum": 2000
+        },
+        "maxDurationMs": {
+          "type": "integer",
+          "minimum": 10000,
+          "maximum": 86400000
         }
       }
     },
