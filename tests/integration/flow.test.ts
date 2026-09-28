@@ -1542,6 +1542,47 @@ describe("full production flow (mock AI)", () => {
     await alice.del(`/api/chapters/${other.chapter.id}`);
   });
 
+  test("bubbles move off the faces the consistency check found, tails pointing at the speaker", async () => {
+    type Box = { x: number; y: number; width: number; height: number };
+    const doc = await alice.get<{ panels: { id: string; characterVersionIds: string[]; frame: Box }[] }>(
+      `/api/pages/${pageId}`,
+    );
+    const pn = doc.panels.find((p) => p.characterVersionIds.length)!;
+    const cast = await alice.get<{ characters: { id: string; currentVersion: { id: string } | null }[] }>(
+      `/api/projects/${projectId}/characters`,
+    );
+    const speaker = cast.characters.find((ch) => pn.characterVersionIds.includes(ch.currentVersion?.id ?? ""))!;
+    const f = pn.frame;
+    // Placed by hand right where the (mock) faces are: the middle band of the panel.
+    const on = { x: f.x + f.width * 0.3, y: f.y + f.height * 0.4, width: f.width * 0.3, height: f.height * 0.12 };
+    const { dialogue } = await alice.post<{ dialogue: { id: string } }>(
+      `/api/pages/${pageId}/dialogue`,
+      { panelId: pn.id, text: "Over here!", characterId: speaker.id, bubble: on },
+      201,
+    );
+    // Without a check there is nothing to go on, and nothing moves.
+    const before = await alice.post<{ panels: number; withoutFaces: number }>(
+      `/api/pages/${pageId}/lettering/fit-faces`,
+      {},
+    );
+    expect(before.withoutFaces).toBeGreaterThan(0);
+
+    const chk = await alice.post<{ job: Job }>(`/api/panels/${pn.id}/check`, {}, 202);
+    expect((await waitJob(alice, chk.job.id)).job.status).toBe("completed");
+    const r = await alice.post<{ panels: number; bubbles: number }>(`/api/pages/${pageId}/lettering/fit-faces`, {});
+    expect(r.panels).toBeGreaterThan(0);
+    const after = await alice.get<{
+      dialogue: { id: string; bubble: Box & { tailTarget?: { x: number; y: number } } }[];
+    }>(`/api/pages/${pageId}`);
+    const b = after.dialogue.find((d) => d.id === dialogue.id)!.bubble;
+    expect(b.y + b.height <= on.y || b.y >= on.y + on.height).toBe(true);
+    // The tail ends inside the panel, on the speaker's face band rather than straight below the bubble.
+    expect(b.tailTarget!.y).toBeGreaterThan(b.y + b.height);
+    expect(b.tailTarget!.x).toBeGreaterThanOrEqual(f.x);
+    expect(b.tailTarget!.x).toBeLessThanOrEqual(f.x + f.width);
+    await alice.del(`/api/dialogue/${dialogue.id}`);
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

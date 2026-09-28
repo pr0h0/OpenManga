@@ -168,3 +168,48 @@ export function defaultTailTarget(
   const y = Math.min(below, frame.y + frame.height - 0.01);
   return { x: clamp01(Math.min(frame.x + frame.width, Math.max(frame.x, x))), y: clamp01(y) };
 }
+
+type Box = { x: number; y: number; width: number; height: number };
+/** A face the consistency check found, in fractions of the artwork image; `name` is a cast name or "unknown". */
+export type FaceBox = Box & { name: string };
+
+/**
+ * Faces in page coordinates: through the same crop the compositor applies to the artwork (source pixels) and
+ * into the panel's frame, padded a little so text keeps clear of hair and chins. Faces cropped out are dropped.
+ */
+export function facesOnPage(
+  faces: FaceBox[],
+  frame: Box,
+  src: { width: number; height: number },
+  crop: { left: number; top: number; width: number; height: number },
+  pad = 0.15,
+): FaceBox[] {
+  const out: FaceBox[] = [];
+  for (const f of faces) {
+    const u0 = (f.x * src.width - crop.left) / crop.width;
+    const v0 = (f.y * src.height - crop.top) / crop.height;
+    const u1 = ((f.x + f.width) * src.width - crop.left) / crop.width;
+    const v1 = ((f.y + f.height) * src.height - crop.top) / crop.height;
+    const du = (u1 - u0) * pad;
+    const dv = (v1 - v0) * pad;
+    const [a, b, c, d] = [Math.max(0, u0 - du), Math.max(0, v0 - dv), Math.min(1, u1 + du), Math.min(1, v1 + dv)];
+    if (c <= a || d <= b) continue;
+    out.push({
+      name: f.name,
+      x: frame.x + a * frame.width,
+      y: frame.y + b * frame.height,
+      width: (c - a) * frame.width,
+      height: (d - b) * frame.height,
+    });
+  }
+  return out;
+}
+
+/** Where a bubble's tail should end for a speaker whose face is known: the face's edge nearest the bubble. */
+export function tailTowardFace(b: Box, face: Box) {
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  const x = Math.min(face.x + face.width, Math.max(face.x, cx));
+  const y = Math.min(face.y + face.height, Math.max(face.y, cy));
+  return { x: clamp01(x), y: clamp01(y) };
+}
