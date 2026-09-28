@@ -339,3 +339,21 @@ export const projectStyles = pgTable(
   },
   (t) => [uniqueIndex("project_styles_uq").on(t.projectId, t.versionNumber)],
 );
+
+/** An unlisted, read-only link to a project or one chapter: anyone with the token can read it, nobody can change it. */
+export const shareLinks = pgTable(
+  "share_links",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** Null: the whole project. */
+    chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    revokedAt: ts("revoked_at"),
+  },
+  (t) => [uniqueIndex("share_links_token_uq").on(t.token), index("share_links_project_idx").on(t.projectId)],
+);

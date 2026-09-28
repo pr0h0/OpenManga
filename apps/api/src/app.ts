@@ -19,6 +19,7 @@ import { importRoutes } from "./routes/imports.ts";
 import { pageRoutes } from "./routes/pages.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { referenceRoutes } from "./routes/references.ts";
+import { publicShareRoutes, shareRoutes } from "./routes/shares.ts";
 import { storyRoutes } from "./routes/stories.ts";
 import { healthRoutes, miscRoutes } from "./routes/system.ts";
 import { usageRoutes } from "./routes/usage.ts";
@@ -55,6 +56,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     miscRoutes,
     aiRoutes,
     expertRoutes,
+    shareRoutes,
   ])
     api.route("/", r);
 }
@@ -86,11 +88,14 @@ export function createApp(deps: Deps) {
   // Everything is authenticated except auth endpoints, public meta and docs.
   api.use("*", async (c, next) => {
     const path = c.req.path.replace(/^\/api/, "");
-    const isPublic = path.startsWith("/auth/") || path === "/meta" || path.startsWith("/docs");
+    // Reader links are public by design: an unlisted, revocable token opens one project's pages read-only.
+    const isPublic =
+      path.startsWith("/auth/") || path === "/meta" || path.startsWith("/docs") || path.startsWith("/public/");
     if (!isPublic) return requireUser(c, next);
     await next();
   });
   mountApiRoutes(api);
+  api.route("/public", publicShareRoutes);
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
   app.route("/api", api);

@@ -1504,6 +1504,44 @@ describe("full production flow (mock AI)", () => {
     expect((await bob.raw("GET", `/api/projects/${projectId}/thumbnail.png`)).status).toBeGreaterThanOrEqual(403);
   });
 
+  test("reader links: public and read-only, scoped to their chapter, closed by revoking", async () => {
+    const anon = h.client();
+    const { share } = await alice.post<{ share: { id: string; token: string } }>(
+      `/api/projects/${projectId}/shares`,
+      { chapterId },
+      201,
+    );
+    const book = await anon.get<{
+      project: { title: string };
+      chapters: { id: string; pages: { id: string; width: number }[] }[];
+    }>(`/api/public/shares/${share.token}`);
+    expect(book.chapters.map((ch) => ch.id)).toEqual([chapterId]);
+    const first = book.chapters[0]!.pages[0]!;
+    const png = await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`);
+    expect(png.status).toBe(200);
+    expect((await sharp(new Uint8Array(await png.arrayBuffer())).metadata()).width).toBeLessThanOrEqual(400);
+
+    // A page outside the shared chapter is not reachable through the link.
+    const other = await alice.post<{ chapter: { id: string } }>(
+      `/api/projects/${projectId}/chapters`,
+      { title: "Epilogue" },
+      201,
+    );
+    const otherPage = await alice.post<{ page: { id: string } }>(`/api/chapters/${other.chapter.id}/pages`, {}, 201);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}/pages/${otherPage.page.id}.png`)).status).toBe(
+      404,
+    );
+
+    // Only the owner shares; the list shows live links; revoking closes the link at once.
+    expect((await bob.raw("POST", `/api/projects/${projectId}/shares`, {})).status).toBeGreaterThanOrEqual(403);
+    const listed = await alice.get<{ shares: { id: string }[] }>(`/api/projects/${projectId}/shares`);
+    expect(listed.shares.map((x) => x.id)).toContain(share.id);
+    await alice.del(`/api/shares/${share.id}`);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}`)).status).toBe(404);
+    expect((await anon.raw("GET", `/api/public/shares/nonsense`)).status).toBe(404);
+    await alice.del(`/api/chapters/${other.chapter.id}`);
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,
