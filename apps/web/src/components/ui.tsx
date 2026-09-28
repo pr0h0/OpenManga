@@ -26,7 +26,7 @@ export function PageHeader({
         <h1 className="truncate text-xl font-semibold tracking-tight">{title}</h1>
         {subtitle && <p className="muted mt-0.5 text-sm">{subtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -362,7 +362,7 @@ export function Tabs<T extends string>({
   tabs: { value: T; label: ReactNode }[];
 }) {
   return (
-    <div role="tablist" className="mb-4 flex gap-1 border-b border-[var(--border)]">
+    <div role="tablist" className="mb-4 flex gap-1 overflow-x-auto border-b border-[var(--border)]">
       {tabs.map((t) => (
         <button
           key={t.value}
@@ -371,7 +371,7 @@ export function Tabs<T extends string>({
           aria-selected={value === t.value}
           onClick={() => onChange(t.value)}
           className={clsx(
-            "-mb-px border-b-2 px-3 py-2 text-sm font-medium",
+            "-mb-px shrink-0 whitespace-nowrap border-b-2 px-2.5 py-2 text-sm font-medium",
             value === t.value
               ? "border-accent-500 text-[var(--text)]"
               : "border-transparent muted hover:text-[var(--text)]",
@@ -474,11 +474,11 @@ export const fmt = {
 
 export function KeyValue({ items }: { items: [ReactNode, ReactNode][] }) {
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm">
+    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
       {items.map(([k, v], i) => (
         <div key={i} className="contents">
           <dt className="muted">{k}</dt>
-          <dd className="min-w-0 break-words">{v}</dd>
+          <dd className="min-w-0 [overflow-wrap:anywhere]">{v}</dd>
         </div>
       ))}
     </dl>

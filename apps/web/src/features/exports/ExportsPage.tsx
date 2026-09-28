@@ -608,9 +608,14 @@ export function ExportsPage() {
                   {j.files.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {j.files.map((f) => (
-                        <a key={f.id} className="btn-secondary" href={assetUrl(f.assetId, undefined, f.fileName)}>
-                          <Download className="size-4" /> {f.fileName}{" "}
-                          <span className="muted">({fmt.bytes(f.byteSize)})</span>
+                        <a
+                          key={f.id}
+                          className="btn-secondary max-w-full"
+                          href={assetUrl(f.assetId, undefined, f.fileName)}
+                          title={f.fileName}
+                        >
+                          <Download className="size-4 shrink-0" /> <span className="truncate">{f.fileName}</span>
+                          <span className="muted shrink-0">({fmt.bytes(f.byteSize)})</span>
                         </a>
                       ))}
                     </div>

@@ -91,25 +91,11 @@ export function ChapterDetailPage() {
                   {a.label} plan
                 </button>
               ))}
-            <PlanButton
-              projectId={projectId}
-              chapterId={chapterId}
-              hasPages={data.pages.length > 0}
-              label={data.pages.length ? "Replan" : "Plan chapter"}
-            />
             {data.pages.length > 0 && (
               <PreviewVideoButton
                 projectId={projectId}
                 scope={{ chapterId }}
                 title={`Preview — Chapter ${ch.order}: ${ch.title}`}
-              />
-            )}
-            {data.pages.length > 0 && (
-              <BulkGenerateButton
-                projectId={projectId}
-                scope={{ chapterId }}
-                label="Generate all missing panels"
-                className="btn-secondary"
               />
             )}
             <Link
@@ -120,6 +106,25 @@ export function ChapterDetailPage() {
             >
               Narration
             </Link>
+            {/* Each model chip sits in one group with the AI action it chooses the model for. */}
+            <span className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg bg-[var(--panel-2)] p-0.5">
+              <PlanButton
+                projectId={projectId}
+                chapterId={chapterId}
+                hasPages={data.pages.length > 0}
+                label={data.pages.length ? "Replan" : "Plan chapter"}
+              />
+            </span>
+            {data.pages.length > 0 && (
+              <span className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg bg-[var(--panel-2)] p-0.5">
+                <BulkGenerateButton
+                  projectId={projectId}
+                  scope={{ chapterId }}
+                  label="Generate all missing panels"
+                  className="btn-secondary"
+                />
+              </span>
+            )}
             <DeleteChapterButton
               projectId={projectId}
               chapter={ch}

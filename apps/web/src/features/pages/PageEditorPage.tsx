@@ -260,7 +260,7 @@ export function PageEditorPage() {
           <EditorCanvas data={data} />
         </div>
         <aside
-          className="flex w-[22rem] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--panel)]"
+          className="flex w-[23rem] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--panel)]"
           aria-label="Inspector"
         >
           <div className="px-3 pt-2">
