@@ -1,5 +1,5 @@
 # Development overrides: expose Postgres/Redis on loopback-only alternate ports for `bun dev` on the host,
-# enable the dev mailbox and mock AI. Usage:
+# and enable the dev mailbox (mock AI is AI_MOCK_MODE=true in .env). Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 services:
   postgres:

@@ -40,23 +40,27 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
   plus a one-time model download from HuggingFace for local TTS on first boot.
 
 ## Features
-- **Project wizard**: details, format (comic pages, 16:9 video shots, or a vertical scrolling strip), style preset, story input (story/chapter/outline/screenplay/idea), AI analysis, editable review, apply.
+- **Project wizard**: details, format (comic pages, 16:9 video shots, or a vertical scrolling strip), style preset (including a photorealistic *Realistic* preset), story input (story/chapter/outline/screenplay/idea), AI analysis, editable review, apply.
 - **Three formats**: comic pages; **film** — one 16:9 shot per page, rendered as a narrated Ken Burns video; and **vertical strip** — one scrolling column where each panel's height is its pacing and the seam between panels (gap, butt, bleed, dissolve, fade) is authored, read in the app exactly as it exports.
 - **No API key required**: every text step can be answered by pasting a reply from any chat, validated exactly as a provider's answer is, and any panel can take artwork you upload — see [Running without any API keys](#running-without-any-api-keys).
 - **Story**: autosaved editor, immutable revision history, AI rewrite into new revisions, analyses per revision.
 - **Cast**: character bibles with aliases, outfits and versions (draft → approved → locked → superseded); reference generation (portrait, full body, turnaround, expression sheet, outfit) or upload; approval creates the small prompt derivative; explicit panel migration between versions.
 - **Outfits that change with the story**: switch a character's outfit on a panel, from that panel on (carried across pages and chapters) or for that panel only, picked from chips with each outfit's reference image; the character page lists every change, and chapter plans switch outfits too.
-- **World**: locations and props with versions and references (a location as a wide view, a panorama or a sheet of every side; a prop as a single view or from every angle) — draw every missing one in a single run, optionally as a half-price provider batch — style presets + custom style versions + style references, world notes.
-- **Chapters**: AI planning into scenes (continuity state carried scene to scene), beats, pages (deterministic layout templates) and panel specs with dialogue — placed automatically, or kept on each panel until *Letter from plan* places it where the plan left room; chapter/scene memory editors.
-- **Page editor** (Konva): drag/resize/rotate panels, bubbles, SFX and narration boxes; zoom/pan; undo/redo; keyboard shortcuts; template swap, add/duplicate/split/reorder; crop and focal point; prompt inspector; generate/regenerate with operations; version compare/activate/revert; mask painting for targeted edits.
+- **World**: locations and props with versions and references (a location as a wide view, a panorama or a sheet of every side; a prop as a single view or from every angle) — draw every missing one in a single run, picking the kind of reference and seeing how many already have each, optionally as a half-price provider batch — style presets + custom style versions + style references, world notes.
+- **Chapters**: AI planning into scenes (continuity state carried scene to scene), beats, pages (deterministic layout templates) and panel specs with dialogue — placed automatically, or kept on each panel until *Letter from plan* places it where the plan left room; chapter/scene memory editors; *Play chapter* on the Pages list and previous/next chapter links.
+- **Page editor** (Konva): drag/resize/rotate panels, bubbles, SFX and narration boxes; zoom/pan; undo/redo; keyboard shortcuts; template swap, add/duplicate/split/reorder; crop and focal point; prompt inspector; generate/regenerate with operations; version compare/activate/revert; mask painting for targeted edits; a vision consistency check per panel (*Run check*) that also finds where faces are, so *Move bubbles off faces* can re-place a page's, chapter's or project's bubbles and captions and point each tail at its speaker.
 - **Generation**: live queue (SSE), cost/latency, retry/cancel, bulk page/scene/chapter with cost confirmation and progress, prompt & reference inspector showing exactly what was sent.
-- **Narration**: AI-written narration, segment split/merge, voices and preview, local synthesis, cache reuse, chapter playback, timeline manifest.
-- **Exports**: PNG/JPG page sequences, PDF (page size, margin, bleed, DPI, RTL), webtoon strips with chunking, narration audio package (MP3/OGG/WAV + timeline), project JSON (`schemaVersion: 1`), full ZIP package.
+- **Narration**: AI-written narration, segment split/merge, voices and preview, local synthesis, cache reuse, chapter playback, timeline manifest; delete a chapter's or the whole project's audio (the lines stay, ready to synthesize again).
+- **Exports**: PNG/JPG page sequences, PDF (page size, margin, bleed, DPI, RTL, or Amazon KDP trim sizes printed full bleed), CBZ with ComicInfo.xml, fixed-layout EPUB, webtoon strips with chunking, narrated MP4 video (page cut or Ken Burns panel cut, with a near-full-screen browser preview whose narration keeps playing in a background tab), narration audio package (MP3/OGG/WAV + timeline), project JSON (`schemaVersion: 1`), full ZIP package, agent hand-off package. Finished exports can be deleted, files included.
+- **Covers and video thumbnails**: generate a cover, or text-free 16:9 thumbnail art with the headline composited by the app, so it can be reworded or moved for free and downloaded as a 1280×720 PNG.
+- **Reader links**: share a project or one chapter as an unlisted, read-only link (`/app/read/<token>`) that anyone can read without an account, page by page or as one long scroll; revoke it to close it.
+- **Project overview**: pipeline state, spend against the budget, and the disk space the project's files take, including what is in the trash. Trashing a character, location or prop trashes its reference images with it, and restoring brings them back; a generation whose image was deleted keeps its row, cost and prompt.
 - **Experts**: chats with brainstorming specialists outside any chapter — topic scout, title doctor, thumbnail designer, story developer, character and world designers, hook editor, narration scriptwriter, beta reader, channel strategist — or experts you write yourself. Pick the model, attach images (upload, drop or paste), talk about a project, and tick *Generate image* for a picture with the reply. Chats are kept, and work without an API key by pasting answers from any chat.
-- **AI agents (MCP)**: connect ChatGPT (OAuth) or any MCP agent (personal access token) to build projects as you — story, analysis, chapter plans, panels, narration, exports — including the whole pipeline in paste mode with no API key. Each connection has its own scopes, projects and approval mode; spending, deleting and other sensitive actions can wait for your approval in the app. See [MCP](docs/MCP.md).
+- **AI agents (MCP)**: connect ChatGPT or Claude (OAuth) or any MCP agent (personal access token) to build projects as you — story, analysis, chapter plans, panels, narration, exports — including the whole pipeline in paste mode with no API key, and `get_image` lets an agent look at artwork, pages and references. Each connection has its own scopes, projects and approval mode; spending, deleting and other sensitive actions can wait for your approval in the app. See [MCP](docs/MCP.md).
 - **Describe an image**: upload a reference — a frame from a video, a page you like — and extract its art style, character, outfit, location, lighting, composition, mood, props, era or technique, plus your own free-text question. Style, character and location results apply straight into the project; the upload stays in the library as a reference for later generation.
 - **Provider batches**: send image or text generation to OpenAI's or Google's batch API for **half price**, results within 24h, opt-in per run.
 - **Cost dashboard**: today/7d/30d/lifetime, provider and operation breakdowns, reference-size experiments, regeneration/acceptance rates. **Admin**: users, jobs, queues, Kokoro status, storage, errors, rate snapshots, maintenance.
+- **Works on a phone**: the header's links fold into a menu and pages fit a 390 px screen without scrolling sideways.
 
 ## Examples
 
@@ -108,7 +112,7 @@ From a live instance, with real projects. Click any image for full size.
 
 ## Architecture
 Bun monorepo (`apps/web`, `apps/api`, `apps/worker`, `apps/mock-ai`, `packages/*`, `services/kokoro`) running in
-Docker Compose behind nginx on one domain: `/app` SPA, `/api` API, `/cdn` authorized assets, `/healthz`.
+Docker Compose behind nginx on one domain: `/app` SPA, `/api` API, `/cdn` authorized assets, `/mcp` plus its OAuth routes for AI agents, `/healthz`.
 
 | Document | What it covers |
 |---|---|
@@ -151,7 +155,7 @@ Sign-up is closed by default (`REGISTRATION_ENABLED=false`): create the first ac
 to be able to sign up. New projects start with a $5 spend cap that asks for confirmation before it is exceeded;
 change or clear it in project settings.
 
-Prebuilt images are published to GHCR on tagged releases only, linux/amd64 (`main` is never published):
+Prebuilt images are published to GHCR on tagged releases only, linux/amd64 (no branch is published):
 `ghcr.io/pr0h0/openmanga-app`, `ghcr.io/pr0h0/openmanga-nginx`, `ghcr.io/pr0h0/openmanga-kokoro`. To run them
 instead of building locally, pin a tag in a compose override:
 
@@ -166,7 +170,7 @@ services:
   kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.10.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
-than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.6`). `!reset`
+than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.10`). `!reset`
 needs Compose v2.24 or newer; on older versions drop the `build:` keys and run `docker compose up -d --no-build`.
 
 ## Local development
@@ -188,7 +192,7 @@ All configuration is validated at startup by `packages/config` (Zod). Only three
 provider keys**: AI keys belong to users (see below). Other useful variables: `IMAGE_QUALITY` (`low`),
 `IMAGE_SIZES` (~2 MP menu), `REFERENCE_MAX_WIDTH/HEIGHT` (192/288), `AI_TEXT_*`/`AI_IMAGE_*` timeouts and
 concurrency, `ASSET_ROOT`, `TTS_ENABLED`, `KOKORO_URL`, `APP/API/CDN_PUBLIC_URL`, `REGISTRATION_ENABLED`,
-`DEV_MAILBOX_ENABLED`, worker concurrency. See [.env.example](.env.example).
+`DEV_MAILBOX_ENABLED`, `IMPORT_*` limits, `MCP_*` (see [MCP](docs/MCP.md)), worker concurrency. See [.env.example](.env.example).
 
 ## Database migration
 ```bash
@@ -249,7 +253,8 @@ shape.
 work, so you can drive the whole pipeline and the exports for free. Use this when you want to *operate* the app
 rather than look at finished work — the samples above are the better way to judge what it produces. It is refused
 in production unless `AI_MOCK_ALLOW_IN_PRODUCTION=true`. To exercise the real provider code paths instead, enable
-the `mock` compose profile and add an `openai_compatible` credential pointing at `http://mock-ai:4010/v1`.
+the `mock` compose profile, set `AI_ALLOW_PRIVATE_BASE_URLS=true` (development only), and add an
+`openai_compatible` credential pointing at `http://mock-ai:4010/v1`.
 See [docs/TESTING.md](docs/TESTING.md).
 
 ## Kokoro setup
@@ -295,7 +300,7 @@ cap that asks for confirmation before going over.
 | OpenAI | `gpt-5.6-luna`, `gpt-5`, `gpt-5-mini` | `gpt-image-2`, `gpt-image-1-mini` | `gpt-4o-mini-tts`, `tts-1-hd`, `tts-1` | legacy `tts-1*` offer fewer voices |
 | DeepSeek | `deepseek-flash`, `deepseek-v4-pro` | — | — | cheap text, JSON mode |
 | Google Gemini | `gemini-3.6-flash` | `gemini-3.1-flash-lite-image`, `gemini-2.5-flash-image`, `gemini-3.1-flash-image` | `gemini-2.5-flash-preview-tts`, `gemini-2.5-pro-preview-tts` | per-minute rate limits bite at high concurrency |
-| Anthropic | `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5` | — | — | good for the vision consistency check |
+| Anthropic | `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5-20251001` | — | — | good for the vision consistency check |
 | OpenRouter | `deepseek/deepseek-chat` | `google/gemini-2.5-flash-image` | — | one key, many models |
 | ElevenLabs | — | — | `eleven_multilingual_v2`, `eleven_flash_v2_5`, `eleven_turbo_v2_5` | premium narration voices |
 | OpenAI-compatible (custom URL) | any | any | any | must be a public HTTPS endpoint |
@@ -323,7 +328,7 @@ suggestions in the picker — any model id the provider accepts can be typed in.
 | Login works but session is lost | `COOKIE_SECURE=true` requires HTTPS; use `COOKIE_SECURE=false` for plain-HTTP local access |
 | `csrf_failed` from scripts | fetch `/api/auth/me` first and send the `om_csrf` cookie value as `x-csrf-token` |
 | Images 404 via `/cdn` | asset trashed or no project access; check `docker compose logs api nginx` |
-| Jobs stay queued | `docker compose logs worker`; check Redis health and `outbox` pending count in Admin → Overview |
+| Jobs stay queued | `docker compose logs worker`; check Redis health and the `outbox pending` count in Admin → Overview |
 | Cloudflare 1033 / 530 | tunnel not connected: `docker compose logs cloudflared`; QUIC blocked → keep `CLOUDFLARED_PROTOCOL=http2` |
 | Provider failures | Generation → job inspector shows the sanitized reason and provider request id; auth/policy errors are not retried |
 

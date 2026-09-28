@@ -12,7 +12,8 @@ the invariants in [AGENTS.md](AGENTS.md) is better caught in a paragraph than in
   isolation, reference derivative sizes, immutable approved versions, text-free artwork prompts, queue-only AI work,
   story content as untrusted data, and keys never leaving the server.
 - `docs/` has the deeper documentation: `ARCHITECTURE`, `DATA_MODEL`, `AI_PIPELINE`, `PROMPT_SYSTEM`,
-  `IMAGE_REFERENCES`, `AUTH`, `STORAGE`, `SECURITY`, `TESTING`, `DEPLOYMENT`.
+  `IMAGE_REFERENCES`, `AUTH`, `STORAGE`, `SECURITY`, `TESTING`, `DEPLOYMENT`, `MCP`, `EXTENDING` and more; the README
+  indexes them all.
 - This project uses **Bun**, not npm, pnpm or yarn. There is a single `bun.lock`.
 
 ## Development setup
@@ -28,10 +29,12 @@ bun db:migrate            # with DATABASE_URL pointing at the dev Postgres
 bun dev                   # api on :3000, worker, web on :5173 (proxies /api and /cdn)
 ```
 
-The dev override exposes Postgres, Redis and Kokoro on loopback-only high ports; the exact ports and the connection
-strings for them are in `docker-compose.dev.yml` and `.env.example`. Set `TTS_PROVIDER=fake` to skip Kokoro entirely,
-and `AI_MOCK_MODE=true` to develop with no provider keys at all — `apps/mock-ai` stands in for the text and image
-providers and costs nothing.
+The dev override exposes Postgres, Redis and Kokoro on loopback-only high ports (55432, 56379 and 58000 by default,
+set in `docker-compose.dev.yml`); the README's *Local development* section shows the full `bun db:migrate` command
+with the connection strings. Set `TTS_PROVIDER=fake` to skip Kokoro entirely, and `AI_MOCK_MODE=true` to develop with
+no provider keys at all — in-process fake providers answer every text and image request and cost nothing. To exercise
+the real provider code instead, run `apps/mock-ai` (compose profile `mock`) and point an `openai_compatible` key at it;
+`docs/TESTING.md` has the details.
 
 To create your first account when registration is disabled:
 
@@ -82,10 +85,11 @@ TEST_REDIS_URL=redis://redis:6379/5 \
   ./scripts/bunx.sh bun test tests/integration
 ```
 
-No test spends money. Unit and integration tests use in-process fakes; end-to-end and smoke tests run against a stack
-whose providers point at `mock-ai`. If you add a test that would call a real provider, it does not belong in these
-suites. `docs/TESTING.md` explains the mock scenario system (`[[mock:429]]` and friends), the Playwright end-to-end
-suite (`./scripts/e2e.sh <baseUrl>`) and the deployment smoke test.
+No test spends money. Unit and integration tests use in-process fakes; end-to-end and smoke tests run against a stack in
+mock mode, or with a credential pointed at `mock-ai` (the smoke test only uses a real key if you give it one). If you
+add a test that would call a real provider, it does not belong in these suites. `docs/TESTING.md` explains the mock
+scenario system (`[[mock:429]]` and friends), the Playwright end-to-end suite (`./scripts/e2e.sh <baseUrl>`) and the
+deployment smoke test.
 
 ## Changes that need extra care
 
@@ -133,12 +137,12 @@ By adding it you are certifying the statements in the DCO: that you wrote the co
 the right to submit it under the project's licence, and that you understand the contribution and its sign-off are
 public and kept indefinitely. The name and email must be real and must match your git configuration:
 
-Automated dependency bumps (Dependabot) are exempt: a bot has no right-to-submit to certify.
-
 ```bash
 git config user.name "Your Name"
 git config user.email "your.email@example.com"
 ```
+
+Automated dependency bumps (Dependabot) are exempt: a bot has no right-to-submit to certify.
 
 Forgot to sign off? `git commit --amend -s` fixes the last commit, and
 `git rebase --signoff HEAD~<n>` fixes the last `<n>`. Both rewrite history, so force-push your branch afterwards.

@@ -1,6 +1,6 @@
 # Extending OpenManga
 
-Recipes for the seven things contributors usually want to add. Each one traces an existing example, so you can open
+Recipes for the eight things contributors usually want to add. Each one traces an existing example, so you can open
 the file next to the checklist and copy the shape that is already there.
 
 Read [AGENTS.md](../AGENTS.md) first — the invariants listed there are what these recipes are designed to keep. Line
@@ -63,8 +63,8 @@ adapter is in the wrong place.
 
    | Capability | Interface | Declared in |
    | --- | --- | --- |
-   | Text | `TextAIProvider` — `generateText`, `generateStructured` | `packages/ai-text/src/index.ts:41` |
-   | Image | `ImageAIProvider` — `sizeFor`, `generate`, `edit` | `packages/ai-image/src/index.ts:66` |
+   | Text | `TextAIProvider` — `generateText`, `generateStructured` | `packages/ai-text/src/index.ts:54` |
+   | Image | `ImageAIProvider` — `sizeFor`, `generate`, `edit` | `packages/ai-image/src/index.ts:68` |
    | Voice | `TTSProvider` — `health`, `voices`, `synthesize` | `packages/audio/src/index.ts` |
 
    Follow the nearest existing shape rather than starting from scratch:
@@ -92,8 +92,8 @@ adapter is in the wrong place.
      adapter does. The limiter instance is shared per key+model by the resolver's cache, which is how one user's
      rate-limit cooldown is honoured across their concurrent jobs.
 
-3. **`packages/services/src/providers.ts` — add a `case` to `byokText`, `byokImage` or `byokTts`.** These are the only
-   places that construct a provider. The base URL resolution order is fixed:
+3. **`packages/services/src/providers.ts` — add a `case` to `byokText`, `byokImage` or `byokTts`.** These (and the
+   batch twins below) are the only places that construct a provider. The base URL resolution order is fixed:
 
    ```ts
    const base = cred.baseUrl ?? providerCatalog(kind)?.baseUrl ?? "";
@@ -101,6 +101,12 @@ adapter is in the wrong place.
 
    The `default:` arm already throws a non-retryable `invalid_request` ("… does not generate images"), so a kind you
    forget here fails clearly instead of silently.
+
+   **Provider batch APIs (optional).** Half-price batch runs go through `byokTextBatch` / `byokImageBatch` in the same
+   file, which build a `TextBatchProvider` (`packages/ai-text/src/batch.ts`) or `ImageBatchProvider`
+   (`packages/ai-image/src/batch.ts`); only `openai` and `google` have one today. Their `default:` returns `null`
+   ("no batch API"). Which providers the API lets a run batch at all is `BATCH_CAPABLE_PROVIDERS` in
+   `packages/domain/src/cost.ts` (a batch request for any other provider is refused with 400); add the kind there too.
 
 4. **`packages/services/src/credentials.ts` — teach `fetchModels` how to list models.** `CredentialService.create`
    verifies a key by listing models *before* storing it, so a provider whose listing branch is missing will fall into
@@ -118,7 +124,8 @@ adapter is in the wrong place.
    (`create()` sets `baseUrl` to `null` for every other kind).
 
 5. **`packages/domain/src/cost.ts` — add a `DEFAULT_RATE_SNAPSHOTS` entry per model you price.** Token rates are **USD
-   per 1M tokens**; `imageUnitRate` is **USD per generated image**.
+   per 1M tokens**; `imageUnitRate` is **USD per generated image**. `BATCH_RATE_SNAPSHOTS` in the same file derives
+   half-price batch rates from these entries for `BATCH_CAPABLE_PROVIDERS`; both are seeded.
 
    **What happens with no rate snapshot:** nothing breaks and nothing is charged. `UsageService.record` calls
    `rateFor(provider, model)`, `selectRate` returns `null`, and `estimateCostUsd` returns `0` — the `ai_usage` row is
@@ -140,7 +147,7 @@ adapter is in the wrong place.
    | Usage field | `imageInputTokens` / `imageOutputTokens` | `images` |
    | Reference derivative box | `REFERENCE_MAX_WIDTH` × `REFERENCE_MAX_HEIGHT` (192×288) | `FLAT_RATE_REFERENCE_MAX_WIDTH` × `…HEIGHT` (768×1152) |
 
-   Add the provider string to `FLAT_RATE_IMAGE_PROVIDERS` in `packages/services/src/assets.ts:32`, which
+   Add the provider string to `FLAT_RATE_IMAGE_PROVIDERS` in `packages/services/src/assets.ts:34`, which
    `AssetService.referenceParams` consults to pick the box. Invariant 2 still holds either way: the canonical reference
    is never modified, requests carry small cached derivatives, and **edit targets and masks are always sent at full
    resolution** regardless of the provider's billing model.
@@ -172,8 +179,8 @@ compiled sections; this section is only about editing the registry.
 
 ### Checklist
 
-1. **Pick the file.** Text templates: `packages/prompts/src/templates.ts` (helpers in `text-templates.ts`). Image
-   templates: `packages/prompts/src/image-templates.ts`.
+1. **Pick the file.** Text templates: `packages/prompts/src/templates.ts` (helpers in `text-templates.ts`; the expert
+   chat templates are in `experts.ts`). Image templates: `packages/prompts/src/image-templates.ts`.
 
 2. **Define the template.** Text templates go through `defineTextTemplate`, must start their system message with
    `templateHeader(name, version)`, must end with `schemaInstructions(SchemaName, Schema)`, must include `DATA_RULE`,
@@ -206,20 +213,21 @@ compiled sections; this section is only about editing the registry.
 
    | | Text | Image |
    | --- | --- | --- |
-   | How to bump | Add a **new export** (`chapterPlanningV5`) and append it to `TEXT_TEMPLATES`, leaving the old exports registered | Increment `version` **in place** on the existing export and edit its body |
-   | Old versions in code | Kept and still registered (`narration` has v1–v4 live) | Not kept — only the current body exists |
+   | How to bump | Add a **new export** (`chapterPlanningV7`) and append it to `TEXT_TEMPLATES`, leaving the old exports registered | Increment `version` **in place** on the existing export and edit its body |
+   | Old versions in code | Kept and still registered (`narration` has v1–v5 live) | Not kept — only the current body exists |
 
-   So `characterReferenceV1` is at `version: 3` and `panelGenerationV1` at `version: 6`: the `V1` in those export names
+   So `characterReferenceV1` is at `version: 5` and `panelGenerationV1` at `version: 8`: the `V1` in those export names
    is historical and means nothing. Old image `prompt_versions` rows survive in the database, but the previous body is
    not recoverable from the repo.
 
 4. **Point the caller at the new version.** The registry holds every version; the *live* one is whichever the caller
    imports. Nothing selects it automatically. Update both sides or the job will record the wrong template:
-   - `apps/worker/src/handlers/text.ts` builds the messages (`storyAnalysisV2.build(…)`,
-     `(film ? shotPlanningV2 : chapterPlanningV5).build(…)`, `panelPromptsV3`, `narrationV4`).
+   - `apps/worker/src/handlers/text.ts` builds the messages (`storyAnalysisV2.build(…)`, the one-call plan
+     `shotPlanningV3` / `stripPlanningV2` / `chapterPlanningV6` by format, the scene-by-scene passes
+     `chapterOutlineV2` + `scenePagesV2` and their strip/shot twins, `panelPromptsV4`, `narrationV5`).
    - The API route that *creates* the job stamps `templateName` / `templateVersion` on the row —
-     `apps/api/src/routes/stories.ts`, `chapters.ts`, `pages.ts`. Forgetting this makes the row claim a version that
-     never ran.
+     `apps/api/src/routes/stories.ts`, `chapters.ts`, `pages.ts`, `audio.ts` (narration text), `vision.ts`.
+     Forgetting this makes the row claim a version that never ran.
 
 5. **Mock providers need no change for a version bump.** `mockTextCompletion` in `packages/testing/src/mock-text.ts`
    reads the template name out of the header, strips the `-vN` suffix, and routes by name:
@@ -233,7 +241,7 @@ compiled sections; this section is only about editing the registry.
    changes the output contract (which is why `narration-v1` is routed separately from v2+).
 
 6. **Validate the output with Zod.** The contract belongs in `packages/schemas` (`story.ts`, `planning.ts`,
-   `editor.ts`, `interchange.ts`), exported as both a schema and an inferred type:
+   `editor.ts`, `interchange.ts`, `vision.ts`), exported as both a schema and an inferred type:
 
    ```ts
    export const ChapterPlan = z.object({ … });
@@ -248,16 +256,22 @@ compiled sections; this section is only about editing the registry.
    second repair, and do not add a fallback that accepts unvalidated output. Handlers get this by calling the shared
    `structured()` helper in `apps/worker/src/handlers/text.ts`, which also stores the compiled prompt on the job.
 
+   **If the answer can be pasted by hand (manual mode)**, register the schema in `ANSWER_SCHEMAS` and give every field
+   a line in `ANSWER_FIELD_DOCS` (`packages/schemas/src/answer-docs.ts`), plus `ANSWER_ASKED_BY` in
+   `answer-reference.ts`. That is what a parked job's answer format (in the app and MCP `get_manual_prompt`),
+   MCP `get_answer_schema` and
+   [ANSWER_FORMATS](ANSWER_FORMATS.md) show. Regenerate that doc with `bun scripts/answer-formats.ts`;
+   `answer-docs.test.ts` fails while a field is undocumented or the committed doc is stale.
+
 7. **Tests.** `packages/prompts/src/prompts.test.ts` asserts that `name@version` pairs are unique across
    `allTemplateRecords()`, that story content stays inside its delimiters, and that old versions remain registered
-   (`narration` v1–v4). A new template name or version should get the same treatment.
+   (`narration` v1–v5). A new template name or version should get the same treatment.
 
 ---
 
 ## 3. Add an export kind
 
-Exports are deterministic compositions — no AI (invariant 7). Six places name a kind, and only one of them is
-compiler-checked.
+Exports are deterministic compositions — no AI (invariant 7). Six places name a kind; the compiler checks two of them.
 
 ### Checklist
 
@@ -296,18 +310,17 @@ compiler-checked.
    depends on; there are exactly two, `art` and `narration`, declared on `ReadinessIssue.area`.
 
    ```ts
-   /** Export kinds and the readiness areas they depend on. */
-   export const EXPORT_AREAS: Record<string, ("art" | "narration")[]> = {
+   export const EXPORT_AREAS: Record<Exclude<ExportKind, "project_import">, ("art" | "narration")[]> = {
      png_pages: ["art"],
      …
      video_panels: ["art", "narration"],
    };
    ```
 
-   **This is the step that fails silently, and it is the worst failure of the six.** The key type is
-   `Record<string, …>`, and `issuesForExport` resolves `EXPORT_AREAS[kind] ?? []` — a missing kind means no blocking
-   issues, so the export is accepted and ships blank panels or silent narration while reporting success. Use `[]`
-   deliberately (as `project_json` does) when a kind genuinely depends on nothing.
+   The key type is every `ExportKind`, so the compiler asks for the entry. Choose the areas carefully: they decide
+   which readiness issues block the export (`issuesForExport`), and a kind given too few ships blank panels or silent
+   narration while reporting success. Use `[]` deliberately (as `project_json` does) when a kind genuinely depends on
+   nothing.
 
 4. **`apps/api/src/routes/exports.ts` — add the value to the `kind` enum in `ExportOptions`.** This Zod schema is both
    the runtime validator and the OpenAPI body (`openApiSpec` runs `z.toJSONSchema` over it), so there is no separate
@@ -319,9 +332,12 @@ compiler-checked.
      as a local `Opts` type and casts the job's `options` to it — the cast is unchecked, so an option added to the Zod
      schema but not to `Opts` is silently `undefined` in the worker.
    - There is a **hardcoded chapter-required list** in the POST handler
-     (`["png_pages", "jpg_pages", "pdf", "webtoon", "narration_audio", "timeline"]`). A chapter-scoped kind missing
-     from it is accepted with no `chapterId`, then fails in the worker with `UnrecoverableError("No pages to export")`
-     — a 202 followed by a failed job instead of a 400.
+     (`["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon", "narration_audio", "timeline"]`). A
+     chapter-scoped kind missing from it is accepted with no `chapterId` (or `pageIds`), then fails in the worker with
+     `UnrecoverableError("No pages to export")` — a 202 followed by a failed job instead of a 400.
+   - MCP's `create_export` (`apps/api/src/mcp/tools/exports.ts`) takes this same schema, so agents can request the
+     new kind at once; add it to the kinds its `description` lists, then regenerate [MCP_TOOLS](MCP_TOOLS.md) with
+     `bun scripts/mcp-docs.ts` (`catalogue.test.ts` fails while the committed file is stale).
 
    The route returns `202 { job }`, never a file. Downloads go through the CDN asset route
    (`apps/api/src/routes/assets.ts`, `cdnRoutes.get("/a/:id")`), which authorizes, then hands off to nginx with
@@ -356,7 +372,7 @@ compiler-checked.
 ## 4. Add a queued job type
 
 Long AI work always goes through the queue, and a job row is always written with its outbox row in the same
-transaction (invariant 8). Three job families exist: **generation jobs** (`generation_jobs`, 13 kinds, one shared
+transaction (invariant 8). Three job families exist: **generation jobs** (`generation_jobs`, 17 kinds, one shared
 runner), **audio jobs** (`audio_jobs`), and **export jobs** (`export_jobs`, §3).
 
 ### The outbox rule
@@ -400,8 +416,9 @@ return c.json({ job }, 202);
      story_analysis: "text-ai",
      …
      panel_edit: "image-edit",
-     panel_check: "text-ai",
-     cover: "image-generation",
+     …
+     image_batch_submit: "image-batch",
+     text_batch_submit: "image-batch",
    };
    ```
 
@@ -422,7 +439,9 @@ return c.json({ job }, 202);
    - Publish a domain event with `deps.events.publish(projectId, …)` for anything the SPA shows.
 
 4. **`apps/worker/src/processors.ts` — register the handler in `GENERATION_HANDLERS`.** Also
-   `Record<GenerationKind, …>`, so this is compiler-checked:
+   `Record<GenerationKind, …>`, so this is compiler-checked. A text kind that should be able to run in a provider
+   batch also goes in `TEXT_HANDLERS` (`apps/worker/src/handlers/text-handlers.ts`): the batch submitter harvests each
+   job's request by running the handler from that map.
 
    ```ts
    export function generationProcessor(deps: WorkerDeps) {
@@ -439,7 +458,8 @@ return c.json({ job }, 202);
    priority from `PRIORITY` in `packages/domain/src/permissions.ts`
    (`interactive: 1, single: 2, page: 5, chapter: 8, maintenance: 10`).
 
-6. **Nothing else.** `apps/worker/src/main.ts` needs no change (the three generation queues share one processor), and
+6. **Nothing else.** `apps/worker/src/main.ts` needs no change (the four generation queues — `text-ai`,
+   `image-generation`, `image-edit`, `image-batch` — share one processor), and
    no new SSE event type is needed — status transitions ride the existing `job.updated` event, published by
    `publishJob` in the runner.
 
@@ -454,19 +474,22 @@ Then:
 
 ```ts
 const RETRY_ANYWAY: string[] = ["content_policy", "invalid_json", "invalid_response"];
-const retryable = (e instanceof ProviderError && e.retryable) || RETRY_ANYWAY.includes(code);
+const categories = code === "content_policy" ? policyCategories(…) : [];
+const retryable =
+  (e instanceof ProviderError && e.retryable) || (RETRY_ANYWAY.includes(code) && categories.length === 0);
 const attemptsLeft = bullJob.attemptsMade + 1 < (bullJob.opts.attempts ?? 1);
 ```
 
 So the provider-level `retryable` flag (from `RETRYABLE` in `packages/domain/src/provider.ts`) is widened at the job
 boundary: content-policy refusals and unrepairable JSON get their attempt budget, because image moderators are
-nondeterministic and the repair path often just needs another sample. Retrying puts the row back to `queued` with
-`"… Retrying…"` in `failureReason` and rethrows so BullMQ re-queues with exponential backoff (3 attempts, 5 s base,
-±50% jitter, set in `BullJobQueue.enqueue`). Exhausted or non-retryable failures set `status: "failed"` with
+nondeterministic and the repair path often just needs another sample. The exception is a refusal that names its
+safety categories: that verdict repeats on every attempt, so it fails at once. Retrying puts the row back to `queued`
+with `"… Retrying…"` in `failureReason` and rethrows so BullMQ re-queues with exponential backoff (3 attempts, 5 s
+base, ±50% jitter, set in `BullJobQueue.enqueue`). Exhausted or non-retryable failures set `status: "failed"` with
 `failureCode`/`failureReason`, reset the panel, **auto-pause the rest of the batch on `auth` or `quota`**, and throw
 `UnrecoverableError` so BullMQ stops.
 
-If you add a `ProviderErrorCode`, add its entry to `USER_MESSAGES` in the same file — it is a
+If you add a `ProviderErrorCode`, add its entry to `USER_MESSAGES` in `packages/domain/src/provider.ts` — it is a
 `Record<ProviderErrorCode, string>`, so the compiler will ask.
 
 ### Progress and SSE events
@@ -477,7 +500,7 @@ cancellation checkpoint (§3).
 
 Events are declared as the `AppEvent` union in `packages/queue/src/index.ts`: `job.updated`, `panel.updated`,
 `reference.updated`, `analysis.updated`, `chapter.updated`, `audio.updated`, `export.updated`, `narration.updated`.
-`EventBus.publish` writes to `mf:events:project:<id>` on Redis pub/sub; the API streams it at
+`EventBus.publish` writes to `om:events:project:<id>` on Redis pub/sub; the API streams it at
 `GET /api/projects/:projectId/events` (`apps/api/src/routes/system.ts`, with `x-accel-buffering: no` and a ~14 s
 ping). **A new event type needs a matching `case` in `invalidateFor` in `apps/web/src/api/hooks.ts`**, or the SPA
 receives it and invalidates nothing.
@@ -532,10 +555,12 @@ Both are single-file additions. They differ in one important way: **layout templ
 
 ### A style preset
 
-1. **`packages/domain/src/styles.ts` — append to `BUILTIN_STYLE_PRESETS`** (10 today). The `definition` is a
+1. **`packages/domain/src/styles.ts` — append to `BUILTIN_STYLE_PRESETS`** (11 today). The `definition` is a
    `StyleDefinition` (`packages/schemas/src/editor.ts`); every field is a defaulted string except
-   `exclusions: string[]`, and the shared `common` array at the top of the file holds the standard text/lettering
-   exclusions that satisfy invariant 7.
+   `exclusions: string[]` and the optional `photoreal: boolean`, and the shared `common` array at the top of the file
+   holds the standard text/lettering exclusions that satisfy invariant 7. `photoreal: true` (as `realistic` sets)
+   swaps the comic format line for live-action photography in image prompts and turns a black-and-white project's
+   colour directive into black-and-white photography.
 
    ```ts
    {
@@ -567,7 +592,7 @@ Both are single-file additions. They differ in one important way: **layout templ
    So unlike rate snapshots, editing a preset in code *does* update the deployed row on next boot.
 
 3. **Nothing in the web app.** The pickers read `GET /api/style-presets`, which returns the builtins from the
-   database. Only add a hardcoded id if the preset should become a per-project-type *default*, in
+   database. Only add a hardcoded key if the preset should become a per-project-type *default*, in
    `apps/api/src/routes/projects.ts`.
 
 ### The colour-mode rule
@@ -586,8 +611,8 @@ const screenTones = d && (colorful ? "" : d.screenTones);
 `MONOCHROME_WORDING` matches "black and white", "monochrome", "grey/gray tones", "screentone", "halftone", "no
 colour". For a colour project the matching `colorPolicy` line is dropped and `screenTones` is dropped unconditionally,
 so one prompt never carries both "Black and white with grey tones" and "Full color artwork" three lines apart.
-`colorDirective` comes from `COLOR_MODE_DIRECTIVES[p.colorMode]` (set in `packages/services/src/planner.ts`) and is
-appended last.
+`colorDirective` comes from `COLOR_MODE_DIRECTIVES[p.colorMode]` (`packages/domain/src/styles.ts`, set in
+`packages/services/src/planner.ts`) and is appended after the style lines, followed only by the style-reference line.
 
 **If your preset's monochrome wording uses vocabulary the regex does not match, it will leak into colour projects.**
 Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a case to the colour-mode tests in
@@ -598,7 +623,7 @@ Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a 
 ## 6. Add a database migration
 
 1. **Edit the Drizzle schema** in `packages/db/src/schema/` — `common.ts` (enums and shared helpers), `auth.ts`,
-   `projects.ts`, `media.ts`, `jobs.ts`, all re-exported from `index.ts`.
+   `projects.ts`, `media.ts`, `jobs.ts`, `experts.ts`, `mcp.ts`, all re-exported from `index.ts`.
 
 2. **Generate the SQL:**
 
@@ -646,13 +671,16 @@ Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a 
 
 1. **Pick or create a router module** under `apps/api/src/routes/`, one per domain, each
    `new Hono<AppEnv>()` and exported. `AppEnv` (`apps/api/src/context.ts`) carries the request's `deps`, `requestId`,
-   `log`, `user` and `sessionId`.
+   `log`, `user`, `sessionId` and `service` (the MCP connection's project restriction, when an agent is acting).
 
-2. **Mount it in `apps/api/src/app.ts`.** Five routers get a prefix (`/auth`, `/dev`, `/admin`, `/projects`,
-   `/usage`); the rest are mounted at `/` and own several top-level paths themselves, so
-   `chapterRoutes.get("/projects/:projectId/chapters", …)` serves `/api/projects/:projectId/chapters`. The whole `/api`
-   sub-app already has `loadSession`, `csrf`, rate limiting, and `requireUser` for everything except `/auth/*`,
-   `/dev/*`, `/meta` and `/docs*`. Add per-route `requireUser` only when mounting outside `/api` (as `/cdn` does).
+2. **Mount it in `mountApiRoutes` (`apps/api/src/app.ts`).** Five routers get a prefix (`/auth`, `/dev`, `/admin`,
+   `/projects`, `/usage`); the rest are mounted at `/` and own several top-level paths themselves, so
+   `chapterRoutes.get("/projects/:projectId/chapters", …)` serves `/api/projects/:projectId/chapters`.
+   `mountApiRoutes` is used twice: by the public `/api` sub-app and by the private router MCP tools call
+   (`apps/api/src/mcp/runtime.ts`), so an agent runs exactly the browser's handler. A router agents must never reach
+   is mounted outside it, as `/api/agents` and `/api/public` are. The whole `/api` sub-app already has `loadSession`,
+   `csrf`, rate limiting, and `requireUser` for everything except `/auth/*`, `/meta`, `/docs*` and `/public/*`. Add
+   per-route `requireUser` only when mounting outside `/api` (as `/cdn` does).
 
 3. **Declare the Zod schema as a module const**, above the route, and register the endpoint with `doc()`:
 
@@ -710,7 +738,8 @@ Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a 
 6. **CSRF is already handled for the whole `/api` sub-app** by the `csrf` middleware in
    `apps/api/src/lib/middleware.ts`: a double-submit token in the readable `om_csrf` cookie, echoed in the
    `x-csrf-token` header on every method other than GET/HEAD/OPTIONS, compared in constant time. Nothing inside `/api`
-   is exempt — including login and register. Only the root health endpoints and `/cdn/*` skip it. If you write a new
+   is exempt — including login and register. Only routes outside `/api` skip it: the root health endpoints,
+   `/cdn/*`, and the Bearer-authenticated `/mcp` and `/oauth/*`. If you write a new
    client, it must read the cookie and send the header; `TestClient` seeds it with a `GET /api/auth/me`.
 
 7. **Throw, do not format errors.** `ApiError(status, code, message, details?)` with the shorthands `notFound()`,
@@ -723,9 +752,9 @@ Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a 
 8. **Audit the mutations that matter:**
    `recordAudit(deps.db, { userId, projectId, action, targetType, targetId, requestId: c.get("requestId") })`.
 
-9. **Test it.** There are no test files inside `apps/api`; route tests live in `tests/integration/` and drive the real
-   app in-process. `startHarness()` (`tests/integration/harness.ts`) creates a throwaway database, runs migrations,
-   builds real deps with `AI_MOCK_MODE=true` and `TTS_PROVIDER=fake`, starts real BullMQ workers on Redis DB 5, and
+9. **Test it.** Route tests live in `tests/integration/` (`apps/api` has only a few unit tests, such as
+   `src/lib/uploads.test.ts`) and drive the real app in-process. `startHarness()` (`tests/integration/harness.ts`)
+   creates a throwaway database, runs migrations, builds real deps with `AI_MOCK_MODE=true` and `TTS_PROVIDER=fake`, starts real BullMQ workers on Redis DB 5, and
    calls `createApp(deps)` — no port is bound. `TestClient` is a cookie-jar client whose methods take an expected
    status:
 
@@ -735,6 +764,47 @@ Either reuse the existing phrasing or extend `MONOCHROME_WORDING` — and add a 
    ```
 
    Wait for queued work with `waitFor(fn, { timeoutMs, label })`.
+
+---
+
+## 8. Add an MCP tool
+
+MCP tools are thin: a tool validates its arguments, classifies the call and invokes an existing REST route in-process,
+so access checks, budgets, lifecycles and audit are the route's own. Add the route first (§7), then the tool.
+[MCP](MCP.md) describes the behaviour below from the agent's side.
+
+### Checklist
+
+1. **Define it with `defineMcpTool`** in the area file under `apps/api/src/mcp/tools/` (`projects.ts`, `panels.ts`,
+   `generations.ts`, …) and add it to that file's exported array. `MCP_TOOLS` in `tools/index.ts` concatenates the
+   arrays; a new area file needs its array added there. The fields (`McpTool` in `apps/api/src/mcp/registry.ts`):
+   - `name` (snake_case), `title`, and a model-facing `description`: what it does, side effects, whether it spends,
+     whether it is asynchronous, what to call next.
+   - `input` (a Zod object; reuse the route's schema where it fits, as `create_export` does) and `output`.
+   - `scopes` from `MCP_SCOPES` (`apps/api/src/mcp/scopes.ts`); `scopesFor` when different actions need different
+     scopes.
+   - `sensitivity`: the worst class any call can have (`read`, `write`, `sensitive-write`, `spend`, `delete`).
+   - `idempotent`, `routes` (the REST routes it wraps) and `actionKeys` (the stable keys approvals are remembered by).
+
+2. **Classify every call that is not a plain read.** `defineMcpTool` throws for a non-read tool without `classify`.
+   Return `cls(sensitivity, actionKey, projectId, summary, { target })` from `tools/common.ts`: resolve the project
+   from the target with `projectOf` (never trust one from the caller), give the call its own class (`textSpend(ai, …)`
+   makes manual-mode text a write), and put a `stamp(…)` of the target in `target` when an approval should go stale
+   if the target changes before the user decides.
+
+3. **Write the handler with `ctx.invoke(method, path, { body, query })`.** It calls the route as the connection's
+   user and turns a route error into the tool error with the route's own code. Return `{ data, links? }`; add
+   `content` only for image blocks (see `get_image`). Tools that create things or start jobs take
+   `idempotencyKey: IdempotencyKey`. Paths under `/api/auth`, `/api/admin`, `/api/dev` and `/api/ai/credentials` are
+   refused on the private router whatever a tool asks.
+
+4. **Regenerate the catalogue:** `bun scripts/mcp-docs.ts` rewrites [MCP_TOOLS](MCP_TOOLS.md).
+   `apps/api/src/mcp/catalogue.test.ts` fails while the committed file is stale, and also checks that names are unique
+   snake_case, that a spend tool's description says it spends, and that every scope is used by some tool. A new scope
+   goes in `MCP_SCOPES`, with the description users see on the consent page.
+
+5. **Test it** in `tests/integration/mcp.test.ts`, which drives `/mcp` with real tokens, including approvals and
+   idempotency.
 
 ---
 

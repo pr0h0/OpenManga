@@ -20,5 +20,6 @@
 - [ ] `bunx biome check .` is clean
 - [ ] Tests cover the change, or there is a reason below why they do not
 - [ ] A schema change includes a generated migration, and a prompt change bumps the template version
+- [ ] An MCP tool change regenerates `docs/MCP_TOOLS.md` (`bun scripts/mcp-docs.ts`)
 - [ ] Documentation in `docs/` and `.env.example` updated if the change is visible to an operator
 - [ ] The invariants in `AGENTS.md` still hold

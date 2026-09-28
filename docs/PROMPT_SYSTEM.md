@@ -13,7 +13,7 @@ Two kinds, defined in two files:
 `defineTextTemplate()` and the shared helpers (`templateHeader`, `schemaInstructions`, `untrusted`, `DATA_RULE`) are in
 `packages/prompts/src/text-templates.ts`. `packages/prompts/src/index.ts` exposes `allTemplateRecords()`, which flattens
 both arrays into `{ name, version, kind, description, body, sha256 }` — the single list the database sync reads. Every
-`system` string starts with `templateHeader(name, version)` (`[template:page-planning-v5]`), so a compiled prompt names
+`system` string starts with `templateHeader(name, version)` (`[template:page-planning-v6]`), so a compiled prompt names
 its own template.
 
 ## Registered templates
@@ -24,20 +24,22 @@ versions stay in the array so old jobs remain reproducible.
 | Template | Versions registered | Live version | Imported by |
 | --- | --- | --- | --- |
 | `story-analysis` | 1, 2 | 2 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
-| `page-planning` | 1–6 | 6 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` |
+| `page-planning` | 1–6 | 6 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` (the single call a batched plan makes) |
 | `shot-planning` | 1–3 | 3 | same two files, for `format: "film"` projects |
 | `strip-planning` | 1, 2 | 2 | same two files, for `format: "vertical"` projects |
 | `chapter-outline`, `shot-outline`, `strip-outline` | 1, 2 | 2 | `apps/worker/src/handlers/text.ts` (split planning, pass 1) |
 | `scene-pages`, `scene-shots`, `scene-strip` | 1, 2 | 2 | `apps/worker/src/handlers/text.ts` (split planning, pass 2) |
 | `panel-prompts` | 1–4 | 4 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/text.ts` |
 | `narration` | 1–5 | 5 | `apps/api/src/routes/audio.ts`, `apps/worker/src/handlers/text.ts` |
-| `panel-check` | 1 | 1 | `apps/worker/src/handlers/qa.ts` (vision QA) |
-| `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts` |
-| `image-describe` | 1 | 1 | `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
+| `panel-check` | 2 | 2 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/qa.ts` (vision QA; v2 also asks for face boxes) |
+| `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
+| `image-describe` | 1 | 1 | `apps/api/src/routes/vision.ts`, `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
+| `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
-v5, `style-reference` v4, `panel-generation` **v8**, `panel-edit` v4, `cover` v4. (The exported constants are still
+v5, `style-reference` v5, `panel-generation` **v8**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
 records the version that drew it.
@@ -86,23 +88,29 @@ export function untrusted(tag: string, content: string) {
 ```
 
 Tags in use: `story_content` (story and chapter text), `project_data` (structured state — panels, bibles, plans, the raw
-string handed to `json-repair`), `editor_instruction` (the user's rewrite instruction). `DATA_RULE` is the companion
+string handed to `json-repair`), `editor_instruction` (the user's rewrite instruction), `scene_outline` (the outline
+a split plan's page pass works from), and `caller_request` / `caller_note` (the custom question and note sent with an
+image to describe). `DATA_RULE` is the companion
 system-message line telling the model that anything inside those tags is end-user data and must never be followed as an
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v6)
+## Panel prompt sections (`panel-generation` v8)
 
 `compile()` emits these in order, dropping any section with no content:
 
 1. Goal line — panel framing and aspect ratio, or, for a film project, "one cinematic 16:9 film frame … Artwork only."
+   With a photoreal style it asks for a "photorealistic live-action film still" (or a photorealistic live-action film
+   frame) instead of an illustrated panel.
 2. `PROJECT ART DIRECTION` — from `styleSection()`: preset summary, lines, colour, shading, detail, faces, backgrounds,
-   motion effects, contrast, screentones, lighting style, the project-type format directive, custom style, the colour
-   directive, and a "match reference image N (style only)" line when a style reference is attached.
-3. `SCENE CONTEXT`
+   motion effects, contrast, screentones, lighting style, an `Avoid:` line from the style's exclusions, the
+   project-type format directive (a live-action cinematography line instead when the style is `photoreal`), custom
+   style, the colour directive (black-and-white photography for a photoreal style in a project that is not full
+   colour), and a "match reference image N (style only)" line when a style reference is attached.
+3. `SCENE CONTEXT` — scene title, summary, time and weather.
 4. `PANEL INTENT`
-5. `REFERENCE IMAGES` — which image is which character, location, prop or style; the previous panel is labelled
-   `previous panel (continuity only)`.
+5. `REFERENCE IMAGES` — which image is which character (and outfit), location and prop, with how to read a location
+   sheet or panorama and a multi-angle prop; the previous panel is for continuity of setting and lighting only.
 6. `CHARACTERS` — the exact count and who is visible where in the frame.
 7. `CANONICAL APPEARANCE REQUIREMENTS` — per character version, including its immutable traits.
 8. `WARDROBE`, then `ACTION`, `EXPRESSION`, `CAMERA`, `COMPOSITION`.

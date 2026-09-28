@@ -7,7 +7,7 @@ flowchart LR
   Browser -->|HTTPS| CF[Cloudflare tunnel<br/>profile: tunnel]
   CF --> Nginx
   Nginx -->|/app/*| SPA[(static SPA)]
-  Nginx -->|/api/* , /cdn/* , /healthz| API
+  Nginx -->|/api/* , /cdn/* , /healthz , /mcp , /oauth/*| API
   Nginx -.->|X-Accel-Redirect /_protected_assets| Assets[(assets-data volume)]
   API --> PG[(PostgreSQL)]
   API --> Redis[(Redis)]
@@ -26,12 +26,18 @@ compositor, exports), `migrate` (one-shot migrations, reference data, credential
 `kokoro` (profile `tts`), `mock-ai` (profile `mock`), `cloudflared` (profile `tunnel`). Postgres, Redis, Kokoro, the
 worker and mock-ai are never published on host ports; only nginx binds one, on loopback by default.
 
+The API also serves the MCP endpoint for AI agents (`/mcp`, with its OAuth authorization server under `/oauth/` and
+`/.well-known/oauth-*`) and unauthenticated reader links under `/api/public/shares/`; see `docs/MCP.md` and
+`docs/SECURITY.md`.
+
 There are **no server-level provider keys**: the outbound HTTPS calls above carry a key the requesting user added, so
 the API and worker images hold no shared credential. See `docs/AI_PIPELINE.md`.
 
 ## Request → job → event flow
 
-Take `POST /api/panels/:id/generate` as the example; every long AI operation follows the same five steps.
+Take `POST /api/panels/:id/generate` as the example; every queued AI operation follows the same steps. (An expert
+chat reply is the exception: the API writes it in the background in its own process and streams it over SSE,
+`GET /api/expert-chats/:id/stream`.)
 
 1. **API, synchronously** (`apps/api/src/routes/*`): validate the body with Zod, run the permission gate
    (`projectAccess`), check the project budget (`assertBudget`, 402 `budget_exceeded`), validate the run's
@@ -63,13 +69,14 @@ Queues and what they carry:
 
 | Queue | Work | Concurrency env |
 | --- | --- | --- |
-| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check | `TEXT_WORKER_CONCURRENCY` (4) |
-| `image-generation` | references, panels, covers | `IMAGE_WORKER_CONCURRENCY` (24) |
+| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check, image description | `TEXT_WORKER_CONCURRENCY` (4) |
+| `image-generation` | references, panels, covers, video thumbnails | `IMAGE_WORKER_CONCURRENCY` (24) |
 | `image-edit` | masked edits | `IMAGE_EDIT_WORKER_CONCURRENCY` (6) |
 | `tts` | narration synthesis | `TTS_WORKER_CONCURRENCY` (4) |
 | `export` | every export kind, video included, and project import | `EXPORT_WORKER_CONCURRENCY` (1) |
-| `asset-processing` | thumbnails and prompt-reference derivatives on demand | fixed at 2 |
-| `maintenance` | the hourly cleanup cycle | fixed at 1 |
+| `image-batch` | submitting a bulk run's image or text jobs to a provider's batch API | fixed at 1 |
+| `asset-processing` | thumbnail and prompt-reference jobs; nothing enqueues them today (derivatives are made inline) | fixed at 2 |
+| `maintenance` | the hourly cleanup cycle, and the provider-batch poll every `BATCH_POLL_INTERVAL_SECONDS` (300) | fixed at 1 |
 
 BullMQ jobs default to 3 attempts with exponential backoff (5 s, jitter 0.5) under the Redis key prefix `om`. The
 worker also re-publishes `queued` jobs whose Redis entry has disappeared, 15 s after start and every 5 minutes, so a
@@ -99,10 +106,10 @@ Redis flush or restore never strands work, and touches `/data/tmp/worker-heartbe
 - **Deterministic composition:** page geometry, bubble outlines (`packages/domain/src/bubbles.ts`) and text wrapping
   are shared by the editor and the server SVG compositor, so what the editor shows is what the export renders. No AI
   runs at export time.
-- **Narrow provider boundaries:** `TextAIProvider`, `ImageAIProvider`, `TTSProvider`, `AssetStorage`, `MailProvider`
-  and `JobQueue` are the only interfaces; everything else is plain code. Which implementation runs is decided per job
-  by the credential the run names (`ProviderResolver`), not by server configuration — there is no provider switch to
-  set.
+- **Narrow provider boundaries:** `TextAIProvider`, `ImageAIProvider`, `TTSProvider`, the batch variants
+  `TextBatchProvider` and `ImageBatchProvider`, `AssetStorage`, `MailProvider` and `JobQueue` are the only
+  interfaces; everything else is plain code. Which implementation runs is decided per job by the credential the run
+  names (`ProviderResolver`), not by server configuration — there is no provider switch to set.
 - **Mocking at two levels:** in-process fakes (`AI_MOCK_MODE=true`, unit and integration tests) and `apps/mock-ai`, an
   HTTP service speaking the OpenAI-compatible chat and images wire formats, which exercises the real provider code
   including its retry and error classification. `docs/TESTING.md` has the scenario list.
