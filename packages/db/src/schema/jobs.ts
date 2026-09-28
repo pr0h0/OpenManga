@@ -171,6 +171,8 @@ export type ExportKind =
   | "png_pages"
   | "jpg_pages"
   | "pdf"
+  | "cbz"
+  | "epub"
   | "webtoon"
   | "zip_package"
   | "project_json"

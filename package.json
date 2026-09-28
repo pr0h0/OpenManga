@@ -42,6 +42,7 @@
     "@playwright/test": "^1.55.0",
     "@types/bun": "^1.2.0",
     "fflate": "^0.8.2",
+    "pdf-lib": "^1.17.1",
     "typescript": "^5.9.0"
   },
   "overrides": {
