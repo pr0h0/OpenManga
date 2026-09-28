@@ -39,7 +39,8 @@ type Detail = {
 };
 
 function Thumb({ a, className }: { a: AssetRow; className: string }) {
-  if (a.mimeType.startsWith("image/")) return <AssetImage assetId={a.id} alt={a.type} className={className} />;
+  if (a.mimeType.startsWith("image/"))
+    return <AssetImage assetId={a.id} alt={a.type} className={className} trashed={Boolean(a.deletedAt)} />;
   const Icon = a.mimeType.startsWith("audio/") ? Music : FileArchive;
   return (
     <div className={`flex items-center justify-center bg-[var(--panel-2)] ${className}`}>
@@ -122,7 +123,7 @@ export function AssetsPage() {
                   <audio
                     controls
                     preload="none"
-                    src={assetUrl(a.id)}
+                    src={assetUrl(a.id, undefined, undefined, Boolean(a.deletedAt))}
                     className="mt-1 w-full"
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -176,10 +177,11 @@ function AssetDetail({
                 alt={a.type}
                 className="max-h-96 w-full rounded-lg"
                 fit="contain"
+                trashed={Boolean(a.deletedAt)}
               />
             ) : a.mimeType.startsWith("audio/") ? (
               // biome-ignore lint/a11y/useMediaCaption: narration transcript lives in the Narration page text
-              <audio controls src={assetUrl(a.id)} className="w-full" />
+              <audio controls src={assetUrl(a.id, undefined, undefined, Boolean(a.deletedAt))} className="w-full" />
             ) : (
               <Thumb a={a} className="h-40 w-full rounded-lg" />
             )}
@@ -222,7 +224,12 @@ function AssetDetail({
                 ]}
               />
               <div className="flex flex-wrap gap-2">
-                <a className="btn-secondary" href={assetUrl(a.id)} target="_blank" rel="noreferrer">
+                <a
+                  className="btn-secondary"
+                  href={assetUrl(a.id, undefined, undefined, Boolean(a.deletedAt))}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   <ExternalLink className="size-4" /> Full resolution
                 </a>
                 {a.deletedAt ? (

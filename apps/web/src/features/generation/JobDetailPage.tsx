@@ -172,6 +172,10 @@ export function JobDetailPage() {
     invalidate: [qk.job(jobId), qk.generations(projectId)],
     success: (r) => (r.result === "cancelled" ? "Cancelled" : "Cancellation requested"),
   });
+  const restore = useAction((assetId: string) => post(`/assets/${assetId}/restore`), {
+    invalidate: [qk.job(jobId), qk.generations(projectId), qk.assets(projectId)],
+    success: "Image restored",
+  });
   const retry = useAction(() => post<{ job: { id: string } }>(`/generations/${jobId}/retry`), {
     invalidate: [qk.job(jobId), qk.generations(projectId)],
     success: "Retry queued as a new job",
@@ -399,30 +403,48 @@ export function JobDetailPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             {outputs.map((o) => (
               <div key={o.id}>
-                <a href={assetUrl(o.assetId)} target="_blank" rel="noreferrer">
-                  <AssetImage
-                    assetId={o.assetId}
-                    variant={null}
-                    alt="Generated output"
-                    className="max-h-[28rem] w-full rounded-lg"
-                    fit="contain"
-                  />
-                </a>
-                <div className="mt-1 flex items-center gap-2 text-xs">
-                  {o.activated ? (
-                    <StatusChip status="approved" label="activated" />
-                  ) : (
-                    <StatusChip status="draft" label="not activated" />
-                  )}
-                  <a
-                    className="text-accent-500 hover:underline"
-                    href={assetUrl(o.assetId)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Full resolution <ExternalLink className="inline size-3" />
-                  </a>
-                </div>
+                {o.deleted ? (
+                  <div className="flex h-48 flex-col items-center justify-center gap-2 rounded-lg bg-[var(--panel-2)] text-sm">
+                    <span className="muted">
+                      This image was deleted. It stays in the trash until the trash is emptied.
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={restore.isPending}
+                      onClick={() => restore.mutate(o.assetId)}
+                    >
+                      <RotateCcw className="size-4" /> Restore image
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <a href={assetUrl(o.assetId)} target="_blank" rel="noreferrer">
+                      <AssetImage
+                        assetId={o.assetId}
+                        variant={null}
+                        alt="Generated output"
+                        className="max-h-[28rem] w-full rounded-lg"
+                        fit="contain"
+                      />
+                    </a>
+                    <div className="mt-1 flex items-center gap-2 text-xs">
+                      {o.activated ? (
+                        <StatusChip status="approved" label="activated" />
+                      ) : (
+                        <StatusChip status="draft" label="not activated" />
+                      )}
+                      <a
+                        className="text-accent-500 hover:underline"
+                        href={assetUrl(o.assetId)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Full resolution <ExternalLink className="inline size-3" />
+                      </a>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>

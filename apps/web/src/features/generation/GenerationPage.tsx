@@ -150,6 +150,10 @@ export function GenerationPage() {
                         alt={`${kindLabel(j.kind)} output`}
                         className="size-12 rounded"
                       />
+                    ) : j.outputDeleted ? (
+                      <div className="muted flex size-12 items-center justify-center rounded bg-[var(--panel-2)] text-[10px]">
+                        Deleted
+                      </div>
                     ) : (
                       <div className="size-12 rounded bg-[var(--panel-2)]" />
                     )}

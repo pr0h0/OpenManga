@@ -114,10 +114,17 @@ export const assetUrl = (
   assetId: string | null | undefined,
   variant?: "thumbnail" | "prompt_ref" | "preview" | "web",
   download?: string,
-) =>
-  assetId
-    ? `/cdn/a/${assetId}${variant || download ? "?" : ""}${variant ? `v=${variant}` : ""}${variant && download ? "&" : ""}${download ? `download=${encodeURIComponent(download)}` : ""}`
-    : "";
+  /** A trashed image is only served to a trash view that asks for it. */
+  trashed?: boolean,
+) => {
+  if (!assetId) return "";
+  const q = new URLSearchParams({
+    ...(variant ? { v: variant } : {}),
+    ...(download ? { download } : {}),
+    ...(trashed ? { trash: "1" } : {}),
+  }).toString();
+  return `/cdn/a/${assetId}${q ? `?${q}` : ""}`;
+};
 
 export function errorMessage(e: unknown) {
   if (e instanceof ApiError) {

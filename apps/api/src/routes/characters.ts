@@ -23,7 +23,7 @@ import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
 import { ApiError, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
-import { listReferences, mountReferenceEndpoints } from "./references.ts";
+import { listReferences, mountReferenceEndpoints, trashSubjectImages } from "./references.ts";
 
 export const characterRoutes = new Hono<AppEnv>();
 
@@ -246,7 +246,11 @@ doc({ method: "DELETE", path: "/api/characters/:id", summary: "Move character to
 characterRoutes.delete("/characters/:id", async (c) => {
   const id = uuidParam(c, "id");
   const p = await entityAccess(c, "character", id, "write");
-  await c.get("deps").db.update(characters).set({ deletedAt: new Date() }).where(eq(characters.id, id));
+  const now = new Date();
+  await c.get("deps").db.transaction(async (tx) => {
+    await tx.update(characters).set({ deletedAt: now }).where(eq(characters.id, id));
+    await trashSubjectImages(tx, "character", id, now);
+  });
   await recordAudit(c.get("deps").db, {
     userId: user(c).id,
     projectId: p.id,
@@ -319,7 +323,11 @@ doc({
 characterRoutes.post("/characters/:id/restore", async (c) => {
   const id = uuidParam(c, "id");
   await entityAccess(c, "character", id, "write");
-  await c.get("deps").db.update(characters).set({ deletedAt: null }).where(eq(characters.id, id));
+  await c.get("deps").db.transaction(async (tx) => {
+    const [ch] = await tx.select({ at: characters.deletedAt }).from(characters).where(eq(characters.id, id));
+    await tx.update(characters).set({ deletedAt: null }).where(eq(characters.id, id));
+    await trashSubjectImages(tx, "character", id, null, ch?.at);
+  });
   return c.json({ ok: true });
 });
 
