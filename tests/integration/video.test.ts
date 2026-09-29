@@ -140,6 +140,52 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     // At least all narration, plus minimum holds for any silent pages.
     expect(Number(info.format.duration) * 1000).toBeGreaterThanOrEqual(timeline.totalDurationMs * 0.9);
 
+    // A partial render in the continuous scroll framing: whole shots up to the first 10 s, shorter than the chapter.
+    const part = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      {
+        kind: "video_pages",
+        chapterId,
+        video: { height: 720, fps: 24, minHoldMs: 2000, framing: "scroll", maxDurationMs: 10_000 },
+        acknowledgeIssues: true,
+      },
+      202,
+    );
+    const partDone = await waitFor(
+      async () => {
+        const l = await u.get<{
+          jobs: { id: string; status: string; failureReason: string | null; files: { assetId: string }[] }[];
+        }>(`/api/projects/${projectId}/exports`);
+        const j = l.jobs.find((x) => x.id === part.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "partial video export", timeoutMs: 240_000 },
+    );
+    expect(`${partDone.status}:${partDone.failureReason ?? ""}`).toBe("completed:");
+    const partPath = `${process.env.TMPDIR ?? "/tmp"}/mf-video-part.mp4`;
+    await Bun.write(
+      partPath,
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${partDone.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    const partSec = Number(
+      (
+        JSON.parse(
+          Bun.spawnSync([
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            partPath,
+          ]).stdout.toString(),
+        ) as { format: { duration: string } }
+      ).format.duration,
+    );
+    expect(partSec).toBeGreaterThanOrEqual(10);
+    expect(partSec).toBeLessThan(Number(info.format.duration));
+
     // Whole project: no chapterId renders every chapter into one film.
     const whole = await u.post<{ job: { id: string } }>(
       `/api/projects/${projectId}/exports`,
@@ -158,6 +204,87 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     );
     expect(`${wholeDone.status}:${wholeDone.failureReason ?? ""}`).toBe("completed:");
     expect(wholeDone.files[0]!.fileName).toContain("_project_");
+    // A film spanning chapters also gets YouTube chapter timestamps, and the package bundles it all.
+    const wholeFiles = await u.get<{ jobs: { id: string; files: { fileName: string; assetId: string }[] }[] }>(
+      `/api/projects/${projectId}/exports`,
+    );
+    const stamps = wholeFiles.jobs
+      .find((j) => j.id === whole.job.id)!
+      .files.find((f) => f.fileName.endsWith(".chapters.txt"));
+    if (stamps) {
+      const text = await (await u.raw("GET", `/cdn/a/${stamps.assetId}`)).text();
+      expect(text.startsWith("0:00 Chapter 1")).toBe(true);
+    }
+    await u.patch(`/api/projects/${projectId}`, {
+      settings: {
+        youtubePackage: { titles: ["T"], description: "D", tags: ["a"], pinnedComment: "Q?", thumbnailHeadlines: [] },
+      },
+    });
+    const pk = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "youtube_package", acknowledgeIssues: true },
+      202,
+    );
+    const pkDone = await waitFor(
+      async () => {
+        const l = await u.get<{
+          jobs: { id: string; status: string; failureReason: string | null; files: { assetId: string }[] }[];
+        }>(`/api/projects/${projectId}/exports`);
+        const j = l.jobs.find((x) => x.id === pk.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "youtube package", timeoutMs: 120_000 },
+    );
+    expect(`${pkDone.status}:${pkDone.failureReason ?? ""}`).toBe("completed:");
+    const zipNames = new TextDecoder("latin1").decode(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${pkDone.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    for (const f of ["description.txt", "titles.txt", "tags.txt", "pinned-comment.txt", "video/", ".mp4", ".srt"])
+      expect(zipNames).toContain(f);
+
+    // A page selection renders only those pages: shorter than the chapter, and still a valid film.
+    const chapterPages = await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`);
+    expect(chapterPages.pages.length).toBeGreaterThan(1);
+    const picked = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      {
+        kind: "video_pages",
+        chapterId,
+        pageIds: [chapterPages.pages[0]!.id],
+        video: { height: 720, fps: 24, minHoldMs: 2000 },
+        acknowledgeIssues: true,
+      },
+      202,
+    );
+    const pickedDone = await waitFor(
+      async () => {
+        const l = await u.get<{
+          jobs: { id: string; status: string; failureReason: string | null; files: { assetId: string }[] }[];
+        }>(`/api/projects/${projectId}/exports`);
+        const j = l.jobs.find((x) => x.id === picked.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "page-selection video export", timeoutMs: 240_000 },
+    );
+    expect(`${pickedDone.status}:${pickedDone.failureReason ?? ""}`).toBe("completed:");
+    const pickedPath = `${process.env.TMPDIR ?? "/tmp"}/mf-video-picked.mp4`;
+    await Bun.write(
+      pickedPath,
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${pickedDone.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    const pickedInfo = JSON.parse(
+      Bun.spawnSync([
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "json",
+        pickedPath,
+      ]).stdout.toString(),
+    ) as { format: { duration: string } };
+    expect(Number(pickedInfo.format.duration)).toBeLessThan(Number(info.format.duration));
 
     // Panel cut (Ken Burns) with an .srt alongside
     const pc = await u.post<{ job: { id: string } }>(

@@ -20,6 +20,8 @@ export type GenerationKind =
   | "cover"
   /** A 16:9 YouTube thumbnail background; its headline is composited by the app. */
   | "thumbnail"
+  /** Publishing text (titles, description, tags…) for the project's video. */
+  | "youtube_package"
   /** Describe an uploaded reference image as reusable style / character / location descriptions. */
   | "image_describe"
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
@@ -183,6 +185,8 @@ export type ExportKind =
   | "agent_package"
   | "video_pages"
   | "video_panels"
+  /** The newest video of the scope, its thumbnail, subtitles, chapter timestamps and publishing text, zipped. */
+  | "youtube_package"
   | "project_import";
 
 export const exportJobs = pgTable(

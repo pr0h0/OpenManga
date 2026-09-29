@@ -19,9 +19,9 @@ Desktop; running the services directly on the host OS is not supported.
 | Component | Version | Where it is pinned |
 | --- | --- | --- |
 | PostgreSQL | **17** (`postgres:17-alpine`) | `docker-compose.yml` |
-| Redis | **7** (`redis:7-alpine`), AOF on, `maxmemory-policy noeviction` | `docker-compose.yml` |
+| Redis | **7** (`redis:7-alpine`), AOF on, `maxmemory` 512 MB (`REDIS_MAXMEMORY`), `maxmemory-policy noeviction` | `docker-compose.yml` |
 | Bun | **1.4** (`oven/bun:1.4-debian`); CI pins `1.4.2` | `deploy/docker/*.Dockerfile`, `.github/workflows/ci.yml` |
-| nginx | **1.27-alpine** | `deploy/docker/nginx.Dockerfile` |
+| nginx | **1.31-alpine** | `deploy/docker/nginx.Dockerfile` |
 | ffmpeg | Debian package in the app image | `deploy/docker/app.Dockerfile` |
 | Python (Kokoro only) | **3.11-slim** with CPU-only `torch==2.5.1` | `services/kokoro/Dockerfile` |
 
@@ -29,6 +29,10 @@ Postgres and Redis are ordinary instances — an external managed Postgres 17 or
 `REDIS_URL` at it and drop the compose services. Do not point the app at a Redis configured to evict keys: queue state
 lives there. (Losing it is survivable — the worker re-publishes still-queued jobs from the database on startup and
 every five minutes — but it is not a supported configuration.)
+
+Run one `api` container, as `docker-compose.yml` does. Production runs are advanced by a 10-second timer inside the
+API process, guarded in memory against advancing the same run twice; several API replicas would each advance the
+same runs.
 
 If you run the worker outside Docker, ffmpeg must be on `PATH`. The worker uses it for narration WAV assembly,
 two-pass loudness normalisation and MP4 video export; there is no fallback path.
@@ -49,6 +53,9 @@ Measured resident memory of each container on a running instance under light loa
 Those are idle-to-light figures. The worker grows under load: it decodes and resizes images with Sharp at up to
 `IMAGE_WORKER_CONCURRENCY` (default 24) in flight, and a video export runs `VIDEO_ENCODE_CONCURRENCY` ffmpeg processes
 (default 4), each roughly one core at `veryfast`.
+
+`docker-compose.yml` caps each container's memory (`mem_limit`): worker and kokoro 6 GB; api, migrate and postgres
+1 GB; redis 768 MB; mock-ai 512 MB; nginx and cloudflared 256 MB.
 
 Recommended sizing:
 
@@ -102,9 +109,12 @@ Data volumes:
   Character, location, prop and style references are full resolution too, but there are only a handful per project.
   Every regeneration and every masked edit creates a *new* asset and keeps the old version, so a project that is
   iterated on heavily can hold several times the artwork it displays.
-- **Exports** (PNG/JPG/PDF/webtoon/MP4/timeline) are written into the same volume and expire after 30 days. A video
-  export of a whole project is the single largest artefact the app produces and can rival the project's artwork in
-  size. Prompt derivatives are purged after 30 days unused, trashed assets after 30 days.
+- **Exports** (PNG/JPG/PDF/CBZ/EPUB/webtoon/MP4/timeline and packages) are written into the same volume and expire after
+  30 days; the Exports page can also delete them, files included, at once. A video export of a whole project is the
+  single largest artefact the app produces and can rival the project's artwork in size. A YouTube package export
+  copies the newest video into its ZIP uncompressed, so each package is another full copy of that film (built in
+  `tmp-data`, then stored). Prompt derivatives are purged
+  after 30 days unused, trashed assets after 30 days.
 - **`postgres-data`** stays small: a database with about 100 chapters and 2,000 panels measured 64 MB. Story text,
   plans, prompts and bubble geometry are all rows; no image bytes are stored in Postgres.
 - **`tmp-data`** holds per-job scratch directories, deleted after each job (stale entries older than 6 h are swept).
@@ -131,9 +141,11 @@ If you raise `IMPORT_MAX_UPLOAD_MB`, raise `client_max_body_size` on the `/api/p
 `deploy/nginx/default.conf` to match — nginx rejects an oversized upload before the app can explain itself.
 Allow roughly the package size again in free space on the `tmp-data` volume while an import runs.
 
-A 40 GB disk is comfortable for a personal install: roughly 4 GB of images, 5–10 GB of assets for a few dozen
-projects, and the rest as export and temp headroom. `docker compose down` keeps all volumes; never pass `-v` in
-production. See `docs/STORAGE.md` for the retention table and `docs/DEPLOYMENT.md` for backups.
+A 40 GB disk is comfortable for a personal install: roughly 4 GB of images, 5–10 GB of assets for a few dozen projects,
+and the rest as export and temp headroom. `docker compose down` keeps all volumes; never pass `-v` in production. Each
+project's overview shows how much disk its files take (artwork, references, narration, exports and derived copies, plus
+what is in the trash; database rows are not counted). See `docs/STORAGE.md` for the retention table and
+`docs/DEPLOYMENT.md` for backups.
 
 ## Required environment variables
 

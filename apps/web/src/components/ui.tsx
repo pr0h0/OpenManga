@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import clsx from "clsx";
 import { AlertTriangle, CheckCircle2, CircleDashed, ImageOff, Loader2, X } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { create } from "zustand";
 import { assetUrl, errorMessage } from "../api/client.ts";
 
@@ -185,7 +186,11 @@ export function Modal({
           </button>
         </div>
         <div className={full ? "min-h-0 flex-1 p-3" : "max-h-[70vh] overflow-y-auto p-4"}>{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">{footer}</div>}
+        {footer && (
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -530,5 +535,89 @@ export function TagInput({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * A floating panel anchored to a button, rendered on the page body with fixed positioning, so no scrolling or
+ * clipped container (a modal body, a card) can crop it. Opens below the anchor, or above when there is no room, and
+ * stays inside the window. Closes on an outside click or Escape.
+ */
+export function Popover({
+  anchor,
+  open,
+  onClose,
+  children,
+  className,
+  align = "end",
+  matchWidth,
+}: {
+  anchor: RefObject<HTMLElement | null>;
+  open: boolean;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+  /** Which edge of the anchor the panel lines up with. */
+  align?: "start" | "end";
+  /** As wide as the anchor (a search box's results). */
+  matchWidth?: boolean;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width?: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return setPos(null);
+    const place = () => {
+      const a = anchor.current?.getBoundingClientRect();
+      const p = panel.current;
+      if (!a || !p) return;
+      const w = p.offsetWidth;
+      const h = p.offsetHeight;
+      const below = a.bottom + 4 + h <= window.innerHeight - 8 || a.top - 4 - h < 8;
+      const top = below ? Math.min(a.bottom + 4, window.innerHeight - h - 8) : a.top - 4 - h;
+      const x = align === "end" ? a.right - w : a.left;
+      setPos({
+        top: Math.max(8, top),
+        left: Math.min(Math.max(8, x), window.innerWidth - w - 8),
+        ...(matchWidth ? { width: a.width } : {}),
+      });
+    };
+    place();
+    // Scrolls anywhere (capture) and resizes move the anchor; follow it.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, anchor, align, matchWidth]);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!panel.current?.contains(t) && !anchor.current?.contains(t)) onClose();
+    };
+    // Escape closes only the popover, not a modal it was opened from (which listens on window, after document).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, anchor, onClose]);
+  if (!open) return null;
+  return createPortal(
+    <div
+      ref={panel}
+      className={clsx("card fixed z-[60] shadow-xl", className)}
+      style={pos ? { top: pos.top, left: pos.left, width: pos.width } : { top: 0, left: 0, visibility: "hidden" }}
+    >
+      {children}
+    </div>,
+    document.body,
   );
 }

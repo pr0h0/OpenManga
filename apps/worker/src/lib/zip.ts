@@ -34,6 +34,21 @@ export class ZipWriter {
     await this.check();
   }
 
+  /** A large entry, chunk by chunk from a stream, so a multi-GB video never sits in memory. */
+  async addStream(name: string, stream: ReadableStream<Uint8Array>) {
+    if (this.names.has(name)) return;
+    this.names.add(name);
+    const entry = new ZipPassThrough(name);
+    this.zip.add(entry);
+    const reader = stream.getReader();
+    for (let r = await reader.read(); !r.done; r = await reader.read()) {
+      entry.push(r.value);
+      await this.check();
+    }
+    entry.push(new Uint8Array(), true);
+    await this.check();
+  }
+
   get entries() {
     return this.names.size;
   }

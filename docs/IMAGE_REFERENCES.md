@@ -46,7 +46,7 @@ modified.
 
 An outfit reference re-dresses the character rather than inventing them again, so generating one requires an
 **approved** (or locked) main reference on that version and attaches it as image 1; the prompt
-(`character-reference` v4, `fromBaseline`) tells the model to reproduce that figure exactly and change only the
+(`character-reference` v5, `fromBaseline`) tells the model to reproduce that figure exactly and change only the
 clothing. Without a baseline every outfit drifted into a different face and build, which is the thing references
 exist to prevent. The per-outfit generate buttons in the Outfits editor are disabled until that main reference is
 approved, and mark the outfits that already have one.
@@ -93,6 +93,27 @@ Panels send the primary (starred) approved reference, whatever its kind. When it
 multi-angle turnaround, the panel prompt (`panel-generation` v8) says so: use it for where things are and what they
 look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
 
+**Generate all locations / props**, and **Generate all character references** on the Cast page, draw one reference
+for every location, prop or character in the project, in the kind you pick (`scope.references` of `location`, `prop`
+or `character`, plus `scope.referenceKind` on `POST /api/projects/:projectId/generations/bulk`; a character's kind is
+`full_body` (the default), `portrait`, `multi_angle` or `expression_sheet`). It goes through the same estimate →
+confirm → optional provider batch steps as bulk panels. The estimate says how many already have each kind
+(`existing`), and "only missing" means missing the kind being drawn, so a location with a wide view can still get
+its first sheet. Each reference is drawn for the item's current version, as a draft to approve like any other.
+
+**Main-only reference policy.** With `settings.referencePolicy = "main"` (Project settings → Production →
+*References to generate in bulk*), these bulk runs skip characters whose role is `minor`, and locations and props
+whose current version appears in fewer than two panels; their prompt text describes them instead. The estimate counts
+them as skipped (`skippedReasons.minor`). The count comes from planned panels, so while nothing is planned yet (as
+when a production run draws references before it plans) every location and prop is drawn. The policy only affects
+bulk runs (including a production run's reference
+step); a reference generated on its own page is always drawn.
+
+### Trashing a character, location or prop
+
+Trashing one moves its reference images to the trash with it, and restoring it brings back exactly those images, not
+ones deleted separately before. While it is in the trash its images are shown dimmed with a Restore button.
+
 ### Which version a panel draws from
 
 A panel pins its own `characterVersionIds` and takes identity from `approvedReference(...)`, which accepts only
@@ -120,6 +141,9 @@ character's *current* version, so:
 
 Draft references are never used for identity. A character with no approved reference falls back to their canonical
 text description, so a panel is always generatable.
+
+A cover or video thumbnail attaches the approved references of the characters picked for it (their current version),
+then the project style reference.
 
 The job records every input in `generation_inputs`: role, canonical asset id, variant id, the width and height
 actually sent, the canonical dimensions, the max box, fit, format and byte size. The Prompt Inspector reads those rows

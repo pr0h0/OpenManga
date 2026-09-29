@@ -1,0 +1,456 @@
+import { toSessionUser } from "@openmanga/auth";
+import {
+  and,
+  chapters,
+  eq,
+  exportJobs,
+  generationJobs,
+  inArray,
+  isNull,
+  type ProductionStep,
+  pages,
+  panels,
+  productionRuns,
+  projects,
+  sql,
+  users,
+} from "@openmanga/db";
+import { Hono } from "hono";
+import type { AppEnv, Deps } from "../context.ts";
+import { handleError, notFound } from "./http.ts";
+import { withDeps } from "./middleware.ts";
+
+type Run = typeof productionRuns.$inferSelect;
+type Project = typeof projects.$inferSelect;
+type AiChoice = { credentialId: string | null; model?: string | null; manual?: boolean } | null;
+export type RunOptions = {
+  reviewGates: boolean;
+  preparePrompts: boolean;
+  render: boolean;
+  youtube: boolean;
+  ai?: { text?: AiChoice; image?: AiChoice };
+};
+
+/** Every step, in order. Review steps pause the run for a person; the rest call the routes a person would. */
+const STEPS = [
+  "analyze",
+  "review_analysis",
+  "apply",
+  "references",
+  "review_references",
+  "plan",
+  "prompts",
+  "art",
+  "narration",
+  "audio",
+  "thumbnail",
+  "youtube_text",
+  "review_render",
+  "render",
+  "youtube_package",
+] as const;
+
+export const STEP_LABELS: Record<(typeof STEPS)[number], string> = {
+  analyze: "Analyse the story",
+  review_analysis: "Review the analysis",
+  apply: "Apply the analysis",
+  references: "Draw references",
+  review_references: "Review the references",
+  plan: "Plan every chapter",
+  prompts: "Prepare panel prompts",
+  art: "Generate missing artwork",
+  narration: "Write narration",
+  audio: "Synthesize narration",
+  thumbnail: "Video thumbnail",
+  youtube_text: "YouTube package text",
+  review_render: "Review before the final render",
+  render: "Render the video",
+  youtube_package: "YouTube package export",
+};
+
+export function initialSteps(o: RunOptions): ProductionStep[] {
+  return STEPS.filter((k) => {
+    if (k.startsWith("review_")) return o.reviewGates && (k !== "review_render" || o.render);
+    if (k === "prompts") return o.preparePrompts;
+    if (k === "render") return o.render;
+    if (k === "youtube_text") return o.youtube;
+    if (k === "youtube_package") return o.youtube && o.render;
+    return true;
+  }).map((key) => ({ key, status: "pending" }));
+}
+
+// ---------------------------------------------------------------- calling routes as the run's user
+
+const routers = new WeakMap<Deps, Hono<AppEnv>>();
+async function router(deps: Deps) {
+  let app = routers.get(deps);
+  if (app) return app;
+  // Loaded lazily: app.ts imports the route that imports this file.
+  const { mountApiRoutes } = await import("../app.ts");
+  app = new Hono<AppEnv>();
+  app.onError(handleError);
+  app.notFound((c) => handleError(notFound("Route"), c));
+  app.use("*", withDeps(deps), async (c, next) => {
+    c.set("user", (c.env as { user: AppEnv["Variables"]["user"] }).user);
+    await next();
+  });
+  const api = new Hono<AppEnv>();
+  mountApiRoutes(api);
+  app.route("/api", api);
+  routers.set(deps, app);
+  return app;
+}
+
+/** A route refused the call; `code` is the REST error code (budget_exceeded pauses the run instead of failing it). */
+class CallError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function caller(deps: Deps, run: Run) {
+  const [u] = await deps.db.select().from(users).where(eq(users.id, run.userId));
+  if (!u || u.status === "disabled")
+    throw new CallError(403, "forbidden", "The account that started this run is disabled");
+  const user = toSessionUser(u);
+  const app = await router(deps);
+  return async <T = Record<string, unknown>>(method: "GET" | "POST", path: string, body?: unknown) => {
+    const res = await app.request(
+      path,
+      {
+        method,
+        headers: body === undefined ? {} : { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+      { user },
+    );
+    const json = (await res.json().catch(() => ({}))) as T & { error?: { code?: string; message?: string } };
+    if (!res.ok)
+      throw new CallError(res.status, json.error?.code ?? "http_error", json.error?.message ?? `HTTP ${res.status}`);
+    return json as T;
+  };
+}
+type Call = Awaited<ReturnType<typeof caller>>;
+
+// ---------------------------------------------------------------- steps
+
+type Ctx = { deps: Deps; run: Run; project: Project; call: Call; o: RunOptions; step: ProductionStep };
+type Started = Pick<ProductionStep, "status" | "jobIds" | "exportJobId" | "note"> & { ref?: string };
+
+const textBatch = (p: Project) => p.settings.batchPolicy === "cheapest" || p.settings.batchPolicy === "hybrid";
+const imageBatch = (p: Project) => p.settings.batchPolicy === "cheapest";
+// A pasted answer cannot wait in a provider batch, so paste mode always runs now, whatever the policy says.
+const text = (x: Ctx) => ({ ai: x.o.ai?.text ?? null, batch: textBatch(x.project) && !x.o.ai?.text?.manual });
+const image = (x: Ctx) => ({ ai: x.o.ai?.image ?? null });
+
+async function chapterRows(x: Ctx) {
+  return x.deps.db
+    .select({
+      id: chapters.id,
+      pages: sql<number>`(select count(*)::int from pages p where p.chapter_id = "chapters"."id")`,
+      panels: sql<number>`(select count(*)::int from panels pn join pages p on p.id = pn.page_id where p.chapter_id = "chapters"."id")`,
+      lines: sql<number>`(select count(*)::int from narration_lines nl where nl.chapter_id = "chapters"."id" and nl.language = ${x.project.language})`,
+    })
+    .from(chapters)
+    .where(eq(chapters.projectId, x.project.id))
+    .orderBy(chapters.order);
+}
+
+/** Run each call, keeping the jobs of the ones that worked and counting the ones a route refused. */
+async function each<T>(items: T[], fn: (t: T) => Promise<string[]>) {
+  const jobIds: string[] = [];
+  let refused = 0;
+  let firstError = "";
+  for (const it of items) {
+    try {
+      jobIds.push(...(await fn(it)));
+    } catch (e) {
+      if (e instanceof CallError && (e.code === "budget_exceeded" || e.status === 402)) throw e;
+      refused++;
+      firstError ||= e instanceof Error ? e.message : String(e);
+    }
+  }
+  return { jobIds, note: refused ? `${refused} refused: ${firstError}` : undefined };
+}
+
+const START: Record<string, (x: Ctx) => Promise<Started>> = {
+  async analyze(x) {
+    const [n] = await x.deps.db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(chapters)
+      .where(eq(chapters.projectId, x.project.id));
+    if ((n?.c ?? 0) > 0) return { status: "skipped", note: "Already analysed" };
+    const story = await x.call<{ latest: { id: string } | null }>("GET", `/api/projects/${x.project.id}/story`);
+    if (!story.latest) throw new CallError(400, "no_story", "Add a story on the Story page first");
+    const r = await x.call<{ job: { id: string }; analysis: { id: string } }>(
+      "POST",
+      `/api/story-revisions/${story.latest.id}/analyze`,
+      text(x),
+    );
+    return { status: "running", jobIds: [r.job.id], ref: r.analysis.id };
+  },
+  async review_analysis(x) {
+    return prev(x, "analyze")?.status === "skipped"
+      ? { status: "skipped" }
+      : { status: "review", note: "Check the analysis on the Story page, then continue: it is applied next." };
+  },
+  async apply(x) {
+    const a = prev(x, "analyze");
+    if (a?.status === "skipped" || !a?.ref) return { status: "skipped" };
+    await x.call("POST", `/api/story-analyses/${a.ref}/apply`, {});
+    return { status: "done" };
+  },
+  async references(x) {
+    const out = await each(["character", "location", "prop"] as const, async (subject) => {
+      const r = await x.call<{ jobs: { id: string }[] }>("POST", `/api/projects/${x.project.id}/generations/bulk`, {
+        ...image(x),
+        batch: imageBatch(x.project),
+        scope: { references: subject },
+        onlyMissing: true,
+        confirm: true,
+      });
+      return r.jobs.map((j) => j.id);
+    });
+    return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
+  },
+  async review_references() {
+    return {
+      status: "review",
+      note: "Approve the references you want kept (Cast and World pages); unapproved ones do not pin identity.",
+    };
+  },
+  async plan(x) {
+    const todo = (await chapterRows(x)).filter((c) => c.pages === 0);
+    const out = await each(todo, async (c) => {
+      const r = await x.call<{ job: { id: string } }>("POST", `/api/chapters/${c.id}/plan`, text(x));
+      return [r.job.id];
+    });
+    return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
+  },
+  async prompts(x) {
+    // Pages with a panel still to draw and no prepared prompt.
+    const todo = await x.deps.db
+      .selectDistinct({ id: pages.id })
+      .from(pages)
+      .innerJoin(panels, eq(panels.pageId, pages.id))
+      .where(and(eq(pages.projectId, x.project.id), isNull(panels.activeArtworkAssetId), isNull(panels.promptDraft)));
+    const out = await each(todo, async (p) => {
+      const r = await x.call<{ job: { id: string } }>("POST", `/api/pages/${p.id}/prepare-prompts`, text(x));
+      return [r.job.id];
+    });
+    return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
+  },
+  async art(x) {
+    const todo = (await chapterRows(x)).filter((c) => c.panels > 0);
+    const out = await each(todo, async (c) => {
+      const r = await x.call<{ jobs: { id: string }[] }>("POST", `/api/projects/${x.project.id}/generations/bulk`, {
+        ...image(x),
+        batch: imageBatch(x.project),
+        scope: { chapterId: c.id },
+        onlyMissing: true,
+        confirm: true,
+      });
+      return r.jobs.map((j) => j.id);
+    });
+    return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
+  },
+  async narration(x) {
+    const todo = (await chapterRows(x)).filter((c) => c.panels > 0 && c.lines === 0);
+    const out = await each(todo, async (c) => {
+      const r = await x.call<{ job: { id: string } }>("POST", `/api/chapters/${c.id}/narration/generate`, text(x));
+      return [r.job.id];
+    });
+    return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
+  },
+  async audio(x) {
+    const todo = (await chapterRows(x)).filter((c) => c.lines > 0);
+    const out = await each(todo, async (c) => {
+      await x.call("POST", `/api/chapters/${c.id}/narration/synthesize`, { onlyMissing: true });
+      return [];
+    });
+    return { status: "running", note: out.note };
+  },
+  async thumbnail(x) {
+    if (x.project.settings.thumbnail) return { status: "skipped", note: "Already has one" };
+    const r = await x.call<{ job: { id: string } }>("POST", `/api/projects/${x.project.id}/thumbnail`, {
+      ...image(x),
+      title: x.project.title,
+    });
+    return { status: "running", jobIds: [r.job.id] };
+  },
+  async youtube_text(x) {
+    if (x.project.settings.youtubePackage?.titles.length) return { status: "skipped", note: "Already written" };
+    const r = await x.call<{ job: { id: string } }>("POST", `/api/projects/${x.project.id}/youtube-package`, text(x));
+    return { status: "running", jobIds: [r.job.id] };
+  },
+  async review_render() {
+    return { status: "review", note: "Preview the video (Pages or a chapter), then continue to render it." };
+  },
+  async render(x) {
+    const r = await x.call<{ job: { id: string } }>("POST", `/api/projects/${x.project.id}/exports`, {
+      kind: x.project.settings.format === "film" ? "video_panels" : "video_pages",
+      acknowledgeIssues: true,
+    });
+    return { status: "running", exportJobId: r.job.id };
+  },
+  async youtube_package(x) {
+    const r = await x.call<{ job: { id: string } }>("POST", `/api/projects/${x.project.id}/exports`, {
+      kind: "youtube_package",
+      acknowledgeIssues: true,
+    });
+    return { status: "running", exportJobId: r.job.id };
+  },
+};
+
+function prev(x: Ctx, key: string) {
+  return x.run.steps.find((s) => s.key === key) as (ProductionStep & { ref?: string }) | undefined;
+}
+
+const FINAL = ["completed", "failed", "cancelled"];
+
+/** Whether the step's work is finished: "running" to keep waiting, "done", or a failure message. */
+async function check(x: Ctx): Promise<"running" | "done" | { failed: string }> {
+  const s = x.step;
+  if (s.key === "audio") {
+    const [r] = await x.deps.db.execute<{ busy: number }>(sql`
+      select count(*)::int as busy from audio_jobs aj
+      join narration_segments ns on ns.id = aj.segment_id
+      join narration_lines nl on nl.id = ns.narration_line_id
+      where nl.project_id = ${x.project.id} and aj.status in ('queued', 'processing')`);
+    return (r?.busy ?? 0) > 0 ? "running" : "done";
+  }
+  if (s.exportJobId) {
+    const [e] = await x.deps.db
+      .select({ status: exportJobs.status, reason: exportJobs.failureReason })
+      .from(exportJobs)
+      .where(eq(exportJobs.id, s.exportJobId));
+    if (!e || !FINAL.includes(e.status)) return "running";
+    return e.status === "completed" ? "done" : { failed: e.reason ?? `Export ${e.status}` };
+  }
+  if (!s.jobIds?.length) return "done";
+  const jobs = await x.deps.db
+    .select({ status: generationJobs.status, reason: generationJobs.failureReason })
+    .from(generationJobs)
+    .where(inArray(generationJobs.id, s.jobIds));
+  if (jobs.some((j) => !FINAL.includes(j.status))) return "running";
+  const failed = jobs.filter((j) => j.status !== "completed");
+  // Analysis and planning are what everything after them stands on; elsewhere a few failures are noted and left
+  // for the person (they show on the storyboard and in Generation) while the run carries on.
+  if (failed.length && (s.key === "analyze" || failed.length === jobs.length))
+    return { failed: failed[0]!.reason ?? "The job failed" };
+  if (failed.length) s.note = `${failed.length} of ${jobs.length} failed; see Generation`;
+  return "done";
+}
+
+/** After references are drawn, and no review was asked for: approve the newest draft of each subject lacking one. */
+async function approveDrafts(x: Ctx) {
+  const rows = await x.deps.db.execute<{ id: string }>(sql`
+    select distinct on (coalesce(r.character_version_id, r.location_version_id, r.prop_version_id)) r.id
+    from reference_assets r
+    where r.project_id = ${x.project.id} and r.status = 'draft'
+      and not exists (
+        select 1 from reference_assets a
+        where a.status in ('approved', 'locked')
+          and coalesce(a.character_version_id, a.location_version_id, a.prop_version_id)
+            = coalesce(r.character_version_id, r.location_version_id, r.prop_version_id))
+    order by coalesce(r.character_version_id, r.location_version_id, r.prop_version_id), r.created_at desc`);
+  for (const r of rows) await x.call("POST", `/api/references/${r.id}/status`, { status: "approved" }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- advancing
+
+// ponytail: one API process advances runs, so an in-process guard is enough; several API replicas would need a lease
+// column on the row instead.
+const busy = new Set<string>();
+
+/** Move a run forward as far as it can go now: finish waiting steps, start the next, stop at a review or a wait. */
+export async function advanceRun(deps: Deps, runId: string) {
+  if (busy.has(runId)) return;
+  busy.add(runId);
+  try {
+    const [run] = await deps.db.select().from(productionRuns).where(eq(productionRuns.id, runId));
+    if (run?.status !== "running") return;
+    const save = async (patch: Partial<Run>) => {
+      Object.assign(run, patch);
+      await deps.db
+        .update(productionRuns)
+        .set({ ...patch, steps: run.steps, updatedAt: new Date() })
+        .where(eq(productionRuns.id, run.id));
+      await deps.events.publish(run.projectId, { type: "production.updated", runId: run.id, status: run.status });
+    };
+    let call: Call;
+    try {
+      call = await caller(deps, run);
+    } catch (e) {
+      await save({ status: "paused", reason: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    for (let guard = 0; guard < STEPS.length * 2; guard++) {
+      const step = run.steps.find((s) => s.status !== "done" && s.status !== "skipped");
+      if (!step) {
+        await save({ status: "completed", reason: null });
+        return;
+      }
+      const [project] = await deps.db.select().from(projects).where(eq(projects.id, run.projectId));
+      if (!project || project.deletedAt) {
+        await save({ status: "cancelled", reason: "The project was removed" });
+        return;
+      }
+      const x: Ctx = { deps, run, project, call, o: run.options as RunOptions, step };
+      try {
+        if (step.status === "review") {
+          await save({ status: "waiting", reason: step.note ?? null });
+          return;
+        }
+        if (step.status === "pending") {
+          const started = await START[step.key]!(x);
+          Object.assign(step, started, { startedAt: new Date().toISOString() });
+          if (started.status === "done" || started.status === "skipped") step.finishedAt = new Date().toISOString();
+          await save({});
+          continue;
+        }
+        const r = await check(x);
+        if (r === "running") return;
+        if (typeof r === "object") {
+          step.status = "failed";
+          step.note = r.failed;
+          await save({ status: "failed", reason: `${STEP_LABELS[step.key as keyof typeof STEP_LABELS]}: ${r.failed}` });
+          return;
+        }
+        if (step.key === "references" && !x.o.reviewGates) await approveDrafts(x);
+        step.status = "done";
+        step.finishedAt = new Date().toISOString();
+        await save({});
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        // Spending stops at the project's cap: pause, so raising the cap and continuing picks up right here.
+        if (e instanceof CallError && (e.code === "budget_exceeded" || e.status === 402)) {
+          await save({ status: "paused", reason: `Budget cap reached: ${msg}` });
+          return;
+        }
+        step.status = "failed";
+        step.note = msg;
+        await save({ status: "failed", reason: `${STEP_LABELS[step.key as keyof typeof STEP_LABELS]}: ${msg}` });
+        return;
+      }
+    }
+  } finally {
+    busy.delete(runId);
+  }
+}
+
+/** Advance every running run; called on a timer by the API process. */
+export async function tickProductionRuns(deps: Deps) {
+  const rows = await deps.db
+    .select({ id: productionRuns.id })
+    .from(productionRuns)
+    .where(eq(productionRuns.status, "running"));
+  for (const r of rows)
+    await advanceRun(deps, r.id).catch((e) =>
+      deps.logger.error("production run failed to advance", { runId: r.id, error: String(e) }),
+    );
+}

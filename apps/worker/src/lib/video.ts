@@ -6,6 +6,7 @@ import {
   frameSizeFor,
   holdFor,
   kenBurnsPullsOut,
+  type PageFraming,
   pageShotBox,
   panelShotBox,
   scrollPlan,
@@ -25,8 +26,11 @@ export type VideoOptions = {
   height: number;
   fps: number;
   minHoldMs: number;
-  /** Page cut. "width": page at pageWidthRatio of the frame width with a capped slow scroll; "height": whole page. */
-  framing: "width" | "height";
+  /**
+   * Page cut. "width": page at pageWidthRatio of the frame width with a capped slow scroll; "height": whole page;
+   * "scroll": the width framing, travelling the whole page from top to bottom over its hold.
+   */
+  framing: PageFraming;
   pageWidthRatio: number;
   pageHeightRatio: number;
   maxScrollPxPerSec: number;
@@ -36,6 +40,8 @@ export type VideoOptions = {
   breathMs?: number;
   /** Clips rendered and encoded at once (shots are independent until the final concat). */
   concurrency?: number;
+  /** A partial render: stop after the shot that reaches this length. */
+  maxDurationMs?: number;
 };
 
 type Project = { id: string; language: string; readingDirection: "ltr" | "rtl" | "vertical" };
@@ -134,6 +140,8 @@ async function buildFilm<S extends Shot>(
   };
   const cues: { startMs: number; endMs: number; text: string }[] = [];
   const holds: { frames: number; holdSec: number }[] = [];
+  /** Where each shot starts in the film, for chapter timestamps. */
+  const startsMs: number[] = [];
   let totalFrames = 0;
   let clockMs = 0;
   try {
@@ -158,6 +166,7 @@ async function buildFilm<S extends Shot>(
       const narrationMs = joined ? parseWav(joined).durationMs : 0;
       // Whole frames, so the clip and its padded audio are exactly the same length (no -shortest, no drift).
       const { frames, holdMs } = holdFor(narrationMs, Boolean(joined), opts.minHoldMs, opts.fps, opts.breathMs);
+      startsMs.push(clockMs);
       let t = clockMs;
       for (const [k, part] of parts.entries()) {
         cues.push({ startMs: t, endMs: t + part.ms, text: part.text });
@@ -175,6 +184,11 @@ async function buildFilm<S extends Shot>(
         missingAudio: missing,
       });
       await progress(0.02 + ((i + 1) / shots.length) * 0.08);
+      // A partial render ends on a whole shot once the requested length is reached.
+      if (opts.maxDurationMs && clockMs >= opts.maxDurationMs && i < shots.length - 1) {
+        shots.splice(i + 1);
+        break;
+      }
     }
   } catch (e) {
     await audioFile.close().catch(() => {});
@@ -298,6 +312,7 @@ async function buildFilm<S extends Shot>(
     path: outPath,
     srt: toSrt(cues),
     durationMs: videoMs,
+    startsMs,
     stats: {
       audioMs,
       videoMs,
@@ -311,6 +326,16 @@ async function buildFilm<S extends Shot>(
 }
 
 type Scoped = VideoOptions & { language?: string; scope?: VideoScope };
+
+/** The first shot of each chapter and where it starts, in film order. */
+function chapterStarts(shots: { page: { chapterId: string } }[], startsMs: number[]) {
+  const out: { chapterId: string; startMs: number }[] = [];
+  shots.forEach((s, i) => {
+    if (out.at(-1)?.chapterId !== s.page.chapterId)
+      out.push({ chapterId: s.page.chapterId, startMs: startsMs[i] ?? 0 });
+  });
+  return out;
+}
 
 async function plan(deps: WorkerDeps, project: Project, chapterId: string | null, opts: Scoped, cut: "page" | "panel") {
   const language = opts.language || project.language;
@@ -365,7 +390,7 @@ export async function renderPageCutVideo(
     const fgPath = join(dir, `fg-${n}.png`);
     await Bun.write(bgPath, await backdrop(png.data, frameW, frameH));
     await Bun.write(fgPath, new Uint8Array(await sharp(png.data).resize(fgW, fgH, { fit: "fill" }).png().toBuffer()));
-    const { y0, travel } = scrollPlan(fgH - frameH, holdSec, opts.maxScrollPxPerSec);
+    const { y0, travel } = scrollPlan(fgH - frameH, holdSec, opts.maxScrollPxPerSec, opts.framing);
     shot.report.scrollPxPerSec = travel ? Math.round(travel / holdSec) : 0;
     const fg =
       fgH > frameH
@@ -380,6 +405,7 @@ export async function renderPageCutVideo(
     width: frameW,
     height: frameH,
     durationMs: film.durationMs,
+    chapterStarts: chapterStarts(shots, film.startsMs),
     report: { language, ...film.stats, pages: shots.map((s) => s.report), unplacedLines },
   };
 }
@@ -453,6 +479,7 @@ export async function renderPanelCutVideo(
     width: frameW,
     height: frameH,
     durationMs: film.durationMs,
+    chapterStarts: chapterStarts(shots, film.startsMs),
     report: { language, ...film.stats, panels: shots.map((s) => s.report), unplacedLines },
   };
 }

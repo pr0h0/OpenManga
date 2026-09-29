@@ -11,6 +11,7 @@ locked versions, validation). Sensitive actions can wait for your approval in th
 
 - [Endpoint and configuration](#endpoint-and-configuration)
 - [Connecting ChatGPT (OAuth)](#connecting-chatgpt-oauth)
+- [Connecting Claude (OAuth)](#connecting-claude-oauth)
 - [Other agents (personal access tokens)](#other-agents-personal-access-tokens)
 - [Local and private instances](#local-and-private-instances)
 - [Scopes, projects and approval modes](#scopes-projects-and-approval-modes)
@@ -53,7 +54,7 @@ URL is derived from `API_PUBLIC_URL`'s origin. The bundled nginx already routes 
 | `MCP_AUTH_CODE_TTL_SECONDS` | `300` | Authorization code lifetime (single use). |
 | `MCP_APPROVAL_TTL_MINUTES` | `1440` | How long a parked request waits for you before it expires. |
 | `MCP_BULK_APPROVAL_THRESHOLD` | `25` | A change touching more panels than this counts as sensitive. |
-| `MCP_RATE_LIMIT_PER_MINUTE` | `240` | Calls per minute per connection. |
+| `MCP_RATE_LIMIT_PER_MINUTE` | `240` | Requests to `/mcp` per minute per connection; above it `/mcp` answers HTTP 429 with `Retry-After: 60`. |
 | `MCP_CIMD_ALLOW_PRIVATE` | `false` | Development only: let an OAuth client-id document live on a private address. |
 
 ## Connecting ChatGPT (OAuth)
@@ -66,7 +67,8 @@ URL is derived from `API_PUBLIC_URL`'s origin. The bundled nginx already routes 
 3. If you are not signed in, OpenManga's normal sign-in appears first; you never type your password into ChatGPT.
 4. The consent page shows who is asking, what it asks for, and lets you choose: which scopes to grant (a subset is
    fine), all projects or selected ones, whether it may create projects, and "Ask me first" or "Allow everything".
-   It also says plainly that provider-backed generation spends your own provider credits.
+   It also says plainly that provider-backed generation spends your own provider credits. A client that asks for no
+   scopes is offered all of them.
 5. Allow sends you back to ChatGPT with a one-time code; ChatGPT exchanges it (PKCE S256) for a 15-minute access token
    and a rotating refresh token.
 
@@ -75,7 +77,15 @@ duplicate. Revoke it any time in **Agent access**.
 
 The authorization request is frozen when it arrives: the consent page refers to it only by id, so client, redirect
 URI, PKCE challenge, resource and state cannot be changed in the browser. Redirect URIs must match a registered one
-exactly; wildcards are refused.
+exactly; wildcards are refused, and a redirect URI must be https (plain http only on a loopback address). Only public clients
+(no client secret) are supported.
+
+## Connecting Claude (OAuth)
+
+Claude connects the same way: add `https://<your host>/mcp` as a custom connector, sign in to OpenManga in the
+browser and choose what it may do on the consent page. Claude's client metadata also lists a grant type OpenManga never
+issues (`jwt-bearer`); that is ignored, since a client only has to support the authorization-code flow. In
+**Agent access** an OAuth connection is labelled "ChatGPT / OAuth" whichever client made it.
 
 ## Other agents (personal access tokens)
 
@@ -133,7 +143,7 @@ duplicates.
 | --- | --- | --- | --- |
 | read | list/get/search, schemas, prompt preview, job status, readiness, usage | runs | runs |
 | write | new story revision, draft version edits, scene/panel edits, manual answers, manual-mode text jobs | runs | runs |
-| sensitive-write | apply story analysis, duplicate, switch current version, approve/lock versions and references, migrate panels, activate artwork, re-plan a planned chapter, page document replacement, chapter/project-wide lettering changes over the bulk threshold, exports, budget changes | runs | **waits** |
+| sensitive-write | apply story analysis, duplicate, switch current version, approve/lock versions, references and panels, make a reference primary, set or switch the project style, migrate panels, activate artwork, re-plan a planned chapter, rewrite existing narration, page document replacement, clearing lettering on a chapter or project, restyling lettering or cancelling a batch over the bulk threshold, exports, budget changes | runs | **waits** |
 | spend | provider-backed text, image generation, reference generation, vision checks, expert replies, cloud TTS, retries of those, bulk generation, resuming a batch | runs | **waits** |
 | delete | trash, permanent delete, deleting chapters/pages/panels/lines/versions | runs | **waits** |
 
@@ -192,8 +202,8 @@ Seventy-one task-shaped tools, grouped by area; the full catalogue with schemas 
 There is deliberately no generic "call any endpoint" tool.
 
 What a connection is shown depends on it. A personal access token lists only the tools it can ever call (a
-read-only token sees about a dozen); tools outside that list are not callable either. An OAuth connection sees every
-tool, because its scopes can grow by step-up and a client only asks for a scope when it sees the tool that needs it.
+token with only the `:read` scopes sees about 35); tools outside that list are not callable either. An OAuth
+connection sees every tool, because its scopes can grow by step-up and a client only asks for a scope when it sees the tool that needs it.
 `create_project` and `duplicate_project` are hidden from any connection not allowed to create projects.
 
 | Area | Tools |
@@ -204,7 +214,7 @@ tool, because its scopes can grow by step-up and a client only asks for a scope 
 | Cast, world, style | `list_library`, `get_library_item`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | Chapters | `list_chapters`, `get_chapter`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `list_chapter_panels` |
 | Pages and panels | `get_page`, `manage_page`, `manage_lettering`, `get_panel`, `update_panel`, `manage_panel_outfits`, `get_panel_prompt`, `prepare_page_prompts`, `generate_panel`, `manage_panel_artwork`, `run_panel_check`, `manage_panel` |
-| Images | `get_image`: the picture itself (panel artwork, the lettered page, a reference, any project image) as MCP image content, at 384, 1024 or 2048 px |
+| Images | `get_image`: the picture itself (panel artwork, the lettered page, a reference, any project image) as MCP image content, `thumbnail` (384 px), `preview` (1024 px, default) or `large` (2048 px; a lettered page is capped at 1600 px). Images in the trash are refused |
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
 | Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration` |
 | Exports | `create_export`, `list_exports` |
@@ -213,6 +223,18 @@ tool, because its scopes can grow by step-up and a client only asks for a scope 
 Not exposed (UI/REST only): multipart uploads (project import, own artwork, masks, own references, expert image
 attachments), masked edits (they need an uploaded mask), accounts, admin, provider keys, and managing connections,
 approvals and rules.
+
+Some production features reach agents only through the schemas of existing tools. `create_export` takes the REST
+export body as is, so it accepts the `youtube_package` kind, a `pageIds` page selection, `video.framing: "scroll"`
+and a partial render's `video.maxDurationMs` (its description names the YouTube package; the others are in its
+schema). `create_project` takes a
+production `preset` key, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
+the saved `youtubePackage` text. No tool calls the newer routes directly: production runs, writing the YouTube
+package text (`POST /api/projects/:projectId/youtube-package`), checking every panel at once
+(`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list and saving or deleting
+project templates are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
+characters. A YouTube package text job started in paste mode from the app can still be answered with
+`get_manual_prompt` / `submit_manual_answer`, like any parked job.
 
 Payloads are bounded: lists page (default 25, max 100), chapter panels are listed as summaries, story text is read
 in 50,000-character chunks, a chapter's source excerpt is cut unless asked for, prompts come only from
@@ -245,8 +267,9 @@ provider would get and parks. Then:
    Fix only what the error names. No provider is ever used to repair a pasted answer.
 
 `get_answer_schema` returns any of the formats (`StoryAnalysis`, `StoryRewrite`, `ChapterOutline`, `ScenePages`,
-`PanelPromptDraft`, `NarrationDraft`, `ImageDescription`, `PanelCheck`) from the running version's own schemas, so a
-client should prefer: a schema the user supplied > the schema this server returns > one bundled in the client.
+`PanelPromptDraft`, `NarrationDraft`, `ImageDescription`, `PanelCheck`, `YoutubePackage`) from the running version's
+own schemas, so a client should prefer: a schema the user supplied > the schema this server returns > one bundled in
+the client.
 
 ## Spending and budgets
 
@@ -283,7 +306,7 @@ retryAfterSeconds? } }`, keeping OpenManga's own codes:
 | 404 | `not_found` | Missing, or in a project you cannot see (never distinguished). |
 | 409 | `conflict`, `idempotency_conflict`, `estimate_changed`, `operation_in_progress`, `execution_unknown` | Locked/approved version, wrong lifecycle state, job not in the expected state, reused key, stale estimate, the same key still running, an interrupted call whose outcome is unknown. |
 | 422 | `validation_error`, `credentials_required`, `provider_*` | Input validation (with details), no usable key, provider refusal. |
-| 429 | `rate_limited` | With `retryAfterSeconds`. |
+| 429 | `rate_limited` | A route's own rate limit, with `retryAfterSeconds`. Going over `MCP_RATE_LIMIT_PER_MINUTE` is not a tool error: `/mcp` itself answers HTTP 429 with `Retry-After: 60`. |
 | 5xx | `internal_error`, `provider_*` | Sanitized; never a stack trace or raw provider response. |
 
 ## Security notes
@@ -301,7 +324,10 @@ retryAfterSeconds? } }`, keeping OpenManga's own codes:
 - Client ID Metadata Documents are fetched over HTTPS only, from public addresses only (every resolved address is
   checked), and the connection is pinned to the checked address — TLS still verifies the certificate against the
   hostname — so a rebinding DNS server cannot switch the address between the check and the fetch. No redirects, a
-  64 KB cap, a 5 s timeout, re-fetched daily.
+  64 KB cap, a 5 s timeout, re-fetched daily. The document's `client_id` must equal its own URL, and a document that
+  stops validating makes the client unknown instead of keeping an old grant alive.
+- The OAuth endpoints are rate limited per IP: `/oauth/register` 20 an hour, `/oauth/authorize`, `/oauth/token` and
+  `/oauth/revoke` 60 a minute each.
 - Audit: every mutation is recorded as usual with `service_id` set and `metadata.via` = the connection name
   ("*connection* via *user*"). Security events: `oauth.authorize`, `oauth.reauthorize`, `oauth.refresh_reuse`,
   `oauth.code_reuse`, `mcp.pat_created`, `mcp.pat_revoked`, `mcp.connection_revoked`, `mcp.connection_updated`,

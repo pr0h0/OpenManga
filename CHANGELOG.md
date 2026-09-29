@@ -5,6 +5,52 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [0.11.0] — 2026-09-29
+
+Upgrading: pull the new images and restart. One migration (`0020_production_runs`), applied by the migrate service
+on start. Reload open tabs to get the new web app.
+
+### Added
+
+- **Production runs.** One button on the overview takes a project from its story to the rendered video: analysis,
+  references, chapter plans, panel prompts, artwork, narration, audio, the thumbnail, the render and the YouTube
+  package. Each step does what the matching button does, as the person who started the run, so budgets, access and
+  readiness apply unchanged. It skips what already exists, can pause for your review after the analysis, after the
+  references and before the render, stops at the project's budget cap (which a run requires), and continues, resumes
+  or retries the failed step from where it stood.
+- **Target runtime.** Set a video length in project settings (minutes, words per minute, shortest and longest shot).
+  Each chapter gets its share by source length: chapter plans default to its page target, narration to the words
+  per panel that fill it, and the Exports page to the shortest shot as the minimum hold. The settings page compares the
+  budget with what is planned and narrated so far.
+- **Production presets and templates.** New projects can start from a preset (YouTube recap 30 min, 1, 2 or 3 hours, manga
+  chapters, webtoon episodes, economy draft) that sets format, style, image quality, runtime, which references to
+  make and how runs spend. *Save as template* keeps a project's setup (never its story, cast or files) for your next
+  projects; the Account page deletes templates. Two new settings: a reference policy (all, or main cast and recurring
+  places only) and a batch policy for runs (everything now, text in batches, or everything in batches).
+- **Generate all character references** from the Cast page, as for locations and props; the main-only policy skips
+  minor characters and places or props used in fewer than two panels.
+- **Check all panels.** The vision consistency check for a page, chapter or project in one run, priced first, from
+  the chapter page, the page editor's lettering tools and the storyboard. Panels whose current artwork already has a
+  check with faces are skipped.
+- **Storyboard.** Every panel of a chapter in one grid, filtered to what needs attention (no artwork, failed, needs
+  review, check mismatch, not checked), with keys to move, open, check and regenerate; spending keys ask first.
+- **YouTube package.** A text job writes title options, a description, tags, a pinned comment and thumbnail
+  headlines, edited on the Exports page (a headline can go straight onto the thumbnail). A video spanning several
+  chapters also gets chapter timestamps. The *YouTube package* export zips the newest video of the same scope with
+  its subtitles and timestamps, the thumbnail and the text.
+- **Partial video renders.** Render only the first N minutes, or a range of pages of a chapter, for a check before
+  the full film.
+- **Continuous scroll cut.** A page framing that scrolls each page from its top to its bottom over its hold, in the
+  render and the browser preview.
+
+### Fixed
+
+- The AI model picker, the dashboard's project menu and the project search results were cropped inside modals and
+  cards; they now open on top of the page, above or below their button, and Escape closes only them.
+- Video exports ignored a page selection and rendered the whole chapter.
+- `OPENAI_BATCH_MAX_ENQUEUED_TOKENS`, `BATCH_POLL_INTERVAL_SECONDS` and `STALLED_JOB_TIMEOUT_MINUTES` were documented
+  but never passed into the containers, so setting them in `.env` did nothing.
+
 ## [0.10.0] — 2026-09-28
 
 Upgrading: pull the new images and restart. One migration (`0019_share_links`), applied by the migrate service on

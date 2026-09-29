@@ -140,6 +140,9 @@ function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
     case "export.updated":
       inv(qk.exports(projectId));
       break;
+    case "production.updated":
+      inv(["project", projectId, "production-runs"]);
+      break;
   }
 }
 

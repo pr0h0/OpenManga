@@ -174,7 +174,8 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "PanelPromptDraft",
         "NarrationDraft",
         "ImageDescription",
-        "PanelCheck"
+        "PanelCheck",
+        "YoutubePackage"
       ]
     }
   },
@@ -590,6 +591,10 @@ Create a new project (optionally with its first story revision in `story`). Need
         "vertical"
       ]
     },
+    "preset": {
+      "type": "string",
+      "maxLength": 80
+    },
     "story": {
       "type": "object",
       "properties": {
@@ -753,6 +758,21 @@ Change a project's title, description, type, language, reading direction, colour
             "high"
           ]
         },
+        "referencePolicy": {
+          "type": "string",
+          "enum": [
+            "all",
+            "main"
+          ]
+        },
+        "batchPolicy": {
+          "type": "string",
+          "enum": [
+            "interactive",
+            "cheapest",
+            "hybrid"
+          ]
+        },
         "narrationVoice": {
           "type": "string"
         },
@@ -765,6 +785,44 @@ Change a project's title, description, type, language, reading direction, colour
           "type": "integer",
           "minimum": 5,
           "maximum": 80
+        },
+        "targetRuntime": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "minutes": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 600
+                },
+                "wordsPerMinute": {
+                  "default": 150,
+                  "type": "integer",
+                  "minimum": 80,
+                  "maximum": 260
+                },
+                "minShotSeconds": {
+                  "default": 4,
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 30
+                },
+                "maxShotSeconds": {
+                  "default": 8,
+                  "type": "number",
+                  "minimum": 2,
+                  "maximum": 60
+                }
+              },
+              "required": [
+                "minutes"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "referenceMaxWidth": {
           "type": "integer",
@@ -796,6 +854,48 @@ Change a project's title, description, type, language, reading direction, colour
         },
         "author": {
           "type": "string"
+        },
+        "youtubePackage": {
+          "type": "object",
+          "properties": {
+            "titles": {
+              "default": [],
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "description": {
+              "default": "",
+              "type": "string",
+              "maxLength": 4500
+            },
+            "tags": {
+              "default": [],
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 60
+              }
+            },
+            "pinnedComment": {
+              "default": "",
+              "type": "string",
+              "maxLength": 2000
+            },
+            "thumbnailHeadlines": {
+              "default": [],
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 60
+              }
+            }
+          }
         },
         "thumbnail": {
           "type": "object",
@@ -7328,7 +7428,7 @@ Queue speech synthesis for one segment (segmentId) or every missing/stale segmen
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -7359,7 +7459,8 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "timeline",
         "agent_package",
         "video_pages",
-        "video_panels"
+        "video_panels",
+        "youtube_package"
       ]
     },
     "chapterId": {
@@ -7560,7 +7661,8 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "string",
           "enum": [
             "width",
-            "height"
+            "height",
+            "scroll"
           ]
         },
         "pageWidthRatio": {
@@ -7592,6 +7694,11 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "integer",
           "minimum": 0,
           "maximum": 2000
+        },
+        "maxDurationMs": {
+          "type": "integer",
+          "minimum": 10000,
+          "maximum": 86400000
         }
       }
     },

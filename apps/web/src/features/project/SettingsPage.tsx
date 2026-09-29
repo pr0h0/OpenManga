@@ -253,6 +253,44 @@ export function SettingsPage() {
           <Field label="Webtoon max chunk height (px)">{num("webtoonChunkHeight", 1000, 40000)}</Field>
         </section>
 
+        <RuntimeSection
+          projectId={projectId}
+          saved={data.project.settings.targetRuntime ?? null}
+          value={s.targetRuntime ?? null}
+          onChange={(v) => setS("targetRuntime", v)}
+        />
+
+        <section className="card space-y-3 p-4">
+          <h2 className="font-medium">Production</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="References to generate in bulk"
+              hint="Main only skips minor characters, and places and props used in fewer than two panels."
+            >
+              <select
+                className="input"
+                value={s.referencePolicy ?? "all"}
+                onChange={(e) => setS("referencePolicy", e.target.value as ProjectSettings["referencePolicy"])}
+              >
+                <option value="all">All</option>
+                <option value="main">Main cast and recurring places only</option>
+              </select>
+            </Field>
+            <Field label="Production runs spend" hint="Provider batches are half price and take up to 24 hours.">
+              <select
+                className="input"
+                value={s.batchPolicy ?? "interactive"}
+                onChange={(e) => setS("batchPolicy", e.target.value as ProjectSettings["batchPolicy"])}
+              >
+                <option value="interactive">Everything now</option>
+                <option value="hybrid">Text in batches, images now</option>
+                <option value="cheapest">Everything in batches (cheapest)</option>
+              </select>
+            </Field>
+          </div>
+          <SaveTemplate projectId={projectId} defaultName={data.project.title} />
+        </section>
+
         <LetteringSection value={s.lettering} onChange={(v) => setS("lettering", v)} />
 
         <ConsistencySection value={s.consistencyCheck} onChange={(v) => setS("consistencyCheck", v)} />
@@ -604,5 +642,171 @@ function ConsistencySection({
         !cur.credentialId && <p className="text-xs text-amber-600">Pick a key above, or checks are skipped.</p>
       )}
     </section>
+  );
+}
+
+type Runtime = NonNullable<ProjectSettings["targetRuntime"]>;
+type RuntimeReport = {
+  totalWords: number | null;
+  neededChapters: number | null;
+  estimatedMinutes: number;
+  chapters: {
+    id: string;
+    order: number;
+    title: string;
+    budget: { words: number; shots: number; pages: number; capped: boolean } | null;
+    planned: { pages: number; panels: number };
+    narrationWords: number;
+    estimatedMinutes: number;
+  }[];
+};
+
+/**
+ * Target runtime: a length to aim for. Chapter plans then default to a page count, and narration to words per
+ * panel, that land each chapter on its share; the table compares that budget with what exists so far.
+ */
+function RuntimeSection({
+  projectId,
+  saved,
+  value,
+  onChange,
+}: {
+  projectId: string;
+  saved: Runtime | null;
+  value: Runtime | null;
+  onChange: (v: Runtime | null) => void;
+}) {
+  // Keyed on the saved target, so the table refreshes once an edit has been autosaved.
+  const report = useQuery({
+    queryKey: ["project", projectId, "runtime", JSON.stringify(saved)],
+    queryFn: () => get<RuntimeReport>(`/projects/${projectId}/runtime`),
+  });
+  const set = (p: Partial<Runtime>) => value && onChange({ ...value, ...p });
+  const n = (k: keyof Runtime, min: number, max: number, step = 1) => (
+    <input
+      className="input"
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={value?.[k] ?? ""}
+      onChange={(e) => e.target.value !== "" && set({ [k]: Number(e.target.value) })}
+    />
+  );
+  return (
+    <section className="card space-y-3 p-4">
+      <h2 className="font-medium">Target runtime</h2>
+      <p className="muted text-xs">
+        Aim the video at a length. Chapter plans then default to a page count, and narration to a number of words per
+        panel, that give each chapter its share of it (by the length of its source text), and each shot stays between
+        the shortest and longest length below.
+      </p>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={Boolean(value)}
+          onChange={(e) =>
+            onChange(
+              e.target.checked ? { minutes: 30, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 } : null,
+            )
+          }
+        />
+        Aim for a runtime
+      </label>
+      {value && (
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Field label="Minutes">{n("minutes", 1, 600)}</Field>
+          <Field label="Words per minute" hint="≈150 for calm narration">
+            {n("wordsPerMinute", 80, 260)}
+          </Field>
+          <Field label="Shortest shot (s)">{n("minShotSeconds", 1, 30, 0.5)}</Field>
+          <Field label="Longest shot (s)">{n("maxShotSeconds", 2, 60, 0.5)}</Field>
+        </div>
+      )}
+      {report.data && report.data.chapters.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="muted">
+              <tr>
+                <th className="py-1 pr-2">Chapter</th>
+                {saved && <th className="py-1 pr-2">Budget</th>}
+                <th className="py-1 pr-2">Planned</th>
+                <th className="py-1 pr-2">Narration</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.data.chapters.map((c) => (
+                <tr key={c.id} className="border-t border-[var(--border)]">
+                  <td className="max-w-48 truncate py-1 pr-2">
+                    {c.order}. {c.title}
+                  </td>
+                  {saved && (
+                    <td className="py-1 pr-2">
+                      {c.budget ? `${c.budget.words} words · ${c.budget.shots} shots · ${c.budget.pages} pages` : "—"}
+                      {c.budget?.capped && (
+                        <span className="block text-amber-600" title="A chapter plan holds at most 60 pages">
+                          More than one plan holds: split this chapter or lengthen the shots
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  <td className="py-1 pr-2">
+                    {c.planned.pages} pages · {c.planned.panels} panels
+                  </td>
+                  <td className="py-1 pr-2">
+                    {c.narrationWords} words · ≈{c.estimatedMinutes} min
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {report.data.neededChapters && report.data.chapters.length < report.data.neededChapters && (
+            <p className="mt-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+              This length needs about {report.data.neededChapters} chapters so that each fits one chapter plan; the
+              project has {report.data.chapters.length}. Analyse the story again (the analysis now aims for that many),
+              split long chapters, or choose longer shots.
+            </p>
+          )}
+          <p className="muted mt-2 text-xs">
+            Narration so far adds up to about <strong>{report.data.estimatedMinutes} min</strong>
+            {saved ? ` of the ${saved.minutes} min target` : ""}.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Save this project's setup as a template for new projects (the story, cast and files stay here). */
+function SaveTemplate({ projectId, defaultName }: { projectId: string; defaultName: string }) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-3">
+      <Field label="Save as template" hint="Type, format, style and settings; new projects can start from it.">
+        <input className="input" placeholder={defaultName} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <button
+        type="button"
+        className="btn-secondary"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await post(`/projects/${projectId}/template`, { name: name.trim() || defaultName });
+            await qc.invalidateQueries({ queryKey: ["production-presets"] });
+            toast.success("Template saved — it is offered when you create a project");
+            setName("");
+          } catch (e) {
+            toast.error(e);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        Save template
+      </button>
+    </div>
   );
 }

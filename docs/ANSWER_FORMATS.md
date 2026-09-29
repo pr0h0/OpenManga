@@ -19,6 +19,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [NarrationDraft](#narrationdraft)
 - [ImageDescription](#imagedescription)
 - [PanelCheck](#panelcheck)
+- [YoutubePackage](#youtubepackage)
 
 ## StoryAnalysis
 
@@ -2197,6 +2198,72 @@ interface PanelCheck {
     }
   ],
   "notes": "Tomas is partly hidden behind the door."
+}
+```
+
+</details>
+
+## YoutubePackage
+
+Asked by **Write YouTube package** — titles, description, tags, a pinned comment and thumbnail headlines.
+
+```ts
+/** Text for publishing the narrated video on YouTube. Saved on the project and editable afterwards. */
+interface YoutubePackage {
+  /**
+   * Title options, strongest first, each under 100 characters.
+   * Between 1 and 8 items.
+   * @example ["The Keeper Who Never Left the Light","She Came to Fix the Lamp. The Lamp Had Other Plans."]
+   */
+  titles: string[];
+  /**
+   * The video description: a hook, what the story is about without spoiling the ending, and a line inviting viewers to continue. Chapter timestamps are added by the app, so leave them out.
+   * Between 1 and 4500 characters.
+   * @example "An engineer sent to shut down the last lighthouse at Vell finds its old keeper still on duty…"
+   */
+  description: string;
+  /**
+   * Search tags, most specific first.
+   * At most 30 items.
+   * Optional — defaults to [] when left out.
+   * @example ["lighthouse story","narrated comic","mystery"]
+   */
+  tags?: string[];
+  /**
+   * A comment to pin under the video, usually a question that invites replies. Empty for none.
+   * Optional — defaults to "" when left out.
+   * @example "Would you have stayed with Tomas, or taken the last boat?"
+   */
+  pinnedComment?: string;
+  /**
+   * Short thumbnail headlines (two to five words) to choose from.
+   * At most 8 items.
+   * Optional — defaults to [] when left out.
+   * @example ["HE NEVER LEFT","THE LAST KEEPER"]
+   */
+  thumbnailHeadlines?: string[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "titles": [
+    "The Keeper Who Never Left the Light",
+    "She Came to Fix the Lamp. The Lamp Had Other Plans."
+  ],
+  "description": "An engineer sent to shut down the last lighthouse at Vell finds its old keeper still on duty…",
+  "tags": [
+    "lighthouse story",
+    "narrated comic",
+    "mystery"
+  ],
+  "pinnedComment": "Would you have stayed with Tomas, or taken the last boat?",
+  "thumbnailHeadlines": [
+    "HE NEVER LEFT",
+    "THE LAST KEEPER"
+  ]
 }
 ```
 

@@ -1,6 +1,7 @@
 import { getConfig } from "@openmanga/config";
 import { createApp } from "./app.ts";
 import { buildDeps } from "./deps.ts";
+import { tickProductionRuns } from "./lib/production.ts";
 
 const config = getConfig();
 const deps = buildDeps(config);
@@ -18,8 +19,12 @@ const server = Bun.serve({
 
 deps.logger.info("api listening", { port: server.port, mockMode: config.AI_MOCK_MODE, providers: deps.providers });
 
+// Production runs move on when their jobs finish; checking every 10 s is plenty for work measured in minutes.
+const runTicker = setInterval(() => void tickProductionRuns(deps), 10_000);
+
 const shutdown = async (signal: string) => {
   deps.logger.info("api shutting down", { signal });
+  clearInterval(runTicker);
   server.stop();
   await deps.close();
   process.exit(0);

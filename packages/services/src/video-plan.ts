@@ -14,7 +14,13 @@ import {
 import { readingOrder } from "@openmanga/domain";
 
 export type VideoCut = "page" | "panel";
-export type VideoScope = { chapterId?: string | null; pageId?: string | null; panelId?: string | null };
+export type VideoScope = {
+  chapterId?: string | null;
+  pageId?: string | null;
+  panelId?: string | null;
+  /** A selection of pages (in reading order, whatever order they are given in). */
+  pageIds?: string[] | null;
+};
 
 type PageRow = typeof pages.$inferSelect & { chapterOrder: number };
 type PanelRow = typeof panels.$inferSelect;
@@ -54,9 +60,11 @@ export async function planVideoShots(
       .where(
         pageId
           ? eq(pages.id, pageId)
-          : scope.chapterId
-            ? eq(pages.chapterId, scope.chapterId)
-            : eq(chapters.projectId, project.id),
+          : scope.pageIds?.length
+            ? and(eq(chapters.projectId, project.id), inArray(pages.id, scope.pageIds))
+            : scope.chapterId
+              ? eq(pages.chapterId, scope.chapterId)
+              : eq(chapters.projectId, project.id),
       )
       .orderBy(asc(chapters.order), asc(pages.order))
   ).map((r) => ({ ...r.page, chapterOrder: r.chapterOrder }));
@@ -127,7 +135,9 @@ export async function planVideoShots(
   }
   if (!shots.length) throw new Error("There are no panels to render");
   const inScope = new Set(shots.flatMap((s) => s.lineIds));
-  const unplacedLines = lines.filter((l) => !inScope.has(l.id) && !scope.pageId && !scope.panelId).length;
+  const unplacedLines = lines.filter(
+    (l) => !inScope.has(l.id) && !scope.pageId && !scope.pageIds?.length && !scope.panelId,
+  ).length;
   return { shots, lines, unplacedLines };
 }
 

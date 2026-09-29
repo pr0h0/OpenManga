@@ -1,13 +1,14 @@
 # Running without any API keys
 
 The whole pipeline can be driven by hand. Every text step will compile its prompt, park, and wait for you to
-paste an answer from whatever chat you already use; every panel takes an image you upload; narration is
-synthesised locally. Nothing in this mode contacts a provider, and nothing is billed.
+paste an answer from whatever chat you already use; every panel and reference takes an image you upload; narration
+is synthesised locally. Nothing in this mode contacts a provider, and nothing is billed.
 
 | Step | With a key | Without one |
 | --- | --- | --- |
-| Story analysis, planning, panel prompts, narration text, QA, describe | the provider answers | **you paste the answer** |
-| Panel artwork, references, covers | the provider draws | **you upload the image** |
+| Story analysis, rewrite, planning, panel prompts, narration text, consistency check, describe, YouTube package text | the provider answers | **you paste the answer** |
+| Panel artwork, references | the provider draws | **you upload the image** |
+| Covers, video thumbnails, masked edits | the provider draws | not available without an image key |
 | Narration audio | a TTS key, or local Kokoro | local Kokoro, unchanged |
 
 ## The idea
@@ -54,6 +55,9 @@ is kept and replayed in order, so a rejected answer costs only itself — never 
 the panel lists the image under the prompt to download, and the prompt marks where it belongs
 (`[attach image 1: asset …]`). Attach it to your chat along with the prompt; an image question answered without
 its image is a guess.
+
+An AI agent connected over MCP can do the pasting for you: it reads the same prompt and answer format (with the
+images a question is about) and submits the answer, question by question. See [MCP](MCP.md#asynchronous-jobs-and-manual-paste-mode).
 
 A parked job can be cancelled from the same page. Retrying it starts a fresh run: answers given to the cancelled
 one are not carried over.
@@ -177,8 +181,8 @@ many as the story needs):
 }
 ```
 
-Every other operation works the same way with its own schema: `ChapterPlan`, `ScenePages`, `PanelPromptDraft`,
-`NarrationDraft`, `StoryRewrite`, `ImageDescription`. You never have to write one from memory — the prompt you
+Every other operation works the same way with its own schema: `ChapterOutline` then one `ScenePages` per scene,
+`PanelPromptDraft`, `NarrationDraft`, `StoryRewrite`, `PanelCheck`, `ImageDescription`, `YoutubePackage`. You never have to write one from memory — the prompt you
 copied contains it.
 
 ## Artwork
@@ -187,6 +191,17 @@ copied contains it.
 tab. It fills the same slot generation would, appears in the ordinary version history, and can be superseded or
 reverted like any generated version. See
 [AI pipeline → Bring your own artwork](AI_PIPELINE.md#bring-your-own-artwork).
+
+## Production runs
+
+A [production run](AI_PIPELINE.md#production-runs) takes the text choice from its picker like any other operation,
+so with *Paste it yourself* chosen each text step it starts (analysis, plans, panel prompts, narration, YouTube
+text) parks as usual, and the run waits on that step until every job has been answered. What it does not change:
+
+- **The batch policy does not apply to pasted answers.** A pasted answer cannot wait in a provider batch, so with
+  *Paste it yourself* the run asks for none, whatever the project's batch policy says.
+- **Images still need a key.** Without an image key the reference and artwork steps are refused and noted (upload
+  artwork yourself), and the video thumbnail step fails the run unless the project already has a thumbnail.
 
 ## Limits
 

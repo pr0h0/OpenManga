@@ -15,8 +15,13 @@ export const frameSizeFor = (height: number) => ({ frameW: Math.round((height * 
  * Vertical camera travel for a page taller than the frame: at most `maxPxPerSec`; when the hold is too short to
  * cover the overflow at that rate, the visible window is centred instead of showing only the top.
  */
-export function scrollPlan(overflowPx: number, holdSec: number, maxPxPerSec: number) {
+/** Page framings: 3/5 width with a capped scroll, the whole page, or 3/5 width scrolling the whole page top to bottom. */
+export type PageFraming = "width" | "height" | "scroll";
+
+/** Travel over a hold: capped at `maxPxPerSec`, or the whole overflow for the continuous scroll framing. */
+export function scrollPlan(overflowPx: number, holdSec: number, maxPxPerSec: number, framing?: PageFraming) {
   if (overflowPx <= 0) return { y0: 0, travel: 0 };
+  if (framing === "scroll") return { y0: 0, travel: Math.round(overflowPx) };
   const travel = Math.min(overflowPx, maxPxPerSec * holdSec);
   return { y0: Math.round((overflowPx - travel) / 2), travel: Math.round(travel) };
 }
@@ -52,11 +57,11 @@ export function pageShotBox(
   pageH: number,
   frameW: number,
   frameH: number,
-  o: { framing: "width" | "height"; pageWidthRatio: number; pageHeightRatio: number },
+  o: { framing: PageFraming; pageWidthRatio: number; pageHeightRatio: number },
 ) {
   if (Math.abs(pageW / pageH - frameW / frameH) < 0.02) return { w: frameW, h: frameH };
   const w =
-    o.framing === "width" ? even(frameW * o.pageWidthRatio) : even((pageW / pageH) * frameH * o.pageHeightRatio);
+    o.framing !== "height" ? even(frameW * o.pageWidthRatio) : even((pageW / pageH) * frameH * o.pageHeightRatio);
   return { w, h: even((pageH / pageW) * w) };
 }
 
@@ -70,4 +75,22 @@ export function holdFor(
 ) {
   const frames = Math.ceil((Math.max(minHoldMs, narrationMs + (hasNarration ? breathMs : 0)) * fps) / 1000);
   return { frames, holdMs: (frames * 1000) / fps };
+}
+
+/** A YouTube-style timestamp: m:ss, or h:mm:ss from an hour on. */
+export function youtubeTimestamp(ms: number) {
+  const t = Math.floor(ms / 1000);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = String(t % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/**
+ * Chapter list for a video description, from where each chapter starts in the render. YouTube reads it when the
+ * first entry is 0:00, so the first mark is pinned there. Null for fewer than two chapters (nothing to navigate).
+ */
+export function youtubeChapters(marks: { startMs: number; title: string }[]) {
+  if (marks.length < 2) return null;
+  return marks.map((m, i) => `${youtubeTimestamp(i === 0 ? 0 : m.startMs)} ${m.title}`).join("\n");
 }

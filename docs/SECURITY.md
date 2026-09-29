@@ -8,23 +8,25 @@ gate), `docs/STORAGE.md` (uploads, keys, asset serving) and `docs/PROMPT_SYSTEM.
 | Password storage | Argon2id (`Bun.password`, 19 MiB / t=2), never reversible; timing-equalized unknown-user path |
 | Sessions | opaque 256-bit token, HMAC-SHA256 at rest, HttpOnly, Secure (prod), SameSite=Lax, rotation, logout-all, expiry |
 | CSRF | double-submit `om_csrf` cookie + `x-csrf-token` header on every unsafe method, timing-safe compare |
-| Rate limiting | Redis fixed window per user/IP on `/api` (600/min), 30/min on auth routes; login lockout with exponential backoff; limiters fail open on Redis errors |
-| Headers | nginx sets nosniff, Referrer-Policy, X-Frame-Options and Permissions-Policy globally, a strict CSP (`script-src 'self'`, `connect-src 'self'`) on `/app/`, and a `default-src 'none'` CSP on served assets; the API adds nosniff and `no-store` |
+| Rate limiting | Redis fixed window per user/IP on `/api` (600/min), 30/min on auth routes, per connection on `/mcp` (240/min); login lockout with exponential backoff, per identifier+IP and per identifier; limiters fail open on Redis errors, with an nginx limit on the credential endpoints as a backstop; `CF-Connecting-IP` trusted only from private networks |
+| Headers | nginx sets nosniff, Referrer-Policy, X-Frame-Options, Permissions-Policy and HSTS globally, a strict CSP (`script-src 'self'`, `connect-src 'self'`) on `/app/`, and a `default-src 'none'` CSP on served assets; the API adds nosniff, Referrer-Policy, X-Frame-Options and `no-store` unless a route sets its own cache policy |
 | Input validation | Zod on every body and query; UUID path params; enum and size bounds |
 | Authorization | one project gate with a role matrix; 404 for non-members, 403 for a member lacking the action; child entities resolve their project first |
 | Provider keys | bring-your-own only: no server-level provider keys exist, so a compromised server holds no shared credential (see below) |
-| Uploads | magic-byte MIME detection (PNG/JPEG/WebP only), `UPLOAD_MAX_BYTES` checked on both the header and the parsed file, Sharp re-encode that strips EXIF/GPS, 64 MP input limit |
+| Uploads | magic-byte MIME detection (PNG/JPEG/WebP only), `UPLOAD_MAX_BYTES` checked on both the header and the parsed file, Sharp re-encode that strips EXIF/GPS, 40 MP input limit |
 | Path traversal | server-generated opaque sharded keys, strict key regex (no `..`, `//`, trailing `/`), resolved-path root check, nginx `internal` location |
-| Asset access | the API authorizes each `/cdn` request against project membership, then answers with `X-Accel-Redirect`; client-supplied `X-Accel-Enabled` is stripped at the edge |
-| Secrets | server-side only, never sent to the browser; the logger redacts by key and by value (API keys, bearer tokens, cookies, passwords) |
+| Asset access | the API authorizes each `/cdn` request (the asset's owner, or `read` on its project; expert-chat images are owner-only), then answers with `X-Accel-Redirect`; trashed assets are 404 outside the trash views (`?trash=1`); client-supplied `X-Accel-Enabled` is stripped at the edge |
+| Reader links | `/api/public/shares/:token` needs no session: an unlisted 144-bit random token (stored as issued, so it can be shown again) opens one project or chapter read-only — its title, description, author, chapter titles and lettered page images, nothing else; only an owner (`manage`) creates or revokes one; a revoked link or a trashed project answers 404 at once, though a browser may keep a page image it already loaded for up to 5 minutes |
+| Secrets | server-side only, never sent to the browser; the logger redacts by key and by value (API keys, bearer tokens, cookies, passwords); boot refuses a `SESSION_SECRET` or `POSTGRES_PASSWORD` still set to the `.env.example` placeholder |
 | Errors | sanitized envelopes `{code, message, requestId}`; stack traces only in logs and `error_events` |
 | Prompt injection | story content isolated in delimiters it cannot close, instructions only in system messages, Zod validation of every output |
-| Budget | per-project cap (new projects start at $5) refuses new AI work with 402 until raised or explicitly overridden |
+| Budget | per-project cap (new projects start at $5) refuses new AI work with 402 until raised or explicitly overridden; a production run cannot start without a cap and pauses when it reaches it |
+| Production runs | a run spends unattended, so starting, continuing or cancelling one needs `generate`; it acts as the user who started it — every step is a normal route call through the same permission gate, budget and credential checks, re-evaluated per call (a disabled account pauses the run); no MCP connection is attached |
 | Mock safety | `AI_MOCK_MODE` refused when `NODE_ENV=production` unless `AI_MOCK_ALLOW_IN_PRODUCTION=true`; the mock HTTP service is on the internal network only |
-| Audit | `audit_events` for auth, project lifecycle, approvals, deletes, migrations, bulk generation, exports, credential rotation |
+| Audit | `audit_events` for auth, project lifecycle, approvals, deletes (including export and narration-audio deletion), migrations, bulk generation and bulk panel checks, production-run starts, exports, reader links, credential rotation; an agent's actions carry its connection (`service_id`) |
 | AI agents (MCP) | `/mcp` takes Bearer tokens only (OAuth 2.1 with PKCE S256, or personal access tokens), never the session; tokens are opaque and stored as HMACs; per-connection scopes, project grants and approval mode on top of normal membership; sensitive calls can wait for the user's approval; Host/Origin checks against DNS rebinding. Details in `docs/MCP.md` |
 | Network exposure | only nginx is published (loopback by default); Postgres, Redis, Kokoro, worker and mock-ai have no host ports |
-| Dev mailbox | 404 unless enabled; admin-only when `NODE_ENV=production` (reset links must not be public) |
+| Dev mailbox | 404 unless `DEV_MAILBOX_ENABLED=true`; admin-only in every environment (reset links must not be public) |
 
 ## User provider keys (BYOK)
 
@@ -49,13 +51,16 @@ in the system. `packages/services/src/credentials.ts` owns it.
   (`apps/api/src/cli/bootstrap.ts`), on every hourly worker maintenance cycle, and from
   `POST /api/admin/credentials/rotate`. `GET /api/admin/credentials/encryption` reports the rows per key id and how
   many are still pending. The operator procedure is in `docs/DEPLOYMENT.md`.
-- **Custom endpoints.** A credential may carry its own base URL; it must resolve to a public address, which keeps a
-  user-supplied endpoint from reaching internal services (tested in `packages/services/src/credentials.test.ts`).
+- **Custom endpoints.** A credential may carry its own base URL; it must be HTTPS without embedded credentials and
+  resolve to a public address, checked when saved and again on every use, which keeps a user-supplied endpoint from
+  reaching internal services (tested in `packages/services/src/credentials.test.ts`). `AI_ALLOW_PRIVATE_BASE_URLS`
+  lifts this for development only (to reach `mock-ai`); leave it off on anything reachable from the internet.
 
 ## Operational notes
 
-- Rotating `SESSION_SECRET` invalidates all sessions and reset tokens — and any saved provider key still encrypted
-  under the key derived from it. Set `CREDENTIALS_ENCRYPTION_KEY` before you ever need to rotate the session secret.
+- Rotating `SESSION_SECRET` invalidates all sessions and reset tokens, every MCP token when `MCP_TOKEN_SECRET` is
+  unset — and any saved provider key still encrypted under the key derived from it. Set
+  `CREDENTIALS_ENCRYPTION_KEY` before you ever need to rotate the session secret.
 - Keep `backups/` out of the repository and off public storage; it contains a copy of `.env`.
 - Cloudflare may inject scripts (Web Analytics, for example); the strict CSP blocks them. Disable those features in
   the zone or extend the CSP deliberately.

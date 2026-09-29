@@ -23,12 +23,15 @@ import {
   sql,
   storyRevisions,
   stylePresets,
+  users,
 } from "@openmanga/db";
+import { PRODUCTION_PRESETS } from "@openmanga/domain";
 import {
   asPatch,
   FILM_PAGE,
   ProjectFormat,
   ProjectSettings,
+  UserSettings,
   VERTICAL_LETTERING,
   VERTICAL_PAGE,
 } from "@openmanga/schemas";
@@ -60,6 +63,8 @@ export const CreateProject = z.object({
   customStyle: z.string().max(4000).default(""),
   /** "film": one full-frame 16:9 shot per page, planned as a shot list and exported as a Ken Burns video. */
   format: ProjectFormat.default("comic"),
+  /** A production preset key, or "template:<id>" for one of the caller's saved templates: its settings seed the project. */
+  preset: z.string().max(80).optional(),
   story: z
     .object({
       content: z.string().min(1).max(500_000),
@@ -162,6 +167,11 @@ projectRoutes.post("/", async (c) => {
   const u = user(c);
   const { db } = c.get("deps");
   const input = await body(c, CreateProject);
+  // Only settings come from the preset or template: the wizard fills type, format and style from it itself.
+  const presetSettings: Record<string, unknown> = input.preset?.startsWith("template:")
+    ? (u.settings.projectTemplates?.find((t) => t.id === input.preset!.slice(9))?.settings ?? {})
+    : (PRODUCTION_PRESETS.find((p) => p.key === input.preset)?.settings ?? {});
+  if (input.preset && !Object.keys(presetSettings).length) throw badRequest("Unknown preset or template");
   const readingDirection =
     input.readingDirection ??
     (input.projectType === "manga" ? "rtl" : input.projectType === "webtoon" ? "vertical" : "ltr");
@@ -175,6 +185,7 @@ projectRoutes.post("/", async (c) => {
       narrationVoice: u.settings.narrationVoice || c.get("deps").config.KOKORO_DEFAULT_VOICE,
       narrationSpeed: c.get("deps").config.KOKORO_DEFAULT_SPEED,
       imageQuality: c.get("deps").config.IMAGE_QUALITY === "auto" ? "low" : c.get("deps").config.IMAGE_QUALITY,
+      ...presetSettings,
       format: input.format,
       ...(input.format === "film" ? FILM_PAGE : input.format === "vertical" ? VERTICAL_PAGE : {}),
       ...(input.format === "vertical" ? { lettering: VERTICAL_LETTERING } : {}),
@@ -357,6 +368,53 @@ projectRoutes.post("/:projectId/duplicate", async (c) => {
 });
 
 export const StatusInput = z.object({ action: z.enum(["archive", "unarchive", "trash", "restore"]) });
+/** Settings a template never carries: this project's own outputs, not its setup. */
+const NOT_TEMPLATED = ["thumbnail", "youtubePackage", "pageWidth", "pageHeight"] as const;
+const SaveTemplate = z.object({ name: z.string().trim().min(1).max(80) });
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/template",
+  summary:
+    "Save this project's setup (type, format, style, settings) as one of your templates for new projects. Story, cast and files are not copied.",
+  tag: "projects",
+  body: SaveTemplate,
+});
+projectRoutes.post("/:projectId/template", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const { name } = await body(c, SaveTemplate);
+  const u = user(c);
+  const { db } = c.get("deps");
+  const [style] = p.currentStyleId
+    ? await db
+        .select({ key: stylePresets.key, custom: projectStyles.customDescription, builtin: stylePresets.isBuiltin })
+        .from(projectStyles)
+        .leftJoin(stylePresets, eq(stylePresets.id, projectStyles.stylePresetId))
+        .where(eq(projectStyles.id, p.currentStyleId))
+    : [];
+  const settings: Record<string, unknown> = { ...p.settings };
+  for (const k of NOT_TEMPLATED) delete settings[k];
+  const template = {
+    id: crypto.randomUUID(),
+    name,
+    projectType: p.projectType,
+    format: p.settings.format,
+    colorMode: p.colorMode,
+    language: p.language,
+    readingDirection: p.readingDirection,
+    // A project-scoped preset (a style described from an image) is not selectable elsewhere; its words carry over.
+    stylePresetKey: style?.builtin ? style.key : null,
+    customStyle: style?.custom ?? "",
+    settings,
+    createdAt: new Date().toISOString(),
+  };
+  const next = UserSettings.parse({
+    ...u.settings,
+    projectTemplates: [...(u.settings.projectTemplates ?? []), template].slice(-50),
+  });
+  await db.update(users).set({ settings: next }).where(eq(users.id, u.id));
+  return c.json({ template }, 201);
+});
+
 doc({
   method: "POST",
   path: "/api/projects/:projectId/status",

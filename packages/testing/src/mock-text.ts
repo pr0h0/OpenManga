@@ -418,6 +418,17 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
       const d = (data[0] ?? {}) as { panels?: { id?: string }[] };
       return mockNarration(story, d.panels ?? []);
     }
+    case "youtube-package-v1": {
+      const d = (data[0] ?? {}) as { project?: { title?: string }; chapters?: { title: string }[] };
+      const title = d.project?.title ?? "Untitled";
+      return {
+        titles: [`${title}: The Full Story`, `What Really Happened in ${title}`],
+        description: `A narrated telling of ${title}.\n\nChapters: ${(d.chapters ?? []).map((c) => c.title).join(", ")}.`,
+        tags: [title.toLowerCase(), "narrated story"],
+        pinnedComment: "Which chapter surprised you most?",
+        thumbnailHeadlines: ["NOBODY SAW IT COMING", "THE LAST NIGHT"],
+      };
+    }
     case "panel-check-v2":
     case "panel-check-v1": {
       const d = (data[0] ?? {}) as { expected?: { name: string }[] };

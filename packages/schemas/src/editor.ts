@@ -200,9 +200,26 @@ export const stripPageHeight = (width: number, height: StripPanelHeight = "norma
  * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
  * server default still applies and a project created before the preference existed is untouched.
  */
+/** A project's setup saved for reuse: its type, format, style and settings, never its story, cast or files. */
+export const ProjectTemplate = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  projectType: z.string().max(40),
+  format: z.enum(["comic", "film", "vertical"]),
+  colorMode: z.string().max(40),
+  language: z.string().max(16),
+  readingDirection: z.string().max(16).optional(),
+  stylePresetKey: z.string().max(64).nullable().optional(),
+  customStyle: z.string().max(4000).default(""),
+  settings: z.record(z.string(), z.unknown()).default({}),
+  createdAt: z.string(),
+});
+export type ProjectTemplate = z.infer<typeof ProjectTemplate>;
+
 export const UserSettings = z.object({
   /** Kokoro voice id used for new projects' narration. */
   narrationVoice: z.string().trim().max(64).optional(),
+  projectTemplates: z.array(ProjectTemplate).max(50).optional(),
 });
 export type UserSettings = z.infer<typeof UserSettings>;
 
@@ -213,10 +230,31 @@ export const ProjectSettings = z.object({
   pageGutter: z.number().min(0).max(0.1).default(0.015),
   pageMargin: z.number().min(0).max(0.2).default(0.03),
   imageQuality: z.enum(["low", "medium", "high"]).default("low"),
+  /** Which references bulk runs draw: everything, or only the main cast and places used in more than one panel. */
+  referencePolicy: z.enum(["all", "main"]).default("all"),
+  /**
+   * How a production run spends: everything now, everything through half-price provider batches (up to 24 h), or
+   * text in batches and images now.
+   */
+  batchPolicy: z.enum(["interactive", "cheapest", "hybrid"]).default("interactive"),
   narrationVoice: z.string().default("af_heart"),
   narrationSpeed: z.number().min(0.5).max(2).default(1),
   /** Narration length target; ~21 words is about 6 seconds of Kokoro speech per panel. */
   narrationWordsPerPanel: z.number().int().min(5).max(80).default(21),
+  /**
+   * A target video length. When set, chapter plans default to a page count and narration to a words-per-panel that
+   * land each chapter on its share of it (by source length), and the Exports page suggests minShotSeconds as the
+   * minimum hold.
+   */
+  targetRuntime: z
+    .object({
+      minutes: z.number().min(1).max(600),
+      wordsPerMinute: z.number().int().min(80).max(260).default(150),
+      minShotSeconds: z.number().min(1).max(30).default(4),
+      maxShotSeconds: z.number().min(2).max(60).default(8),
+    })
+    .nullable()
+    .optional(),
   referenceMaxWidth: z.number().int().min(16).max(2048).optional(),
   referenceMaxHeight: z.number().int().min(16).max(2048).optional(),
   webtoonGap: z.number().int().min(0).max(1000).default(40),
@@ -224,6 +262,16 @@ export const ProjectSettings = z.object({
   webtoonWidth: z.number().int().min(320).max(2000).default(800),
   worldNotes: z.string().default(""),
   author: z.string().default(""),
+  /** Publishing text for the video (titles, description, tags…): written by a text job, then edited freely. */
+  youtubePackage: z
+    .object({
+      titles: z.array(z.string().max(100)).max(8).default([]),
+      description: z.string().max(4500).default(""),
+      tags: z.array(z.string().max(60)).max(30).default([]),
+      pinnedComment: z.string().max(2000).default(""),
+      thumbnailHeadlines: z.array(z.string().max(60)).max(8).default([]),
+    })
+    .optional(),
   /** The YouTube thumbnail: text-free 16:9 art, with the headline composited by the app whenever it is rendered. */
   thumbnail: z
     .object({

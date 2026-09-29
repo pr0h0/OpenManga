@@ -1,20 +1,28 @@
 # Data model
 
-PostgreSQL via Drizzle. 48 tables in four schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
-`media.ts`, `jobs.ts`, with shared column helpers and every `pgEnum` in `common.ts`). UUID primary keys, `timestamptz`
-everywhere, migrations in `packages/db/drizzle` (`0000_init.sql` … `0007_retried_by_job.sql`). Browser-safe row types
-are re-exported from `@openmanga/db/types`.
+PostgreSQL via Drizzle. 66 tables in six schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+`media.ts`, `jobs.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every `pgEnum` in `common.ts`). UUID
+primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
+`packages/db/drizzle` (`0000_init.sql` … `0020_production_runs.sql`). Browser-safe row types are re-exported from
+`@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
 (`active|disabled`), `project_type` (`manga|manhwa|webtoon|comic|illustrated_story`), `reading_direction`
 (`ltr|rtl|vertical`), `color_mode` (`full_color|grayscale|bw_manga`), `project_status` (`active|archived`),
-`member_role` (`owner|editor|viewer`), `asset_type`, `asset_visibility` (`private|public`), `panel_status`
+`member_role` (`owner|editor|viewer`), `asset_type` (`character_reference`, `location_reference`,
+`prop_reference`, `style_reference`, `panel_art`, `panel_mask`, `cover`, `thumbnail`, `prompt_reference`,
+`source_image`, `export`, `audio`), `asset_visibility` (`private|public`), `panel_status`
 (`planned|prompt-ready|queued|generating|ready|failed`), `job_status`
-(`queued|processing|completed|failed|cancel_requested|cancelled|paused`).
+(`queued|submitted|awaiting_input|processing|completed|failed|cancel_requested|cancelled|paused`; `submitted` is
+waiting in a provider's batch API, `awaiting_input` is a paste-mode job waiting for an answer — neither holds a worker
+slot).
 
 ## Accounts (`auth.ts`)
 
-- `users` — username and email (lower-cased, each uniquely indexed), display name, role, status.
+- `users` — username and email (lower-cased, each uniquely indexed), display name, role, status, and `settings`
+  (JSON `UserSettings`: per-account preferences that seed new projects, and `projectTemplates` — up to 50 saved
+  project setups `{id, name, projectType, format, colorMode, language, readingDirection, stylePresetKey, customStyle,
+  settings, createdAt}`, never a story, cast or files).
 - `auth_identities` — `(provider, provider_subject)` unique; only `local` rows are written today (`docs/AUTH.md`).
 - `password_credentials` — Argon2id hash, one row per user. `sessions` — HMAC-SHA256 of an opaque token (unique),
   expiry, last use, IP, user agent, revoked.
@@ -27,21 +35,35 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
 ## Projects & story (`projects.ts`)
 
 - `projects` — owner, type, language, reading direction, colour mode, `status` (`active|archived`), soft delete via
-  `deleted_at` (trash), current style, cover and thumbnail assets, and a `settings` JSON validated by
+  `deleted_at` (trash), current style, cover and thumbnail (dashboard card) assets, and a `settings` JSON validated by
   `ProjectSettings` (`packages/schemas/src/editor.ts`). `project_members` carries the role.
 - `settings` is where several important knobs live, not as columns:
 
   | Field | Meaning |
   | --- | --- |
-  | `format` | `comic` or `film`. A film project is one full-frame 16:9 shot per page; creating one also applies `FILM_PAGE` (1920×1080, no margin or gutter). |
+  | `format` | `comic`, `film` or `vertical`. A film project is one full-frame 16:9 shot per page; creating one also applies `FILM_PAGE` (1920×1080, no margin or gutter). A vertical project is one scrolling strip and starts from `VERTICAL_PAGE` (800×1200, no margin or gutter). |
   | `budgetUsd` | Hard USD ceiling on AI spend. New projects are created with **$5**, written at creation rather than as a schema default so older projects stay uncapped. `null` = no cap. |
   | `pageWidth/Height`, `pageGutter`, `pageMargin`, `webtoon*` | Page and webtoon geometry used by the compositor. |
   | `imageQuality`, `referenceMaxWidth/Height` | Per-project overrides of the image quality and reference derivative box. |
   | `narrationVoice`, `narrationSpeed`, `narrationWordsPerPanel`, `narrationPauseMs` (350), `sceneBreakPauseMs` (700), `narrationStyle` | Narration defaults. |
   | `lettering`, `worldNotes`, `author` | Lettering defaults and project metadata. |
+  | `thumbnail` | `{assetId, title, subtitle, side}` — the text-free 16:9 video thumbnail art; the headline is kept as text and composited when rendered. |
   | `contentPolicyFallback` | `{enabled, credentialId, provider, model}` — opt-in single retry of a content-policy block on another of the user's own keys. |
   | `consistencyCheck` | `{enabled, credentialId, model}` — opt-in vision QA of generated panels. |
+  | `targetRuntime` | `{minutes, wordsPerMinute (150), minShotSeconds (4), maxShotSeconds (8)}` or null — a target video length. Split across chapters by source length (`runtimeBudget`, `packages/domain/src/runtime.ts`), it gives a chapter plan its default page target and narration its words per panel. |
+  | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
+  | `batchPolicy` | `interactive` (default), `cheapest` (text and images through provider batches) or `hybrid` (text in batches, images now) — how a production run spends. |
+  | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
 
+- `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
+  `user_id` it acts as, `status` (`running|waiting|paused|completed|failed|cancelled`; `waiting` is a review step,
+  `paused` a budget cap or a disabled account), `steps` (JSON, in order: `key`, status
+  `pending|running|review|done|skipped|failed`, a note, the generation `jobIds` or `exportJobId` it waits on, a `ref`
+  a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`, `youtube` and the run's `ai` choice) and a
+  `reason` for the person. Advanced by the API (`docs/ARCHITECTURE.md`).
+- `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a
+  random `token` (unique), creator, `revoked_at`. Served without a session under `/api/public/shares/:token`
+  (`docs/SECURITY.md`).
 - `story_revisions` — immutable once `locked_at` is set (analyses reference them); editing a locked revision forks a
   new one. Unique per `(project, revision_number)`.
 - `story_analyses` — the validated `StoryAnalysis` JSON for one revision; `pending → completed → applied` (or
@@ -59,8 +81,9 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
   `camera_angle` (free text), `story_beat`, `location_version_id`, `character_version_ids`, `prop_version_ids`,
   `active_artwork_asset_id`, `status`, approval status, plus four prompt and QA fields:
   `prompt_override` (text, a user-edited prompt), `prompt_draft` (JSON, the sections written by the `page_prompts`
-  job), `qa` (JSON, the latest consistency check of the active artwork) and `review` (JSON
-  `{reason, message, at}`, set when the artwork needs a human look — for example because it came from the
+  job), `qa` (JSON, the latest consistency check of the active artwork: verdict, problems, cast and headcount, and
+  face boxes used to move bubbles off faces; marked `stale` when newer artwork replaced the checked one) and
+  `review` (JSON `{reason, message, at}`, set when the artwork needs a human look — for example because it came from the
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
   plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it.
@@ -74,14 +97,17 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
 
 ## Cast & world (`projects.ts`)
 
+- `characters`, `locations` and `props` carry `deleted_at` (trash). Trashing one also trashes its reference images
+  with the same timestamp, so restoring it brings back exactly those images.
 - `characters` → `character_versions` (bible JSON, `immutable_traits`, status, parent version, change note) +
   `character_aliases` + `character_outfits`. `outfit_assignments` (in `media.ts`) sets an outfit on a panel,
   `onward` (until the next change, in reading order) or for that `panel` only; see `docs/IMAGE_REFERENCES.md`.
 - `locations` → `location_versions`, `props` → `prop_versions` — same versioning shape.
 - `style_presets` (built-in and custom) and `project_styles` (the versioned project style).
 - `reference_assets` — links one canonical asset to exactly one subject version (character, location, prop or style),
-  with `kind` (`portrait`, `full_body`, `multi_angle`, `expression_sheet`, `outfit`, `location`, `prop`, `style`,
-  `uploaded`), approval status, `is_primary`, and `source_fingerprint` — a hash of the subject version's
+  with `kind` (`portrait`, `full_body`, `multi_angle`, `expression_sheet`, `outfit`, `location`,
+  `location_panorama`, `location_sheet`, `prop`, `prop_multi_angle`, `style`, `uploaded`), an optional outfit,
+  approval status, `is_primary`, and `source_fingerprint` — a hash of the subject version's
   prompt-visible description when the reference was made, which is how staleness is detected
   (`docs/AI_PIPELINE.md`).
 
@@ -89,7 +115,8 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
 
 - `assets` — one abstraction for every file: owner, project, `type`, visibility, opaque `storage_key` (unique), MIME,
   dimensions and duration, byte size, **SHA-256**, approval status, `parent_asset_id` (edit lineage),
-  `generation_job_id`, metadata, soft delete.
+  `generation_job_id`, metadata, soft delete (`deleted_at`; a trashed asset is served only to trash views, see
+  `docs/STORAGE.md`). Images in expert chats have no project and belong to their owner alone.
 - `asset_variants` — disposable derivatives (`thumbnail`, `preview`, `prompt_ref`, `web`, `export`) with a unique
   deterministic `cache_key`, the params that produced them, and `last_used_at` for retention.
 - `audio_assets` — cached TTS output keyed by `(project, text_sha256, voice, speed)` with language, provider/model
@@ -99,25 +126,33 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure
-  code/reason, provider/model, provider request id, template name/version, compiled prompt, prompt/reference/options
-  hashes, parameters (including the run's `ai` choice), input, result, timings, `cancel_requested_at`, and
-  `retried_by_job_id` — set when a retry created a replacement, so a poller can tell a handled failure apart.
+  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`),
+  queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
+  provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
+  the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry
+  created a replacement, so a poller can tell a handled failure apart.
 - `generation_inputs` — the exact asset and variant ids sent, with `role` (`target`, `mask`, `character_ref`,
   `location_ref`, `prop_ref`, `style_ref`, `previous_panel`), order, label, sent dimensions and derivative metadata.
   `generation_outputs` — produced assets with an `activated` flag.
 - `prompt_templates` / `prompt_versions` — synced from code on boot, body plus SHA-256 (`docs/PROMPT_SYSTEM.md`).
 - `audio_jobs` — one TTS request: segment target, options (including its `ai` choice), status, attempts, resulting
   audio asset and a `reused_cache` flag.
-- `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `webtoon`, `zip_package`,
-  `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**, and
-  `project_import` (an import reuses the export job machinery and reports `{projectId, warnings}` in `result`).
-  `exports` holds the produced file asset, its name and `expires_at`.
-- `ai_usage` — provider, model, operation, request id, token counts (text in/out, image in/out, cached), raw usage
-  JSON, the rate snapshot used, estimated cost, latency, success, metadata.
+- `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`,
+  `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**,
+  `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
+  publishing text, zipped), and `project_import` (an import reuses the export job machinery and reports
+  `{projectId, warnings}` in `result`). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
+  job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made). Deleting an
+  export removes its job row and file at once.
+- `ai_usage` — provider, model, operation, request id, token counts (text in/out, image in/out, cached), billable
+  `images` and `characters`, raw usage JSON, the rate snapshot used, estimated cost, latency, success, metadata.
 - `provider_rate_snapshots` — editable per-model rates with effective dates: text in/out and cached input and image
   in/out in USD per 1M tokens, plus `image_unit_rate` in USD per generated image for providers that bill a flat price
-  per image.
+  per image and `character_rate` in USD per 1M characters for speech providers.
+- `provider_batches` — one submission to a provider's async batch API covering many jobs of a bulk run: capability
+  (`image|text`), provider, model, the provider's handle, a unique idempotency key, state
+  (`pending|running|succeeded|partial|failed|expired|cancelled`), request/completed/failed counts, uploaded file ids to
+  clean up, and submit/poll/ingest times.
 - `outbox` — transactional queue publication: queue, job name, job id (unique per queue), payload, priority, status
   `pending|published`, attempts, last error.
 - `error_events` — captured server errors for the admin view.
@@ -129,7 +164,7 @@ What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only a
 - `user_services` — a connected agent: its user, kind (`oauth` | `pat`), name, OAuth client id, scopes, project access
   (`all` | `selected`), `allow_project_create`, approval mode (`ALLOW_ALL` | `REQUIRE_APPROVAL`), last use, revocation.
 - `user_service_projects` — the projects a `selected` connection may touch.
-- `personal_access_tokens` — `om_pat_…` fingerprints, last four characters, expiry, last use, revocation.
+- `personal_access_tokens` — `om_pat_…` HMACs, last four characters, expiry, last use, revocation.
 - `oauth_clients` — dynamically registered clients (`oc_…`) and fetched Client ID Metadata Documents (the id is the
   document URL): name and exact redirect URIs.
 - `oauth_authorization_requests` — an authorization request frozen on arrival (client, redirect, state, PKCE challenge,
@@ -138,10 +173,12 @@ What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only a
   tokens bound to client, connection, resource and scopes; refresh tokens grouped in families for rotation and reuse
   detection.
 - `mcp_approval_requests` — a parked call: tool, action key, sensitivity, summary, stored arguments and their hash,
-  idempotency key, target snapshot, estimate, status (`pending|approved|denied|expired|stale|executed|failed`), result or
-  error.
+  idempotency key, target snapshot, estimate, status
+  (`pending|approved|denied|expired|stale|executed|failed|execution_unknown`), result or error. At most one `pending`
+  request per identical call; an `approved` request interrupted mid-run becomes `execution_unknown` and is never re-run.
 - `mcp_approval_rules` — remembered decisions, unique per `(connection, project, action key)`.
-- `mcp_idempotency` — results under a caller's idempotency key per `(connection, tool, key)`, with the arguments hash.
+- `mcp_idempotency` — a caller's idempotency key per `(connection, tool, key)`, claimed before the call runs: state
+  (`running|pending_approval|completed`), the arguments hash, the result to replay.
 - `audit_events.service_id` — the connection an audited action came through (null for the browser).
 
 ## Indexes
@@ -150,7 +187,8 @@ Project by owner and update time; chapter, scene, page, panel and beat ordering;
 target and batch; assets by project and type; unique `storage_key` and variant `cache_key`; usage by created-at and by
 project; unique session token hash; unique `(provider, provider_subject)`; narration lines by
 `(chapter, language, order)`; audio cache by `(project, text hash, voice, speed)`; outbox by `(status, created_at)`
-and unique `(queue, job_id)`; every `*_versions` table unique on `(subject, version_number)`.
+and unique `(queue, job_id)`; unique share-link token; production runs by `(project, created_at)` and by status;
+unique provider-batch idempotency key; every `*_versions` table unique on `(subject, version_number)`.
 
 ## Interchange format
 

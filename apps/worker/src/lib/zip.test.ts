@@ -124,3 +124,20 @@ test("extractZip does not apply the ratio guard when it is disabled (text manife
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("a streamed entry lands whole, chunk by chunk", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "mf-zip-"));
+  try {
+    const big = new Uint8Array(3 * 1024 * 1024).map((_, i) => i % 251);
+    const src = join(dir, "src.bin");
+    await Bun.write(src, big);
+    const zip = new ZipWriter(join(dir, "out.zip"));
+    await zip.addStream("video/big.mp4", Bun.file(src).stream());
+    await zip.add("note.txt", new TextEncoder().encode("hi"));
+    const files = unzipSync(new Uint8Array(await Bun.file(await zip.close()).arrayBuffer()));
+    expect(files["video/big.mp4"]).toEqual(big);
+    expect(new TextDecoder().decode(files["note.txt"])).toBe("hi");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

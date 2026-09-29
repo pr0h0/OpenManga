@@ -29,7 +29,15 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { LAYOUT_TEMPLATES, languageName, segmentNarration } from "@openmanga/domain";
+import {
+  chaptersForRuntime,
+  LAYOUT_TEMPLATES,
+  languageName,
+  type RuntimeTarget,
+  runtimeBudget,
+  segmentNarration,
+  wordsPerPanelFor,
+} from "@openmanga/domain";
 import {
   chapterOutlineV2,
   chapterPlanningV6,
@@ -42,10 +50,11 @@ import {
   sceneStripV2,
   shotOutlineV2,
   shotPlanningV3,
-  storyAnalysisV2,
+  storyAnalysisV3,
   storyRewriteV1,
   stripOutlineV2,
   stripPlanningV2,
+  youtubePackageV1,
 } from "@openmanga/prompts";
 import {
   ChapterOutline,
@@ -58,6 +67,7 @@ import {
   ScenePages,
   StoryAnalysis,
   StoryRewrite,
+  YoutubePackage,
 } from "@openmanga/schemas";
 import { applyChapterPlan, applyNarrationPauses } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -125,11 +135,15 @@ export async function storyAnalysis(deps: WorkerDeps, job: GenerationJob) {
     .where(eq(storyRevisions.id, String(job.input.storyRevisionId)));
   if (!rev) throw new InputError("Story revision no longer exists");
   const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
-  const messages = storyAnalysisV2.build({
+  // A target runtime sets how many chapters the story is cut into, so each fits a single chapter plan.
+  const target = project?.settings.targetRuntime;
+  const chapters = target ? chaptersForRuntime(target, project!.settings.format) : null;
+  const messages = storyAnalysisV3.build({
     story: rev.content,
     inputKind: rev.inputKind,
     language: project?.language ?? "en",
     projectType: project?.projectType ?? "manhwa",
+    runtime: target && chapters ? { minutes: target.minutes, chapters } : null,
   });
   try {
     const r = await structured(deps, job, messages, StoryAnalysis, "StoryAnalysis", 64_000);
@@ -185,6 +199,63 @@ export async function storyRewrite(deps: WorkerDeps, job: GenerationJob) {
     return row!;
   });
   return { storyRevisionId: created.id, revisionNumber: created.revisionNumber, notes: r.data.notes };
+}
+
+/** Publishing text for the project's video, saved on the project (and editable there) rather than on the job. */
+export async function youtubePackage(deps: WorkerDeps, job: GenerationJob) {
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!p) throw new InputError("Project no longer exists");
+  const chs = await deps.db
+    .select({ order: chapters.order, title: chapters.title, summary: chapters.summary })
+    .from(chapters)
+    .where(eq(chapters.projectId, p.id))
+    .orderBy(asc(chapters.order));
+  const cast = await deps.db
+    .select({ name: characters.name, role: characters.role })
+    .from(characters)
+    .where(and(eq(characters.projectId, p.id), isNull(characters.deletedAt)));
+  const r = await structured(
+    deps,
+    job,
+    youtubePackageV1.build({
+      project: { title: p.title, description: p.description, type: p.projectType, language: p.language },
+      chapters: chs,
+      cast,
+      headline: p.settings.thumbnail?.title || p.title,
+    }),
+    YoutubePackage,
+    "YoutubePackage",
+    8000,
+  );
+  await deps.db
+    .update(projects)
+    .set({
+      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(r.data)}::jsonb)`,
+    })
+    .where(eq(projects.id, p.id));
+  return { titles: r.data.titles.length, tags: r.data.tags.length };
+}
+
+/** With a target runtime, the words per panel that land this chapter on its share of it; otherwise null. */
+async function runtimeWordsPerPanel(
+  deps: WorkerDeps,
+  projectId: string,
+  settings: { targetRuntime?: RuntimeTarget | null; format: "comic" | "film" | "vertical" } | undefined,
+  chapterId: string,
+  panelCount: number,
+) {
+  const t = settings?.targetRuntime;
+  if (!t) return null;
+  const chs = await deps.db
+    .select({ id: chapters.id, source: chapters.sourceExcerpt, summary: chapters.summary })
+    .from(chapters)
+    .where(eq(chapters.projectId, projectId));
+  const budget = runtimeBudget(
+    t,
+    chs.map((c) => ({ id: c.id, sourceChars: (c.source || c.summary).length })),
+    settings.format,
+  ).chapters.find((c) => c.id === chapterId);
+  return budget ? wordsPerPanelFor(t, budget.words, panelCount) : null;
 }
 
 /** Structured project context for planning: keys the model can reference, never the entire story history. */
@@ -641,7 +712,12 @@ export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
     .select({ settings: projects.settings, language: projects.language })
     .from(projects)
     .where(eq(projects.id, job.projectId));
-  const wordsPerPanel = Number(job.input.wordsPerPanel ?? project?.settings.narrationWordsPerPanel ?? 21);
+  const wordsPerPanel = Number(
+    job.input.wordsPerPanel ??
+      (await runtimeWordsPerPanel(deps, job.projectId, project?.settings, String(job.input.chapterId), pns.length)) ??
+      project?.settings.narrationWordsPerPanel ??
+      21,
+  );
   const language = String(job.input.language || project?.language || "en");
   // ponytail: one request per chapter; chapters over 200 panels get narration for the first 200 only.
   const promptPanels = pns.slice(0, 200);

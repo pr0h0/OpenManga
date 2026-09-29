@@ -211,7 +211,8 @@ export type AppEvent =
   | { type: "chapter.updated"; chapterId: string }
   | { type: "audio.updated"; segmentId: string; status: string; audioJobId: string; failureReason?: string | null }
   | { type: "export.updated"; exportJobId: string; status: string; progress: number; failureReason?: string | null }
-  | { type: "narration.updated"; chapterId: string };
+  | { type: "narration.updated"; chapterId: string }
+  | { type: "production.updated"; runId: string; status: string };
 
 const channel = (projectId: string) => `om:events:project:${projectId}`;
 

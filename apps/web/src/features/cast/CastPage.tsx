@@ -15,6 +15,7 @@ import {
   StatusChip,
   TagInput,
 } from "../../components/ui.tsx";
+import { BulkGenerateButton } from "../pages/BulkGenerate.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 
 const ROLES = ["protagonist", "antagonist", "supporting", "minor"] as const;
@@ -51,6 +52,25 @@ export function CastPage() {
             <button type="button" className="btn-secondary" onClick={() => setTrash(!trash)}>
               {trash ? "Show active" : "Trash"}
             </button>
+            {!trash && (
+              <BulkGenerateButton
+                projectId={projectId}
+                scope={{ references: "character" }}
+                label="Generate all character references"
+                className="btn-secondary"
+                noun={{
+                  one: "character reference",
+                  many: "character references",
+                  missing: "Only characters without this kind of reference",
+                }}
+                kinds={[
+                  { value: "full_body", label: "Full body" },
+                  { value: "portrait", label: "Portrait" },
+                  { value: "multi_angle", label: "Turnaround" },
+                  { value: "expression_sheet", label: "Expression sheet" },
+                ]}
+              />
+            )}
             <button type="button" className="btn-primary" onClick={() => setAdding(true)}>
               <Plus className="size-4" /> Add character
             </button>

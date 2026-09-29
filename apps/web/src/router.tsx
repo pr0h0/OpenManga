@@ -244,6 +244,13 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/storyboard",
+    validateSearch: chapterSearch,
+    staticData: { title: "Storyboard" },
+    component: lazyRouteComponent(() => import("./features/pages/StoryboardPage.tsx"), "StoryboardPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/pages/$pageId",
     validateSearch: z.object({ panelId: z.string().optional() }),
     staticData: { title: "Page editor" },

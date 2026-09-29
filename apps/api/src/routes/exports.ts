@@ -39,6 +39,7 @@ export const ExportOptions = z.object({
     "agent_package",
     "video_pages",
     "video_panels",
+    "youtube_package",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),
@@ -86,7 +87,8 @@ export const ExportOptions = z.object({
       height: z.union([z.literal(720), z.literal(1080), z.literal(1440)]).default(1080),
       fps: z.number().int().min(12).max(60).default(30),
       minHoldMs: z.number().int().min(500).max(30_000).default(2500),
-      framing: z.enum(["width", "height"]).default("width"),
+      /** "scroll": 3/5 width, travelling the whole page top to bottom over its hold (the continuous scroll cut). */
+      framing: z.enum(["width", "height", "scroll"]).default("width"),
       pageWidthRatio: z.number().min(0.3).max(1).default(0.6),
       pageHeightRatio: z.number().min(0.5).max(1).default(0.96),
       maxScrollPxPerSec: z.number().min(10).max(400).default(60),
@@ -94,6 +96,8 @@ export const ExportOptions = z.object({
       zoom: z.number().min(0).max(0.2).default(0.06),
       /** Silence after each shot's narration before the cut. */
       breathMs: z.number().int().min(0).max(2000).default(150),
+      /** A partial render for checking: stop after the shot that reaches this length (whole shots only). */
+      maxDurationMs: z.number().int().min(10_000).max(86_400_000).optional(),
     })
     .default({
       height: 1080,

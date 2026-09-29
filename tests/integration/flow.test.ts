@@ -1583,6 +1583,169 @@ describe("full production flow (mock AI)", () => {
     await alice.del(`/api/dialogue/${dialogue.id}`);
   });
 
+  test("check all panels: priced first, then one check per panel with artwork, skipping ones already checked", async () => {
+    type Est = { count: number; total: number; skippedReasons: { noArtwork: number; alreadyChecked: number } };
+    const est = await alice.post<Est>(`/api/projects/${projectId}/checks`, { scope: { chapterId } });
+    expect(est.total).toBeGreaterThan(0);
+    expect(est.count + est.skippedReasons.noArtwork + est.skippedReasons.alreadyChecked).toBeLessThanOrEqual(est.total);
+    const run = await alice.post<{ jobs: { id: string; panelId: string }[] }>(
+      `/api/projects/${projectId}/checks`,
+      { scope: { chapterId }, confirm: true },
+      202,
+    );
+    expect(run.jobs.length).toBe(est.count);
+    for (const j of run.jobs) expect((await waitJob(alice, j.id)).job.status).toBe("completed");
+    // Every panel with art now has a current check with faces, so a second run finds nothing to do.
+    const again = await alice.post<Est>(`/api/projects/${projectId}/checks`, { scope: { chapterId } });
+    expect(again.count).toBe(0);
+    expect(
+      (await bob.raw("POST", `/api/projects/${projectId}/checks`, { scope: { chapterId } })).status,
+    ).toBeGreaterThanOrEqual(403);
+  });
+
+  test("YouTube package: the text is written and editable, and the export needs a rendered video", async () => {
+    const r = await alice.post<{ job: Job }>(`/api/projects/${projectId}/youtube-package`, {}, 202);
+    expect((await waitJob(alice, r.job.id)).job.status).toBe("completed");
+    const p = await alice.get<{
+      project: { settings: { youtubePackage?: { titles: string[]; description: string; tags: string[] } } };
+    }>(`/api/projects/${projectId}`);
+    const pkg = p.project.settings.youtubePackage!;
+    expect(pkg.titles.length).toBeGreaterThan(0);
+    expect(pkg.description.length).toBeGreaterThan(0);
+    await alice.patch(`/api/projects/${projectId}`, {
+      settings: { youtubePackage: { ...pkg, titles: ["My own title"] } },
+    });
+    const edited = await alice.get<{ project: { settings: { youtubePackage?: { titles: string[] } } } }>(
+      `/api/projects/${projectId}`,
+    );
+    expect(edited.project.settings.youtubePackage?.titles).toEqual(["My own title"]);
+
+    // Exports make no AI calls and render nothing new: without a finished video there is nothing to package.
+    const ex = await alice.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "youtube_package", chapterId, acknowledgeIssues: true },
+      202,
+    );
+    const done = await waitFor(
+      async () => {
+        const l = await alice.get<{ jobs: { id: string; status: string; failureReason: string | null }[] }>(
+          `/api/projects/${projectId}/exports`,
+        );
+        const j = l.jobs.find((x) => x.id === ex.job.id);
+        return j && ["completed", "failed"].includes(j.status) ? j : null;
+      },
+      { label: "youtube package", timeoutMs: 60_000 },
+    );
+    expect(done.status).toBe("failed");
+    expect(done.failureReason).toContain("Render the");
+  });
+
+  test("target runtime: a budget per chapter that chapter plans aim at", async () => {
+    await alice.patch(`/api/projects/${projectId}`, {
+      settings: { targetRuntime: { minutes: 3, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 } },
+    });
+    type Report = {
+      totalWords: number;
+      estimatedMinutes: number;
+      chapters: {
+        id: string;
+        budget: { words: number; shots: number; pages: number } | null;
+        planned: { pages: number };
+      }[];
+    };
+    const report = await alice.get<Report>(`/api/projects/${projectId}/runtime`);
+    expect(report.totalWords).toBe(450);
+    const mine = report.chapters.find((ch) => ch.id === chapterId)!;
+    expect(mine.budget!.pages).toBeGreaterThan(0);
+    expect(report.chapters.reduce((s, ch) => s + ch.budget!.words, 0)).toBeGreaterThanOrEqual(449);
+
+    // A plan without an explicit page target takes the chapter's budget.
+    const extra = await alice.post<{ chapter: { id: string } }>(
+      `/api/projects/${projectId}/chapters`,
+      {
+        title: "Runtime check",
+        sourceExcerpt: "Woo Jin walked home in the rain. The door was open. Someone waited inside.",
+      },
+      201,
+    );
+    const budgeted = (await alice.get<Report>(`/api/projects/${projectId}/runtime`)).chapters.find(
+      (ch) => ch.id === extra.chapter.id,
+    )!.budget!;
+    const plan = await alice.post<{ job: Job }>(`/api/chapters/${extra.chapter.id}/plan`, {}, 202);
+    const job = await alice.get<{ job: { input: { targetPages: number | null } } }>(`/api/generations/${plan.job.id}`);
+    expect(job.job.input.targetPages).toBe(budgeted.pages);
+    await waitJob(alice, plan.job.id);
+    await alice.del(`/api/chapters/${extra.chapter.id}`);
+    await alice.patch(`/api/projects/${projectId}`, { settings: { targetRuntime: null } });
+    expect((await alice.get<Report>(`/api/projects/${projectId}/runtime`)).chapters[0]!.budget).toBeNull();
+  });
+
+  test("production presets and templates seed new projects; bulk character references follow the policy", async () => {
+    type P = { presets: { key: string }[]; templates: { id: string; name: string }[] };
+    const list = await alice.get<P>("/api/production-presets");
+    expect(list.presets.map((x) => x.key)).toContain("youtube-recap-30");
+
+    const recap = await alice.post<{
+      project: {
+        id: string;
+        settings: {
+          imageQuality: string;
+          referencePolicy: string;
+          batchPolicy: string;
+          targetRuntime?: { minutes: number };
+        };
+      };
+    }>(
+      "/api/projects",
+      { title: "Recap preset", projectType: "manhwa", format: "film", preset: "youtube-recap-30" },
+      201,
+    );
+    expect(recap.project.settings).toMatchObject({
+      imageQuality: "low",
+      referencePolicy: "main",
+      batchPolicy: "hybrid",
+    });
+    expect(recap.project.settings.targetRuntime?.minutes).toBe(30);
+    expect((await alice.raw("POST", "/api/projects", { title: "x", preset: "nope" })).status).toBe(400);
+
+    // Save the recap's setup as a template, start another project from it, then delete the template.
+    const { template } = await alice.post<{ template: { id: string } }>(
+      `/api/projects/${recap.project.id}/template`,
+      { name: "My recap" },
+      201,
+    );
+    expect((await alice.get<P>("/api/production-presets")).templates.map((t) => t.name)).toContain("My recap");
+    const fromTemplate = await alice.post<{
+      project: { settings: { batchPolicy: string; targetRuntime?: { minutes: number } } };
+    }>("/api/projects", { title: "From template", format: "film", preset: `template:${template.id}` }, 201);
+    expect(fromTemplate.project.settings.batchPolicy).toBe("hybrid");
+    expect(fromTemplate.project.settings.targetRuntime?.minutes).toBe(30);
+    await alice.del(`/api/auth/templates/${template.id}`);
+    expect((await alice.get<P>("/api/production-presets")).templates).toHaveLength(0);
+
+    // Bulk character references: every character, or with the "main" policy none of the minor ones.
+    const all = await alice.post<{ total: number; skippedReasons: { minor: number } }>(
+      `/api/projects/${projectId}/generations/bulk`,
+      { scope: { references: "character", referenceKind: "portrait" }, onlyMissing: false },
+    );
+    expect(all.total).toBeGreaterThan(0);
+    expect(all.skippedReasons.minor).toBe(0);
+    const cast = await alice.get<{ characters: { id: string; role: string }[] }>(
+      `/api/projects/${projectId}/characters`,
+    );
+    const minor = cast.characters.find((c) => c.role !== "protagonist")!;
+    await alice.patch(`/api/characters/${minor.id}`, { role: "minor" });
+    await alice.patch(`/api/projects/${projectId}`, { settings: { referencePolicy: "main" } });
+    const main = await alice.post<{ count: number; skippedReasons: { minor: number } }>(
+      `/api/projects/${projectId}/generations/bulk`,
+      { scope: { references: "character", referenceKind: "portrait" }, onlyMissing: false },
+    );
+    expect(main.skippedReasons.minor).toBeGreaterThanOrEqual(1);
+    await alice.patch(`/api/projects/${projectId}`, { settings: { referencePolicy: "all" } });
+    await alice.patch(`/api/characters/${minor.id}`, { role: minor.role });
+    for (const id of [recap.project.id]) await alice.post(`/api/projects/${id}/status`, { action: "trash" });
+  });
+
   test("duplicate, search, archive, trash", async () => {
     const s = await alice.get<{ characters: { name: string }[]; dialogue: unknown[] }>(
       `/api/projects/${projectId}/search?q=woo`,

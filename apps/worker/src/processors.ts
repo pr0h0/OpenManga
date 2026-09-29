@@ -13,6 +13,7 @@ import {
   pagePrompts,
   storyAnalysis,
   storyRewrite,
+  youtubePackage,
 } from "./handlers/text.ts";
 import { textBatchSubmit } from "./handlers/text-batch.ts";
 import { TEXT_HANDLERS } from "./handlers/text-handlers.ts";
@@ -37,6 +38,7 @@ const GENERATION_HANDLERS: Record<
   panel_edit: panelEdit,
   panel_check: panelCheck,
   image_describe: imageDescribe,
+  youtube_package: youtubePackage,
   cover: coverGeneration,
   thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,

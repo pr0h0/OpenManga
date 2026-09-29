@@ -10,6 +10,7 @@ import {
   ScenePages,
   StoryAnalysis,
   StoryRewrite,
+  YoutubePackage,
 } from "@openmanga/schemas";
 import { expertChatV1, expertChatV2 } from "./experts.ts";
 import { DATA_RULE, defineTextTemplate, schemaInstructions, templateHeader, untrusted } from "./text-templates.ts";
@@ -193,6 +194,37 @@ export const storyAnalysisV2 = defineTextTemplate<Parameters<typeof storyAnalysi
   ].join("\n\n"),
   build(i) {
     return storyAnalysisV1.build.call(this, i);
+  },
+});
+
+/**
+ * v3: when the project targets a video length, the analysis is told it and how many chapters that needs, since
+ * every chapter is later planned in one pass with a bounded number of shots.
+ */
+export const storyAnalysisV3 = defineTextTemplate<
+  Parameters<typeof storyAnalysisV1.build>[0] & { runtime?: { minutes: number; chapters: number } | null }
+>({
+  name: "story-analysis",
+  version: 3,
+  description:
+    "Story bible, cast, world and chapters with drawable character bibles; chapter count sized to the target runtime.",
+  system: [
+    templateHeader("story-analysis", 3),
+    ...storyAnalysisV2.system.split("\n\n").slice(1, -2),
+    "CHAPTER COUNT: when the request gives a target video length and chapter count, split the story into AT LEAST that many chapters of broadly similar length, still at natural story breaks (a scene change, a time skip, a reveal). Never merge the story into fewer chapters than asked: each chapter is later adapted in one pass with a limited number of shots, so fewer chapters means a shorter video.",
+    DATA_RULE,
+    schemaInstructions("StoryAnalysis", StoryAnalysis),
+  ].join("\n\n"),
+  build(i) {
+    const [system, user] = storyAnalysisV1.build.call(this, i);
+    if (!i.runtime) return [system!, user!];
+    return [
+      system!,
+      {
+        ...user!,
+        content: `Target video length: about ${i.runtime.minutes} minutes, so split the story into at least ${i.runtime.chapters} chapters.\n\n${user!.content}`,
+      },
+    ];
   },
 });
 
@@ -459,6 +491,40 @@ export const storyRewriteV1 = defineTextTemplate<{ story: string; instruction: s
       {
         role: "user",
         content: `${untrusted("editor_instruction", i.instruction)}\n\n${untrusted("story_content", i.story)}`,
+      },
+    ];
+  },
+});
+
+export const youtubePackageV1 = defineTextTemplate<{
+  project: { title: string; description: string; type: string; language: string };
+  chapters: { order: number; title: string; summary: string }[];
+  cast: { name: string; role: string }[];
+  headline: string;
+}>({
+  name: "youtube-package",
+  version: 1,
+  description: "Publishing text for a narrated video: titles, description, tags, pinned comment, thumbnail headlines.",
+  system: [
+    templateHeader("youtube-package", 1),
+    "You write YouTube publishing copy for narrated story videos (manga, manhwa and comic recaps). Write in the project's language.",
+    "Titles: curious and specific, under 70 characters where possible, no clickbait that the story does not deliver, no all-caps words except for one of emphasis. Strongest first.",
+    "Description: a two-line hook, then what the story is about without spoiling its ending, then one line inviting viewers to continue. Do not add timestamps, links or hashtags; the app adds chapter timestamps.",
+    "Tags: specific search phrases first (genre, premise, character archetypes), then broader ones.",
+    "Pinned comment: one short question that invites viewers to reply.",
+    "Thumbnail headlines: two to five words each, readable at a glance, different angles on the same hook.",
+    DATA_RULE,
+    schemaInstructions("YoutubePackage", YoutubePackage),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: untrusted(
+          "project_data",
+          JSON.stringify({ project: i.project, chapters: i.chapters, cast: i.cast, currentHeadline: i.headline }),
+        ),
       },
     ];
   },
@@ -734,6 +800,7 @@ export const TEXT_TEMPLATES = [
   expertChatV2,
   storyAnalysisV1,
   storyAnalysisV2,
+  storyAnalysisV3,
   chapterPlanningV1,
   chapterPlanningV2,
   chapterPlanningV3,
@@ -750,6 +817,7 @@ export const TEXT_TEMPLATES = [
   narrationV4,
   panelCheckV1,
   storyRewriteV1,
+  youtubePackageV1,
   jsonRepairV1,
   imageDescribeV1,
   stripPlanningV1,

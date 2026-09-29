@@ -1,5 +1,5 @@
 import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes, sql, storyBeats } from "@openmanga/db";
-import { PRIORITY } from "@openmanga/domain";
+import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
 import { chapterPlanningV6, shotPlanningV3, stripPlanningV2 } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
@@ -223,6 +223,86 @@ chapterRoutes.delete("/chapters/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+/** The page target a project's runtime budget gives this chapter, or null when the project sets no runtime. */
+async function runtimePages(
+  db: AppEnv["Variables"]["deps"]["db"],
+  p: { id: string; settings: { targetRuntime?: RuntimeTarget | null; format: "comic" | "film" | "vertical" } },
+  chapterId: string,
+) {
+  const t = p.settings.targetRuntime;
+  if (!t) return null;
+  const chs = await db
+    .select({ id: chapters.id, source: chapters.sourceExcerpt, summary: chapters.summary })
+    .from(chapters)
+    .where(eq(chapters.projectId, p.id));
+  const b = runtimeBudget(
+    t,
+    chs.map((c) => ({ id: c.id, sourceChars: (c.source || c.summary).length })),
+    p.settings.format,
+  );
+  return b.chapters.find((c) => c.id === chapterId)?.pages ?? null;
+}
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/runtime",
+  summary:
+    "The project's target runtime split per chapter (narration words, shots, plan pages) against what is planned and written so far, and the runtime the current narration adds up to.",
+  tag: "chapters",
+});
+chapterRoutes.get("/projects/:projectId/runtime", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const { db } = c.get("deps");
+  const t = p.settings.targetRuntime ?? null;
+  const chs = await db
+    .select({
+      id: chapters.id,
+      order: chapters.order,
+      title: chapters.title,
+      source: chapters.sourceExcerpt,
+      summary: chapters.summary,
+    })
+    .from(chapters)
+    .where(eq(chapters.projectId, p.id))
+    .orderBy(asc(chapters.order));
+  const counts = await db.execute<{ chapter_id: string; pages: number; panels: number; words: number }>(sql`
+    select c.id as chapter_id,
+      (select count(*)::int from pages pg where pg.chapter_id = c.id) as pages,
+      (select count(*)::int from panels pn join pages pg on pg.id = pn.page_id where pg.chapter_id = c.id) as panels,
+      (select coalesce(sum(array_length(regexp_split_to_array(trim(nl.text), '\\s+'), 1)), 0)::int
+         from narration_lines nl where nl.chapter_id = c.id and nl.language = ${p.language} and trim(nl.text) <> '') as words
+    from chapters c where c.project_id = ${p.id}`);
+  const byId = new Map([...counts].map((r) => [r.chapter_id, r]));
+  const budget = t
+    ? runtimeBudget(
+        t,
+        chs.map((ch) => ({ id: ch.id, sourceChars: (ch.source || ch.summary).length })),
+        p.settings.format,
+      )
+    : null;
+  const wpm = t?.wordsPerMinute ?? 150;
+  const rows = chs.map((ch) => {
+    const n = byId.get(ch.id);
+    return {
+      id: ch.id,
+      order: ch.order,
+      title: ch.title,
+      budget: budget?.chapters.find((b) => b.id === ch.id) ?? null,
+      planned: { pages: n?.pages ?? 0, panels: n?.panels ?? 0 },
+      narrationWords: n?.words ?? 0,
+      estimatedMinutes: Math.round(((n?.words ?? 0) / wpm) * 10) / 10,
+    };
+  });
+  return c.json({
+    target: t,
+    /** Chapters this length needs for each to fit one plan; compare with the chapter count. */
+    neededChapters: t ? chaptersForRuntime(t, p.settings.format) : null,
+    totalWords: budget?.totalWords ?? null,
+    chapters: rows,
+    estimatedMinutes: Math.round((rows.reduce((s, r) => s + r.narrationWords, 0) / wpm) * 10) / 10,
+  });
+});
+
 export const PlanInput = z.object({
   replace: z.boolean().default(false),
   targetPages: z.number().int().min(1).max(60).optional(),
@@ -270,6 +350,7 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
   const run = await textRun(c, input.ai);
   assertBatchable(c, input.batch, run.provider);
   const batchId = input.batch ? crypto.randomUUID() : null;
+  const targetPages = input.targetPages ?? (await runtimePages(deps.db, p, id));
   const job = await deps.db.transaction((tx) =>
     deps.jobs.createGenerationJob(
       tx,
@@ -296,7 +377,7 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(input.batch) },
-        input: { chapterId: id, replace: input.replace, targetPages: input.targetPages ?? null },
+        input: { chapterId: id, replace: input.replace, targetPages },
       },
       { enqueue: !input.batch },
     ),

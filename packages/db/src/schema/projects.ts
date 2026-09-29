@@ -357,3 +357,49 @@ export const shareLinks = pgTable(
   },
   (t) => [uniqueIndex("share_links_token_uq").on(t.token), index("share_links_project_idx").on(t.projectId)],
 );
+
+/** One step of a production run, in order; `jobIds`/`exportJobId` are what it is waiting on. */
+export type ProductionStep = {
+  key: string;
+  status: "pending" | "running" | "review" | "done" | "skipped" | "failed";
+  note?: string;
+  jobIds?: string[];
+  exportJobId?: string;
+  /** What a later step needs from this one, e.g. the analysis the apply step applies. */
+  ref?: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+/**
+ * A production run: the whole pipeline for a project, advanced step by step by the API, each step calling the same
+ * routes a person would. Resumable: it only ever looks at what exists, so a restart picks up where it stood.
+ */
+export const productionRuns = pgTable(
+  "production_runs",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status")
+      .$type<"running" | "waiting" | "paused" | "completed" | "failed" | "cancelled">()
+      .notNull()
+      .default("running"),
+    steps: jsonb("steps").$type<ProductionStep[]>().notNull().default([]),
+    options: jsonb("options")
+      .$type<{ reviewGates: boolean; preparePrompts: boolean; render: boolean; youtube: boolean }>()
+      .notNull(),
+    /** Why the run is paused or failed, in words for the person. */
+    reason: text("reason"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("production_runs_project_idx").on(t.projectId, t.createdAt),
+    index("production_runs_status_idx").on(t.status),
+  ],
+);

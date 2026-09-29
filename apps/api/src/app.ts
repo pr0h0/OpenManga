@@ -17,6 +17,7 @@ import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { pageRoutes } from "./routes/pages.ts";
+import { productionRoutes } from "./routes/production.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { referenceRoutes } from "./routes/references.ts";
 import { publicShareRoutes, shareRoutes } from "./routes/shares.ts";
@@ -57,6 +58,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     aiRoutes,
     expertRoutes,
     shareRoutes,
+    productionRoutes,
   ])
     api.route("/", r);
 }

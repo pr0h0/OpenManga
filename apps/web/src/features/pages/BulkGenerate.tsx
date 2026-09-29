@@ -12,7 +12,7 @@ type Scope = {
   chapterId?: string;
   panelIds?: string[];
   /** Every location or every prop: one reference each. */
-  references?: "location" | "prop";
+  references?: "character" | "location" | "prop";
   referenceKind?: string;
 };
 
@@ -24,7 +24,13 @@ type Estimate = {
   count: number;
   skipped: number;
   total?: number;
-  skippedReasons?: { inProgress: number; hasArtwork?: number; locked?: number; hasReference?: number };
+  skippedReasons?: {
+    inProgress: number;
+    hasArtwork?: number;
+    locked?: number;
+    hasReference?: number;
+    minor?: number;
+  };
   estimatedUsd: number | null;
   budget?: {
     limitUsd: number | null;
@@ -96,6 +102,7 @@ function skippedText(e: Estimate) {
     r.inProgress && `${r.inProgress} already queued or generating`,
     r.hasArtwork && `${r.hasArtwork} already have artwork`,
     r.hasReference && `${r.hasReference} already have a reference`,
+    r.minor && `${r.minor} minor or used once (main-only reference policy)`,
     r.locked && `${r.locked} locked`,
   ]
     .filter(Boolean)

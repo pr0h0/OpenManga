@@ -18,9 +18,9 @@ curl -fsS http://127.0.0.1:3480/readyz
 
 `.env.example` marks exactly which variables are required; everything below that block has a working default. Only the
 variables listed in the `x-app-env` block of `docker-compose.yml` are forwarded into the containers, so a setting the
-config schema accepts but compose does not pass (`SESSION_TTL_DAYS`, `RATE_LIMIT_PER_MINUTE`, `LOGIN_MAX_ATTEMPTS`,
-`UPLOAD_MAX_BYTES`, `REFERENCE_FORMAT`, `REFERENCE_QUALITY`, `TTS_TRIM_*`, `NARRATION_SEGMENT_MAX_CHARS`,
-`EXPORT_WORKER_CONCURRENCY`) needs adding there before putting it in `.env`. The
+config schema accepts but compose does not pass needs adding there before putting it in `.env`. Every setting in
+the config schema is forwarded today except `API_PORT`, which is fixed inside the container. (`KOKORO_WORKERS` and
+`KOKORO_THREADS` go to the kokoro service instead.) The
 `migrate` service (`apps/api/src/cli/bootstrap.ts`) applies migrations, syncs prompt templates, style presets and
 provider rate snapshots, re-encrypts stored provider keys onto the current key, and creates the initial admin if the
 `INITIAL_ADMIN_*` variables are set.
@@ -51,11 +51,15 @@ Profiles (set `COMPOSE_PROFILES` in `.env`):
 | `/app/*` | SPA (Vite build, `base=/app/`, fallback to `index.html`, immutable hashed assets, strict CSP) |
 | `/api/*` | API, 120 s timeouts, `client_max_body_size 20m` |
 | `/api/projects/import` | same, but `client_max_body_size 4096m` for ZIP imports (see Import limits) |
-| `/api/projects/<id>/events` | SSE: buffering, caching and gzip off, 1 h read timeout |
+| `/api/projects/<id>/events`, `/api/expert-chats/<id>/stream` | SSE: buffering, caching and gzip off, 1 h read timeout |
+| `/api/auth/login`, `/register`, `/password-reset/request` | same as `/api/*`, plus an nginx burst limit (see below) |
+| `/api/public/*` | reader-link API (`/api/public/shares/<token>`), no sign-in; the SPA's reader is `/app/read/<token>` |
+| `/mcp` | MCP endpoint for AI agents: unbuffered (replies can upgrade to SSE), 300 s read timeout, 8 MB body (`docs/MCP.md`) |
+| `/oauth/*`, `/.well-known/oauth-*` | the MCP's OAuth authorization server and discovery documents, 64 KB body |
 | `/cdn/*` | API authorization → `X-Accel-Redirect` → the internal `/_protected_assets/` location |
 | `/healthz`, `/readyz` | API health and readiness (`/readyz` checks Postgres and Redis; Kokoro is reported as optional and never fails readiness) |
 
-Security headers (CSP, nosniff, frame options, referrer policy, permissions policy) are set by nginx;
+Security headers (CSP, nosniff, frame options, referrer policy, permissions policy, HSTS) are set by nginx;
 `absolute_redirect off` keeps redirects scheme-correct behind a TLS proxy. nginx trusts `CF-Connecting-IP` for the
 client address, which is what the API's rate limiters key on.
 
@@ -130,7 +134,7 @@ git pull && GIT_SHA=$(git rev-parse --short HEAD) docker compose build && docker
 ```
 
 **Which build is running.** Every image stamps itself when it is built, and the app header shows the server's
-build as `v0.5.0.20260923121530` — the release version, then the UTC build time to the second. The version alone
+build as `v0.10.0.20260928121530` — the release version, then the UTC build time to the second. The version alone
 cannot tell deploys apart, since master is deployed many times under one number between releases; the build time
 orders them and can be matched against `git log` to see which commits are live. Hover it for the commit and for the
 web bundle's own stamp. The two images build one after the other, so their times always differ by a few seconds —
@@ -140,7 +144,7 @@ and needs a reload.
 
 `GIT_SHA` is optional — the build context has no `.git`, so the commit only appears if the build is told it. The
 stamp re-runs whenever the code changes, so rebuilding an unchanged tree keeps its time rather than claiming to be
-new. A checkout run outside Docker reports `v0.5.0-dev`.
+new. A checkout run outside Docker reports `v0.10.0-dev`.
 
 The worker has `stop_grace_period: 6m` so an in-flight image request (up to `AI_IMAGE_TIMEOUT_MS`) finishes instead of
 being killed after the user has already paid for it.
@@ -209,9 +213,13 @@ Add a compose override with `deploy.resources.reservations.devices` for the koko
 
 - Every long-running service has a health check. The worker writes `/data/tmp/worker-heartbeat` every 30 s and is
   unhealthy after 2 minutes without it.
-- The hourly `maintenance` job force-fails jobs stuck in `processing` for over 2 hours and prunes expired sessions,
-  reset tokens, unused derivatives, expired exports, trashed assets and published outbox rows
+- The hourly `maintenance` job fails jobs that have not written to their row for `STALLED_JOB_TIMEOUT_MINUTES`
+  (120) and that no worker still holds, fails batched panels whose submitter died, and prunes expired sessions,
+  reset tokens, unused derivatives, expired exports, trashed assets, old temp files and published outbox rows
   (`docs/STORAGE.md`).
+- **Production runs** are advanced by the API process, not the worker: it checks every `running` run every 10 s, so
+  a run resumes by itself after an API restart. The guard against two passes on one run is in memory, so run a single
+  `api` replica.
 
 ## Exports: readiness, video, import
 
@@ -223,21 +231,34 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   the export returns 409 `export_not_ready` until the caller confirms with `acknowledgeIssues: true` ("export
   anyway"); draft versions are informational. The same issues are written into agent packages. The endpoint also
   reports whether the caller has a usable provider key for further generation.
-- **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `webtoon`, `zip_package`, `project_json`, `narration_audio`, `timeline`,
-  `agent_package`, `video_pages`, `video_panels`.
+- **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`, `zip_package`, `project_json`,
+  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `youtube_package`. `pdf.pageSize`
+  takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
+  `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
+  fixed-layout with the cover.
+  Page images, PDF, CBZ, EPUB, webtoon, narration audio and timeline need a chapter (or page ids).
+  `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
+  project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
+  `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
+- **Deleting**: `DELETE /api/exports/:id` or `DELETE /api/projects/:id/exports` removes finished exports and their
+  files from disk at once (no trash); running exports are kept.
 - **Video export (panel cut)** `video_panels`: one clip per panel in reading order, clean artwork cropped exactly as
   on the page (frame aspect plus image focus) fitted inside the 16:9 frame over a blurred copy, Ken Burns `zoom`
   (default 6%) — wide, full and medium shots push in, close, extreme-close and insert pull out — supersampled 3×
   before `zoompan`. Lines attached only to a page play over its first panel. Hard cuts, the same audio assembly,
   loudness normalisation and duration verification as the page cut, and an `.srt` of the narration segments next to
-  the MP4 (both cuts).
-- **Video export (page cut)** `video_pages`: an MP4 per chapter — or the whole project in chapter order when
-  `chapterId` is omitted — per language, following `docs/VIDEO_EXPORT_REFERENCE.md`: pages at
-  `video.pageWidthRatio` (0.6) of the frame width with capped scroll, minimum hold (`minHoldMs`, 2500 ms),
+  the MP4 (both cuts), plus a `.chapters.txt` of YouTube chapter timestamps when the film spans more than one
+  chapter.
+- **Video export (page cut)** `video_pages`: an MP4 per chapter — or the whole project in chapter order when `chapterId`
+  is omitted, or only the given `pageIds` (either cut) — per language, following `docs/VIDEO_EXPORT_REFERENCE.md`: pages
+  at `video.pageWidthRatio` (0.6) of the frame width with capped scroll, minimum hold (`minHoldMs`, 2500 ms),
   frame-exact clips, two-pass loudness normalisation over the whole file and a duration check against the narration.
-  Defaults are 1080p at 30 fps. Requires ffmpeg, which is in the app image.
-- **In-browser preview**: `GET /api/video-preview?cut=page|panel` returns the same shot list and narration audio the
-  renderer uses, so the SPA can play the cut without encoding anything.
-- **Project import** `POST /api/projects/import` accepts a `zip_package` export (or `project_json`, without files) up
-  to 1 GiB; nginx allows that size only on this route. The worker recreates the project for the importing user and
-  records warnings on the job.
+  `video.framing` `height` shows the whole page instead, and `scroll` travels the whole page top to bottom over its
+  hold. `video.maxDurationMs` (either cut) makes a partial render for checking, ending on the whole shot that reaches
+  that length. Defaults are 1080p at 30 fps. Requires ffmpeg, which is in the app image.
+- **In-browser preview**: `GET /api/video-preview?cut=page|panel` with exactly one of `chapterId`, `pageId` or
+  `panelId` returns the same shot list and narration audio the renderer uses, so the SPA can play the cut without
+  encoding anything.
+- **Project import** `POST /api/projects/import` accepts a `zip_package` export (or `project_json`, without files) up to
+  `IMPORT_MAX_UPLOAD_MB` (4 GiB); nginx allows that size only on this route. The worker recreates the project for the
+  importing user and records warnings on the job.

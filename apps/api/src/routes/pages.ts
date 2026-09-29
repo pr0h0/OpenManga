@@ -29,9 +29,11 @@ import {
 import {
   applySfxDefaults,
   applyTypeStyle,
+  batchModel,
   clampFrame,
   defaultTailTarget,
   draftBubble,
+  estimateCostUsd,
   type FaceBox,
   faceAvoidZone,
   facesOnPage,
@@ -58,7 +60,14 @@ import {
   SfxStyle,
   ShotType,
 } from "@openmanga/schemas";
-import { letterPanel, outfitReferenceAssets, outfitTimeline, recordAudit, resolveOutfits } from "@openmanga/services";
+import {
+  letterPanel,
+  outfitReferenceAssets,
+  outfitTimeline,
+  projectBudget,
+  recordAudit,
+  resolveOutfits,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -1714,6 +1723,8 @@ pageRoutes.post("/panels/:id/review/dismiss", async (c) => {
 });
 
 const CheckInput = z.object({ ai: AiChoiceInput, batch: BatchInput });
+/** A chapter of 50 pages at 5 panels each, with room to spare. */
+const MAX_BULK_CHECKS = 500;
 doc({
   method: "POST",
   path: "/api/panels/:id/check",
@@ -1721,41 +1732,203 @@ doc({
   tag: "panels",
   body: CheckInput,
 });
+/** The vision key a check runs on: the project's own, else the caller's picker (which may not read images). */
+function checkChoice(
+  project: { settings: { consistencyCheck?: { credentialId?: string | null; model?: string } } },
+  ai: AiChoiceInput,
+) {
+  const cc = project.settings.consistencyCheck;
+  return cc?.credentialId ? { credentialId: cc.credentialId, model: cc.model || null } : (ai ?? null);
+}
+
+/** Queue one panel's check inside a transaction; batched checks wait for the caller's batch submit. */
+function createCheckJob(
+  deps: AppEnv["Variables"]["deps"],
+  tx: Parameters<Parameters<AppEnv["Variables"]["deps"]["db"]["transaction"]>[0]>[0],
+  a: {
+    projectId: string;
+    userId: string;
+    panelId: string;
+    assetId: string;
+    run: Awaited<ReturnType<typeof textRun>>;
+    batch: boolean;
+    batchId: string | null;
+    priority: number;
+  },
+) {
+  return deps.jobs.createGenerationJob(
+    tx,
+    {
+      projectId: a.projectId,
+      userId: a.userId,
+      kind: "panel_check",
+      priority: a.priority,
+      targetType: "panel",
+      targetId: a.panelId,
+      batchId: a.batchId,
+      templateName: panelCheckV1.name,
+      templateVersion: panelCheckV1.version,
+      provider: a.run.provider,
+      model: a.run.model,
+      parameters: { ...a.run.parameters, assetId: a.assetId, ...batchParameters(a.batch) },
+      input: { panelId: a.panelId, assetId: a.assetId },
+    },
+    { enqueue: !a.batch },
+  );
+}
+
 pageRoutes.post("/panels/:id/check", async (c) => {
   const { panel, project } = await loadPanel(c, uuidParam(c, "id"), "generate");
   const { ai, batch } = await body(c, CheckInput);
   if (!panel.activeArtworkAssetId) throw conflict("Panel has no artwork to check");
-  const cc = project.settings.consistencyCheck;
   // The project's own vision key wins: it was picked for this job, while `ai` is whatever the page's text picker
   // happens to hold, which may well be a model that cannot read images.
-  const choice = cc?.credentialId ? { credentialId: cc.credentialId, model: cc.model || null } : (ai ?? null);
+  const choice = checkChoice(project, ai);
   await assertBudget(c, project.id);
   const run = await textRun(c, choice ?? null);
   const deps = c.get("deps");
   assertBatchable(c, batch, run.provider);
   const checkBatchId = batch ? crypto.randomUUID() : null;
   const job = await deps.db.transaction((tx) =>
-    deps.jobs.createGenerationJob(
-      tx,
-      {
-        projectId: project.id,
-        userId: user(c).id,
-        kind: "panel_check",
-        priority: PRIORITY.single,
-        targetType: "panel",
-        targetId: panel.id,
-        batchId: checkBatchId,
-        templateName: panelCheckV1.name,
-        templateVersion: panelCheckV1.version,
-        provider: run.provider,
-        model: run.model,
-        parameters: { ...run.parameters, assetId: panel.activeArtworkAssetId, ...batchParameters(batch) },
-        input: { panelId: panel.id, assetId: panel.activeArtworkAssetId },
-      },
-      { enqueue: !batch },
-    ),
+    createCheckJob(deps, tx, {
+      projectId: project.id,
+      userId: user(c).id,
+      panelId: panel.id,
+      assetId: panel.activeArtworkAssetId!,
+      run,
+      batch,
+      batchId: checkBatchId,
+      priority: PRIORITY.single,
+    }),
   );
   if (checkBatchId) await queueTextBatchSubmit(c, { projectId: project.id, batchId: checkBatchId, ai: choice ?? null });
   await deps.jobs.kick();
   return c.json({ job }, 202);
+});
+
+const BulkCheckInput = z.object({
+  /** One page or one chapter; neither means the whole project. */
+  scope: z.object({ pageId: z.string().uuid().optional(), chapterId: z.string().uuid().optional() }).default({}),
+  /** Skip panels whose current artwork already has a check that found faces. */
+  onlyUnchecked: z.boolean().default(true),
+  confirm: z.boolean().default(false),
+  ai: AiChoiceInput,
+  batch: BatchInput,
+});
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/checks",
+  summary:
+    "Check all panels: queue the vision consistency check for every panel with artwork on a page, in a chapter or in the project. Without confirm=true returns the count and an estimate only.",
+  tag: "generations",
+  body: BulkCheckInput,
+});
+pageRoutes.post("/projects/:projectId/checks", async (c) => {
+  const project = await projectAccess(c, uuidParam(c, "projectId"), "generate");
+  const input = await body(c, BulkCheckInput);
+  const deps = c.get("deps");
+  const { pageId, chapterId } = input.scope;
+  if (pageId) await entityAccess(c, "page", pageId, "read");
+  if (chapterId) await entityAccess(c, "chapter", chapterId, "read");
+  const rows = await deps.db
+    .select({ id: panels.id, art: panels.activeArtworkAssetId, qa: panels.qa, status: panels.status })
+    .from(panels)
+    .innerJoin(pages, eq(pages.id, panels.pageId))
+    .where(
+      and(
+        eq(panels.projectId, project.id),
+        pageId ? eq(panels.pageId, pageId) : undefined,
+        chapterId ? eq(pages.chapterId, chapterId) : undefined,
+      ),
+    )
+    .orderBy(asc(pages.order), asc(panels.order));
+  const withArt = rows.filter((r) => r.art);
+  // Current: a check of the artwork the panel shows now, that also found faces (checks before faces existed don't).
+  const current = (r: (typeof rows)[number]) => {
+    const qa = r.qa as { assetId?: string; stale?: boolean; faces?: unknown[] } | null;
+    return Boolean(qa && !qa.stale && qa.assetId === r.art && Array.isArray(qa.faces));
+  };
+  const inFlight = new Set(
+    withArt.length
+      ? (
+          await deps.db
+            .select({ id: generationJobs.targetId })
+            .from(generationJobs)
+            .where(
+              and(
+                eq(generationJobs.kind, "panel_check"),
+                inArray(
+                  generationJobs.targetId,
+                  withArt.map((r) => r.id),
+                ),
+                inArray(generationJobs.status, ["queued", "processing", "submitted"]),
+              ),
+            )
+        ).map((r) => r.id)
+      : [],
+  );
+  const eligible = withArt.filter((r) => !inFlight.has(r.id) && (!input.onlyUnchecked || !current(r)));
+  if (eligible.length > MAX_BULK_CHECKS) throw badRequest(`Check at most ${MAX_BULK_CHECKS} panels at a time.`);
+  const choice = checkChoice(project, input.ai);
+  const run = await textRun(c, choice ?? null);
+  assertBatchable(c, input.batch, run.provider);
+  const rate = await deps.usage.rateFor(run.provider, input.batch ? batchModel(run.model) : run.model);
+  // One small image plus the cast list in, a short JSON verdict out.
+  const perCheck = rate
+    ? estimateCostUsd(
+        {
+          textInputTokens: 1800,
+          cachedInputTokens: 0,
+          textOutputTokens: 300,
+          imageInputTokens: 0,
+          imageOutputTokens: 0,
+          images: 0,
+        },
+        rate,
+      )
+    : null;
+  const estimate = {
+    count: eligible.length,
+    total: rows.length,
+    skippedReasons: {
+      noArtwork: rows.length - withArt.length,
+      inProgress: inFlight.size,
+      alreadyChecked: withArt.filter((r) => !inFlight.has(r.id) && input.onlyUnchecked && current(r)).length,
+    },
+    estimatedUsd: perCheck === null ? null : perCheck * eligible.length,
+    provider: { provider: run.provider, model: run.model },
+    batch: input.batch,
+  };
+  if (!input.confirm)
+    return c.json({ confirmRequired: true, ...estimate, budget: await projectBudget(deps.db, project.id) });
+  await assertBudget(c, project.id, estimate.estimatedUsd ?? 0);
+  if (!eligible.length) return c.json({ batchId: null, jobs: [], ...estimate });
+  const batchId = crypto.randomUUID();
+  const jobs = await deps.db.transaction(async (tx) => {
+    const out = [];
+    for (const r of eligible)
+      out.push(
+        await createCheckJob(deps, tx, {
+          projectId: project.id,
+          userId: user(c).id,
+          panelId: r.id,
+          assetId: r.art!,
+          run,
+          batch: input.batch,
+          batchId,
+          priority: pageId ? PRIORITY.page : PRIORITY.chapter,
+        }),
+      );
+    return out;
+  });
+  if (input.batch) await queueTextBatchSubmit(c, { projectId: project.id, batchId, ai: choice ?? null });
+  await deps.jobs.kick();
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: project.id,
+    action: "panel_check.bulk",
+    metadata: { count: jobs.length, scope: input.scope, batch: input.batch },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ batchId, jobs: jobs.map((j) => ({ id: j.id, panelId: j.targetId })), ...estimate }, 202);
 });
