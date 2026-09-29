@@ -22,7 +22,7 @@ import { useEffect, useRef, useState } from "react";
 import { get } from "../../api/client.ts";
 import { qk, useProjectEvents } from "../../api/hooks.ts";
 import type { ProjectOverview } from "../../api/types.ts";
-import { ErrorBox, Spinner } from "../../components/ui.tsx";
+import { ErrorBox, Popover, Spinner } from "../../components/ui.tsx";
 import { FloatingBatches } from "../generation/BatchStatus.tsx";
 
 export function useProjectId() {
@@ -78,11 +78,6 @@ function ProjectSearch({ projectId }: { projectId: string }) {
     const t = setTimeout(() => setDebounced(q.trim()), 250);
     return () => clearTimeout(t);
   }, [q]);
-  useEffect(() => {
-    const close = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, []);
   const { data, isFetching } = useQuery({
     queryKey: ["search", projectId, debounced],
     queryFn: () => get<SearchResult>(`/projects/${projectId}/search?q=${encodeURIComponent(debounced)}`),
@@ -102,8 +97,8 @@ function ProjectSearch({ projectId }: { projectId: string }) {
       data.dialogue.length
     : 0;
   return (
-    <div ref={box} className="relative px-2 pb-2">
-      <div className="relative">
+    <div className="px-2 pb-2">
+      <div ref={box} className="relative">
         <Search className="muted absolute top-2 left-2 size-4" />
         <input
           className="input pl-8"
@@ -117,78 +112,83 @@ function ProjectSearch({ projectId }: { projectId: string }) {
           aria-label="Search project"
         />
       </div>
-      {open && debounced && (
-        <div className="card absolute top-full right-2 left-2 z-30 mt-1 max-h-96 overflow-y-auto p-1 text-sm shadow-xl">
-          {isFetching && (
-            <div className="muted flex items-center gap-2 p-2">
-              <Spinner /> Searching…
-            </div>
-          )}
-          {data && total === 0 && <div className="muted p-2">No matches</div>}
-          {data?.characters.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="btn-ghost w-full justify-start"
-              onClick={() => go("/projects/$projectId/cast/$characterId", { characterId: r.id })}
-            >
-              👤 {r.name}
-            </button>
-          ))}
-          {data?.locations.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="btn-ghost w-full justify-start"
-              onClick={() => go("/projects/$projectId/world/locations/$entityId", { entityId: r.id })}
-            >
-              📍 {r.name}
-            </button>
-          ))}
-          {data?.props.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="btn-ghost w-full justify-start"
-              onClick={() => go("/projects/$projectId/world/props/$entityId", { entityId: r.id })}
-            >
-              🗡️ {r.name}
-            </button>
-          ))}
-          {data?.chapters.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="btn-ghost w-full justify-start"
-              onClick={() => go("/projects/$projectId/chapters/$chapterId", { chapterId: r.id })}
-            >
-              📄 Ch. {r.order} {r.title}
-            </button>
-          ))}
-          {data?.panels.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="btn-ghost w-full justify-start truncate"
-              onClick={() => go("/projects/$projectId/pages/$pageId", { pageId: r.pageId }, { panelId: r.id })}
-            >
-              🖼️ p{r.pageOrder}·{r.order} {r.storyBeat}
-            </button>
-          ))}
-          {data?.dialogue.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="btn-ghost w-full justify-start truncate"
-              onClick={() =>
-                go("/projects/$projectId/pages/$pageId", { pageId: r.pageId }, r.panelId ? { panelId: r.panelId } : {})
-              }
-            >
-              💬 “{r.text}”
-            </button>
-          ))}
-        </div>
-      )}
+      <Popover
+        anchor={box}
+        open={open && Boolean(debounced)}
+        onClose={() => setOpen(false)}
+        align="start"
+        matchWidth
+        className="max-h-96 overflow-y-auto p-1 text-sm"
+      >
+        {isFetching && (
+          <div className="muted flex items-center gap-2 p-2">
+            <Spinner /> Searching…
+          </div>
+        )}
+        {data && total === 0 && <div className="muted p-2">No matches</div>}
+        {data?.characters.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className="btn-ghost w-full justify-start"
+            onClick={() => go("/projects/$projectId/cast/$characterId", { characterId: r.id })}
+          >
+            👤 {r.name}
+          </button>
+        ))}
+        {data?.locations.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className="btn-ghost w-full justify-start"
+            onClick={() => go("/projects/$projectId/world/locations/$entityId", { entityId: r.id })}
+          >
+            📍 {r.name}
+          </button>
+        ))}
+        {data?.props.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className="btn-ghost w-full justify-start"
+            onClick={() => go("/projects/$projectId/world/props/$entityId", { entityId: r.id })}
+          >
+            🗡️ {r.name}
+          </button>
+        ))}
+        {data?.chapters.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className="btn-ghost w-full justify-start"
+            onClick={() => go("/projects/$projectId/chapters/$chapterId", { chapterId: r.id })}
+          >
+            📄 Ch. {r.order} {r.title}
+          </button>
+        ))}
+        {data?.panels.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className="btn-ghost w-full justify-start truncate"
+            onClick={() => go("/projects/$projectId/pages/$pageId", { pageId: r.pageId }, { panelId: r.id })}
+          >
+            🖼️ p{r.pageOrder}·{r.order} {r.storyBeat}
+          </button>
+        ))}
+        {data?.dialogue.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className="btn-ghost w-full justify-start truncate"
+            onClick={() =>
+              go("/projects/$projectId/pages/$pageId", { pageId: r.pageId }, r.panelId ? { panelId: r.panelId } : {})
+            }
+          >
+            💬 “{r.text}”
+          </button>
+        ))}
+      </Popover>
     </div>
   );
 }
