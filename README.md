@@ -74,6 +74,9 @@ Work made with OpenManga. Click to watch on YouTube.
 
 *I Finally Unlocked A System, And My Luck Started At -99* — a narrated manhwa recap.
 
+More: [*Every Push-Up Pays Me $100, So I Became The Richest Athlete Alive*](https://www.youtube.com/watch?v=1AP6CExnX9E)
+— a narrated manhwa recap.
+
 ## Screenshots
 
 From a live instance, with real projects. Click any image for full size.
