@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
-## [Unreleased]
+## [0.11.0] — 2026-09-29
 
 Upgrading: pull the new images and restart. One migration (`0020_production_runs`), applied by the migrate service
 on start. Reload open tabs to get the new web app.
@@ -45,6 +45,8 @@ on start. Reload open tabs to get the new web app.
 
 ### Fixed
 
+- The AI model picker, the dashboard's project menu and the project search results were cropped inside modals and
+  cards; they now open on top of the page, above or below their button, and Escape closes only them.
 - Video exports ignored a page selection and rendered the whole chapter.
 - `OPENAI_BATCH_MAX_ENQUEUED_TOKENS`, `BATCH_POLL_INTERVAL_SECONDS` and `STALLED_JOB_TIMEOUT_MINUTES` were documented
   but never passed into the containers, so setting them in `.env` did nothing.
