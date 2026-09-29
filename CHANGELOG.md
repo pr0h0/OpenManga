@@ -23,6 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   text key its text steps were refused. A step is now batched only when its key's provider has a batch API.
 - A batched "Generate all" for characters (and a production run's character references under a batching policy)
   never reached the provider: the batch submitter skipped character references and left them queued for good.
+- A batch of references (or of any other non-panel work) was labelled "Panels · 0 pages" on the Generation page; it
+  now names what it draws ("Character ref batch"). A batch's progress no longer counts its submit job as one of the
+  images, which read "1 / 21 completed" before anything was drawn.
 
 ## [0.11.0] — 2026-09-29
 

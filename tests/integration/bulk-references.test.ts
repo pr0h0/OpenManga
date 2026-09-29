@@ -210,6 +210,14 @@ test("a batched character run reaches the provider too, instead of waiting in th
   );
   const run = await bulk<Run>("character", { onlyMissing: true, confirm: true, batch: true }, 202);
   expect(run.jobs.map((j) => j.targetId)).toEqual([c.character.currentVersionId]);
+  // The banner names what the batch draws, and counts the reference, not the submit job beside it.
+  const { batches } = await alice.get<{ batches: { batchId: string; kind: string; progress: { total: number } }[] }>(
+    `/api/projects/${projectId}/generations/batches`,
+  );
+  expect(batches.find((b) => b.batchId === run.batchId)).toMatchObject({
+    kind: "character_reference",
+    progress: { total: 1 },
+  });
   const [submit] = await h.deps.db
     .select()
     .from(generationJobs)
