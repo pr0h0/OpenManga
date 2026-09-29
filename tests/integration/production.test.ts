@@ -117,6 +117,37 @@ describe("production runs", () => {
     expect(second.steps.find((s) => s.key === "thumbnail")?.status).toBe("skipped");
   }, 400_000);
 
+  test("a 3-hour recap asks the analysis for enough chapters to fit its length", async () => {
+    const p = await u.post<{ project: { id: string } }>(
+      "/api/projects",
+      {
+        title: "Three hours",
+        format: "film",
+        preset: "youtube-recap-180",
+        story: { content: STORY, inputKind: "story" },
+      },
+      201,
+    );
+    const report = await u.get<{ neededChapters: number | null; target: { minutes: number } }>(
+      `/api/projects/${p.project.id}/runtime`,
+    );
+    expect(report.target.minutes).toBe(180);
+    expect(report.neededChapters).toBe(25);
+    const story = await u.get<{ latest: { id: string } }>(`/api/projects/${p.project.id}/story`);
+    const a = await u.post<{ job: { id: string } }>(`/api/story-revisions/${story.latest.id}/analyze`, {}, 202);
+    const job = await waitFor(
+      async () => {
+        const r = await u.get<{ job: { status: string; compiledPrompt: string | null; templateVersion: number } }>(
+          `/api/generations/${a.job.id}`,
+        );
+        return r.job.status === "completed" ? r.job : null;
+      },
+      { label: "analysis", timeoutMs: 60_000 },
+    );
+    expect(job.templateVersion).toBe(3);
+    expect(job.compiledPrompt).toContain("at least 25 chapters");
+  }, 120_000);
+
   test("paste mode runs even under a batch policy, and main-only references still cover an unplanned project", async () => {
     const p = await u.post<{ project: { id: string } }>(
       "/api/projects",

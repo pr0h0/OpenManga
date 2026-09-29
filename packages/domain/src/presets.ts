@@ -52,6 +52,38 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
     },
   },
   {
+    key: "youtube-recap-120",
+    name: "YouTube recap, 2 hours",
+    description:
+      "A long-form recap: about 2 hours in some 20 chapters, 5–10 s shots, main-cast references only, and batches wherever they apply.",
+    projectType: "manhwa",
+    format: "film",
+    stylePresetKey: "manhwa",
+    colorMode: "full_color",
+    settings: {
+      imageQuality: "low",
+      targetRuntime: { minutes: 120, wordsPerMinute: 150, minShotSeconds: 5, maxShotSeconds: 10 },
+      referencePolicy: "main",
+      batchPolicy: "cheapest",
+    },
+  },
+  {
+    key: "youtube-recap-180",
+    name: "YouTube recap, 3 hours",
+    description:
+      "The longest recap: about 3 hours in some 25 chapters, 6–12 s shots so the image count stays near 1,200, main-cast references only, batched.",
+    projectType: "manhwa",
+    format: "film",
+    stylePresetKey: "manhwa",
+    colorMode: "full_color",
+    settings: {
+      imageQuality: "low",
+      targetRuntime: { minutes: 180, wordsPerMinute: 150, minShotSeconds: 6, maxShotSeconds: 12 },
+      referencePolicy: "main",
+      batchPolicy: "cheapest",
+    },
+  },
+  {
     key: "manga-chapter",
     name: "Manga chapters",
     description: "Black-and-white manga pages read right to left, every character and place drawn from a reference.",

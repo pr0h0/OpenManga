@@ -23,7 +23,7 @@ versions stay in the array so old jobs remain reproducible.
 
 | Template | Versions registered | Live version | Imported by |
 | --- | --- | --- | --- |
-| `story-analysis` | 1, 2 | 2 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
+| `story-analysis` | 1, 2, 3 | 3 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
 | `page-planning` | 1–6 | 6 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` (the single call a batched plan makes) |
 | `shot-planning` | 1–3 | 3 | same two files, for `format: "film"` projects |
 | `strip-planning` | 1, 2 | 2 | same two files, for `format: "vertical"` projects |
