@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, chapters, desc, eq, inArray, isNull, pages, projects, shareLinks } from "@openmanga/db";
+import { and, asc, assets, chapters, desc, eq, inArray, isNull, pages, projects, shareLinks, sql } from "@openmanga/db";
 import { loadRenderPage, recordAudit, renderPageImage } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -7,6 +7,8 @@ import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
 import { body, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
+import { sendAsset } from "./assets.ts";
+import { previewPayload } from "./video.ts";
 
 /** Managing a project's read-only links: signed-in members only. */
 export const shareRoutes = new Hono<AppEnv>();
@@ -159,4 +161,56 @@ publicShareRoutes.get("/shares/:token/pages/:file", async (c) => {
   return new Response(img.data, {
     headers: { "content-type": "image/png", "cache-control": "public, max-age=300" },
   });
+});
+
+const SharedPreview = z.object({ chapterId: z.string().uuid(), cut: z.enum(["page", "panel"]).default("panel") });
+doc({
+  method: "GET",
+  path: "/api/public/shares/:token/video-preview",
+  summary:
+    "The video preview's shot list for one chapter of a reader link, in the project's language. Media comes from /api/public/shares/:token/assets/:assetId. No sign-in.",
+  tag: "shares",
+  auth: false,
+  query: SharedPreview,
+});
+publicShareRoutes.get("/shares/:token/video-preview", async (c) => {
+  const { s, p } = await openShare(c, c.req.param("token"));
+  const q = query(c, SharedPreview);
+  const [ch] = await c
+    .get("deps")
+    .db.select({ id: chapters.id })
+    .from(chapters)
+    .where(and(eq(chapters.id, q.chapterId), eq(chapters.projectId, p.id)));
+  if (!ch || (s.chapterId && s.chapterId !== ch.id)) throw notFound("Chapter");
+  return c.json(await previewPayload(c.get("deps").db, p, { chapterId: ch.id }, q.cut, p.language));
+});
+
+doc({
+  method: "GET",
+  path: "/api/public/shares/:token/assets/:assetId",
+  summary:
+    "A panel's artwork or a narration segment's audio from inside a reader link's scope, for its video preview (`?v=web` for the display size). No sign-in.",
+  tag: "shares",
+  auth: false,
+});
+publicShareRoutes.get("/shares/:token/assets/:assetId", async (c) => {
+  const { s, p } = await openShare(c, c.req.param("token"));
+  const id = uuidParam(c, "assetId");
+  const { db } = c.get("deps");
+  const [a] = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.id, id), eq(assets.projectId, p.id)));
+  if (!a || a.deletedAt) throw notFound("Asset");
+  // Only what the preview plays, and only inside the link's scope: a panel's current artwork or a line's audio.
+  const chapter = s.chapterId ? sql`and pg.chapter_id = ${s.chapterId}` : sql``;
+  const [used] = await db.execute<{ ok: number }>(sql`
+    select 1 as ok from panels pn join pages pg on pg.id = pn.page_id
+      where pn.active_artwork_asset_id = ${id} ${chapter}
+    union all
+    select 1 from narration_segments ns join narration_lines nl on nl.id = ns.narration_line_id
+      where ns.active_audio_asset_id = ${id} ${s.chapterId ? sql`and nl.chapter_id = ${s.chapterId}` : sql``}
+    limit 1`);
+  if (!used) throw notFound("Asset");
+  return sendAsset(c, a);
 });

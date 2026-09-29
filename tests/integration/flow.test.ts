@@ -1532,6 +1532,27 @@ describe("full production flow (mock AI)", () => {
       404,
     );
 
+    // The video preview plays the shared chapter: its shot list, and the artwork and audio of those shots only.
+    const preview = await anon.get<{ shots: { panel: { art: { assetId: string } | null } | null }[] }>(
+      `/api/public/shares/${share.token}/video-preview?chapterId=${chapterId}&cut=panel`,
+    );
+    expect(preview.shots.length).toBeGreaterThan(0);
+    const art = preview.shots.find((sh) => sh.panel?.art)?.panel?.art;
+    expect(art).toBeTruthy();
+    const img = await anon.raw("GET", `/api/public/shares/${share.token}/assets/${art!.assetId}?v=web`);
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toStartWith("image/");
+    expect(
+      (await anon.raw("GET", `/api/public/shares/${share.token}/video-preview?chapterId=${other.chapter.id}`)).status,
+    ).toBe(404);
+    const cover = await alice.get<{ project: { coverAssetId: string | null } }>(`/api/projects/${projectId}`);
+    // Anything else of the project's, like its cover, stays private.
+    const arts = preview.shots.map((sh) => sh.panel?.art?.assetId);
+    if (cover.project.coverAssetId && !arts.includes(cover.project.coverAssetId))
+      expect(
+        (await anon.raw("GET", `/api/public/shares/${share.token}/assets/${cover.project.coverAssetId}`)).status,
+      ).toBe(404);
+
     // Only the owner shares; the list shows live links; revoking closes the link at once.
     expect((await bob.raw("POST", `/api/projects/${projectId}/shares`, {})).status).toBeGreaterThanOrEqual(403);
     const listed = await alice.get<{ shares: { id: string }[] }>(`/api/projects/${projectId}/shares`);
@@ -1539,6 +1560,7 @@ describe("full production flow (mock AI)", () => {
     await alice.del(`/api/shares/${share.id}`);
     expect((await anon.raw("GET", `/api/public/shares/${share.token}`)).status).toBe(404);
     expect((await anon.raw("GET", `/api/public/shares/nonsense`)).status).toBe(404);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}/assets/${art!.assetId}`)).status).toBe(404);
     await alice.del(`/api/chapters/${other.chapter.id}`);
   });
 
