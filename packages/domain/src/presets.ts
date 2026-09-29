@@ -14,7 +14,7 @@ export type ProductionPreset = {
     imageQuality: "low" | "medium" | "high";
     targetRuntime: { minutes: number; wordsPerMinute: number; minShotSeconds: number; maxShotSeconds: number } | null;
     referencePolicy: "all" | "main";
-    batchPolicy: "interactive" | "cheapest" | "hybrid";
+    batchPolicy: "interactive" | "images" | "hybrid" | "cheapest";
   };
 };
 
@@ -32,14 +32,14 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
       imageQuality: "low",
       targetRuntime: { minutes: 30, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 },
       referencePolicy: "main",
-      batchPolicy: "hybrid",
+      batchPolicy: "images",
     },
   },
   {
     key: "youtube-recap-60",
     name: "YouTube recap, 1 hour",
     description:
-      "The 30-minute recap at twice the length, with longer shots and provider batches wherever they apply, for half the price.",
+      "The 30-minute recap at twice the length, with longer shots, and its images through half-price provider batches.",
     projectType: "manhwa",
     format: "film",
     stylePresetKey: "manhwa",
@@ -48,14 +48,14 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
       imageQuality: "low",
       targetRuntime: { minutes: 60, wordsPerMinute: 150, minShotSeconds: 5, maxShotSeconds: 10 },
       referencePolicy: "main",
-      batchPolicy: "cheapest",
+      batchPolicy: "images",
     },
   },
   {
     key: "youtube-recap-120",
     name: "YouTube recap, 2 hours",
     description:
-      "A long-form recap: about 2 hours in some 20 chapters, 5–10 s shots, main-cast references only, and batches wherever they apply.",
+      "A long-form recap: about 2 hours in some 20 chapters, 5–10 s shots, main-cast references only, images batched.",
     projectType: "manhwa",
     format: "film",
     stylePresetKey: "manhwa",
@@ -64,14 +64,14 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
       imageQuality: "low",
       targetRuntime: { minutes: 120, wordsPerMinute: 150, minShotSeconds: 5, maxShotSeconds: 10 },
       referencePolicy: "main",
-      batchPolicy: "cheapest",
+      batchPolicy: "images",
     },
   },
   {
     key: "youtube-recap-180",
     name: "YouTube recap, 3 hours",
     description:
-      "The longest recap: about 3 hours in some 25 chapters, 6–12 s shots so the image count stays near 1,200, main-cast references only, batched.",
+      "The longest recap: about 3 hours in some 25 chapters, 6–12 s shots so the image count stays near 1,200, main-cast references only, images batched.",
     projectType: "manhwa",
     format: "film",
     stylePresetKey: "manhwa",
@@ -80,7 +80,7 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
       imageQuality: "low",
       targetRuntime: { minutes: 180, wordsPerMinute: 150, minShotSeconds: 6, maxShotSeconds: 12 },
       referencePolicy: "main",
-      batchPolicy: "cheapest",
+      batchPolicy: "images",
     },
   },
   {

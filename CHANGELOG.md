@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [Unreleased]
+
+### Added
+
+- **Text now, images in batches** — a production run spend option (and the YouTube recap presets' default): planning,
+  prompts and narration run straight away, while artwork and references wait for a half-price provider batch.
+
+### Fixed
+
+- A production run under a batching policy asked every key for a batch, so with a DeepSeek (or Meta, OpenRouter)
+  text key its text steps were refused. A step is now batched only when its key's provider has a batch API.
+
 ## [0.11.0] — 2026-09-29
 
 Upgrading: pull the new images and restart. One migration (`0020_production_runs`), applied by the migrate service

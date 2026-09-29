@@ -233,10 +233,11 @@ export const ProjectSettings = z.object({
   /** Which references bulk runs draw: everything, or only the main cast and places used in more than one panel. */
   referencePolicy: z.enum(["all", "main"]).default("all"),
   /**
-   * How a production run spends: everything now, everything through half-price provider batches (up to 24 h), or
-   * text in batches and images now.
+   * How a production run spends: everything now; images through half-price provider batches (up to 24 h) with text
+   * now; text in batches with images now; or everything in batches. Only keys whose provider has a batch API are
+   * batched, so a DeepSeek text key runs now whatever this says.
    */
-  batchPolicy: z.enum(["interactive", "cheapest", "hybrid"]).default("interactive"),
+  batchPolicy: z.enum(["interactive", "images", "hybrid", "cheapest"]).default("interactive"),
   narrationVoice: z.string().default("af_heart"),
   narrationSpeed: z.number().min(0.5).max(2).default(1),
   /** Narration length target; ~21 words is about 6 seconds of Kokoro speech per panel. */
