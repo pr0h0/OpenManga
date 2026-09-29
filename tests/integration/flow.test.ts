@@ -1864,6 +1864,20 @@ describe("list endpoints with correlated subqueries", () => {
     );
     expect(jobs.jobs.length).toBeGreaterThan(0);
     expect(jobs.jobs.every((j) => j.outputAssetId)).toBe(true);
+    // Numbered pages: the filtered total, and an offset that walks through every job exactly once.
+    type Page = { jobs: { id: string }[]; total: number };
+    const all = await alice.get<Page>(`/api/projects/${p.id}/generations?limit=200`);
+    expect(all.total).toBe(all.jobs.length);
+    const seen: string[] = [];
+    for (let offset = 0; offset < all.total; offset += 2) {
+      const pg = await alice.get<Page>(`/api/projects/${p.id}/generations?limit=2&offset=${offset}`);
+      expect(pg.total).toBe(all.total);
+      seen.push(...pg.jobs.map((j) => j.id));
+    }
+    expect(seen).toEqual(all.jobs.map((j) => j.id));
+    const filtered = await alice.get<Page>(`/api/projects/${p.id}/generations?kind=panel_generation&limit=1`);
+    expect(filtered.total).toBeGreaterThan(1);
+    expect(filtered.total).toBeLessThan(all.total);
     const chs = await alice.get<{ chapters: { id: string }[] }>(`/api/projects/${p.id}/chapters`);
     const ch = await alice.get<{ pages: { panelCount: number; readyCount: number }[] }>(
       `/api/chapters/${chs.chapters[0]!.id}`,
