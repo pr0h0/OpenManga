@@ -22,6 +22,7 @@ import {
   ErrorBox,
   fmt,
   PageHeader,
+  Popover,
   Spinner,
   StatusChip,
   Tabs,
@@ -126,6 +127,7 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [menu, setMenu] = useState(false);
+  const menuAnchor = useRef<HTMLButtonElement>(null);
   const [confirm, setConfirm] = useState<null | "trash" | "delete">(null);
   const [busy, setBusy] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: ["projects"] });
@@ -167,8 +169,9 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
             </div>
           </div>
           <StatusChip status={p.deletedAt ? "cancelled" : p.status} label={p.deletedAt ? "trash" : p.status} />
-          <div className="relative">
+          <div>
             <button
+              ref={menuAnchor}
               type="button"
               className="btn-ghost p-1"
               aria-label="Project actions"
@@ -177,8 +180,8 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
             >
               {busy ? <Spinner /> : <MoreVertical className="size-4" />}
             </button>
-            {menu && (
-              <div className="card absolute right-0 z-20 mt-1 w-44 p-1 shadow-xl" onMouseLeave={() => setMenu(false)}>
+            <Popover anchor={menuAnchor} open={menu} onClose={() => setMenu(false)} className="w-44 p-1">
+              <div onMouseLeave={() => setMenu(false)}>
                 {filter !== "trash" && (
                   <>
                     <button type="button" className="btn-ghost w-full justify-start" onClick={open}>
@@ -245,7 +248,7 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
                   </>
                 )}
               </div>
-            )}
+            </Popover>
           </div>
         </div>
         <dl className="muted mt-2 grid grid-cols-4 gap-1 text-center text-[11px]">

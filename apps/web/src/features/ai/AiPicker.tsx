@@ -2,11 +2,11 @@ import { type AiCapability, PROVIDER_CATALOG, type ProviderKind, providerCatalog
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Cpu, KeyRound, Trash2 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { del, get, post } from "../../api/client.ts";
-import { ConfirmDialog, clsx, ErrorBox, Field, fmt, Spinner, toast } from "../../components/ui.tsx";
+import { ConfirmDialog, clsx, ErrorBox, Field, fmt, Popover, Spinner, toast } from "../../components/ui.tsx";
 
 export type Credential = {
   id: string;
@@ -248,41 +248,24 @@ export function AiChip({ cap, className }: { cap: AiCapability; className?: stri
   const opts = useAiOptions();
   const choice = useAiChoices((s) => s[cap]);
   const [open, setOpen] = useState(false);
-  // Chips often sit in a modal footer, where a popover below the button falls outside the viewport.
-  const [up, setUp] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+  const ref = useRef<HTMLButtonElement>(null);
   return (
-    <div ref={ref} className={clsx("relative inline-block max-w-full", className)}>
+    <div className={clsx("inline-block max-w-full", className)}>
       <button
+        ref={ref}
         type="button"
         className="btn-ghost max-w-64 truncate px-2 py-1 text-xs"
         aria-expanded={open}
         aria-label={`${cap} model: ${choiceLabel(cap, choice, opts.data)}`}
         title="Choose provider and model for this run"
-        onClick={(e) => {
-          setUp(e.currentTarget.getBoundingClientRect().bottom + 300 > window.innerHeight);
-          setOpen((o) => !o);
-        }}
+        onClick={() => setOpen((o) => !o)}
       >
         <Cpu className="size-3.5 shrink-0" />
         <span className="truncate">{choiceLabel(cap, choice, opts.data)}</span>
       </button>
-      {open && (
-        <div
-          className={clsx(
-            "card absolute right-0 z-30 w-80 max-w-[90vw] p-3 shadow-xl",
-            up ? "bottom-full mb-1" : "top-full mt-1",
-          )}
-        >
-          <ModelPicker cap={cap} />
-        </div>
-      )}
+      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} className="w-80 max-w-[90vw] p-3">
+        <ModelPicker cap={cap} />
+      </Popover>
     </div>
   );
 }
