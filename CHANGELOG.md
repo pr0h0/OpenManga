@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-09-30
+
+Upgrading: pull the new images and restart. No migrations. Reload open tabs to get the new web app.
+
 ### Added
 
 - **Text now, images in batches** — a production run spend option (and the YouTube recap presets' default): planning,
