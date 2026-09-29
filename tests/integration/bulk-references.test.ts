@@ -69,7 +69,7 @@ class FakeBatchProvider implements ImageBatchProvider {
   }
 }
 
-const bulk = <T>(references: "location" | "prop", extra: Record<string, unknown> = {}, status?: number) =>
+const bulk = <T>(references: "character" | "location" | "prop", extra: Record<string, unknown> = {}, status?: number) =>
   alice.post<T>(`/api/projects/${projectId}/generations/bulk`, { scope: { references }, ...extra }, status);
 
 const referencesOn = async (column: "location" | "prop", versionIds: string[]) =>
@@ -200,6 +200,37 @@ test("a batched run parks the references at the provider and ingests them as dra
     );
   expect(usage).toHaveLength(2);
   expect(usage.every((u) => u.model.endsWith(":batch"))).toBe(true);
+});
+
+test("a batched character run reaches the provider too, instead of waiting in the queue forever", async () => {
+  const c = await alice.post<{ character: { currentVersionId: string } }>(
+    `/api/projects/${projectId}/characters`,
+    { name: "Mara Vell", description: { hair: "grey" } },
+    201,
+  );
+  const run = await bulk<Run>("character", { onlyMissing: true, confirm: true, batch: true }, 202);
+  expect(run.jobs.map((j) => j.targetId)).toEqual([c.character.currentVersionId]);
+  // The banner names what the batch draws, and counts the reference, not the submit job beside it.
+  const { batches } = await alice.get<{ batches: { batchId: string; kind: string; progress: { total: number } }[] }>(
+    `/api/projects/${projectId}/generations/batches`,
+  );
+  expect(batches.find((b) => b.batchId === run.batchId)).toMatchObject({
+    kind: "character_reference",
+    progress: { total: 1 },
+  });
+  const [submit] = await h.deps.db
+    .select()
+    .from(generationJobs)
+    .where(and(eq(generationJobs.batchId, run.batchId!), eq(generationJobs.kind, "image_batch_submit")));
+  expect((await imageBatchSubmit(h.workerDeps, submit!)).submitted).toBe(1);
+  await pollProviderBatches(h.workerDeps);
+  const [job] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, run.jobs[0]!.id));
+  expect(job!.status).toBe("completed");
+  const refs = await h.deps.db
+    .select()
+    .from(referenceAssets)
+    .where(eq(referenceAssets.characterVersionId, c.character.currentVersionId));
+  expect(refs).toHaveLength(1);
 });
 
 test("a location sheet and a prop turnaround are one image each, and panels are told how to read them", async () => {

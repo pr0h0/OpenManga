@@ -136,8 +136,11 @@ price. (In `AI_MOCK_MODE` it runs normally.)
 can compare the two prices directly.
 
 A **production run** decides for itself, from Project settings → Production → *Production runs spend*
-(`settings.batchPolicy`): *Everything now* (the default), *Text in batches, images now* (`hybrid`), or *Everything
-in batches (cheapest)* — text and bulk images; the run's single thumbnail is always drawn now.
+(`settings.batchPolicy`): *Everything now* (the default), *Text now, images in batches* (`images`), *Text in
+batches, images now* (`hybrid`), or *Everything in batches (cheapest)* — text and bulk images; the run's single
+thumbnail is always drawn now. Only keys whose provider has a batch API (OpenAI, Google) are ever batched: with a
+DeepSeek text key the text steps run now whatever the policy says, so *Text now, images in batches* is the natural
+choice for DeepSeek text with OpenAI or Google images — fast planning and narration, half-price artwork.
 
 What batching does *not* change: budgets still apply, cancellation still works (the result is simply not
 activated), and a batch that expires or returns nothing for a request fails that job loudly rather than leaving
@@ -147,8 +150,8 @@ it waiting.
 
 - **Economy draft**, a production preset for new projects, is the cheapest setup: image quality `low`, main-cast
   references only, and the `cheapest` batch policy (which applies to production runs). The four YouTube recap
-  presets are also `low` quality with main-only references, batching text (`hybrid`, 30 min) or everything
-  (`cheapest`, 1, 2 and 3 hours). The long ones use longer shots (5–10 s for 2 hours, 6–12 s for 3 hours), which
+  presets are also `low` quality with main-only references, with text now and images in batches (`images`). The long
+  ones use longer shots (5–10 s for 2 hours, 6–12 s for 3 hours), which
   keeps a 3-hour video near 1,200 images instead of 1,440 at the 30-minute preset's pace.
 - **Reference policy** `main` (Project settings → Production → *References to generate in bulk*) makes bulk
   reference runs skip minor characters, and places and props used in fewer than two panels. The estimate reports

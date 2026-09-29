@@ -35,11 +35,43 @@ videoRoutes.get("/video-preview", async (c) => {
       ? await entityAccess(c, "page", q.pageId, "read")
       : await entityAccess(c, "chapter", q.chapterId!, "read");
   const cut = q.panelId ? "panel" : q.cut;
-  const language = q.language || project.language;
-  const { db } = c.get("deps");
+  return c.json(await previewPayload(c.get("deps").db, project, q, cut, q.language || project.language));
+});
+
+doc({
+  method: "GET",
+  path: "/api/pages/:id/render.png",
+  summary: "The lettered page as a PNG (deterministic composition), for previews. ?width= up to 1600 (default 1200).",
+  tag: "pages",
+});
+videoRoutes.get("/pages/:id/render.png", async (c) => {
+  const id = uuidParam(c, "id");
+  const project = await entityAccess(c, "page", id, "read");
+  const { width } = query(c, z.object({ width: z.coerce.number().int().min(200).max(1600).default(1200) }));
+  const { db, assets: assetSvc } = c.get("deps");
+  const [page] = await db.select({ width: pages.width }).from(pages).where(eq(pages.id, id));
+  if (!page) throw notFound("Page");
+  const render = await loadRenderPage(db, assetSvc.storage, id, project.readingDirection);
+  const img = await renderPageImage(render, "png", { scale: Math.min(1, width / page.width) });
+  return new Response(img.data, {
+    headers: { "content-type": "image/png", "cache-control": "private, max-age=30" },
+  });
+});
+
+/**
+ * The preview's shot list: the same shots, crops, focus points and narration as the final render. Shared by the
+ * signed-in preview and a reader link's (which passes its own, already checked, scope).
+ */
+export async function previewPayload(
+  db: AppEnv["Variables"]["deps"]["db"],
+  project: Parameters<typeof planVideoShots>[1],
+  scope: Parameters<typeof planVideoShots>[2],
+  cut: "page" | "panel",
+  language: string,
+) {
   let planned: Awaited<ReturnType<typeof planVideoShots>>;
   try {
-    planned = await planVideoShots(db, project, q, cut, language);
+    planned = await planVideoShots(db, project, scope, cut, language);
   } catch (e) {
     throw badRequest((e as Error).message);
   }
@@ -49,7 +81,7 @@ videoRoutes.get("/video-preview", async (c) => {
   );
   const artIds = planned.shots.map((s) => s.panel?.activeArtworkAssetId).filter((x): x is string => Boolean(x));
   const arts = artIds.length ? await db.select().from(assets).where(inArray(assets.id, artIds)) : [];
-  return c.json({
+  return {
     cut,
     language,
     unplacedLines: planned.unplacedLines,
@@ -98,25 +130,5 @@ videoRoutes.get("/video-preview", async (c) => {
         ),
       };
     }),
-  });
-});
-
-doc({
-  method: "GET",
-  path: "/api/pages/:id/render.png",
-  summary: "The lettered page as a PNG (deterministic composition), for previews. ?width= up to 1600 (default 1200).",
-  tag: "pages",
-});
-videoRoutes.get("/pages/:id/render.png", async (c) => {
-  const id = uuidParam(c, "id");
-  const project = await entityAccess(c, "page", id, "read");
-  const { width } = query(c, z.object({ width: z.coerce.number().int().min(200).max(1600).default(1200) }));
-  const { db, assets: assetSvc } = c.get("deps");
-  const [page] = await db.select({ width: pages.width }).from(pages).where(eq(pages.id, id));
-  if (!page) throw notFound("Page");
-  const render = await loadRenderPage(db, assetSvc.storage, id, project.readingDirection);
-  const img = await renderPageImage(render, "png", { scale: Math.min(1, width / page.width) });
-  return new Response(img.data, {
-    headers: { "content-type": "image/png", "cache-control": "private, max-age=30" },
-  });
-});
+  };
+}

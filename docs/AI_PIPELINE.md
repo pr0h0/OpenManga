@@ -391,8 +391,8 @@ A new project can start from a production preset (`packages/domain/src/presets.t
 `GET /api/production-presets`) or from one of the user's saved templates: `preset` on `POST /api/projects` is a
 preset key or `template:<id>`, and its settings are merged into the new project's (the wizard fills type, format,
 style and colour mode from it). The presets are *YouTube recap* for 30 minutes, 1 hour, 2 hours and 3 hours (film,
-low quality, a target runtime, main-only references, hybrid batching for 30 minutes and cheapest for the rest, longer
-shots for the long ones), *Manga chapters*, *Webtoon episodes* (medium quality,
+low quality, a target runtime, main-only references, text now and images in batches, longer shots for the long
+ones), *Manga chapters*, *Webtoon episodes* (medium quality,
 all references, no batching) and *Economy draft*. **Save as template** (`POST /api/projects/:projectId/template`)
 stores a project's type, format, colour mode, language, style and settings in the user's settings
 (`projectTemplates`, at most 50; the thumbnail, YouTube text and page size are left out); story, cast and files are
@@ -402,8 +402,11 @@ Two settings, under Project settings → Production:
 
 - `referencePolicy` — `all` (default) or `main`: bulk reference runs skip minor characters, and locations and props
   used in fewer than two panels. See [IMAGE_REFERENCES](IMAGE_REFERENCES.md).
-- `batchPolicy` — how a production run spends: `interactive` (default, everything now), `hybrid` (text steps as
-  provider batches, images now) or `cheapest` (text and bulk images as provider batches; the thumbnail is drawn now). It applies to production runs
+- `batchPolicy` — how a production run spends: `interactive` (default, everything now), `images` (text now, bulk
+  images as provider batches), `hybrid` (text steps as provider batches, images now) or `cheapest` (text and bulk
+  images as provider batches; the thumbnail is drawn now). A step is batched only when its key's provider has a batch
+  API (`BATCH_CAPABLE_PROVIDERS`: OpenAI, Google) and the text choice is not paste mode, so a DeepSeek text key runs
+  now under any policy instead of being refused. It applies to production runs
   only; a run started by hand still chooses `batch` itself.
 
 ## Production runs

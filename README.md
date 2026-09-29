@@ -57,7 +57,7 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 - **Narration**: AI-written narration, segment split/merge, voices and preview, local synthesis, cache reuse, chapter playback, timeline manifest; delete a chapter's or the whole project's audio (the lines stay, ready to synthesize again).
 - **Exports**: PNG/JPG page sequences, PDF (page size, margin, bleed, DPI, RTL, or Amazon KDP trim sizes printed full bleed), CBZ with ComicInfo.xml, fixed-layout EPUB, webtoon strips with chunking, narrated MP4 video (page cut, including a continuous top-to-bottom scroll, or Ken Burns panel cut, with a near-full-screen browser preview whose narration keeps playing in a background tab; render only the first few minutes or a page range to check it; chapter timestamps for multi-chapter videos), a YouTube package (the video, subtitles, chapters, thumbnail and AI-written titles, description, tags and pinned comment), narration audio package (MP3/OGG/WAV + timeline), project JSON (`schemaVersion: 1`), full ZIP package, agent hand-off package. Finished exports can be deleted, files included.
 - **Covers and video thumbnails**: generate a cover, or text-free 16:9 thumbnail art with the headline composited by the app, so it can be reworded or moved for free and downloaded as a 1280×720 PNG.
-- **Reader links**: share a project or one chapter as an unlisted, read-only link (`/app/read/<token>`) that anyone can read without an account, page by page or as one long scroll; revoke it to close it.
+- **Reader links**: share a project or one chapter as an unlisted, read-only link (`/app/read/<token>`) that anyone can read without an account, page by page or as one long scroll, or play a chapter as the video preview; revoke it to close it.
 - **Project overview**: pipeline state, spend against the budget, and the disk space the project's files take, including what is in the trash. Trashing a character, location or prop trashes its reference images with it, and restoring brings them back; a generation whose image was deleted keeps its row, cost and prompt.
 - **Experts**: chats with brainstorming specialists outside any chapter — topic scout, title doctor, thumbnail designer, story developer, character and world designers, hook editor, narration scriptwriter, beta reader, channel strategist — or experts you write yourself. Pick the model, attach images (upload, drop or paste), talk about a project, and tick *Generate image* for a picture with the reply. Chats are kept, and work without an API key by pasting answers from any chat.
 - **AI agents (MCP)**: connect ChatGPT or Claude (OAuth) or any MCP agent (personal access token) to build projects as you — story, analysis, chapter plans, panels, narration, exports — including the whole pipeline in paste mode with no API key, and `get_image` lets an agent look at artwork, pages and references. Each connection has its own scopes, projects and approval mode; spending, deleting and other sensitive actions can wait for your approval in the app. See [MCP](docs/MCP.md).
@@ -169,15 +169,15 @@ instead of building locally, pin a tag in a compose override:
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
 services:
-  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.11.0", build: !reset null }
-  api: { image: "ghcr.io/pr0h0/openmanga-app:0.11.0" }
-  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.11.0" }
-  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.11.0" }
-  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.11.0", build: !reset null }
-  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.11.0", build: !reset null }
+  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0", build: !reset null }
+  api: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0" }
+  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0" }
+  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0" }
+  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.12.0", build: !reset null }
+  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.12.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
-than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.11`). `!reset`
+than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.12`). `!reset`
 needs Compose v2.24 or newer; on older versions drop the `build:` keys and run `docker compose up -d --no-build`.
 
 ## Local development

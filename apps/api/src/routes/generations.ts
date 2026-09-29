@@ -60,6 +60,8 @@ const ListQuery = z.object({
   targetId: z.string().uuid().optional(),
   batchId: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  /** Rows to skip, for numbered pages; `total` in the answer is the filtered count. */
+  offset: z.coerce.number().int().min(0).default(0),
   before: z.string().datetime().optional(),
   /** `nextCursor` from a previous page: "<createdAt ISO>|<job id>". Keyed on the pair because a bulk enqueue
    *  gives hundreds of jobs the same createdAt, which a timestamp-only cursor would skip past. */
@@ -106,8 +108,13 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
     .from(generationJobs)
     .where(where)
     .orderBy(desc(generationJobs.createdAt), desc(generationJobs.id))
-    .limit(q.limit);
+    .limit(q.limit)
+    .offset(q.offset);
   const last = jobs.at(-1);
+  const [{ total } = { total: 0 }] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(generationJobs)
+    .where(where);
   const [counts] = await db.execute<Record<string, number>>(sql`select
     count(*) filter (where status = 'queued')::int as queued,
     count(*) filter (where status = 'awaiting_input')::int as awaiting_input,
@@ -127,6 +134,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
       outputDeleted: j.output?.deleted ?? false,
     })),
     counts,
+    total,
     /** Pass back as ?cursor= for the next page. Null on the last page. */
     nextCursor: jobs.length === q.limit && last ? `${last.job.createdAt.toISOString()}|${last.job.id}` : null,
   });
@@ -757,11 +765,13 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
     cancelled: number;
     paused: number;
     pause_reason: string | null;
+    kind: string | null;
   }>(sql`
     select batch_id, min(created_at) as created_at, max(finished_at) as finished_at,
       min(created_at) filter (where status = 'queued') as first_queued_at, min(priority)::int as priority,
-      count(*)::int as total,
-      count(*) filter (where status = 'completed')::int as completed,
+      -- The submit job is bookkeeping, not an image: counted, a batch read "1 / 21 completed" before anything was drawn.
+      count(*) filter (where kind not like '%batch_submit')::int as total,
+      count(*) filter (where status = 'completed' and kind not like '%batch_submit')::int as completed,
       count(*) filter (where status = 'processing')::int as generating,
       count(*) filter (where status = 'queued')::int as queued,
       -- Parked in a provider batch: still in flight, and the reason a fully-submitted batch used to read "finished".
@@ -769,7 +779,8 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       count(*) filter (where status = 'failed')::int as failed,
       count(*) filter (where status in ('cancelled', 'cancel_requested'))::int as cancelled,
       count(*) filter (where status = 'paused')::int as paused,
-      max(failure_reason) filter (where status = 'paused') as pause_reason
+      max(failure_reason) filter (where status = 'paused') as pause_reason,
+      mode() within group (order by kind) filter (where kind not like '%batch_submit') as kind
     from generation_jobs
     where project_id = ${p.id} and batch_id is not null
     group by batch_id
@@ -843,6 +854,8 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
               : "paused"
         : "finished",
       pauseReason: b.pause_reason,
+      /** What the batch draws or writes (its most common job kind): panels, a kind of reference, chapter plans… */
+      kind: b.kind,
       progress: {
         total: b.total,
         completed: b.completed,

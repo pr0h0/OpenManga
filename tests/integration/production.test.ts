@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { advanceRun } from "../../apps/api/src/lib/production.ts";
+import { advanceRun, batchModes } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 const STORY = `Chapter 1: Rooftop
@@ -116,6 +116,35 @@ describe("production runs", () => {
     expect(second.steps.find((s) => s.key === "analyze")?.status).toBe("skipped");
     expect(second.steps.find((s) => s.key === "thumbnail")?.status).toBe("skipped");
   }, 400_000);
+
+  test("the batch policy only batches keys whose provider has a batch API", async () => {
+    const key = async (kind: string) =>
+      (
+        await u.post<{ credential: { id: string } }>(
+          "/api/ai/credentials",
+          { kind, label: kind, apiKey: `sk-test-${kind}-1234567890` },
+          201,
+        )
+      ).credential.id;
+    const deepseek = await key("deepseek");
+    const openai = await key("openai");
+    const project = (policy: string) =>
+      ({ settings: { batchPolicy: policy } }) as unknown as Parameters<typeof batchModes>[1];
+    const o = (text: string | null, image: string | null) => ({
+      reviewGates: false,
+      preparePrompts: false,
+      render: false,
+      youtube: false,
+      ai: { text: { credentialId: text }, image: { credentialId: image } },
+    });
+    // Text now, images in batches: DeepSeek text runs now, OpenAI images wait in a batch.
+    expect(await batchModes(h.deps, project("images"), o(deepseek, openai))).toEqual({ text: false, image: true });
+    // Everything in batches still cannot batch DeepSeek text.
+    expect(await batchModes(h.deps, project("cheapest"), o(deepseek, openai))).toEqual({ text: false, image: true });
+    expect(await batchModes(h.deps, project("hybrid"), o(openai, openai))).toEqual({ text: true, image: false });
+    expect(await batchModes(h.deps, project("interactive"), o(openai, openai))).toEqual({ text: false, image: false });
+    expect(await batchModes(h.deps, project("cheapest"), o(null, null))).toEqual({ text: false, image: false });
+  });
 
   test("a 3-hour recap asks the analysis for enough chapters to fit its length", async () => {
     const p = await u.post<{ project: { id: string } }>(

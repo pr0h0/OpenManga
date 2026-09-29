@@ -1532,6 +1532,27 @@ describe("full production flow (mock AI)", () => {
       404,
     );
 
+    // The video preview plays the shared chapter: its shot list, and the artwork and audio of those shots only.
+    const preview = await anon.get<{ shots: { panel: { art: { assetId: string } | null } | null }[] }>(
+      `/api/public/shares/${share.token}/video-preview?chapterId=${chapterId}&cut=panel`,
+    );
+    expect(preview.shots.length).toBeGreaterThan(0);
+    const art = preview.shots.find((sh) => sh.panel?.art)?.panel?.art;
+    expect(art).toBeTruthy();
+    const img = await anon.raw("GET", `/api/public/shares/${share.token}/assets/${art!.assetId}?v=web`);
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toStartWith("image/");
+    expect(
+      (await anon.raw("GET", `/api/public/shares/${share.token}/video-preview?chapterId=${other.chapter.id}`)).status,
+    ).toBe(404);
+    const cover = await alice.get<{ project: { coverAssetId: string | null } }>(`/api/projects/${projectId}`);
+    // Anything else of the project's, like its cover, stays private.
+    const arts = preview.shots.map((sh) => sh.panel?.art?.assetId);
+    if (cover.project.coverAssetId && !arts.includes(cover.project.coverAssetId))
+      expect(
+        (await anon.raw("GET", `/api/public/shares/${share.token}/assets/${cover.project.coverAssetId}`)).status,
+      ).toBe(404);
+
     // Only the owner shares; the list shows live links; revoking closes the link at once.
     expect((await bob.raw("POST", `/api/projects/${projectId}/shares`, {})).status).toBeGreaterThanOrEqual(403);
     const listed = await alice.get<{ shares: { id: string }[] }>(`/api/projects/${projectId}/shares`);
@@ -1539,6 +1560,7 @@ describe("full production flow (mock AI)", () => {
     await alice.del(`/api/shares/${share.id}`);
     expect((await anon.raw("GET", `/api/public/shares/${share.token}`)).status).toBe(404);
     expect((await anon.raw("GET", `/api/public/shares/nonsense`)).status).toBe(404);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}/assets/${art!.assetId}`)).status).toBe(404);
     await alice.del(`/api/chapters/${other.chapter.id}`);
   });
 
@@ -1703,7 +1725,7 @@ describe("full production flow (mock AI)", () => {
     expect(recap.project.settings).toMatchObject({
       imageQuality: "low",
       referencePolicy: "main",
-      batchPolicy: "hybrid",
+      batchPolicy: "images",
     });
     expect(recap.project.settings.targetRuntime?.minutes).toBe(30);
     expect((await alice.raw("POST", "/api/projects", { title: "x", preset: "nope" })).status).toBe(400);
@@ -1718,7 +1740,7 @@ describe("full production flow (mock AI)", () => {
     const fromTemplate = await alice.post<{
       project: { settings: { batchPolicy: string; targetRuntime?: { minutes: number } } };
     }>("/api/projects", { title: "From template", format: "film", preset: `template:${template.id}` }, 201);
-    expect(fromTemplate.project.settings.batchPolicy).toBe("hybrid");
+    expect(fromTemplate.project.settings.batchPolicy).toBe("images");
     expect(fromTemplate.project.settings.targetRuntime?.minutes).toBe(30);
     await alice.del(`/api/auth/templates/${template.id}`);
     expect((await alice.get<P>("/api/production-presets")).templates).toHaveLength(0);
@@ -1842,6 +1864,20 @@ describe("list endpoints with correlated subqueries", () => {
     );
     expect(jobs.jobs.length).toBeGreaterThan(0);
     expect(jobs.jobs.every((j) => j.outputAssetId)).toBe(true);
+    // Numbered pages: the filtered total, and an offset that walks through every job exactly once.
+    type Page = { jobs: { id: string }[]; total: number };
+    const all = await alice.get<Page>(`/api/projects/${p.id}/generations?limit=200`);
+    expect(all.total).toBe(all.jobs.length);
+    const seen: string[] = [];
+    for (let offset = 0; offset < all.total; offset += 2) {
+      const pg = await alice.get<Page>(`/api/projects/${p.id}/generations?limit=2&offset=${offset}`);
+      expect(pg.total).toBe(all.total);
+      seen.push(...pg.jobs.map((j) => j.id));
+    }
+    expect(seen).toEqual(all.jobs.map((j) => j.id));
+    const filtered = await alice.get<Page>(`/api/projects/${p.id}/generations?kind=panel_generation&limit=1`);
+    expect(filtered.total).toBeGreaterThan(1);
+    expect(filtered.total).toBeLessThan(all.total);
     const chs = await alice.get<{ chapters: { id: string }[] }>(`/api/projects/${p.id}/chapters`);
     const ch = await alice.get<{ pages: { panelCount: number; readyCount: number }[] }>(
       `/api/chapters/${chs.chapters[0]!.id}`,

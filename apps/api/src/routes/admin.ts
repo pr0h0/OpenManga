@@ -146,6 +146,7 @@ adminRoutes.get("/projects", async (c) => {
 const JobsQuery = z.object({
   status: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
 });
 doc({
   method: "GET",
@@ -156,15 +157,24 @@ doc({
 });
 adminRoutes.get("/jobs", async (c) => {
   const q = query(c, JobsQuery);
-  const rows = await c
-    .get("deps")
-    .db.select({ j: generationJobs, project: projects.title })
+  const { db } = c.get("deps");
+  const where = q.status ? inArray(generationJobs.status, q.status.split(",") as "failed"[]) : undefined;
+  const rows = await db
+    .select({ j: generationJobs, project: projects.title })
     .from(generationJobs)
     .innerJoin(projects, eq(projects.id, generationJobs.projectId))
-    .where(q.status ? inArray(generationJobs.status, q.status.split(",") as "failed"[]) : undefined)
-    .orderBy(desc(generationJobs.createdAt))
-    .limit(q.limit);
-  return c.json({ jobs: rows.map((r) => ({ ...r.j, compiledPrompt: undefined, projectTitle: r.project })) });
+    .where(where)
+    .orderBy(desc(generationJobs.createdAt), desc(generationJobs.id))
+    .limit(q.limit)
+    .offset(q.offset);
+  const [{ total } = { total: 0 }] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(generationJobs)
+    .where(where);
+  return c.json({
+    jobs: rows.map((r) => ({ ...r.j, compiledPrompt: undefined, projectTitle: r.project })),
+    total,
+  });
 });
 
 doc({ method: "GET", path: "/api/admin/jobs/:id", summary: "Inspect any generation", tag: "admin" });

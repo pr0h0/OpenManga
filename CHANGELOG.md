@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Published container images track tagged releases.
 
+## [Unreleased]
+
+## [0.12.0] — 2026-09-30
+
+Upgrading: pull the new images and restart. No migrations. Reload open tabs to get the new web app.
+
+### Added
+
+- **Text now, images in batches** — a production run spend option (and the YouTube recap presets' default): planning,
+  prompts and narration run straight away, while artwork and references wait for a half-price provider batch.
+- **Video preview on reader links** — a reader link's Play button plays the open chapter as the in-browser video
+  preview (artwork, camera moves and narration audio), with no account and nothing to render.
+- **Numbered pages for generation jobs** — the Generation page and Admin → Jobs page through every job
+  ("51–100 of 1,258", previous/next above and below the table) instead of stopping at the first 50 or 100;
+  the list API takes `offset` and returns the filtered `total`.
+
+### Fixed
+
+- A production run under a batching policy asked every key for a batch, so with a DeepSeek (or Meta, OpenRouter)
+  text key its text steps were refused. A step is now batched only when its key's provider has a batch API.
+- A batched "Generate all" for characters (and a production run's character references under a batching policy)
+  never reached the provider: the batch submitter skipped character references and left them queued for good.
+- A batch of references (or of any other non-panel work) was labelled "Panels · 0 pages" on the Generation page; it
+  now names what it draws ("Character ref batch"). A batch's progress no longer counts its submit job as one of the
+  images, which read "1 / 21 completed" before anything was drawn.
+
 ## [0.11.0] — 2026-09-29
 
 Upgrading: pull the new images and restart. One migration (`0020_production_runs`), applied by the migrate service

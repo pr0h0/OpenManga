@@ -12,9 +12,11 @@ import {
   panels,
   productionRuns,
   projects,
+  providerCredentials,
   sql,
   users,
 } from "@openmanga/db";
+import { BATCH_CAPABLE_PROVIDERS } from "@openmanga/domain";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { handleError, notFound } from "./http.ts";
@@ -138,13 +140,38 @@ type Call = Awaited<ReturnType<typeof caller>>;
 
 // ---------------------------------------------------------------- steps
 
-type Ctx = { deps: Deps; run: Run; project: Project; call: Call; o: RunOptions; step: ProductionStep };
+type Ctx = {
+  deps: Deps;
+  run: Run;
+  project: Project;
+  call: Call;
+  o: RunOptions;
+  step: ProductionStep;
+  batch: { text: boolean; image: boolean };
+};
 type Started = Pick<ProductionStep, "status" | "jobIds" | "exportJobId" | "note"> & { ref?: string };
 
-const textBatch = (p: Project) => p.settings.batchPolicy === "cheapest" || p.settings.batchPolicy === "hybrid";
-const imageBatch = (p: Project) => p.settings.batchPolicy === "cheapest";
-// A pasted answer cannot wait in a provider batch, so paste mode always runs now, whatever the policy says.
-const text = (x: Ctx) => ({ ai: x.o.ai?.text ?? null, batch: textBatch(x.project) && !x.o.ai?.text?.manual });
+/**
+ * Whether the run's text and image steps go through provider batches: the project's policy asks for it, and the
+ * chosen key's provider has a batch API (DeepSeek, Meta and OpenRouter do not, and a pasted answer cannot wait in
+ * one), so a policy never turns into refused requests.
+ */
+export async function batchModes(deps: Deps, p: Project, o: RunOptions) {
+  const batchable = async (choice: AiChoice | undefined) => {
+    if (!choice?.credentialId || choice.manual) return false;
+    const [cred] = await deps.db
+      .select({ kind: providerCredentials.kind })
+      .from(providerCredentials)
+      .where(eq(providerCredentials.id, choice.credentialId));
+    return Boolean(cred && BATCH_CAPABLE_PROVIDERS.has(cred.kind));
+  };
+  const policy = p.settings.batchPolicy;
+  return {
+    text: (policy === "hybrid" || policy === "cheapest") && (await batchable(o.ai?.text)),
+    image: (policy === "images" || policy === "cheapest") && (await batchable(o.ai?.image)),
+  };
+}
+const text = (x: Ctx) => ({ ai: x.o.ai?.text ?? null, batch: x.batch.text });
 const image = (x: Ctx) => ({ ai: x.o.ai?.image ?? null });
 
 async function chapterRows(x: Ctx) {
@@ -208,7 +235,7 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     const out = await each(["character", "location", "prop"] as const, async (subject) => {
       const r = await x.call<{ jobs: { id: string }[] }>("POST", `/api/projects/${x.project.id}/generations/bulk`, {
         ...image(x),
-        batch: imageBatch(x.project),
+        batch: x.batch.image,
         scope: { references: subject },
         onlyMissing: true,
         confirm: true,
@@ -249,7 +276,7 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     const out = await each(todo, async (c) => {
       const r = await x.call<{ jobs: { id: string }[] }>("POST", `/api/projects/${x.project.id}/generations/bulk`, {
         ...image(x),
-        batch: imageBatch(x.project),
+        batch: x.batch.image,
         scope: { chapterId: c.id },
         onlyMissing: true,
         confirm: true,
@@ -400,7 +427,8 @@ export async function advanceRun(deps: Deps, runId: string) {
         await save({ status: "cancelled", reason: "The project was removed" });
         return;
       }
-      const x: Ctx = { deps, run, project, call, o: run.options as RunOptions, step };
+      const o = run.options as RunOptions;
+      const x: Ctx = { deps, run, project, call, o, step, batch: await batchModes(deps, project, o) };
       try {
         if (step.status === "review") {
           await save({ status: "waiting", reason: step.note ?? null });

@@ -12,6 +12,7 @@ import {
   sql,
 } from "@openmanga/db";
 import { recordAudit } from "@openmanga/services";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -177,6 +178,15 @@ cdnRoutes.get("/a/:id", async (c) => {
       if (a.ownerUserId !== me.id) throw notFound("Asset");
     } else if (a.ownerUserId !== me.id) await projectAccess(c, a.projectId, "read");
   }
+  return sendAsset(c, a);
+});
+
+/**
+ * Send an asset the caller may see (the access check is the caller's): `?v=` picks a display variant, `?download=`
+ * names the file. Behind nginx the bytes go out through X-Accel-Redirect; otherwise they are streamed from here.
+ */
+export async function sendAsset(c: Context<AppEnv>, a: typeof assets.$inferSelect) {
+  const deps = c.get("deps");
   const v = c.req.query("v");
   let storageKey = a.storageKey;
   let mime = a.mimeType;
@@ -212,4 +222,4 @@ cdnRoutes.get("/a/:id", async (c) => {
   }
   const data = await deps.assets.storage.read(storageKey);
   return c.body(data.slice().buffer as ArrayBuffer, 200, { ...headers, "content-length": String(data.byteLength) });
-});
+}

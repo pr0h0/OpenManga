@@ -6,6 +6,7 @@ import { create } from "zustand";
 import { get, post } from "../../api/client.ts";
 import { qk } from "../../api/hooks.ts";
 import { clsx, Spinner, toast } from "../../components/ui.tsx";
+import { kindLabel } from "./shared.tsx";
 
 export type BatchInfo = {
   batchId: string;
@@ -13,6 +14,7 @@ export type BatchInfo = {
   finishedAt: string | null;
   state: "queued" | "running" | "submitted" | "paused" | "finished";
   pauseReason?: string | null;
+  kind?: string | null;
   progress: {
     total: number;
     completed: number;
@@ -58,6 +60,8 @@ const useDismissed = create<{ ids: Set<string>; dismiss: (id: string) => void }>
 }));
 
 function scopeLabel(b: BatchInfo) {
+  // References, plans and other non-panel work have no chapter or page to point at: name what they are.
+  if (!b.pageOrders.length) return `${kindLabel(b.kind ?? "panel_generation")} batch`;
   const ch = b.chapters.map((c) => `Ch. ${c.order} ${c.title}`).join(", ") || "Panels";
   if (b.pageOrders.length === 1) return `${ch} · page ${b.pageOrders[0]}`;
   return `${ch} · ${b.pageOrders.length} pages`;

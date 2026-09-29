@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Columns2, Rows3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns2, Play, Rows3 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { get } from "../../api/client.ts";
 import { ErrorBox, Spinner } from "../../components/ui.tsx";
+import { VideoPreview } from "../video/VideoPreview.tsx";
 
 type Shared = {
   project: { title: string; description: string; author: string; readingDirection: string; format: string };
@@ -27,6 +28,7 @@ export function ReaderPage() {
   const [pageIdx, setPageIdx] = useState(0);
   // Strips and film shots read as a scroll; pages one at a time.
   const [mode, setMode] = useState<"pages" | "scroll" | null>(null);
+  const [playing, setPlaying] = useState(false);
   const scroll = (mode ?? (data && data.project.format !== "comic" ? "scroll" : "pages")) === "scroll";
   const rtl = data?.project.readingDirection === "rtl";
   const chapter = data?.chapters[chapterIdx];
@@ -116,7 +118,29 @@ export function ReaderPage() {
         >
           {scroll ? <Columns2 className="size-4" /> : <Rows3 className="size-4" />}
         </button>
+        {chapter && pageList.length > 0 && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setPlaying(true)}
+            aria-label="Play this chapter as a video preview"
+            title="Play this chapter as a video preview"
+          >
+            <Play className="size-4" />
+          </button>
+        )}
       </header>
+      {playing && chapter && (
+        <VideoPreview
+          open
+          onClose={() => setPlaying(false)}
+          projectId=""
+          scope={{ chapterId: chapter.id }}
+          defaultCut={data.project.format === "film" ? "panel" : "page"}
+          title={chapter.title}
+          shareToken={token}
+        />
+      )}
 
       {!pageList.length ? (
         <p className="muted p-6 text-center">This chapter has no pages yet.</p>
