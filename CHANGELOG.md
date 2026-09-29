@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   prompts and narration run straight away, while artwork and references wait for a half-price provider batch.
 - **Video preview on reader links** — a reader link's Play button plays the open chapter as the in-browser video
   preview (artwork, camera moves and narration audio), with no account and nothing to render.
+- **Numbered pages for generation jobs** — the Generation page and Admin → Jobs page through every job
+  ("51–100 of 1,258", previous/next above and below the table) instead of stopping at the first 50 or 100;
+  the list API takes `offset` and returns the filtered `total`.
 
 ### Fixed
 

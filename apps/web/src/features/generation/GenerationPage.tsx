@@ -1,36 +1,41 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Cpu, RotateCcw, XCircle } from "lucide-react";
 import { useState } from "react";
 import { get, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
 import type { JobListItem } from "../../api/types.ts";
-import { AssetImage, EmptyState, ErrorBox, fmt, PageHeader, Spinner, StatusChip, toast } from "../../components/ui.tsx";
+import { AssetImage, EmptyState, ErrorBox, fmt, PageHeader, Pager, Spinner, StatusChip } from "../../components/ui.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 import { ActiveBatches } from "./BatchStatus.tsx";
 import { JOB_STATUSES, KIND_LABELS, kindLabel, ProgressBar } from "./shared.tsx";
 
-type ListResponse = { jobs: JobListItem[]; counts: Record<string, number> };
+type ListResponse = { jobs: JobListItem[]; counts: Record<string, number>; total: number };
 const PAGE = 50;
 
 export function GenerationPage() {
   const projectId = useProjectId();
   const [status, setStatus] = useState("");
   const [kind, setKind] = useState("");
+  const [page, setPage] = useState(0);
+  const filter = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    setPage(0);
+  };
+  const setStatusAt = filter(setStatus);
+  const setKindAt = filter(setKind);
 
-  const q = useInfiniteQuery({
-    queryKey: [...qk.generations(projectId), status, kind],
-    initialPageParam: "",
-    queryFn: ({ pageParam }) => {
-      const p = new URLSearchParams({ limit: String(PAGE) });
+  const q = useQuery({
+    queryKey: [...qk.generations(projectId), status, kind, page],
+    queryFn: () => {
+      const p = new URLSearchParams({ limit: String(PAGE), offset: String(page * PAGE) });
       if (status) p.set("status", status);
       if (kind) p.set("kind", kind);
-      if (pageParam) p.set("before", pageParam);
       return get<ListResponse>(`/projects/${projectId}/generations?${p}`);
     },
-    getNextPageParam: (last) => (last.jobs.length === PAGE ? last.jobs.at(-1)!.createdAt : undefined),
+    placeholderData: keepPreviousData,
     refetchInterval: (query) => {
-      const c = query.state.data?.pages[0]?.counts;
+      const c = query.state.data?.counts;
       // Live events refresh the list; this only covers a dropped event stream.
       return c && (c.queued ?? 0) + (c.processing ?? 0) > 0 ? 15_000 : false;
     },
@@ -48,8 +53,18 @@ export function GenerationPage() {
     success: "Retry queued",
   });
 
-  const counts = q.data?.pages[0]?.counts ?? {};
-  const jobs = q.data?.pages.flatMap((p) => p.jobs) ?? [];
+  const counts = q.data?.counts ?? {};
+  const jobs = q.data?.jobs ?? [];
+  const pager = (className?: string) => (
+    <Pager
+      page={page}
+      size={PAGE}
+      total={q.data?.total ?? 0}
+      onPage={setPage}
+      busy={q.isPlaceholderData}
+      className={className}
+    />
+  );
   const total =
     (counts.queued ?? 0) +
     (counts.awaiting_input ?? 0) +
@@ -70,7 +85,7 @@ export function GenerationPage() {
               key={s}
               type="button"
               className="text-left"
-              onClick={() => setStatus(status === s ? "" : s === "cancelled" ? "cancelled,cancel_requested" : s)}
+              onClick={() => setStatusAt(status === s ? "" : s === "cancelled" ? "cancelled,cancel_requested" : s)}
             >
               <div className="muted text-xs capitalize">{s}</div>
               <div className="text-xl font-semibold">{counts[s] ?? 0}</div>
@@ -82,7 +97,7 @@ export function GenerationPage() {
           {counts.completed ?? 0} / {total} completed · {counts.processing ?? 0} generating · {counts.queued ?? 0}{" "}
           queued
           {(counts.awaiting_input ?? 0) > 0 && (
-            <button type="button" className="ml-1 underline" onClick={() => setStatus("awaiting_input")}>
+            <button type="button" className="ml-1 underline" onClick={() => setStatusAt("awaiting_input")}>
               · {counts.awaiting_input} waiting for your answer
             </button>
           )}
@@ -93,7 +108,7 @@ export function GenerationPage() {
         <select
           className="input w-auto"
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          onChange={(e) => setStatusAt(e.target.value)}
           aria-label="Filter by status"
         >
           <option value="">All statuses</option>
@@ -106,7 +121,7 @@ export function GenerationPage() {
         <select
           className="input w-auto"
           value={kind}
-          onChange={(e) => setKind(e.target.value)}
+          onChange={(e) => setKindAt(e.target.value)}
           aria-label="Filter by kind"
         >
           <option value="">All kinds</option>
@@ -116,6 +131,7 @@ export function GenerationPage() {
             </option>
           ))}
         </select>
+        {pager("ml-auto")}
       </div>
 
       {q.error && <ErrorBox error={q.error} onRetry={() => q.refetch()} />}
@@ -215,18 +231,7 @@ export function GenerationPage() {
           </table>
         </div>
       )}
-      {q.hasNextPage && (
-        <div className="mt-3 text-center">
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={q.isFetchingNextPage}
-            onClick={() => q.fetchNextPage().catch(toast.error)}
-          >
-            {q.isFetchingNextPage && <Spinner />} Load more
-          </button>
-        </div>
-      )}
+      {pager("mt-3")}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { RotateCcw, Search, Shield, UserPlus, Wrench, XCircle } from "lucide-react";
 import { useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
@@ -12,6 +12,7 @@ import {
   KeyValue,
   Modal,
   PageHeader,
+  Pager,
   Spinner,
   StatusChip,
   Tabs,
@@ -383,14 +384,30 @@ function UsersTab() {
 }
 
 type AdminJob = Omit<GenerationJobRow, "compiledPrompt"> & { projectTitle: string };
+const JOB_PAGE = 100;
 function JobsTab() {
   const [status, setStatus] = useState("failed");
+  const [page, setPage] = useState(0);
   const [inspect, setInspect] = useState<string | null>(null);
-  const key = ["admin", "jobs", status];
+  const key = ["admin", "jobs", status, page];
   const q = useQuery({
     queryKey: key,
-    queryFn: () => get<{ jobs: AdminJob[] }>(`/admin/jobs?${status ? `status=${status}` : ""}`),
+    queryFn: () =>
+      get<{ jobs: AdminJob[]; total: number }>(
+        `/admin/jobs?limit=${JOB_PAGE}&offset=${page * JOB_PAGE}${status ? `&status=${status}` : ""}`,
+      ),
+    placeholderData: keepPreviousData,
   });
+  const pager = (className?: string) => (
+    <Pager
+      page={page}
+      size={JOB_PAGE}
+      total={q.data?.total ?? 0}
+      onPage={setPage}
+      busy={q.isPlaceholderData}
+      className={className}
+    />
+  );
   const retry = useAction((id: string) => post(`/admin/jobs/${id}/retry`), {
     invalidate: [key],
     success: "Retry queued",
@@ -406,19 +423,25 @@ function JobsTab() {
   });
   return (
     <div>
-      <select
-        className="input mb-3 w-auto"
-        value={status}
-        onChange={(e) => setStatus(e.target.value)}
-        aria-label="Status filter"
-      >
-        <option value="">All</option>
-        {JOB_STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {s.replace(/_/g, " ")}
-          </option>
-        ))}
-      </select>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <select
+          className="input w-auto"
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(0);
+          }}
+          aria-label="Status filter"
+        >
+          <option value="">All</option>
+          {JOB_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        {pager("ml-auto")}
+      </div>
       {q.error && <ErrorBox error={q.error} />}
       {!q.data ? (
         <Spinner />
@@ -466,6 +489,7 @@ function JobsTab() {
           </table>
         </div>
       )}
+      {pager("mt-3")}
       <Modal open={Boolean(inspect)} onClose={() => setInspect(null)} title="Generation" wide="xl">
         {detail.error && <ErrorBox error={detail.error} />}
         {!detail.data ? (

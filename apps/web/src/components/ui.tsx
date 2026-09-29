@@ -1,6 +1,15 @@
 import { Link } from "@tanstack/react-router";
 import clsx from "clsx";
-import { AlertTriangle, CheckCircle2, CircleDashed, ImageOff, Loader2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CircleDashed,
+  ImageOff,
+  Loader2,
+  X,
+} from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
@@ -28,6 +37,53 @@ export function PageHeader({
         {subtitle && <p className="muted mt-0.5 text-sm">{subtitle}</p>}
       </div>
       {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+/** "51–100 of 1,258" with previous/next; `page` counts from 0. Renders nothing when everything fits on one page. */
+export function Pager({
+  page,
+  size,
+  total,
+  onPage,
+  busy,
+  className,
+}: {
+  page: number;
+  size: number;
+  total: number;
+  onPage: (page: number) => void;
+  busy?: boolean;
+  className?: string;
+}) {
+  if (total <= size) return null;
+  const last = Math.ceil(total / size) - 1;
+  return (
+    <div className={clsx("flex items-center justify-end gap-2 text-sm", className)}>
+      {busy && <Spinner />}
+      <span className="muted">
+        {(page * size + 1).toLocaleString()}–{Math.min(total, (page + 1) * size).toLocaleString()} of{" "}
+        {total.toLocaleString()}
+      </span>
+      <button
+        type="button"
+        className="btn-secondary"
+        disabled={page <= 0}
+        onClick={() => onPage(page - 1)}
+        aria-label="Previous page"
+      >
+        <ChevronLeft className="size-4" />
+      </button>
+      <button
+        type="button"
+        className="btn-secondary"
+        disabled={page >= last}
+        onClick={() => onPage(page + 1)}
+        aria-label="Next page"
+      >
+        <ChevronRight className="size-4" />
+      </button>
     </div>
   );
 }
