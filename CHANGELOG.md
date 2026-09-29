@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - A production run under a batching policy asked every key for a batch, so with a DeepSeek (or Meta, OpenRouter)
   text key its text steps were refused. A step is now batched only when its key's provider has a batch API.
+- A batched "Generate all" for characters (and a production run's character references under a batching policy)
+  never reached the provider: the batch submitter skipped character references and left them queued for good.
 
 ## [0.11.0] — 2026-09-29
 

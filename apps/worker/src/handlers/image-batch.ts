@@ -37,7 +37,12 @@ const choiceOf = (job: { parameters: Record<string, unknown> }) => (job.paramete
  * Image jobs a provider batch can carry. Each is fully compiled when it is written — prompt, aspect, quality and
  * input images are on the row — which is all a batch request is made of.
  */
-const BATCHABLE_IMAGE_KINDS = ["panel_generation", "location_reference", "prop_reference"] as const;
+const BATCHABLE_IMAGE_KINDS = [
+  "panel_generation",
+  "character_reference",
+  "location_reference",
+  "prop_reference",
+] as const;
 
 async function providerFor(deps: WorkerDeps, job: GenerationJob): Promise<ImageBatchProvider | null> {
   return deps.resolver.imageBatch(choiceOf(job), job.userId);
