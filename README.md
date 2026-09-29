@@ -41,8 +41,8 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 
 ## Features
 - **Production run**: one button on the project overview runs the whole pipeline — analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package — skipping whatever already exists, pausing for your review where you ask, and spending only up to the project's budget cap.
-- **Presets and templates**: start a project from a production preset (30-minute or 1-hour YouTube recap, manga chapters, webtoon episodes, economy draft) or from your own template saved from another project's setup.
-- **Target runtime**: aim a video at a length; chapter plans and narration default to the page count and words per panel that land each chapter on its share.
+- **Presets and templates**: start a project from a production preset (a YouTube recap of 30 minutes, 1, 2 or 3 hours, manga chapters, webtoon episodes, economy draft) or from your own template saved from another project's setup.
+- **Target runtime**: aim a video at a length; the story analysis asks for enough chapters to reach it, and chapter plans and narration default to the page count and words per panel that land each chapter on its share.
 - **Project wizard**: details, format (comic pages, 16:9 video shots, or a vertical scrolling strip), style preset (including a photorealistic *Realistic* preset), story input (story/chapter/outline/screenplay/idea), AI analysis, editable review, apply.
 - **Three formats**: comic pages; **film** — one 16:9 shot per page, rendered as a narrated Ken Burns video; and **vertical strip** — one scrolling column where each panel's height is its pacing and the seam between panels (gap, butt, bleed, dissolve, fade) is authored, read in the app exactly as it exports.
 - **No API key required**: every text step can be answered by pasting a reply from any chat, validated exactly as a provider's answer is, and any panel can take artwork you upload — see [Running without any API keys](#running-without-any-api-keys).
