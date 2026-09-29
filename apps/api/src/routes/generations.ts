@@ -765,11 +765,13 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
     cancelled: number;
     paused: number;
     pause_reason: string | null;
+    kind: string | null;
   }>(sql`
     select batch_id, min(created_at) as created_at, max(finished_at) as finished_at,
       min(created_at) filter (where status = 'queued') as first_queued_at, min(priority)::int as priority,
-      count(*)::int as total,
-      count(*) filter (where status = 'completed')::int as completed,
+      -- The submit job is bookkeeping, not an image: counted, a batch read "1 / 21 completed" before anything was drawn.
+      count(*) filter (where kind not like '%batch_submit')::int as total,
+      count(*) filter (where status = 'completed' and kind not like '%batch_submit')::int as completed,
       count(*) filter (where status = 'processing')::int as generating,
       count(*) filter (where status = 'queued')::int as queued,
       -- Parked in a provider batch: still in flight, and the reason a fully-submitted batch used to read "finished".
@@ -777,7 +779,8 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       count(*) filter (where status = 'failed')::int as failed,
       count(*) filter (where status in ('cancelled', 'cancel_requested'))::int as cancelled,
       count(*) filter (where status = 'paused')::int as paused,
-      max(failure_reason) filter (where status = 'paused') as pause_reason
+      max(failure_reason) filter (where status = 'paused') as pause_reason,
+      mode() within group (order by kind) filter (where kind not like '%batch_submit') as kind
     from generation_jobs
     where project_id = ${p.id} and batch_id is not null
     group by batch_id
@@ -851,6 +854,8 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
               : "paused"
         : "finished",
       pauseReason: b.pause_reason,
+      /** What the batch draws or writes (its most common job kind): panels, a kind of reference, chapter plans… */
+      kind: b.kind,
       progress: {
         total: b.total,
         completed: b.completed,
