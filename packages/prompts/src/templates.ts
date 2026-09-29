@@ -197,6 +197,37 @@ export const storyAnalysisV2 = defineTextTemplate<Parameters<typeof storyAnalysi
   },
 });
 
+/**
+ * v3: when the project targets a video length, the analysis is told it and how many chapters that needs, since
+ * every chapter is later planned in one pass with a bounded number of shots.
+ */
+export const storyAnalysisV3 = defineTextTemplate<
+  Parameters<typeof storyAnalysisV1.build>[0] & { runtime?: { minutes: number; chapters: number } | null }
+>({
+  name: "story-analysis",
+  version: 3,
+  description:
+    "Story bible, cast, world and chapters with drawable character bibles; chapter count sized to the target runtime.",
+  system: [
+    templateHeader("story-analysis", 3),
+    ...storyAnalysisV2.system.split("\n\n").slice(1, -2),
+    "CHAPTER COUNT: when the request gives a target video length and chapter count, split the story into AT LEAST that many chapters of broadly similar length, still at natural story breaks (a scene change, a time skip, a reveal). Never merge the story into fewer chapters than asked: each chapter is later adapted in one pass with a limited number of shots, so fewer chapters means a shorter video.",
+    DATA_RULE,
+    schemaInstructions("StoryAnalysis", StoryAnalysis),
+  ].join("\n\n"),
+  build(i) {
+    const [system, user] = storyAnalysisV1.build.call(this, i);
+    if (!i.runtime) return [system!, user!];
+    return [
+      system!,
+      {
+        ...user!,
+        content: `Target video length: about ${i.runtime.minutes} minutes, so split the story into at least ${i.runtime.chapters} chapters.\n\n${user!.content}`,
+      },
+    ];
+  },
+});
+
 const PLAN_ROLE_V5 = "You are a storyboard director adapting a chapter into comic pages.";
 const PLAN_PAGES_V5 =
   "PAGES: plan pages per scene with page purpose, pacing, visual emphasis, page-turn hook and a layoutTemplate from the provided keys whose panel count matches the number of panels. Every page has 1-5 panels; when a moment needs more beats, continue on the next page instead of adding panels. Prefer 3-5 panels per page and use 1-panel splash pages only for big reveals.";
@@ -769,6 +800,7 @@ export const TEXT_TEMPLATES = [
   expertChatV2,
   storyAnalysisV1,
   storyAnalysisV2,
+  storyAnalysisV3,
   chapterPlanningV1,
   chapterPlanningV2,
   chapterPlanningV3,

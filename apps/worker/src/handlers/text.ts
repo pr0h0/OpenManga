@@ -30,6 +30,7 @@ import {
   stylePresets,
 } from "@openmanga/db";
 import {
+  chaptersForRuntime,
   LAYOUT_TEMPLATES,
   languageName,
   type RuntimeTarget,
@@ -49,7 +50,7 @@ import {
   sceneStripV2,
   shotOutlineV2,
   shotPlanningV3,
-  storyAnalysisV2,
+  storyAnalysisV3,
   storyRewriteV1,
   stripOutlineV2,
   stripPlanningV2,
@@ -134,11 +135,15 @@ export async function storyAnalysis(deps: WorkerDeps, job: GenerationJob) {
     .where(eq(storyRevisions.id, String(job.input.storyRevisionId)));
   if (!rev) throw new InputError("Story revision no longer exists");
   const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
-  const messages = storyAnalysisV2.build({
+  // A target runtime sets how many chapters the story is cut into, so each fits a single chapter plan.
+  const target = project?.settings.targetRuntime;
+  const chapters = target ? chaptersForRuntime(target, project!.settings.format) : null;
+  const messages = storyAnalysisV3.build({
     story: rev.content,
     inputKind: rev.inputKind,
     language: project?.language ?? "en",
     projectType: project?.projectType ?? "manhwa",
+    runtime: target && chapters ? { minutes: target.minutes, chapters } : null,
   });
   try {
     const r = await structured(deps, job, messages, StoryAnalysis, "StoryAnalysis", 64_000);

@@ -146,9 +146,10 @@ it waiting.
 ## Presets and policies that spend less
 
 - **Economy draft**, a production preset for new projects, is the cheapest setup: image quality `low`, main-cast
-  references only, and the `cheapest` batch policy (which applies to production runs). The two YouTube recap
+  references only, and the `cheapest` batch policy (which applies to production runs). The four YouTube recap
   presets are also `low` quality with main-only references, batching text (`hybrid`, 30 min) or everything
-  (`cheapest`, 1 hour).
+  (`cheapest`, 1, 2 and 3 hours). The long ones use longer shots (5–10 s for 2 hours, 6–12 s for 3 hours), which
+  keeps a 3-hour video near 1,200 images instead of 1,440 at the 30-minute preset's pace.
 - **Reference policy** `main` (Project settings → Production → *References to generate in bulk*) makes bulk
   reference runs skip minor characters, and places and props used in fewer than two panels. The estimate reports
   how many it skipped.

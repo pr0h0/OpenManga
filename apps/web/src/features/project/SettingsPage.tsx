@@ -648,12 +648,13 @@ function ConsistencySection({
 type Runtime = NonNullable<ProjectSettings["targetRuntime"]>;
 type RuntimeReport = {
   totalWords: number | null;
+  neededChapters: number | null;
   estimatedMinutes: number;
   chapters: {
     id: string;
     order: number;
     title: string;
-    budget: { words: number; shots: number; pages: number } | null;
+    budget: { words: number; shots: number; pages: number; capped: boolean } | null;
     planned: { pages: number; panels: number };
     narrationWords: number;
     estimatedMinutes: number;
@@ -742,6 +743,11 @@ function RuntimeSection({
                   {saved && (
                     <td className="py-1 pr-2">
                       {c.budget ? `${c.budget.words} words · ${c.budget.shots} shots · ${c.budget.pages} pages` : "—"}
+                      {c.budget?.capped && (
+                        <span className="block text-amber-600" title="A chapter plan holds at most 60 pages">
+                          More than one plan holds: split this chapter or lengthen the shots
+                        </span>
+                      )}
                     </td>
                   )}
                   <td className="py-1 pr-2">
@@ -754,6 +760,13 @@ function RuntimeSection({
               ))}
             </tbody>
           </table>
+          {report.data.neededChapters && report.data.chapters.length < report.data.neededChapters && (
+            <p className="mt-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+              This length needs about {report.data.neededChapters} chapters so that each fits one chapter plan; the
+              project has {report.data.chapters.length}. Analyse the story again (the analysis now aims for that many),
+              split long chapters, or choose longer shots.
+            </p>
+          )}
           <p className="muted mt-2 text-xs">
             Narration so far adds up to about <strong>{report.data.estimatedMinutes} min</strong>
             {saved ? ` of the ${saved.minutes} min target` : ""}.

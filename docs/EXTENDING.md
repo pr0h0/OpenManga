@@ -222,7 +222,7 @@ compiled sections; this section is only about editing the registry.
 
 4. **Point the caller at the new version.** The registry holds every version; the *live* one is whichever the caller
    imports. Nothing selects it automatically. Update both sides or the job will record the wrong template:
-   - `apps/worker/src/handlers/text.ts` builds the messages (`storyAnalysisV2.build(…)`, the one-call plan
+   - `apps/worker/src/handlers/text.ts` builds the messages (`storyAnalysisV3.build(…)`, the one-call plan
      `shotPlanningV3` / `stripPlanningV2` / `chapterPlanningV6` by format, the scene-by-scene passes
      `chapterOutlineV2` + `scenePagesV2` and their strip/shot twins, `panelPromptsV4`, `narrationV5`).
    - The API route that *creates* the job stamps `templateName` / `templateVersion` on the row —

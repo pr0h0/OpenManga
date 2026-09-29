@@ -22,7 +22,7 @@ on start. Reload open tabs to get the new web app.
   Each chapter gets its share by source length: chapter plans default to its page target, narration to the words
   per panel that fill it, and the Exports page to the shortest shot as the minimum hold. The settings page compares the
   budget with what is planned and narrated so far.
-- **Production presets and templates.** New projects can start from a preset (YouTube recap 30 min or 1 hour, manga
+- **Production presets and templates.** New projects can start from a preset (YouTube recap 30 min, 1, 2 or 3 hours, manga
   chapters, webtoon episodes, economy draft) that sets format, style, image quality, runtime, which references to
   make and how runs spend. *Save as template* keeps a project's setup (never its story, cast or files) for your next
   projects; the Account page deletes templates. Two new settings: a reference policy (all, or main cast and recurring

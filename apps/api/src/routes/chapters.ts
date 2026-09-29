@@ -1,5 +1,5 @@
 import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes, sql, storyBeats } from "@openmanga/db";
-import { PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
+import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
 import { chapterPlanningV6, shotPlanningV3, stripPlanningV2 } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
@@ -295,6 +295,8 @@ chapterRoutes.get("/projects/:projectId/runtime", async (c) => {
   });
   return c.json({
     target: t,
+    /** Chapters this length needs for each to fit one plan; compare with the chapter count. */
+    neededChapters: t ? chaptersForRuntime(t, p.settings.format) : null,
     totalWords: budget?.totalWords ?? null,
     chapters: rows,
     estimatedMinutes: Math.round((rows.reduce((s, r) => s + r.narrationWords, 0) / wpm) * 10) / 10,

@@ -2,7 +2,7 @@
 
 | Stage | Job kind / queue | Template (live version) | Output |
 | --- | --- | --- | --- |
-| Story analysis | `story_analysis` / text-ai | `story-analysis` v2 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters |
+| Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
 | Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v2 then `scene-pages` v2 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v6, `shot-planning` v3 or `strip-planning` v2 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
@@ -169,7 +169,7 @@ itself is deterministic ffmpeg work in the worker: see `docs/DEPLOYMENT.md` for 
 ## Prompt quality rules
 
 Rules that came from production output, all versioned (old text versions stay registered for reproducibility) —
-`story-analysis` v2, `page-planning` v6, `shot-planning` v3, `panel-prompts` v4, `narration` v5 and the image
+`story-analysis` v3, `page-planning` v6, `shot-planning` v3, `panel-prompts` v4, `narration` v5 and the image
 templates:
 
 - **Bibles are drawable**: concrete descriptors, apparent age as a range, one default outfit with colours and
@@ -376,6 +376,11 @@ comic, one page per shot for film and vertical strips, capped at 60). With a tar
   chapter on its word share, kept between what the shortest and longest shot hold (and within 5–80), instead of
   `settings.narrationWordsPerPanel`;
 - the Exports page starts the video's minimum hold at `minShotSeconds`.
+- story analysis (`story-analysis` v3) is told the length and asked for at least `chaptersForRuntime` chapters: as
+  many as keep each chapter's share within 80% of what one plan holds (60 shots for film and strips, about 210
+  panels for comics). A 3-hour film at 6–12 s shots asks for 25. `GET /api/projects/:projectId/runtime` reports that
+  number as `neededChapters` and marks a chapter whose share needs more than one plan (`capped`); the settings page
+  warns about both.
 
 `GET /api/projects/:projectId/runtime` returns each chapter's budget (words, shots, pages) beside what is planned and
 written so far, and the minutes the current narration adds up to at that pace.
@@ -385,8 +390,9 @@ written so far, and the minutes the current narration adds up to at that pace.
 A new project can start from a production preset (`packages/domain/src/presets.ts`, listed by
 `GET /api/production-presets`) or from one of the user's saved templates: `preset` on `POST /api/projects` is a
 preset key or `template:<id>`, and its settings are merged into the new project's (the wizard fills type, format,
-style and colour mode from it). The presets are *YouTube recap, 30 min* and *1 hour* (film, low quality, a target
-runtime, main-only references, hybrid and cheapest batching), *Manga chapters*, *Webtoon episodes* (medium quality,
+style and colour mode from it). The presets are *YouTube recap* for 30 minutes, 1 hour, 2 hours and 3 hours (film,
+low quality, a target runtime, main-only references, hybrid batching for 30 minutes and cheapest for the rest, longer
+shots for the long ones), *Manga chapters*, *Webtoon episodes* (medium quality,
 all references, no batching) and *Economy draft*. **Save as template** (`POST /api/projects/:projectId/template`)
 stores a project's type, format, colour mode, language, style and settings in the user's settings
 (`projectTemplates`, at most 50; the thumbnail, YouTube text and page size are left out); story, cast and files are

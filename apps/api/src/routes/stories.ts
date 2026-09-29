@@ -1,6 +1,6 @@
 import { and, desc, eq, sql, storyAnalyses, storyRevisions } from "@openmanga/db";
 import { PRIORITY } from "@openmanga/domain";
-import { storyAnalysisV2, storyRewriteV1 } from "@openmanga/prompts";
+import { storyAnalysisV3, storyRewriteV1 } from "@openmanga/prompts";
 import { StoryAnalysis } from "@openmanga/schemas";
 import { applyStoryAnalysis, recordAudit } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -206,8 +206,8 @@ storyRoutes.post("/story-revisions/:id/analyze", async (c) => {
         targetType: "story_analysis",
         targetId: analysis!.id,
         batchId: analysisBatchId,
-        templateName: storyAnalysisV2.name,
-        templateVersion: storyAnalysisV2.version,
+        templateName: storyAnalysisV3.name,
+        templateVersion: storyAnalysisV3.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(batch) },
