@@ -769,8 +769,9 @@ Change a project's title, description, type, language, reading direction, colour
           "type": "string",
           "enum": [
             "interactive",
-            "cheapest",
-            "hybrid"
+            "images",
+            "hybrid",
+            "cheapest"
           ]
         },
         "narrationVoice": {

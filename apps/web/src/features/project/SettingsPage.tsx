@@ -276,13 +276,17 @@ export function SettingsPage() {
                 <option value="main">Main cast and recurring places only</option>
               </select>
             </Field>
-            <Field label="Production runs spend" hint="Provider batches are half price and take up to 24 hours.">
+            <Field
+              label="Production runs spend"
+              hint="Provider batches are half price and take up to 24 hours. Only OpenAI and Google keys batch; others (DeepSeek, Meta, OpenRouter) always run now."
+            >
               <select
                 className="input"
                 value={s.batchPolicy ?? "interactive"}
                 onChange={(e) => setS("batchPolicy", e.target.value as ProjectSettings["batchPolicy"])}
               >
                 <option value="interactive">Everything now</option>
+                <option value="images">Text now, images in batches</option>
                 <option value="hybrid">Text in batches, images now</option>
                 <option value="cheapest">Everything in batches (cheapest)</option>
               </select>

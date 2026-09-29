@@ -52,7 +52,7 @@ slot).
   | `consistencyCheck` | `{enabled, credentialId, model}` — opt-in vision QA of generated panels. |
   | `targetRuntime` | `{minutes, wordsPerMinute (150), minShotSeconds (4), maxShotSeconds (8)}` or null — a target video length. Split across chapters by source length (`runtimeBudget`, `packages/domain/src/runtime.ts`), it gives a chapter plan its default page target and narration its words per panel. |
   | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
-  | `batchPolicy` | `interactive` (default), `cheapest` (text and images through provider batches) or `hybrid` (text in batches, images now) — how a production run spends. |
+  | `batchPolicy` | `interactive` (default), `images` (text now, images through provider batches), `hybrid` (text in batches, images now) or `cheapest` (both through provider batches) — how a production run spends; only keys whose provider has a batch API are batched. |
   | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
 
 - `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the

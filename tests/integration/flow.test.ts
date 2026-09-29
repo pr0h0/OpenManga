@@ -1703,7 +1703,7 @@ describe("full production flow (mock AI)", () => {
     expect(recap.project.settings).toMatchObject({
       imageQuality: "low",
       referencePolicy: "main",
-      batchPolicy: "hybrid",
+      batchPolicy: "images",
     });
     expect(recap.project.settings.targetRuntime?.minutes).toBe(30);
     expect((await alice.raw("POST", "/api/projects", { title: "x", preset: "nope" })).status).toBe(400);
@@ -1718,7 +1718,7 @@ describe("full production flow (mock AI)", () => {
     const fromTemplate = await alice.post<{
       project: { settings: { batchPolicy: string; targetRuntime?: { minutes: number } } };
     }>("/api/projects", { title: "From template", format: "film", preset: `template:${template.id}` }, 201);
-    expect(fromTemplate.project.settings.batchPolicy).toBe("hybrid");
+    expect(fromTemplate.project.settings.batchPolicy).toBe("images");
     expect(fromTemplate.project.settings.targetRuntime?.minutes).toBe(30);
     await alice.del(`/api/auth/templates/${template.id}`);
     expect((await alice.get<P>("/api/production-presets")).templates).toHaveLength(0);
