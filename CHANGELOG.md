@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **Text now, images in batches** — a production run spend option (and the YouTube recap presets' default): planning,
   prompts and narration run straight away, while artwork and references wait for a half-price provider batch.
+- **Video preview on reader links** — a reader link's Play button plays the open chapter as the in-browser video
+  preview (artwork, camera moves and narration audio), with no account and nothing to render.
 
 ### Fixed
 

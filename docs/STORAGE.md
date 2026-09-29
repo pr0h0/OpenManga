@@ -65,7 +65,10 @@ Without nginx (tests, `bun dev`) the header is absent and the API streams the by
 either way.
 
 Reader links do not use `/cdn`: `GET /api/public/shares/:token/pages/:pageId.png` renders the lettered page on each
-request (`?width=` 200–1600, default 1200) and nothing is stored.
+request (`?width=` 200–1600, default 1200) and nothing is stored. The reader's video preview fetches panel artwork
+(`?v=web`) and narration audio through `GET /api/public/shares/:token/assets/:assetId`, which serves the stored asset
+the same way `/cdn` does, but only when it is a panel's active artwork or a segment's active audio inside the link's
+scope.
 
 ## Uploads
 
