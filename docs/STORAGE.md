@@ -28,7 +28,8 @@ Keys are server-generated, opaque and sharded: `newStorageKey(prefix, ext)` retu
 root. An uploaded filename is never used in a path — it is kept only as metadata.
 
 Export archives are written to a file in the job's temp directory by the worker's `ZipWriter`
-(`apps/worker/src/lib/zip.ts`) and stored with `putFile`. `ZipWriter.addStream` adds an entry chunk by chunk from a
+(`apps/worker/src/lib/zip.ts`, ZIP64 past 4 GiB or 65,535 entries) and stored with `putFile`; PDFs likewise, page by
+page, by `PdfWriter` (`apps/worker/src/lib/pdf.ts`). `ZipWriter.addStream` adds an entry chunk by chunk from a
 stream, which is how a finished MP4 goes into a `youtube_package` zip without being read into memory. That package
 holds `video/` (the newest completed full `video_pages` or `video_panels` export of the same scope, never a partial or
 page-selection render: the MP4, its `.srt` and,

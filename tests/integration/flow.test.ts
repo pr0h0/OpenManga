@@ -678,6 +678,8 @@ describe("full production flow (mock AI)", () => {
       "webtoon",
       "pdf",
       "pdf_kdp",
+      "pdf_project",
+      "webtoon_project",
       "cbz",
       "epub",
       "narration_audio",
@@ -688,8 +690,10 @@ describe("full production flow (mock AI)", () => {
       const r = await alice.post<{ job: { id: string } }>(
         `/api/projects/${projectId}/exports`,
         {
-          kind: kind === "pdf_kdp" ? "pdf" : kind,
-          chapterId: kind === "project_json" || kind === "zip_package" || kind === "agent_package" ? null : chapterId,
+          kind: kind === "pdf_kdp" || kind === "pdf_project" ? "pdf" : kind === "webtoon_project" ? "webtoon" : kind,
+          chapterId: ["project_json", "zip_package", "agent_package", "pdf_project", "webtoon_project"].includes(kind)
+            ? null
+            : chapterId,
           audio: { format: "wav", normalize: false },
           ...(kind === "pdf_kdp" ? { pdf: { pageSize: "kdp_6x9" } } : {}),
         },
@@ -722,6 +726,16 @@ describe("full production flow (mock AI)", () => {
           expect(names).toContain(f);
       }
       if (kind === "pdf") expect(new TextDecoder().decode(buf.slice(0, 5))).toBe("%PDF-");
+      if (kind === "pdf_project") {
+        // Every page of every chapter, plus the cover when the project has one.
+        const [n] = await h.deps.db.execute<{ pages: number; cover: boolean }>(
+          sql`select (select count(*)::int from pages where project_id = ${projectId}) as pages,
+            (select cover_asset_id is not null from projects where id = ${projectId}) as cover`,
+        );
+        expect((await PDFDocument.load(buf)).getPageCount()).toBe(n!.pages + (n!.cover ? 1 : 0));
+        expect(f.fileName).toContain("_project");
+      }
+      if (kind === "webtoon_project") expect(f.mimeType.startsWith("image/") || f.fileName.endsWith(".zip")).toBe(true);
       if (kind === "pdf_kdp") {
         // 6" x 9" trim plus KDP bleed (0.125" wide, 0.25" tall), trim box marking the cut, outside edge first.
         const page = (await PDFDocument.load(buf)).getPage(0);
