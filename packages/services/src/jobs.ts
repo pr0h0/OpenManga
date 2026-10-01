@@ -38,6 +38,20 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   text_batch_submit: "image-batch",
 };
 
+type ExportKind = (typeof exportJobs.$inferSelect)["kind"];
+const RENDER_KINDS: ReadonlySet<ExportKind> = new Set(["video_pages", "video_panels", "project_import"]);
+
+/** Video renders and imports take the `render` queue, so a long render never holds up a PDF or a ZIP. */
+export const exportQueueFor = (kind: ExportKind): QueueName => (RENDER_KINDS.has(kind) ? "render" : "export");
+
+/**
+ * Every queue an export job can sit on. Renders and imports queued before the `render` queue existed are still on
+ * `export`, which takes any kind, so lookups (reconcile, cancel, the stalled sweep) check both rather than mistake
+ * such a job for lost and publish it a second time.
+ */
+export const exportQueuesFor = (kind: ExportKind): QueueName[] =>
+  RENDER_KINDS.has(kind) ? ["render", "export"] : ["export"];
+
 export type NewGenerationInput = {
   role: (typeof generationInputs.$inferInsert)["role"];
   assetId: string | null;
@@ -200,7 +214,7 @@ export class JobService {
       })
       .returning();
     await addToOutbox(tx, {
-      queue: "export",
+      queue: exportQueueFor(e.kind),
       jobName: e.kind,
       jobId: job!.id,
       payload: { exportJobId: job!.id },
@@ -439,8 +453,10 @@ export class JobService {
       .from(exportJobs)
       .where(and(eq(exportJobs.status, "queued"), lt(exportJobs.createdAt, before)));
     for (const j of exps) {
-      if (await this.opts.queue.has("export", j.id)) continue;
-      await this.republish("export", j.id, j.kind, { exportJobId: j.id }, 5);
+      let found = false;
+      for (const q of exportQueuesFor(j.kind)) found ||= await this.opts.queue.has(q, j.id);
+      if (found) continue;
+      await this.republish(exportQueueFor(j.kind), j.id, j.kind, { exportJobId: j.id }, 5);
       republished++;
     }
     if (republished) await this.kick();

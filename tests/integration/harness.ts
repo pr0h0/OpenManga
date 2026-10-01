@@ -64,6 +64,7 @@ export async function startHarness() {
     createWorker("image-edit", w.redis, gen, { concurrency: 2 }),
     createWorker("tts", w.redis, ttsProcessor(w.deps), { concurrency: 2 }),
     createWorker("export", w.redis, exportProcessor(w.deps), { concurrency: 1 }),
+    createWorker("render", w.redis, exportProcessor(w.deps), { concurrency: 1 }),
     createWorker("asset-processing", w.redis, assetProcessor(w.deps)),
     createWorker("maintenance", w.redis, maintenanceProcessor(w.deps)),
   ];

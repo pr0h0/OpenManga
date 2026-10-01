@@ -20,8 +20,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
   dependency graph of what is stale (story → plan → prompts → art → narration → audio → render) with one "update
   production" action. Staleness already exists for narration audio, references and checks; loudness normalisation
   runs over the whole film, so audio is always re-mixed.
-- **Dedicated render workers.** Video renders and imports on their own queue, so a long render never holds up other
-  exports, and a `WORKER_QUEUES` setting so a separate worker container can take only renders.
 - **Translated lettering.** Translate bubbles and captions per language and export each edition from the same art,
   as narration already is per language.
 - **Pose and sketch guides.** Upload a rough sketch or pose for a panel and send it with the prompt as a layout

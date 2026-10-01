@@ -24,6 +24,7 @@ export function buildWorkerDeps(config: AppConfig) {
     config.TEXT_WORKER_CONCURRENCY +
     config.TTS_WORKER_CONCURRENCY +
     config.EXPORT_WORKER_CONCURRENCY +
+    config.RENDER_WORKER_CONCURRENCY +
     8;
   const { db, client } = createDb(config.DATABASE_URL, { max: Math.min(80, poolSize) });
   const redis = createRedis(config.REDIS_URL, true);

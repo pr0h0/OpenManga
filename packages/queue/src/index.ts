@@ -13,11 +13,29 @@ export const QUEUES = [
   "asset-processing",
   "tts",
   "export",
+  /** Video renders and project imports: minutes to hours each, so they never wait behind (or hold up) other exports. */
+  "render",
   "maintenance",
   /** Submits provider batches: one job collects many panels into one submission, then parks them. */
   "image-batch",
 ] as const;
 export type QueueName = (typeof QUEUES)[number];
+
+/**
+ * The queues a worker consumes, from `WORKER_QUEUES` (comma-separated; empty means all). An unknown name throws, so a
+ * typo stops the container at start instead of leaving a queue that nothing consumes.
+ */
+export function parseWorkerQueues(value: string): QueueName[] {
+  const names = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!names.length) return [...QUEUES];
+  const unknown = names.filter((n) => !(QUEUES as readonly string[]).includes(n));
+  if (unknown.length)
+    throw new Error(`WORKER_QUEUES: unknown queue ${unknown.join(", ")} (known: ${QUEUES.join(", ")})`);
+  return QUEUES.filter((q) => names.includes(q));
+}
 
 export type EnqueueOptions = { jobId: string; priority?: number; attempts?: number; delayMs?: number };
 

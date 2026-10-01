@@ -1,6 +1,15 @@
 import { mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getConfig } from "@openmanga/config";
-import { createWorker, OutboxDispatcher, QUEUE_PREFIX, Queue } from "@openmanga/queue";
+import {
+  createWorker,
+  OutboxDispatcher,
+  parseWorkerQueues,
+  QUEUE_PREFIX,
+  Queue,
+  type QueueName,
+} from "@openmanga/queue";
 import { buildWorkerDeps } from "./deps.ts";
 import {
   assetProcessor,
@@ -11,35 +20,49 @@ import {
 } from "./processors.ts";
 
 const config = getConfig();
+const consumed = parseWorkerQueues(config.WORKER_QUEUES);
 const { deps, redis, close } = buildWorkerDeps(config);
 const log = deps.logger;
 await mkdir(config.TEMP_ROOT, { recursive: true }).catch(() => {});
 
 // Separate queues + concurrency per provider so text planning never blocks image generation.
 const gen = generationProcessor(deps);
-const workers = [
-  createWorker("text-ai", redis, gen, { concurrency: config.TEXT_WORKER_CONCURRENCY }),
-  createWorker("image-generation", redis, gen, {
-    concurrency: config.IMAGE_WORKER_CONCURRENCY,
-    lockDuration: 10 * 60_000,
-  }),
-  createWorker("image-edit", redis, gen, {
-    concurrency: config.IMAGE_EDIT_WORKER_CONCURRENCY,
-    lockDuration: 10 * 60_000,
-  }),
-  createWorker("tts", redis, ttsProcessor(deps), {
-    concurrency: config.TTS_WORKER_CONCURRENCY,
-    lockDuration: 10 * 60_000,
-  }),
-  createWorker("export", redis, exportProcessor(deps), {
-    concurrency: config.EXPORT_WORKER_CONCURRENCY,
-    lockDuration: 30 * 60_000,
-  }),
-  createWorker("asset-processing", redis, assetProcessor(deps), { concurrency: 2 }),
+const exports = exportProcessor(deps);
+const start: Record<QueueName, () => ReturnType<typeof createWorker>> = {
+  "text-ai": () => createWorker("text-ai", redis, gen, { concurrency: config.TEXT_WORKER_CONCURRENCY }),
+  "image-generation": () =>
+    createWorker("image-generation", redis, gen, {
+      concurrency: config.IMAGE_WORKER_CONCURRENCY,
+      lockDuration: 10 * 60_000,
+    }),
+  "image-edit": () =>
+    createWorker("image-edit", redis, gen, {
+      concurrency: config.IMAGE_EDIT_WORKER_CONCURRENCY,
+      lockDuration: 10 * 60_000,
+    }),
+  tts: () =>
+    createWorker("tts", redis, ttsProcessor(deps), {
+      concurrency: config.TTS_WORKER_CONCURRENCY,
+      lockDuration: 10 * 60_000,
+    }),
+  // The processor takes any export kind, so renders and imports queued here before the `render` queue existed
+  // still run after an upgrade.
+  export: () =>
+    createWorker("export", redis, exports, {
+      concurrency: config.EXPORT_WORKER_CONCURRENCY,
+      lockDuration: 30 * 60_000,
+    }),
+  render: () =>
+    createWorker("render", redis, exports, {
+      concurrency: config.RENDER_WORKER_CONCURRENCY,
+      lockDuration: 30 * 60_000,
+    }),
+  "asset-processing": () => createWorker("asset-processing", redis, assetProcessor(deps), { concurrency: 2 }),
   // One at a time, with a long lock: a submit reads every panel's references and uploads them.
-  createWorker("image-batch", redis, gen, { concurrency: 1, lockDuration: 30 * 60_000 }),
-  createWorker("maintenance", redis, maintenanceProcessor(deps), { concurrency: 1 }),
-];
+  "image-batch": () => createWorker("image-batch", redis, gen, { concurrency: 1, lockDuration: 30 * 60_000 }),
+  maintenance: () => createWorker("maintenance", redis, maintenanceProcessor(deps), { concurrency: 1 }),
+};
+const workers = consumed.map((q) => start[q]());
 for (const w of workers) {
   w.on("failed", (job, err) =>
     log.warn("queue job failed", {
@@ -66,8 +89,9 @@ const reconcile = async () => {
 };
 setTimeout(() => void reconcile(), 15_000);
 const reconcileTimer = setInterval(() => void reconcile(), 5 * 60_000);
-// Liveness file for the container health check.
-const heartbeat = () => void Bun.write(`${config.TEMP_ROOT}/worker-heartbeat`, String(Date.now())).catch(() => {});
+// Liveness file for the container health check. Container-local rather than in the shared TEMP_ROOT volume, so a
+// second worker container (a render-only one) cannot keep a dead one looking healthy.
+const heartbeat = () => void Bun.write(join(tmpdir(), "worker-heartbeat"), String(Date.now())).catch(() => {});
 heartbeat();
 const heartbeatTimer = setInterval(heartbeat, 30_000);
 
@@ -89,6 +113,7 @@ log.info("worker started", {
   textProvider: deps.text?.provider ?? "byok",
   imageProvider: deps.image?.provider ?? "byok",
   tts: deps.tts?.provider ?? "disabled",
+  queues: consumed,
   concurrency: {
     image: config.IMAGE_WORKER_CONCURRENCY,
     text: config.TEXT_WORKER_CONCURRENCY,

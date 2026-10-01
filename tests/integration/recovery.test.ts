@@ -183,6 +183,63 @@ describe("stalled-job sweep", () => {
   });
 });
 
+describe("render queue", () => {
+  // Fakes Redis so nothing below is published and run: only where each job is looked for and sent matters here.
+  const fakeQueue = (onExport: (q: string) => boolean) => ({
+    enqueue: async () => {},
+    removeWaiting: async () => true,
+    has: async (q: string) => onExport(q),
+    state: async (q: string) => (onExport(q) ? "active" : null),
+    counts: async () => ({}) as never,
+    close: async () => {},
+  });
+  const insertQueued = async (kind: "video_panels" | "pdf") => {
+    const [row] = await h.deps.db
+      .insert(exportJobs)
+      .values({ projectId, userId: null, kind, status: "queued", options: {} })
+      .returning();
+    await h.deps.db.execute(
+      sql`update export_jobs set created_at = now() - interval '10 minutes' where id = ${row!.id}`,
+    );
+    return row!.id;
+  };
+  const outboxQueue = async (jobId: string) =>
+    (await h.deps.db.execute<{ queue: string }>(sql`select queue from outbox where job_id = ${jobId}`)).map(
+      (r) => r.queue,
+    );
+
+  test("a lost render is re-published to `render`, a lost PDF to `export`", async () => {
+    const { JobService } = await import("@openmanga/services");
+    const render = await insertQueued("video_panels");
+    const pdf = await insertQueued("pdf");
+    await new JobService(h.workerDeps.db, { queue: fakeQueue(() => false) }).reconcileQueue(60_000);
+    expect(await outboxQueue(render)).toEqual(["render"]);
+    expect(await outboxQueue(pdf)).toEqual(["export"]);
+    await h.deps.db.execute(sql`delete from outbox where job_id in (${render}, ${pdf})`);
+    await h.deps.db
+      .update(exportJobs)
+      .set({ status: "cancelled" })
+      .where(inArray(exportJobs.id, [render, pdf]));
+  });
+
+  test("a render queued before the upgrade, still on `export`, is neither re-published nor failed", async () => {
+    const { JobService } = await import("@openmanga/services");
+    const id = await insertQueued("video_panels");
+    const legacy = fakeQueue((q) => q === "export");
+    await new JobService(h.workerDeps.db, { queue: legacy }).reconcileQueue(60_000);
+    expect(await outboxQueue(id)).toEqual([]);
+
+    // The same job running on the old queue, quiet for hours: the stalled sweep must find it there.
+    await h.deps.db.execute(
+      sql`update export_jobs set status = 'processing', updated_at = now() - interval '10 hours' where id = ${id}`,
+    );
+    await runMaintenance({ ...h.workerDeps, queue: legacy } as typeof h.workerDeps);
+    const [row] = await h.deps.db.select().from(exportJobs).where(eq(exportJobs.id, id));
+    expect(row!.status).toBe("processing");
+    await h.deps.db.update(exportJobs).set({ status: "cancelled" }).where(eq(exportJobs.id, id));
+  });
+});
+
 describe("batch submitter died", () => {
   // Seen in production: three submit jobs failed on an unretryable error and 143 panels sat at `queued` with
   // nothing left to hand them to a provider. The batch looked idle rather than broken.

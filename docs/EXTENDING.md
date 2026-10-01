@@ -370,6 +370,9 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
    asserts output magic bytes) and to `scripts/smoke.ts`. Neither fails if you skip it, so a new kind is untested
    until you do.
 
+7. **Only for a kind that runs for many minutes:** add it to `RENDER_KINDS` in `packages/services/src/jobs.ts` so it
+   takes the `render` queue instead of `export` and cannot hold up the quick exports.
+
 ---
 
 ## 4. Add a queued job type
@@ -511,8 +514,9 @@ receives it and invalidates nothing.
 
 ### Adding a whole queue (rarer, more work)
 
-Add the name to `QUEUES` in `packages/queue/src/index.ts`, add a processor in `apps/worker/src/processors.ts`, add a
-`createWorker(...)` call in `apps/worker/src/main.ts` with a concurrency setting in `packages/config`, add a
+Add the name to `QUEUES` in `packages/queue/src/index.ts`, add a processor in `apps/worker/src/processors.ts`, add an
+entry to the `start` map in `apps/worker/src/main.ts` (typed by `QueueName`, so the compiler asks for it) with a
+concurrency setting in `packages/config`, add the queue to the test harness (`tests/integration/harness.ts`), add a
 `createExportJob`-style creator that calls `addToOutbox`, and extend `JobService.reconcileQueue` — it only walks the
 three known job tables, so a fourth would not be recovered after a Redis flush.
 

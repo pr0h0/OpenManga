@@ -126,7 +126,7 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
     await publish("processing", p);
   };
   try {
-    // Project import rides the export queue: it restores into job.projectId instead of producing files.
+    // Project import rides the render queue: it restores into job.projectId instead of producing files.
     if (job.kind === "project_import") {
       const result = await importProject(deps, job, progress);
       await deps.db

@@ -73,14 +73,19 @@ Queues and what they carry:
 | `image-generation` | references, panels, covers, video thumbnails | `IMAGE_WORKER_CONCURRENCY` (24) |
 | `image-edit` | masked edits | `IMAGE_EDIT_WORKER_CONCURRENCY` (6) |
 | `tts` | narration synthesis | `TTS_WORKER_CONCURRENCY` (4) |
-| `export` | every export kind, video included, and project import | `EXPORT_WORKER_CONCURRENCY` (1) |
+| `export` | every export kind except video (pages, PDF, webtoon, EPUB/CBZ, ZIP packages, audio, YouTube package) | `EXPORT_WORKER_CONCURRENCY` (1) |
+| `render` | video renders (`video_pages`, `video_panels`) and project import, so an hour-long render never holds up a PDF | `RENDER_WORKER_CONCURRENCY` (1) |
 | `image-batch` | submitting a bulk run's image or text jobs to a provider's batch API | fixed at 1 |
 | `asset-processing` | thumbnail and prompt-reference jobs; nothing enqueues them today (derivatives are made inline) | fixed at 2 |
 | `maintenance` | the hourly cleanup cycle, and the provider-batch poll every `BATCH_POLL_INTERVAL_SECONDS` (300) | fixed at 1 |
 
+A worker consumes every queue unless `WORKER_QUEUES` lists some (comma-separated), which is how a second worker
+container takes only `render` (see `docs/DEPLOYMENT.md`). Every worker also runs the outbox publisher and the
+reconcile loop below; both are safe to run more than once.
+
 BullMQ jobs default to 3 attempts with exponential backoff (5 s, jitter 0.5) under the Redis key prefix `om`. The
 worker also re-publishes `queued` jobs whose Redis entry has disappeared, 15 s after start and every 5 minutes, so a
-Redis flush or restore never strands work, and touches `/data/tmp/worker-heartbeat` every 30 s for its health check.
+Redis flush or restore never strands work, and touches `/tmp/worker-heartbeat` (inside its own container) every 30 s for its health check.
 
 ## Production runs
 
