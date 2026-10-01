@@ -16,7 +16,8 @@ import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { withBatchClaim } from "../lib/batch-claim.ts";
-import type { GenerationJob } from "../lib/runner.ts";
+import { dueWaitingJobs, isQueueFull, roundSuffix, waitForBatchRoom } from "../lib/batch-wait.ts";
+import { type GenerationJob, pausedByBudget } from "../lib/runner.ts";
 import {
   activatePanelArt,
   attachReference,
@@ -97,85 +98,104 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   const specs: BatchRequestSpec[] = [];
   for (const p of pending) specs.push(await specFor(deps, p));
   const chunks = provider.chunk(specs);
+  const byId = new Map(pending.map((p) => [p.id, p]));
   let submitted = 0;
+  let accepted = 0;
+  let refused: unknown = null;
   for (const chunk of chunks) {
     const keys = chunk.map((c) => c.key);
-    const idempotencyKey = `${batchId}:${hashOf([...keys].sort()).slice(0, 16)}`;
-    await withBatchClaim(deps, idempotencyKey, async () => {
-      const [known] = await deps.db
-        .select()
-        .from(providerBatches)
-        .where(eq(providerBatches.idempotencyKey, idempotencyKey));
-      let handle = known
-        ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
-        : // A crash between submitting and persisting would otherwise pay twice: ask the provider first.
-          ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
-      if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
+    const idempotencyKey = `${batchId}:${hashOf([...keys].sort()).slice(0, 16)}${roundSuffix(keys.map((k) => byId.get(k)!))}`;
+    try {
+      await withBatchClaim(deps, idempotencyKey, async () => {
+        const [known] = await deps.db
+          .select()
+          .from(providerBatches)
+          .where(eq(providerBatches.idempotencyKey, idempotencyKey));
+        let handle = known
+          ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
+          : // A crash between submitting and persisting would otherwise pay twice: ask the provider first.
+            ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
+        if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
 
-      await deps.db.transaction(async (tx) => {
-        const [row] = await tx
-          .insert(providerBatches)
-          .values({
-            projectId: job.projectId,
-            userId: job.userId,
-            batchId,
-            capability: "image",
-            provider: provider.provider,
-            model: provider.model,
-            handle: handle.handle,
-            idempotencyKey,
-            state: "pending",
-            requestCount: keys.length,
-            ownedFileIds: handle.ownedFileIds ?? [],
-            submittedAt: new Date(),
-          })
-          .onConflictDoNothing({ target: providerBatches.idempotencyKey })
-          .returning();
-        const batchRowId =
-          row?.id ??
-          (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
-        await tx
-          .update(generationJobs)
-          .set({
-            status: "submitted",
-            provider: provider.provider,
-            model: provider.model,
-            parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
-          })
-          .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+        await deps.db.transaction(async (tx) => {
+          const [row] = await tx
+            .insert(providerBatches)
+            .values({
+              projectId: job.projectId,
+              userId: job.userId,
+              batchId,
+              capability: "image",
+              provider: provider.provider,
+              model: provider.model,
+              handle: handle.handle,
+              idempotencyKey,
+              state: "pending",
+              requestCount: keys.length,
+              ownedFileIds: handle.ownedFileIds ?? [],
+              submittedAt: new Date(),
+            })
+            .onConflictDoNothing({ target: providerBatches.idempotencyKey })
+            .returning();
+          const batchRowId =
+            row?.id ??
+            (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
+          await tx
+            .update(generationJobs)
+            .set({
+              status: "submitted",
+              provider: provider.provider,
+              model: provider.model,
+              parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
+            })
+            .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+        });
+        submitted += keys.length;
+        for (const key of keys) {
+          const target = pending.find((p) => p.id === key);
+          if (target)
+            await deps.events.publish(job.projectId, {
+              type: "job.updated",
+              jobId: key,
+              kind: target.kind,
+              status: "submitted",
+              targetType: target.targetType,
+              targetId: target.targetId,
+              batchId,
+            });
+        }
       });
-      submitted += keys.length;
-      for (const key of keys) {
-        const target = pending.find((p) => p.id === key);
-        if (target)
-          await deps.events.publish(job.projectId, {
-            type: "job.updated",
-            jobId: key,
-            kind: target.kind,
-            status: "submitted",
-            targetType: target.targetType,
-            targetId: target.targetId,
-            batchId,
-          });
-      }
-    });
+      accepted++;
+    } catch (e) {
+      if (!isQueueFull(e)) throw e;
+      // The rest would be refused the same way: stop here, and keep what was already accepted.
+      refused = e;
+      break;
+    }
   }
-  deps.logger.info("submitted image batches", { batchId, panels: submitted, batches: chunks.length });
+  deps.logger.info("submitted image batches", { batchId, panels: submitted, batches: accepted });
+  if (refused) {
+    const done = new Set(chunks.slice(0, accepted).flatMap((c) => c.map((r) => r.key)));
+    const left = pending.filter((p) => !done.has(p.id));
+    const wait = await waitForBatchRoom(deps, left, refused instanceof Error ? refused.message : String(refused));
+    return { submitted, batches: accepted, fellBack: 0, ...wait };
+  }
   return { submitted, batches: chunks.length, fellBack: 0 };
 }
 
 /**
- * Submits text jobs that were parked for a batch but never handed to a submitter — the automatic consistency
- * checks, which are created one at a time as panels are ingested. Grouped by run so each becomes one submission.
+ * Submits batch-mode jobs that no submit job is coming for: the automatic consistency checks, which are created
+ * one at a time as panels are ingested, and any job whose wait for room in the provider's batch queue is over.
+ * Grouped by run so each becomes one submission.
  */
-async function sweepUnsubmittedTextJobs(deps: WorkerDeps) {
-  const waiting = await deps.db
+async function sweepUnsubmittedJobs(deps: WorkerDeps) {
+  const fresh = await deps.db
     .select()
     .from(generationJobs)
     .where(
       and(
         eq(generationJobs.status, "queued"),
         sql`${generationJobs.parameters}->>'batchMode' = 'true'`,
+        sql`${generationJobs.parameters}->'queueWait' is null`,
         sql`${generationJobs.queue} = 'text-ai'`,
         sql`${generationJobs.batchId} is not null`,
         // A moment's grace so a run still creating its jobs is submitted once, not once per job.
@@ -183,15 +203,22 @@ async function sweepUnsubmittedTextJobs(deps: WorkerDeps) {
       ),
     )
     .limit(500);
-  const byBatch = new Map<string, (typeof waiting)[number]>();
-  for (const job of waiting) if (job.batchId && !byBatch.has(job.batchId)) byBatch.set(job.batchId, job);
+  const groups = new Map<string, GenerationJob>();
+  for (const job of [...fresh, ...(await dueWaitingJobs(deps))]) {
+    const key = `${job.batchId}:${job.queue}`;
+    if (job.batchId && !groups.has(key)) groups.set(key, job);
+  }
   let submitted = 0;
-  for (const [batchId, sample] of byBatch) {
+  for (const sample of groups.values()) {
+    const batchId = sample.batchId!;
     try {
-      const out = await textBatchSubmit(deps, { ...sample, input: { batchId } });
+      // These skip the runner, so they take its budget gate here: a provider batch is paid for once submitted.
+      if (await pausedByBudget(deps, sample)) continue;
+      const run = sample.queue === "text-ai" ? textBatchSubmit : imageBatchSubmit;
+      const out = await run(deps, { ...sample, input: { batchId } });
       submitted += out.submitted;
     } catch (e) {
-      deps.logger.error("text batch sweep failed", {
+      deps.logger.error("batch submit sweep failed", {
         batchId,
         error: e instanceof Error ? e.message : String(e),
       });
@@ -202,7 +229,7 @@ async function sweepUnsubmittedTextJobs(deps: WorkerDeps) {
 
 /** Polls every unfinished batch and ingests the ones that are done. Called from the scheduler. */
 export async function pollProviderBatches(deps: WorkerDeps) {
-  const swept = await sweepUnsubmittedTextJobs(deps).catch(() => 0);
+  const swept = await sweepUnsubmittedJobs(deps).catch(() => 0);
   const rows = await deps.db
     .select()
     .from(providerBatches)
@@ -257,6 +284,7 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
     .where(sql`${generationJobs.parameters}->>'providerBatchId' = ${row.id}`);
   if (row.capability === "text" && jobs.length) {
     const out = await ingestTextBatch(deps, row, jobs);
+    if (out.refused !== undefined) return requeueRefused(deps, row, jobs, out.refused);
     result.ingested += out.ingested;
     result.failed += out.failed;
     return;
@@ -287,6 +315,17 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
     })
     .where(eq(providerBatches.id, row.id));
   if (status.state === "pending" || status.state === "running") return;
+  if (status.queueFull) {
+    await provider
+      .releaseBatch({
+        handle: row.handle,
+        keys: [],
+        idempotencyKey: row.idempotencyKey,
+        ownedFileIds: row.ownedFileIds,
+      })
+      .catch(() => {});
+    return requeueRefused(deps, row, jobs, status.error ?? "batch queue full");
+  }
 
   const byId = new Map(jobs.map((j) => [j.id, j]));
   for (const item of status.items ?? []) {
@@ -335,6 +374,24 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
   await deps.db
     .update(providerBatches)
     .set({ ingestedAt: new Date(), ownedFileIds: [] })
+    .where(eq(providerBatches.id, row.id));
+}
+
+/**
+ * A batch the provider accepted and then refused for lack of room in its queue. Nothing in it ran, so its jobs go
+ * back to waiting rather than failing; the next round submits them under a new key. Closes the row either way.
+ */
+async function requeueRefused(deps: WorkerDeps, row: BatchRow, jobs: GenerationJob[], reason: string) {
+  for (const job of jobs)
+    if (job.status === "cancel_requested" || job.status === "cancelled") await finishCancelledBatchJob(deps, job);
+  await waitForBatchRoom(
+    deps,
+    jobs.filter((j) => j.status === "submitted"),
+    reason,
+  );
+  await deps.db
+    .update(providerBatches)
+    .set({ ingestedAt: new Date(), ownedFileIds: [], failureReason: `Refused, queue full: ${reason}`.slice(0, 500) })
     .where(eq(providerBatches.id, row.id));
 }
 

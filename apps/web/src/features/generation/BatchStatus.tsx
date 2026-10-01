@@ -12,8 +12,10 @@ export type BatchInfo = {
   batchId: string;
   createdAt: string;
   finishedAt: string | null;
-  state: "queued" | "running" | "submitted" | "paused" | "finished";
+  state: "queued" | "waiting" | "running" | "submitted" | "paused" | "finished";
   pauseReason?: string | null;
+  /** Set while jobs wait for room in the provider's batch queue: when they are next submitted. */
+  queueWaitUntil?: string | null;
   kind?: string | null;
   progress: {
     total: number;
@@ -67,14 +69,21 @@ function scopeLabel(b: BatchInfo) {
   return `${ch} · ${b.pageOrders.length} pages`;
 }
 
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 function statusLine(b: BatchInfo) {
   const p = b.progress;
+  const wait = b.queueWaitUntil
+    ? `waiting for room in the provider's batch queue, next try at ${clock(b.queueWaitUntil)}`
+    : null;
+  if (b.state === "waiting") return `${p.queued} ${wait}`;
   if (b.state === "queued")
     return b.queuedAhead > 0
       ? `Queued — waiting for ${b.queuedAhead} image${b.queuedAhead === 1 ? "" : "s"} ahead`
       : "Queued — starting shortly";
   if (b.state === "running") return `Generating — ${p.generating} in progress`;
-  if (b.state === "submitted") return `Sent as a provider batch — ${p.submitted ?? 0} waiting, results arrive together`;
+  if (b.state === "submitted")
+    return `Sent as a provider batch — ${p.submitted ?? 0} waiting, results arrive together${wait ? `; ${p.queued} more ${wait}` : ""}`;
   if (b.state === "paused") return b.pauseReason ?? "Paused";
   return p.failed ? `Finished with ${p.failed} failed` : "Finished";
 }
@@ -108,7 +117,7 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
       <div className="flex items-start gap-2 text-sm">
         {batch.state === "paused" ? (
           <Pause className="mt-0.5 size-4 shrink-0 text-amber-500" />
-        ) : batch.state === "queued" ? (
+        ) : batch.state === "queued" || batch.state === "waiting" ? (
           <Clock className="mt-0.5 size-4 shrink-0 text-amber-500" />
         ) : batch.state === "running" || batch.state === "submitted" ? (
           <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-sky-500" />
@@ -165,7 +174,7 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
             {polling ? <Spinner className="size-3" /> : <RefreshCw className="size-3" />}
           </button>
         )}
-        {(batch.state === "queued" || batch.state === "running") && (p.queued ?? 0) > 0 && (
+        {batch.state !== "paused" && batch.state !== "finished" && (p.queued ?? 0) > 0 && (
           <button
             type="button"
             className="btn-ghost px-2 py-1 text-xs"
@@ -206,7 +215,9 @@ export function BatchCard({ projectId, batch, compact }: { projectId: string; ba
         <div
           className={clsx(
             "h-full transition-all",
-            batch.state === "queued" || batch.state === "paused" ? "bg-amber-500" : "bg-accent-500",
+            batch.state === "queued" || batch.state === "waiting" || batch.state === "paused"
+              ? "bg-amber-500"
+              : "bg-accent-500",
           )}
           style={{ width: `${pct}%` }}
         />
@@ -294,7 +305,7 @@ export function FloatingBatches({ projectId }: { projectId: string }) {
   if (!list.length) return null;
   const total = active.reduce((s, b) => s + b.progress.total, 0);
   const done = active.reduce((s, b) => s + b.progress.completed + b.progress.failed + b.progress.cancelled, 0);
-  const queuedBatches = active.filter((b) => b.state === "queued").length;
+  const queuedBatches = active.filter((b) => b.state === "queued" || b.state === "waiting").length;
   return (
     <div className="pointer-events-none fixed bottom-4 left-1/2 z-40 w-[min(30rem,92vw)] -translate-x-1/2">
       <div className="card pointer-events-auto shadow-xl">

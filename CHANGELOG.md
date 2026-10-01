@@ -26,6 +26,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `RATE_LIMIT_ANON_PER_MINUTE` (300). Registration is capped at 10 an hour and reset emails at 5 per 15 minutes per
   address.
 
+### Fixed
+
+- **A full provider batch queue no longer fails the run.** OpenAI refuses batches past its enqueued-token limit per
+  model (`token_limit_exceeded`), and a big run used to mark every panel in the refused batches failed. The
+  refused work now stays queued and is resubmitted as earlier batches finish: after 5, 10 and 20 minutes, then every
+  30, for up to 24 hours. The batch banner says "waiting for room in the provider's batch queue, next try at
+  HH:MM". Google's equivalent quota is handled the same way.
+
 ### Security
 
 - Wrong guesses are capped like failed logins: reader-link tokens (30 per 15 minutes per address), unknown MCP tokens

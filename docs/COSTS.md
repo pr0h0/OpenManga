@@ -146,6 +146,11 @@ What batching does *not* change: budgets still apply, cancellation still works (
 activated), and a batch that expires or returns nothing for a request fails that job loudly rather than leaving
 it waiting.
 
+A run bigger than the provider's batch queue (OpenAI's enqueued-token limit per model, 1M tokens for gpt-image-2 on
+a low tier) is not failed when the queue is full. The overflow waits, shown as "waiting for room in the provider's
+batch queue", and is submitted as earlier batches finish. A refused batch costs nothing. See
+[AI_PIPELINE](AI_PIPELINE.md#provider-batches-half-price-up-to-24h).
+
 ## Presets and policies that spend less
 
 - **Economy draft**, a production preset for new projects, is the cheapest setup: image quality `low`, main-cast
