@@ -54,7 +54,7 @@ const AREAS: Record<string, ("art" | "narration")[]> = {
 const USES_LANGUAGE = new Set(["narration_audio", "timeline", "agent_package", "video_pages", "video_panels"]);
 const isVideo = (k: string) => k === "video_pages" || k === "video_panels";
 /** Chapter kinds that can also cover the whole project: they stream to disk, so length costs no memory. */
-const WHOLE_PROJECT = new Set(["pdf", "webtoon"]);
+const WHOLE_PROJECT = new Set(["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon"]);
 type Issue = {
   code: string;
   area: "art" | "narration";

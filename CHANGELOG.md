@@ -19,6 +19,10 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   stitched one chunk at a time from panel blocks kept on disk, so memory no longer grows with length. Both can now
   export the whole project (every chapter in order) as well as one chapter. ZIP exports switch to ZIP64 past 4 GiB or
   65,535 entries instead of failing with "Archive is larger than 4 GB".
+- **Streaming CBZ and EPUB, and whole-project books and page images.** CBZ and EPUB exports add each page to the
+  archive as it is composed instead of collecting every image first; the EPUB's manifest and spine are written from
+  page sizes at the end. Page images, CBZ and EPUB can now cover the whole project too; page images spanning chapters
+  are named with their chapter (`..._ch02_p003.png`), since page numbers restart in every chapter.
 - **Server budget ceiling.** An admin can cap the whole server's AI spend per calendar month (UTC) in Admin → Usage,
   which also shows this month's spend against it. `INSTANCE_BUDGET_USD_MONTHLY` sets the default. Past the ceiling,
   new AI work is refused with `402 instance_budget_exceeded`, which users cannot confirm past, and queued batches and

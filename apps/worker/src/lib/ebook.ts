@@ -1,4 +1,5 @@
-/** Comic-reader (CBZ) and fixed-layout EPUB 3 packaging: text parts only; the images are added by the caller. */
+/** Comic-reader (CBZ) and fixed-layout EPUB 3 packaging. */
+import { ZipWriter } from "./zip.ts";
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]!);
@@ -89,4 +90,38 @@ ${spine}
     { name: "OEBPS/nav.xhtml", text: nav },
     ...pages.map((p, i) => ({ name: `OEBPS/p${pad(i)}.xhtml`, text: xhtml(p, i) })),
   ];
+}
+
+export type BookImage = { data: Uint8Array; width: number; height: number };
+
+/**
+ * Writes a CBZ or an EPUB to `path`, adding each JPEG page to the archive as `pages` yields it, so memory holds one
+ * page however long the book. Only page sizes are kept: the EPUB's manifest, spine and page files are written from
+ * them after the images. Readers do not care about entry order, except that an EPUB's `mimetype` comes first,
+ * stored (ZipWriter never compresses) and with no extra field.
+ */
+export async function writeBook(
+  kind: "cbz" | "epub",
+  path: string,
+  meta: BookMeta,
+  pages: AsyncIterable<BookImage>,
+  /** EPUB only: shown as the book's cover image. */
+  cover?: BookImage,
+) {
+  const zip = new ZipWriter(path);
+  const enc = new TextEncoder();
+  const sizes: EpubPage[] = [];
+  const add = async (file: string, im: BookImage) => {
+    await zip.add(kind === "epub" ? `OEBPS/images/${file}` : file, im.data);
+    sizes.push({ file, width: im.width, height: im.height });
+  };
+  if (kind === "epub") {
+    await zip.add("mimetype", enc.encode("application/epub+zip"));
+    if (cover) await add("cover.jpg", cover);
+  }
+  let n = 0;
+  for await (const im of pages) await add(`${String(++n).padStart(4, "0")}.jpg`, im);
+  if (kind === "cbz") await zip.add("ComicInfo.xml", enc.encode(comicInfoXml(meta, n)));
+  else for (const f of epubFiles(meta, sizes, Boolean(cover))) await zip.add(f.name, enc.encode(f.text));
+  return zip.close();
 }
