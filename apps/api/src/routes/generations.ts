@@ -765,6 +765,7 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
     cancelled: number;
     paused: number;
     pause_reason: string | null;
+    queue_wait_until: string | null;
     kind: string | null;
   }>(sql`
     select batch_id, min(created_at) as created_at, max(finished_at) as finished_at,
@@ -780,6 +781,9 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       count(*) filter (where status in ('cancelled', 'cancel_requested'))::int as cancelled,
       count(*) filter (where status = 'paused')::int as paused,
       max(failure_reason) filter (where status = 'paused') as pause_reason,
+      -- Refused by the provider for lack of room in its batch queue: waiting, with the time of the next try.
+      min(parameters->'queueWait'->>'nextAt') filter (where status = 'queued' and parameters->'queueWait' is not null)
+        as queue_wait_until,
       mode() within group (order by kind) filter (where kind not like '%batch_submit') as kind
     from generation_jobs
     where project_id = ${p.id} and batch_id is not null
@@ -849,11 +853,18 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
           ? "running"
           : b.submitted > 0
             ? "submitted"
-            : b.queued > 0
-              ? "queued"
-              : "paused"
+            : b.queue_wait_until
+              ? "waiting"
+              : b.queued > 0
+                ? "queued"
+                : "paused"
         : "finished",
       pauseReason: b.pause_reason,
+      /**
+       * When the provider's batch queue was full: the next time the waiting jobs are submitted. They stay queued
+       * meanwhile (the state reads "waiting" unless other work of the batch is running or at the provider).
+       */
+      queueWaitUntil: b.queue_wait_until,
       /** What the batch draws or writes (its most common job kind): panels, a kind of reference, chapter plans… */
       kind: b.kind,
       progress: {

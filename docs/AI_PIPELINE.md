@@ -363,6 +363,26 @@ sees the real figure. Each chunk's idempotency key is derived from the job ids i
 own metadata, so a crash between submitting and persisting finds the batch already paid for instead of buying a
 second one.
 
+**A full provider batch queue is waited out, not failed.** OpenAI caps the tokens an organisation may have
+enqueued per model across all its unfinished batches (`token_limit_exceeded`, "Enqueued token limit reached"), and
+Google has an equivalent enqueued-tokens quota. A refusal arrives either on the create call or, for OpenAI, as a
+batch that is accepted and then fails validation without running. Either way nothing ran and nothing was billed,
+so (`apps/worker/src/lib/batch-wait.ts`):
+
+- Chunks already accepted stay submitted. The submitter stops at the first refused chunk, since the rest would be
+  refused the same way.
+- The refused jobs stay `queued`, with `parameters.queueWait = { since, nextAt, tries, reason }`. The `batch-poll`
+  scheduler resubmits them when `nextAt` passes, after 5, 10 and 20 minutes and then every 30. It re-checks the
+  project budget first, as the runner does.
+- Each round adds `:w<tries>` to the chunk's idempotency key. A batch that was accepted and then refused still
+  exists under its old key, and reusing that key would adopt the refusal instead of submitting again.
+- After 24 hours of waiting the jobs fail with `batch_queue_full` and say why. By then every earlier batch has
+  completed or expired, so something else is holding the queue.
+- The batch banner and `GET /api/projects/:projectId/generations/batches` show the state `waiting` (or `submitted`
+  while other chunks are at the provider) with `queueWaitUntil`: "waiting for room in the provider's batch queue,
+  next try at HH:MM". Pause and cancel work as for any queued batch job. The maintenance sweep for stranded batch
+  jobs only fails jobs whose submit job failed, so it leaves these alone.
+
 ## Target runtime
 
 `settings.targetRuntime = { minutes, wordsPerMinute (150), minShotSeconds (4), maxShotSeconds (8) }`, set in

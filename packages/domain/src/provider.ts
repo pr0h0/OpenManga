@@ -12,7 +12,9 @@ export type ProviderErrorCode =
   | "offline"
   | "model_loading"
   | "synthesis_error"
-  | "cancelled";
+  | "cancelled"
+  /** The provider refused a batch because the account already has as much batch work queued as it allows. */
+  | "batch_queue_full";
 
 const RETRYABLE: ProviderErrorCode[] = [
   "timeout",
@@ -39,6 +41,8 @@ const USER_MESSAGES: Record<ProviderErrorCode, string> = {
   model_loading: "The local speech model is still loading. Try again in a moment.",
   synthesis_error: "Speech synthesis failed for this text.",
   cancelled: "The job was cancelled.",
+  batch_queue_full:
+    "The provider's batch queue for this model is full. The batch is submitted once earlier batches finish.",
 };
 
 export class ProviderError extends Error {
@@ -95,6 +99,15 @@ export function classifyHttpStatus(status: number): ProviderErrorCode {
   if (status === 408) return "timeout";
   if (status >= 500) return "server_error";
   return "invalid_request";
+}
+
+/**
+ * Whether a provider's batch refusal means "too much batch work is already queued for this model", which clears
+ * by itself as earlier batches finish. OpenAI says `token_limit_exceeded` / "Enqueued token limit reached" (on
+ * the create call, or as the failed batch's error); Gemini names the "enqueued tokens" quota.
+ */
+export function isBatchQueueFull(text: string) {
+  return /token_limit_exceeded|enqueued[ _-]?tokens?\b/i.test(text);
 }
 
 export function parseRetryAfter(h: string | null | undefined, now = Date.now()): number | undefined {

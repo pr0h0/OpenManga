@@ -138,20 +138,7 @@ export async function runGenerationJob(
     }
   }
 
-  if (job.batchId && !(job.parameters as { allowOverBudget?: boolean } | null)?.allowOverBudget) {
-    const budget = await projectBudget(deps.db, job.projectId);
-    if (budget.exceeded) {
-      const reason = `project budget of $${budget.limitUsd!.toFixed(2)} reached ($${budget.spentUsd.toFixed(2)} spent)`;
-      await deps.db
-        .update(generationJobs)
-        .set({ status: "paused", failureReason: `Paused: ${reason}` })
-        .where(eq(generationJobs.id, jobId));
-      await publishJob(deps, { ...job, status: "paused", failureReason: `Paused: ${reason}` });
-      await deps.jobs.pauseBatch(job.batchId, reason);
-      log.warn("batch paused by budget", { batchId: job.batchId, ...budget });
-      return;
-    }
-  }
+  if (await pausedByBudget(deps, job)) return;
 
   // Claim the job, rather than simply announcing that we are running it. Everything above this line was read
   // from a row that any other runner could also have read: a batch poller republishing a parked job, a stalled-job
@@ -361,6 +348,26 @@ export async function runGenerationJob(
       });
     throw new UnrecoverableError(message);
   }
+}
+
+/**
+ * The budget gate for batch work: a batch job of a project over its budget pauses its whole batch instead of
+ * running, unless the person who started it confirmed going over. Returns whether it paused.
+ */
+export async function pausedByBudget(deps: WorkerDeps, job: GenerationJob) {
+  if (!job.batchId || (job.parameters as { allowOverBudget?: boolean } | null)?.allowOverBudget) return false;
+  const budget = await projectBudget(deps.db, job.projectId);
+  if (!budget.exceeded) return false;
+  const reason = `project budget of $${budget.limitUsd!.toFixed(2)} reached ($${budget.spentUsd.toFixed(2)} spent)`;
+  const [paused] = await deps.db
+    .update(generationJobs)
+    .set({ status: "paused", failureReason: `Paused: ${reason}` })
+    .where(eq(generationJobs.id, job.id))
+    .returning();
+  await publishJob(deps, paused);
+  await deps.jobs.pauseBatch(job.batchId, reason);
+  deps.logger.warn("batch paused by budget", { batchId: job.batchId, jobId: job.id, ...budget });
+  return true;
 }
 
 async function finishCancelled(deps: WorkerDeps, job: GenerationJob) {
