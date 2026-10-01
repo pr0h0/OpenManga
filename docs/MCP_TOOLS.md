@@ -6599,7 +6599,7 @@ Count and price image generation for a page, scene, chapter, list of panels, or 
 
 ### run_bulk_generation
 
-Start the image generation you estimated with estimate_bulk_generation (same arguments plus its estimateToken). Spends the user's image-provider credits: always a spend action (may need approval). Re-estimates first; if the count, price, provider or model changed it refuses with estimate_changed and the new estimate, so nothing more is spent than was shown. Respects the project budget (402 budget_exceeded); allowOverBudget only when the user explicitly chose to exceed it. Asynchronous: returns a batchId and jobs; follow with manage_batch status or list_jobs.
+Start the image generation you estimated with estimate_bulk_generation (same arguments plus its estimateToken). Spends the user's image-provider credits: always a spend action (may need approval). Re-estimates first; if the count, price, provider or model changed it refuses with estimate_changed and the new estimate, so nothing more is spent than was shown. Respects the project budget (402 budget_exceeded); allowOverBudget only when the user explicitly chose to exceed it. The server's monthly ceiling (402 instance_budget_exceeded) has no override. Asynchronous: returns a batchId and jobs; follow with manage_batch status or list_jobs.
 
 - **Scopes:** `generations:run`
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)

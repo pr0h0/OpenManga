@@ -29,7 +29,7 @@ Asynchronous work: tools that start AI work return a job immediately. Poll it wi
 
 Manual (paste) mode needs no provider key: pass ai: { manual: true } to a text tool. When the job is awaiting_input, call get_manual_prompt, write an answer that satisfies the schema it shows (get_answer_schema explains every schema), and send it with submit_manual_answer. A chapter plan asks several questions in turn (ChapterOutline, then one ScenePages per scene): repeat until the job completes. A rejected answer leaves the job awaiting_input with lastError; fix only what it names and resubmit.
 
-Spending: image generation, provider-backed text, vision and cloud speech use the user's own provider keys and budget. Estimate bulk work with estimate_bulk_generation before run_bulk_generation. Never try to get around budget_exceeded or credentials_required; tell the user.
+Spending: image generation, provider-backed text, vision and cloud speech use the user's own provider keys and budget. Estimate bulk work with estimate_bulk_generation before run_bulk_generation. Never try to get around budget_exceeded, instance_budget_exceeded or credentials_required; tell the user.
 
 Approvals: some calls return status "pending_approval" instead of running. That is not an error. Tell the user an approval is waiting and give them approvalUrl. Do not call the original tool again. Check later with get_approval_request (not in a loop); when it is executed, continue from its result. When denied, respect it. When expired, propose the action again only if still needed. When stale, re-read the target first.
 

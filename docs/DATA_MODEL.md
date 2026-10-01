@@ -160,6 +160,9 @@ slot).
 - `outbox` — transactional queue publication: queue, job name, job id (unique per queue), payload, priority, status
   `pending|published`, attempts, last error.
 - `error_events` — captured server errors for the admin view.
+- `instance_settings` — server-wide settings an admin changes at runtime, one jsonb `value` per `key`, with who
+  changed it and when. `budget` holds `{ monthlyUsd }`, the monthly AI spend ceiling (`null` for none). No row means
+  the env default applies.
 
 ## Agent access (`mcp.ts`)
 

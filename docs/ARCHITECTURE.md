@@ -40,7 +40,8 @@ chat reply is the exception: the API writes it in the background in its own proc
 `GET /api/expert-chats/:id/stream`.)
 
 1. **API, synchronously** (`apps/api/src/routes/*`): validate the body with Zod, run the permission gate
-   (`projectAccess`), check the project budget (`assertBudget`, 402 `budget_exceeded`), validate the run's
+   (`projectAccess`), check the server's monthly ceiling and the project budget (`assertBudget`, 402 `instance_budget_exceeded` /
+   `budget_exceeded`), validate the run's
    provider/model choice against the caller's own credentials (`apps/api/src/lib/ai.ts`, 422 `credentials_required`
    when there is none), then let `GenerationPlanner` (`packages/services/src/planner.ts`) load the immutable versions,
    compile the prompt, select references and create their small derivatives.
