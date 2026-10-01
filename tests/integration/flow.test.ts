@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
 import { sharp } from "@openmanga/image-utils";
+import { cachedPageRender } from "@openmanga/services";
 import { unzipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
+import { runMaintenance } from "../../apps/worker/src/handlers/maintenance.ts";
 import { FakeImageAIProvider } from "../../packages/ai-image/src/index.ts";
 import { type startHarness as Start, startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -1521,6 +1523,35 @@ describe("full production flow (mock AI)", () => {
     expect(png.status).toBe(200);
     expect((await sharp(new Uint8Array(await png.arrayBuffer())).metadata()).width).toBeLessThanOrEqual(400);
 
+    // The render is kept: a repeat read serves the stored copy, and an edit draws a new one in its place.
+    const renders = async () =>
+      h.deps.db.execute<{ id: string; width: string }>(
+        sql`select id, metadata->'pageRender'->>'width' as width from assets
+          where metadata->'pageRender'->>'pageId' = ${first.id} order by created_at`,
+      );
+    const [kept] = await renders();
+    expect(kept?.width).toBe("400");
+    const again = await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=390`);
+    expect(again.status).toBe(200);
+    expect((await renders()).map((r) => r.id)).toEqual([kept!.id]);
+    expect(
+      (
+        await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`, undefined, {
+          "if-none-match": again.headers.get("etag")!,
+        })
+      ).status,
+    ).toBe(304);
+    await alice.post(`/api/pages/${first.id}/sfx`, { text: "THUD" }, 201);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`)).status).toBe(
+      200,
+    );
+    const redrawn = await renders();
+    expect(redrawn).toHaveLength(1);
+    expect(redrawn[0]!.id).not.toBe(kept!.id);
+    // Stored renders count as the project's derived files.
+    const usage = await alice.get<{ disk: { byCategory: { derived: number } } }>(`/api/projects/${projectId}`);
+    expect(usage.disk.byCategory.derived).toBeGreaterThan(0);
+
     // A page outside the shared chapter is not reachable through the link.
     const other = await alice.post<{ chapter: { id: string } }>(
       `/api/projects/${projectId}/chapters`,
@@ -1531,6 +1562,12 @@ describe("full production flow (mock AI)", () => {
     expect((await anon.raw("GET", `/api/public/shares/${share.token}/pages/${otherPage.page.id}.png`)).status).toBe(
       404,
     );
+    // A deleted page's renders are swept by maintenance.
+    const orphan = await cachedPageRender(h.deps.db, h.deps.assets, projectId, otherPage.page.id, "ltr", 400);
+    expect(orphan.rendered).toBe(true);
+    await alice.del(`/api/pages/${otherPage.page.id}`);
+    await runMaintenance(h.workerDeps);
+    expect(await h.deps.assets.get(orphan.asset.id)).toBeNull();
 
     // The video preview plays the shared chapter: its shot list, and the artwork and audio of those shots only.
     const preview = await anon.get<{ shots: { panel: { art: { assetId: string } | null } | null }[] }>(

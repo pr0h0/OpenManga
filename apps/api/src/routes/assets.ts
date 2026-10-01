@@ -185,9 +185,13 @@ cdnRoutes.get("/a/:id", async (c) => {
  * Send an asset the caller may see (the access check is the caller's): `?v=` picks a display variant, `?download=`
  * names the file. Behind nginx the bytes go out through X-Accel-Redirect; otherwise they are streamed from here.
  */
-export async function sendAsset(c: Context<AppEnv>, a: typeof assets.$inferSelect) {
+export async function sendAsset(
+  c: Context<AppEnv>,
+  a: typeof assets.$inferSelect,
+  opts: { cacheControl?: string; variants?: boolean } = {},
+) {
   const deps = c.get("deps");
-  const v = c.req.query("v");
+  const v = opts.variants === false ? undefined : c.req.query("v");
   let storageKey = a.storageKey;
   let mime = a.mimeType;
   // The ETag has to identify the bytes actually served: a variant's own hash, not the canonical asset's, or a
@@ -206,7 +210,9 @@ export async function sendAsset(c: Context<AppEnv>, a: typeof assets.$inferSelec
   const download = c.req.query("download");
   const headers: Record<string, string> = {
     "content-type": mime,
-    "cache-control": a.visibility === "public" ? "public, max-age=31536000, immutable" : "private, max-age=3600",
+    "cache-control":
+      opts.cacheControl ??
+      (a.visibility === "public" ? "public, max-age=31536000, immutable" : "private, max-age=3600"),
     etag: `"${etagSource.slice(0, 32)}${v ? `-${v}` : ""}"`,
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'",

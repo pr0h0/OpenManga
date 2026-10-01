@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { and, asc, assets, chapters, desc, eq, inArray, isNull, pages, projects, shareLinks, sql } from "@openmanga/db";
-import { loadRenderPage, recordAudit, renderPageImage } from "@openmanga/services";
+import { cachedPageRender, recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -156,17 +156,15 @@ publicShareRoutes.get("/shares/:token/pages/:file", async (c) => {
   const { width } = query(c, z.object({ width: z.coerce.number().int().min(200).max(1600).default(1200) }));
   const { db, assets } = c.get("deps");
   const [page] = await db
-    .select({ width: pages.width, chapterId: pages.chapterId })
+    .select({ chapterId: pages.chapterId })
     .from(pages)
     .where(and(eq(pages.id, pageId), eq(pages.projectId, p.id)));
   if (!page || (s.chapterId && page.chapterId !== s.chapterId)) throw notFound("Page");
-  // Rendered per request, like the editor preview, and cached by the browser for five minutes. If a popular link
-  // ever loads the server noticeably, keep the render as an asset variant instead.
-  const render = await loadRenderPage(db, assets.storage, pageId, p.readingDirection);
-  const img = await renderPageImage(render, "png", { scale: Math.min(1, width / page.width) });
-  return new Response(img.data, {
-    headers: { "content-type": "image/png", "cache-control": "public, max-age=300" },
-  });
+  // Kept as a render keyed by the page's content and a width bucket, so a repeat read is one lookup and any edit
+  // draws it again. Widths round up to 200 px steps, which bounds the copies one page can hold to eight.
+  const bucket = Math.min(1600, Math.ceil(width / 200) * 200);
+  const { asset } = await cachedPageRender(db, assets, p.id, pageId, p.readingDirection, bucket);
+  return sendAsset(c, asset, { cacheControl: "public, max-age=300", variants: false });
 });
 
 const SharedPreview = z.object({ chapterId: z.string().uuid(), cut: z.enum(["page", "panel"]).default("panel") });

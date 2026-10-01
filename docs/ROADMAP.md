@@ -36,8 +36,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Video branding.** A logo watermark and optional intro and outro cards on video exports.
 - **End-to-end tests in CI.** The existing `scripts/e2e.sh` on a nightly or manual workflow against the full stack
   with mock AI.
-- **Cached reader-link renders.** Reader pages render on every request; keep them as asset variants if a link ever
-  draws real traffic.
 - **Instance-wide budget ceiling.** The per-project cap exists; an instance-wide ceiling is the better control for
   a shared install, but with registration off by default multi-user is the rare case.
 - **Streaming PDF and webtoon strips.** ZIP-based exports and video stream to disk. PDF and stitched webtoon strips
