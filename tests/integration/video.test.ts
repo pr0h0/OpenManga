@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { shotGroups, timeGroup } from "@openmanga/domain";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 // Needs ffmpeg/ffprobe (present in the app image, not in the plain bun test image).
@@ -30,6 +31,96 @@ const waitJob = (id: string) =>
     },
     { label: `job ${id}`, timeoutMs: 60_000 },
   );
+
+/** A planned, drawn, narrated and voiced first chapter of a new project. */
+async function narratedChapter(title: string, extra: Record<string, unknown> = {}) {
+  const p = await u.post<{ project: { id: string } }>(
+    "/api/projects",
+    { title, story: { content: STORY, inputKind: "story" }, ...extra },
+    201,
+  );
+  const projectId = p.project.id;
+  const story = await u.get<{ latest: { id: string } }>(`/api/projects/${projectId}/story`);
+  const a = await u.post<{ job: { id: string }; analysis: { id: string } }>(
+    `/api/story-revisions/${story.latest.id}/analyze`,
+    {},
+    202,
+  );
+  expect((await waitJob(a.job.id)).status).toBe("completed");
+  await u.post(`/api/story-analyses/${a.analysis.id}/apply`, {});
+  const chapterId = (await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`)).chapters[0]!
+    .id;
+  const plan = await u.post<{ job: { id: string } }>(`/api/chapters/${chapterId}/plan`, {}, 202);
+  expect((await waitJob(plan.job.id)).status).toBe("completed");
+  const bulk = await u.post<{ batchId: string }>(
+    `/api/projects/${projectId}/generations/bulk`,
+    { scope: { chapterId }, onlyMissing: true, confirm: true },
+    202,
+  );
+  await waitFor(
+    async () => {
+      const r = await u.get<{ progress: { total: number; completed: number } }>(
+        `/api/generations/batches/${bulk.batchId}`,
+      );
+      return r.progress.completed === r.progress.total ? r : null;
+    },
+    { label: "panels", timeoutMs: 90_000 },
+  );
+  const n = await u.post<{ job: { id: string } }>(`/api/chapters/${chapterId}/narration/generate`, {}, 202);
+  expect((await waitJob(n.job.id)).status).toBe("completed");
+  await u.post(`/api/chapters/${chapterId}/narration/synthesize`, { onlyMissing: true }, 202);
+  await waitFor(
+    async () => {
+      const r = await u.get<{ lines: { segments: { audio: unknown }[] }[] }>(`/api/chapters/${chapterId}/narration`);
+      return r.lines.length && r.lines.every((l) => l.segments.every((s) => s.audio)) ? r : null;
+    },
+    { label: "tts", timeoutMs: 60_000 },
+  );
+  return { projectId, chapterId };
+}
+
+type ExportFile = { assetId: string; fileName: string; mimeType: string };
+/** Starts an export and waits for it to finish; fails the test unless it completed. */
+async function runExport(projectId: string, body: Record<string, unknown>) {
+  const ex = await u.post<{ job: { id: string } }>(
+    `/api/projects/${projectId}/exports`,
+    { acknowledgeIssues: true, ...body },
+    202,
+  );
+  const done = await waitFor(
+    async () => {
+      const r = await u.get<{ job: { status: string; failureReason: string | null; files: ExportFile[] } }>(
+        `/api/jobs/${ex.job.id}`,
+      );
+      return ["completed", "failed"].includes(r.job.status) ? r.job : null;
+    },
+    { label: `${String(body.kind)} export`, timeoutMs: 240_000 },
+  );
+  expect(`${done.status}:${done.failureReason ?? ""}`).toBe("completed:");
+  return { id: ex.job.id, files: done.files };
+}
+
+/** Duration and video size of an exported MP4. */
+async function probe(assetId: string) {
+  const path = `${process.env.TMPDIR ?? "/tmp"}/mf-probe-${assetId}.mp4`;
+  await Bun.write(path, new Uint8Array(await (await u.raw("GET", `/cdn/a/${assetId}`)).arrayBuffer()));
+  const info = JSON.parse(
+    Bun.spawnSync([
+      "ffprobe",
+      "-v",
+      "error",
+      "-show_entries",
+      "stream=codec_type,width,height",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "json",
+      path,
+    ]).stdout.toString(),
+  ) as { streams: { codec_type: string; width?: number; height?: number }[]; format: { duration: string } };
+  const video = info.streams.find((s) => s.codec_type === "video")!;
+  return { path, ms: Number(info.format.duration) * 1000, width: video.width!, height: video.height! };
+}
 
 describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
   test("renders an MP4 whose length matches the narration, holding silent pages for the minimum", async () => {
@@ -446,5 +537,79 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
       ]).stdout.toString(),
     ) as { streams: { codec_type: string; width?: number; height?: number }[] };
     expect(probe.streams.find((x) => x.codec_type === "video")).toMatchObject({ width: 1280, height: 720 });
+  }, 600_000);
+
+  test("shot settings: a disabled shot, a set move, a fade and a spanning line, with the preview timing the render", async () => {
+    const { projectId, chapterId } = await narratedChapter("Shots");
+    type Shot = {
+      key: string;
+      joinNext: boolean;
+      fade: { in: boolean; out: boolean };
+      motion: string | null;
+      lines: {
+        id: string;
+        startOffsetMs: number;
+        endOffsetMs: number;
+        segments: { durationMs: number | null; pauseAfterMs: number }[];
+      }[];
+    };
+    const preview = () =>
+      u.get<{ disabledPanels: number; shots: Shot[] }>(`/api/video-preview?chapterId=${chapterId}&cut=panel`);
+    const before = await preview();
+    const panelIds = before.shots.map((s) => s.key);
+    expect(panelIds.length).toBeGreaterThanOrEqual(4);
+    // No neighbouring auto moves repeat.
+    for (let i = 1; i < before.shots.length; i++) expect(before.shots[i]!.motion).not.toBe(before.shots[i - 1]!.motion);
+
+    await u.patch(`/api/panels/${panelIds[1]}`, { video: { disabled: true } });
+    await u.patch(`/api/panels/${panelIds[0]}`, { video: { motion: "pan-left" } });
+    await u.patch(`/api/panels/${panelIds[2]}`, { video: { fade: "on" } });
+    const spanning = before.shots[0]!.lines[0] ?? before.shots[2]!.lines[0];
+    expect(spanning).toBeTruthy();
+    // A span must end inside the line's chapter.
+    await u.patch(
+      `/api/narration-lines/${spanning!.id}`,
+      { video: { untilPanelId: crypto.randomUUID(), startOffsetMs: 0, endOffsetMs: 0 } },
+      400,
+    );
+    await u.patch(`/api/narration-lines/${spanning!.id}`, {
+      video: { untilPanelId: panelIds[3], startOffsetMs: 400, endOffsetMs: 600 },
+    });
+
+    const after = await preview();
+    expect(after.disabledPanels).toBe(1);
+    expect(after.shots.map((s) => s.key)).not.toContain(panelIds[1]);
+    expect(after.shots[0]!.motion).toBe("pan-left");
+    const fadeAt = after.shots.findIndex((s) => s.key === panelIds[2]);
+    expect(after.shots[fadeAt]!.fade.in).toBe(true);
+    expect(after.shots[fadeAt - 1]!.fade.out).toBe(true);
+    const from = after.shots.findIndex((s) => s.lines.some((l) => l.id === spanning!.id));
+    const to = after.shots.findIndex((s) => s.key === panelIds[3]);
+    expect(to).toBeGreaterThan(from);
+    for (let i = from; i < to; i++) expect(after.shots[i]!.joinNext).toBe(true);
+    expect(after.shots[to]!.joinNext).toBe(false);
+
+    // The preview's timeline, from the same shared helpers, is the render's length.
+    const fps = 24;
+    const minHoldMs = 1500;
+    let frames = 0;
+    for (const g of shotGroups(after.shots.map((s) => s.joinNext))) {
+      const members = after.shots.slice(g.first, g.last + 1);
+      frames += timeGroup(
+        members.flatMap((s) =>
+          s.lines.map((l) => ({
+            ...l,
+            segments: l.segments
+              .filter((x) => x.durationMs)
+              .map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
+          })),
+        ),
+        members.length,
+        { minHoldMs, fps },
+      ).totalFrames;
+    }
+    const out = await runExport(projectId, { kind: "video_panels", chapterId, video: { height: 720, fps, minHoldMs } });
+    const mp4 = await probe(out.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect(Math.abs(mp4.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * after.shots.length);
   }, 600_000);
 });

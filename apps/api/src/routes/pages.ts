@@ -59,6 +59,7 @@ import {
   PanelSpec,
   SfxStyle,
   ShotType,
+  ShotVideo,
 } from "@openmanga/schemas";
 import {
   letterPanel,
@@ -672,6 +673,8 @@ export const PatchPanel = z.object({
   promptOverride: z.string().max(32_000).nullable().optional(),
   /** Vertical strips: how this panel meets the one before it. Null clears it back to the project's plain gap. */
   seam: PanelSeam.nullable().optional(),
+  /** The panel as a video shot: camera motion, fade at the cut into it, disabled. Null resets every default. */
+  video: ShotVideo.nullable().optional(),
   /** Clear-only: prepared prompt text is written by the text model, never authored by hand through this route. */
   promptDraft: z.null().optional(),
   approvalStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),

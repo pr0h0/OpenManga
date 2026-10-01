@@ -336,6 +336,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
           chapterId,
           pageId: map(nl.pageId),
           panelId: map(nl.panelId),
+          video: nl.video && { ...nl.video, untilPanelId: map(nl.video.untilPanelId) },
           createdAt: undefined,
           updatedAt: undefined,
         })

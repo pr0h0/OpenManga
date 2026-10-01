@@ -1,10 +1,17 @@
 import { expect, test } from "bun:test";
 import {
+  fadeCuts,
+  fadeFrames,
+  fadeOpacity,
   holdFor,
-  kenBurnsZoomAt,
+  motionAt,
+  motionPath,
   pageShotBox,
   panelShotBox,
+  resolveMotions,
   scrollPlan,
+  shotGroups,
+  timeGroup,
   VIDEO_BREATH_MS,
   youtubeChapters,
   youtubeTimestamp,
@@ -18,11 +25,81 @@ test("holds are frame-exact: narration + breath, at least the minimum", () => {
   expect(holdFor(6010, true, 2500, 30, 400)).toEqual({ frames: 193, holdMs: (193 * 1000) / 30 });
 });
 
-test("zoom curve matches zoompan: push in on wide, pull out on close", () => {
-  expect(kenBurnsZoomAt("wide", 0.06, 0)).toBe(1);
-  expect(kenBurnsZoomAt("wide", 0.06, 1)).toBeCloseTo(1.06);
-  expect(kenBurnsZoomAt("close", 0.06, 0)).toBeCloseTo(1.06);
-  expect(kenBurnsZoomAt("close", 0.06, 1)).toBeCloseTo(1);
+test("moves: push in on wide, pull out on close, pans travel the slack and keep the focus on the other axis", () => {
+  const focus = { x: 0.3, y: 0.7 };
+  expect(motionAt(motionPath("push-in", 0.06, focus), 0)).toEqual({ z: 1, x: 0.3, y: 0.7 });
+  expect(motionAt(motionPath("push-in", 0.06, focus), 1).z).toBeCloseTo(1.06);
+  expect(motionAt(motionPath("pull-out", 0.06, focus), 0).z).toBeCloseTo(1.06);
+  expect(motionAt(motionPath("pan-right", 0.06, focus), 0.5)).toEqual({ z: 1.06, x: 0.5, y: 0.7 });
+  expect(motionAt(motionPath("pan-up", 0.06, focus), 1)).toEqual({ z: 1.06, x: 0.3, y: 0 });
+  expect(motionAt(motionPath("static", 0.06, focus), 0.7).z).toBe(1);
+});
+
+test("auto motion follows the shot type but never repeats the previous move", () => {
+  const s = (shotType: string, motion?: "auto" | "static", x = 0.7, y = 0.2) => ({
+    shotType,
+    motion,
+    focus: { x, y },
+  });
+  expect(resolveMotions([s("wide"), s("close"), s("medium")])).toEqual(["push-in", "pull-out", "push-in"]);
+  // Two wides in a row: the second pans towards its focus instead; a third goes back to the push.
+  expect(resolveMotions([s("wide"), s("wide"), s("wide")])).toEqual(["push-in", "pan-right", "push-in"]);
+  // An explicit move is kept even when it repeats.
+  expect(resolveMotions([s("wide", "static"), s("wide", "static")])).toEqual(["static", "static"]);
+  // After a pan right, a wide whose focus also says right still gets a different move.
+  expect(resolveMotions([s("wide"), s("wide"), s("close"), s("close")])).toEqual([
+    "push-in",
+    "pan-right",
+    "pull-out",
+    "pan-right",
+  ]);
+});
+
+test("fades at scene breaks, with per-shot overrides", () => {
+  const shots = [
+    { sceneId: "a" },
+    { sceneId: "a" },
+    { sceneId: "b" },
+    { sceneId: "b", fade: "on" as const },
+    { sceneId: "c", fade: "off" as const },
+  ];
+  expect(fadeCuts(shots, true)).toEqual([false, false, true, true, false]);
+  expect(fadeCuts(shots, false)).toEqual([false, false, false, true, false]);
+  expect(fadeFrames(90, 30)).toBe(15);
+  expect(fadeFrames(30, 30)).toBe(10);
+  expect(fadeOpacity(0, 90, 30, { in: true, out: false })).toBe(1);
+  expect(fadeOpacity(15, 90, 30, { in: true, out: false })).toBe(0);
+  expect(fadeOpacity(89, 90, 30, { in: false, out: true })).toBeCloseTo(14 / 15);
+});
+
+test("a single shot times exactly as holdFor; a span shares one hold split over its shots", () => {
+  const seg = (ms: number, pauseAfterMs = 350) => ({ ms, pauseAfterMs });
+  const line = (segments: { ms: number; pauseAfterMs: number }[], startOffsetMs = 0, endOffsetMs = 0) => ({
+    startOffsetMs,
+    endOffsetMs,
+    segments,
+  });
+  const o = { minHoldMs: 2500, fps: 30 };
+  // Two lines on one shot: the first line's last pause separates them, as one concatenation.
+  const one = timeGroup([line([seg(2000), seg(1500)]), line([seg(1000)])], 1, o);
+  expect(one.narrationMs).toBe(2000 + 350 + 1500 + 350 + 1000);
+  expect(one.frames).toEqual([holdFor(5200, true, 2500, 30).frames]);
+  expect(one.starts).toEqual([[0, 2350], [4200]]);
+  expect(timeGroup([], 1, o).frames).toEqual([holdFor(0, false, 2500, 30).frames]);
+  // Offsets add silence before and after the line.
+  const off = timeGroup([line([seg(1000)], 500, 2000)], 1, o);
+  expect(off.starts).toEqual([[500]]);
+  expect(off.narrationMs).toBe(3500);
+  // A 9 s line over three shots: one hold of 9.15 s split evenly in whole frames, each at least the minimum.
+  const span = timeGroup([line([seg(9000)])], 3, o);
+  expect(span.totalFrames).toBe(275);
+  expect(span.frames).toEqual([92, 92, 91]);
+  expect(timeGroup([line([seg(1000)])], 3, o).frames).toEqual([75, 75, 75]);
+  expect(shotGroups([false, true, true, false, false])).toEqual([
+    { first: 0, last: 0 },
+    { first: 1, last: 3 },
+    { first: 4, last: 4 },
+  ]);
 });
 
 test("16:9 shots fill the frame; other panels sit in the margin; page framing by width", () => {

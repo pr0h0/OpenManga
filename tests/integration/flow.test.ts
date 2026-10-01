@@ -634,24 +634,25 @@ describe("full production flow (mock AI)", () => {
     type Shot = {
       key: string;
       page: { id: string };
-      panel: { id: string; art: { crop: { width: number }; focus: { x: number } } | null } | null;
-      segments: { audioAssetId: string | null; durationMs: number | null }[];
+      panel: { id: string; focus: { x: number }; art: { crop: { width: number } } | null } | null;
+      lines: { segments: { audioAssetId: string | null; durationMs: number | null }[] }[];
     };
+    const segments = (x: Shot) => x.lines.flatMap((l) => l.segments);
     const chapterPanel = await alice.get<{ cut: string; shots: Shot[] }>(`/api/video-preview?chapterId=${chapterId}`);
     const ch = await alice.get<{ pages: { panelCount: number }[] }>(`/api/chapters/${chapterId}`);
     expect(chapterPanel.cut).toBe("panel");
     expect(chapterPanel.shots.length).toBe(ch.pages.reduce((n, p) => n + p.panelCount, 0));
     const withArt = chapterPanel.shots.find((x) => x.panel?.art)!;
     expect(withArt.panel!.art!.crop.width).toBeGreaterThan(0);
-    expect(withArt.panel!.art!.focus.x).toBeGreaterThanOrEqual(0);
-    const voiced = chapterPanel.shots.flatMap((x) => x.segments).filter((x) => x.audioAssetId);
+    expect(withArt.panel!.focus.x).toBeGreaterThanOrEqual(0);
+    const voiced = chapterPanel.shots.flatMap(segments).filter((x) => x.audioAssetId);
     expect(voiced.length).toBeGreaterThan(0);
     expect(voiced.every((x) => (x.durationMs ?? 0) > 0)).toBe(true);
 
     const pageCut = await alice.get<{ shots: Shot[] }>(`/api/video-preview?chapterId=${chapterId}&cut=page`);
     expect(pageCut.shots.length).toBe(ch.pages.length);
     // every narration segment lands somewhere in both cuts
-    const count = (r: { shots: Shot[] }) => r.shots.reduce((n, x) => n + x.segments.length, 0);
+    const count = (r: { shots: Shot[] }) => r.shots.reduce((n, x) => n + segments(x).length, 0);
     expect(count(pageCut)).toBe(count(chapterPanel));
 
     const single = await alice.get<{ cut: string; shots: Shot[] }>(`/api/video-preview?panelId=${panelId}&cut=page`);

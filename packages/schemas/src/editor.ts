@@ -139,6 +139,41 @@ export const VERTICAL_PAGE = { pageWidth: 800, pageHeight: 1200, pageMargin: 0, 
 export const VERTICAL_LETTERING = { autoPlace: true } as const;
 
 /**
+ * A panel's settings as a video shot (panel cut). "auto" motion is the push or pull chosen by shot type, varied so
+ * neighbouring shots do not repeat the same move. `fade` overrides the project's fade to black at a scene break
+ * for the cut into this shot: "on" fades here even inside a scene, "off" keeps a hard cut. A disabled shot is
+ * left out of the video with its narration; the panel stays on the page.
+ */
+export const ShotMotion = z.enum([
+  "auto",
+  "static",
+  "pan-left",
+  "pan-right",
+  "pan-up",
+  "pan-down",
+  "push-in",
+  "pull-out",
+]);
+export type ShotMotion = z.infer<typeof ShotMotion>;
+export const ShotVideo = z.object({
+  motion: ShotMotion.default("auto"),
+  fade: z.enum(["auto", "on", "off"]).default("auto"),
+  disabled: z.boolean().default(false),
+});
+export type ShotVideo = z.infer<typeof ShotVideo>;
+
+/**
+ * A narration line's place in the video. `untilPanelId` stretches the line over every shot from its own to that
+ * panel's (they share one hold, split evenly); the offsets add silence before and after the line.
+ */
+export const NarrationLineVideo = z.object({
+  untilPanelId: z.string().uuid().nullable().default(null),
+  startOffsetMs: z.number().int().min(0).max(10_000).default(0),
+  endOffsetMs: z.number().int().min(0).max(10_000).default(0),
+});
+export type NarrationLineVideo = z.infer<typeof NarrationLineVideo>;
+
+/**
  * How a panel meets the panel before it in a vertical strip. The leading edge belongs to the later panel, so a
  * scene change is authored on the panel that opens the new scene.
  *
@@ -303,6 +338,12 @@ export const ProjectSettings = z.object({
   sceneBreakPauseMs: z.number().int().min(0).max(10000).default(700),
   /** Style instruction for narration writing, kept so every chapter is written in the same voice. */
   narrationStyle: z.string().max(500).default(""),
+  /** Video exports: fade to black where the scene changes (each shot can override it). */
+  video: z
+    .object({
+      fadeAtSceneBreaks: z.boolean().default(false),
+    })
+    .optional(),
   /** Opt-in vision check of generated panels (expected cast and headcount). Needs one of your vision-capable keys. */
   consistencyCheck: z
     .object({

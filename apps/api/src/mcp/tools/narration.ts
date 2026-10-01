@@ -59,7 +59,7 @@ export const narrationTools = [
     name: "edit_narration",
     title: "Edit narration",
     description:
-      "add_line: add a narration line to a chapter (auto-split into TTS segments), optionally tied to a panel and shown on the page. update_line: edit text (re-segments; unchanged segments keep their audio), panel, on-page box or order. delete_line (delete class). resegment_line: re-split a line. update_segment: text, voice, speed, pause. split_segment / merge_segment. apply_pauses: re-apply the project's pause settings to a chapter. No audio is produced here; use synthesize_narration.",
+      "add_line: add a narration line to a chapter (auto-split into TTS segments), optionally tied to a panel and shown on the page. update_line: edit text (re-segments; unchanged segments keep their audio), panel, on-page box, order, or its video span and offsets (`video`). delete_line (delete class). resegment_line: re-split a line. update_segment: text, voice, speed, pause. split_segment / merge_segment. apply_pauses: re-apply the project's pause settings to a chapter. No audio is produced here; use synthesize_narration.",
     input: z.object({
       action: z.enum([
         "add_line",

@@ -1,4 +1,4 @@
-import { CameraAngle, PanelSpec, ShotType } from "@openmanga/schemas";
+import { CameraAngle, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -578,18 +578,13 @@ export function PanelTab({
         </button>
       </fieldset>
 
+      <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
+
       {panel.artwork && (
         <div className="space-y-2 rounded-lg border border-[var(--border)] p-2">
           <div className="label">Artwork crop (original is never modified)</div>
           <div className="flex flex-wrap gap-1">
             <AdjustImageButton panelId={panel.id} disabled={locked} />
-            <PreviewVideoButton
-              projectId={projectId}
-              scope={{ panelId: panel.id }}
-              label="Preview move"
-              title="Preview — panel Ken Burns move"
-              className="btn-ghost text-xs"
-            />
             <button
               type="button"
               className="btn-ghost text-xs"
@@ -635,6 +630,76 @@ export function PanelTab({
         </div>
       )}
     </div>
+  );
+}
+
+const MOTIONS: [ShotVideo["motion"], string][] = [
+  ["auto", "Auto (by shot type, varied)"],
+  ["static", "Static"],
+  ["push-in", "Push in"],
+  ["pull-out", "Pull out"],
+  ["pan-left", "Pan left"],
+  ["pan-right", "Pan right"],
+  ["pan-up", "Pan up"],
+  ["pan-down", "Pan down"],
+];
+
+/** The panel as a video shot (panel cut): its camera move, the fade into it, and whether it is in the video at all. */
+function VideoShot({
+  panel,
+  locked,
+  onPatch,
+}: {
+  panel: EditorPanel;
+  locked: boolean;
+  onPatch: (video: ShotVideo) => void;
+}) {
+  const projectId = useProjectId();
+  const v = ShotVideo.parse(panel.video ?? {});
+  const set = (patch: Partial<ShotVideo>) => onPatch({ ...v, ...patch });
+  return (
+    <fieldset disabled={locked} className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+      <div className="flex items-center gap-2">
+        <span className="label mb-0">Video shot</span>
+        <PreviewVideoButton
+          projectId={projectId}
+          scope={{ panelId: panel.id }}
+          label="Preview shot"
+          title="Preview — this shot"
+          className="btn-ghost ml-auto text-xs"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <Field label="Camera move">
+          <select
+            className="input text-xs"
+            value={v.motion}
+            onChange={(e) => set({ motion: e.target.value as ShotVideo["motion"] })}
+          >
+            {MOTIONS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Cut into this shot">
+          <select
+            className="input text-xs"
+            value={v.fade}
+            onChange={(e) => set({ fade: e.target.value as ShotVideo["fade"] })}
+          >
+            <option value="auto">Project default</option>
+            <option value="on">Fade through black</option>
+            <option value="off">Hard cut</option>
+          </select>
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={v.disabled} onChange={(e) => set({ disabled: e.target.checked })} />
+        Leave this shot and its narration out of videos
+      </label>
+    </fieldset>
   );
 }
 

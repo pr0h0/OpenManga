@@ -1,11 +1,14 @@
 import {
+  fadeOpacity,
   frameSizeFor,
-  holdFor,
-  kenBurnsPullsOut,
-  kenBurnsZoomAt,
+  type Motion,
+  motionAt,
+  motionPath,
   pageShotBox,
   panelShotBox,
   scrollPlan,
+  shotGroups,
+  timeGroup,
 } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -25,26 +28,49 @@ import { API_BASE, ApiError, assetUrl, get, post } from "../../api/client.ts";
 import { ConfirmDialog, ErrorBox, Field, Modal, Spinner, toast } from "../../components/ui.tsx";
 
 type Crop = { left: number; top: number; width: number; height: number };
+type PreviewSegment = {
+  id: string;
+  text: string;
+  pauseAfterMs: number;
+  audioAssetId: string | null;
+  durationMs: number | null;
+};
 type PreviewShot = {
   key: string;
   label: string;
+  /** Shares one hold with the next shot: a narration line spans the cut. */
+  joinNext: boolean;
+  fade: { in: boolean; out: boolean };
+  /** Panel cut: the resolved camera move. */
+  motion: Motion | null;
   page: { id: string; order: number; chapterOrder: number; width: number; height: number; updatedAt: string };
   panel: {
     id: string;
     shotType: string;
     frame: { x: number; y: number; width: number; height: number };
     aspect: number;
-    art: { assetId: string; width: number; height: number; crop: Crop; focus: { x: number; y: number } } | null;
+    focus: { x: number; y: number };
+    art: { assetId: string; width: number; height: number; crop: Crop } | null;
   } | null;
-  segments: {
-    id: string;
-    text: string;
-    pauseAfterMs: number;
-    audioAssetId: string | null;
-    durationMs: number | null;
-  }[];
+  lines: { id: string; startOffsetMs: number; endOffsetMs: number; segments: PreviewSegment[] }[];
 };
-type Preview = { cut: "page" | "panel"; language: string; unplacedLines: number; shots: PreviewShot[] };
+type Preview = {
+  cut: "page" | "panel";
+  language: string;
+  unplacedLines: number;
+  disabledPanels: number;
+  shots: PreviewShot[];
+};
+
+const MOTION_LABEL: Record<Motion, string> = {
+  static: "static",
+  "push-in": "push in",
+  "pull-out": "pull out",
+  "pan-left": "pan left",
+  "pan-right": "pan right",
+  "pan-up": "pan up",
+  "pan-down": "pan down",
+};
 
 export type PreviewScope = { chapterId?: string; pageId?: string; panelId?: string };
 
@@ -61,23 +87,44 @@ type Options = {
   maxScrollPxPerSec: number;
 };
 
-/** Timeline with the same holds as the final render (narration + breath, at least the minimum, whole frames). */
+/**
+ * Timeline with the same holds as the final render: the shared `timeGroup` over each run of shots a narration line
+ * spans (narration + offsets + breath, at least the minimum per shot, whole frames).
+ */
 function buildTimeline(shots: PreviewShot[], minHoldMs: number) {
-  let start = 0;
-  const cues: { startMs: number; endMs: number; audioAssetId: string; shot: number }[] = [];
-  const timed = shots.map((shot, i) => {
-    const voiced = shot.segments.filter((s) => s.audioAssetId && s.durationMs);
-    let t = 0;
-    for (const [k, s] of voiced.entries()) {
-      cues.push({ startMs: start + t, endMs: start + t + s.durationMs!, audioAssetId: s.audioAssetId!, shot: i });
-      t += s.durationMs! + (k < voiced.length - 1 ? s.pauseAfterMs : 0);
-    }
-    const { holdMs } = holdFor(t, voiced.length > 0, minHoldMs, FPS);
-    const out = { shot, startMs: start, holdMs, missingAudio: shot.segments.length - voiced.length };
-    start += holdMs;
-    return out;
-  });
-  return { timed, cues, totalMs: start };
+  let frames = 0;
+  const at = (f: number) => (f * 1000) / FPS;
+  const cues: { startMs: number; endMs: number; audioAssetId: string }[] = [];
+  const timed: { shot: PreviewShot; startMs: number; holdMs: number; frames: number; missingAudio: number }[] = [];
+  for (const g of shotGroups(shots.map((s) => s.joinNext))) {
+    const members = shots.slice(g.first, g.last + 1);
+    const lines = members.flatMap((s) =>
+      s.lines.map((l) => ({ ...l, voiced: l.segments.filter((x) => x.audioAssetId && x.durationMs) })),
+    );
+    const timing = timeGroup(
+      lines.map((l) => ({
+        ...l,
+        segments: l.voiced.map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
+      })),
+      members.length,
+      { minHoldMs, fps: FPS },
+    );
+    const groupMs = at(frames);
+    lines.forEach((l, k) => {
+      l.voiced.forEach((x, j) => {
+        const start = groupMs + timing.starts[k]![j]!;
+        cues.push({ startMs: start, endMs: start + x.durationMs!, audioAssetId: x.audioAssetId! });
+      });
+    });
+    members.forEach((shot, m) => {
+      const n = timing.frames[m]!;
+      const all = shot.lines.flatMap((l) => l.segments);
+      const voiced = all.filter((x) => x.audioAssetId && x.durationMs).length;
+      timed.push({ shot, startMs: at(frames), holdMs: at(n), frames: n, missingAudio: all.length - voiced });
+      frames += n;
+    });
+  }
+  return { timed, cues, totalMs: at(frames) };
 }
 
 /** Where the preview loads pages and media: the signed-in routes, or a reader link's public ones. */
@@ -96,8 +143,23 @@ const sharedUrls = (token: string): PreviewUrls => ({
 });
 const Urls = createContext<PreviewUrls>(SIGNED_IN);
 
+/** Black over the picture where a scene break fades (the render's ffmpeg fade, same ramp). */
+function FadeShade({ shot, t, frames }: { shot: PreviewShot; t: number; frames: number }) {
+  const opacity = fadeOpacity(t * frames, frames, FPS, shot.fade);
+  return opacity > 0 ? <div style={{ position: "absolute", inset: 0, background: "black", opacity }} /> : null;
+}
+
 /** One shot drawn on a 1920×1080 stage at time `t` (0..1 of its hold) — the same geometry as the ffmpeg render. */
-function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdMs: number; o: Options }) {
+function ShotFrame(props: { shot: PreviewShot; t: number; holdMs: number; frames: number; o: Options }) {
+  return (
+    <>
+      <ShotPicture {...props} />
+      <FadeShade shot={props.shot} t={props.t} frames={props.frames} />
+    </>
+  );
+}
+
+function ShotPicture({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdMs: number; o: Options }) {
   const urls = useContext(Urls);
   const pg = shot.page;
   if (o.cut === "page" || !shot.panel) {
@@ -120,13 +182,7 @@ function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdM
   const pn = shot.panel;
   // Clean art cropped as on the page, or the lettered page crop when there is no art (like the render).
   const source = pn.art
-    ? {
-        src: urls.asset(pn.art.assetId, "web"),
-        w: pn.art.width,
-        h: pn.art.height,
-        crop: pn.art.crop,
-        focus: pn.art.focus,
-      }
+    ? { src: urls.asset(pn.art.assetId, "web"), w: pn.art.width, h: pn.art.height, crop: pn.art.crop }
     : {
         src: urls.page(pg.id, pg.updatedAt),
         w: pg.width,
@@ -137,15 +193,14 @@ function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdM
           width: pn.frame.width * pg.width,
           height: pn.frame.height * pg.height,
         },
-        focus: { x: 0.5, y: 0.5 },
       };
   const box = panelShotBox(pn.aspect, W, H);
-  const z = kenBurnsZoomAt(pn.shotType, o.zoom, t);
-  // zoompan anchor: the visible window keeps the focus at the same relative position while it zooms.
-  const vw = source.crop.width / z;
-  const vh = source.crop.height / z;
-  const vx = source.crop.left + (source.crop.width - vw) * source.focus.x;
-  const vy = source.crop.top + (source.crop.height - vh) * source.focus.y;
+  // zoompan's window: zoom z, sitting at (x, y) of the slack the zoom leaves.
+  const m = motionAt(motionPath(shot.motion ?? "static", o.zoom, pn.focus), t);
+  const vw = source.crop.width / m.z;
+  const vh = source.crop.height / m.z;
+  const vx = source.crop.left + (source.crop.width - vw) * m.x;
+  const vy = source.crop.top + (source.crop.height - vh) * m.y;
   const s = box.w / vw;
   return (
     <>
@@ -501,6 +556,8 @@ export function VideoPreview({
     noArt > 0 && `${noArt} panel(s) have no artwork and show their lettered page crop`,
     (preview.data?.unplacedLines ?? 0) > 0 &&
       `${preview.data?.unplacedLines} narration line(s) aren't linked to a page or panel and are left out`,
+    (preview.data?.disabledPanels ?? 0) > 0 &&
+      `${preview.data?.disabledPanels} panel(s) are disabled as shots and left out with their narration`,
   ].filter(Boolean) as string[];
 
   return (
@@ -542,7 +599,7 @@ export function VideoPreview({
                     overflow: "hidden",
                   }}
                 >
-                  {shot && <ShotFrame shot={shot.shot} t={t} holdMs={shot.holdMs} o={o} />}
+                  {shot && <ShotFrame shot={shot.shot} t={t} holdMs={shot.holdMs} frames={shot.frames} o={o} />}
                 </div>
                 <div className="absolute right-2 bottom-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
                   {shot?.shot.label}
@@ -702,7 +759,12 @@ export function VideoPreview({
                 className="h-[calc(5*1.85rem+6px)] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
               >
                 {timeline.timed.map((s, i) => {
-                  const narration = s.shot.segments.map((x) => x.text).join(" ");
+                  const narration = s.shot.lines
+                    .flatMap((l) => l.segments)
+                    .map((x) => x.text)
+                    .join(" ");
+                  // A line spanning the cut keeps speaking over this shot.
+                  const continues = timeline.timed[i - 1]?.shot.joinNext;
                   return (
                     <li key={s.shot.key} data-shot={i}>
                       <button
@@ -715,13 +777,14 @@ export function VideoPreview({
                           {mmss(s.startMs)} · {(s.holdMs / 1000).toFixed(1)}s
                         </span>
                         {o.cut === "panel" && s.shot.panel && (
-                          <span className="muted w-14 shrink-0">
-                            {kenBurnsPullsOut(s.shot.panel.shotType) ? "zoom out" : "zoom in"}
+                          <span className="muted w-16 shrink-0">
+                            {s.shot.motion ? MOTION_LABEL[s.shot.motion] : ""}
+                            {s.shot.fade.in ? " · fade" : ""}
                           </span>
                         )}
                         {/* Truncated to keep the row one line; the title shows the whole narration on hover. */}
                         <span className="muted truncate" title={narration || undefined}>
-                          {narration || "— no narration —"}
+                          {narration || (continues ? "↳ narration continues" : "— no narration —")}
                         </span>
                       </button>
                     </li>

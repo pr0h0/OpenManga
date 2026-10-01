@@ -652,6 +652,7 @@ async function restore(
             propVersionIds: pn.props.flatMap((r) => refs.get(r) ?? []),
             approvalStatus: pick(approvalStatus.enumValues, pn.approvalStatus, "draft"),
             promptOverride: pn.promptOverride,
+            video: pn.video,
             plannedLettering: pn.plannedLettering && {
               ...pn.plannedLettering,
               dialogue: pn.plannedLettering.dialogue.map((d) => ({
@@ -724,6 +725,10 @@ async function restore(
           text: nl.text,
           showOnPage: nl.showOnPage,
           box: nl.box,
+          video: nl.video && {
+            ...nl.video,
+            untilPanelId: (nl.video.untilPanelId && refs.get(nl.video.untilPanelId)) || null,
+          },
         })
         .returning({ id: narrationLines.id });
       counts.narrationLines!++;

@@ -5,11 +5,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 
 ## Planned
 
-- **Shots as first-class video units.** Per-shot settings for motion (static, pan, push-in, pull-out, with an
-  override and variety across neighbouring shots instead of today's automatic push or pull by shot type), fade to
-  black at scene breaks, disabling a shot without deleting it, and one narration line spanning several shots with
-  start and end offsets (today a shot can carry several lines, but not the other way round). The renderer and the
-  browser preview share the timing helpers, so both change together.
 - **Music and ambience.** Background music per scene mood, ducked under narration before loudness normalisation,
   and ambience beds tagged from the scene's time, weather and mood. From a library the user supplies, so nothing
   with unclear licensing ships in the repository.

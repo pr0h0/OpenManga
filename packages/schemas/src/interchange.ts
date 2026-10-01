@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { Bubble, Frame, ImageTransform, ProjectSettings, SfxStyle, StyleDefinition } from "./editor.ts";
+import {
+  Bubble,
+  Frame,
+  ImageTransform,
+  NarrationLineVideo,
+  ProjectSettings,
+  SfxStyle,
+  ShotVideo,
+  StyleDefinition,
+} from "./editor.ts";
 import { PanelSpec, PlannedLettering } from "./planning.ts";
 import { CharacterBible, LocationDescription, PropDescription } from "./story.ts";
 
@@ -165,6 +174,8 @@ export const ProjectInterchange = z.object({
               outfits: z
                 .array(z.object({ character: z.string(), outfit: z.string(), scope: z.enum(["onward", "panel"]) }))
                 .default([]),
+              /** The panel as a video shot (motion, fade, disabled). */
+              video: ShotVideo.nullable().default(null),
             }),
           ),
         }),
@@ -176,6 +187,10 @@ export const ProjectInterchange = z.object({
           panel: z.string().nullable(),
           showOnPage: z.boolean(),
           box: Bubble.nullable(),
+          /** Video span and offsets; `untilPanelId` is a panel ref in the same chapter. */
+          video: NarrationLineVideo.extend({ untilPanelId: z.string().nullable().default(null) })
+            .nullable()
+            .default(null),
           segments: z.array(
             z.object({
               text: z.string(),

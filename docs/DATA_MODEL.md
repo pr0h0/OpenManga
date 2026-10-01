@@ -54,6 +54,7 @@ slot).
   | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
   | `batchPolicy` | `interactive` (default), `images` (text now, images through provider batches), `hybrid` (text in batches, images now) or `cheapest` (both through provider batches) — how a production run spends; only keys whose provider has a batch API are batched. |
   | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
+  | `video` | `{fadeAtSceneBreaks}` — video export settings: fade to black where the scene changes (each shot can override it). |
 
 - `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
   `user_id` it acts as, `status` (`running|waiting|paused|completed|failed|cancelled`; `waiting` is a review step,
@@ -86,13 +87,16 @@ slot).
   `review` (JSON `{reason, message, at}`, set when the artwork needs a human look — for example because it came from the
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
-  plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it.
+  plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it. `video`
+  (JSON `ShotVideo`, migration `0021_video_shots`: `motion`, `fade`, `disabled`; null = defaults) is the panel as a
+  video shot (`docs/VIDEO_EXPORT_REFERENCE.md`).
 - `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
   project) and `expert_messages` (role, text, status `done|pending|awaiting_input|failed`, attached and generated
   image asset ids, options such as `generateImage` and the reply's `imagePrompt`); see `docs/AI_PIPELINE.md`.
 - `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user.
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
-  can carry several narration tracks over the same artwork; optional on-page box) → `narration_segments` (TTS units:
+  can carry several narration tracks over the same artwork; optional on-page box; `video` JSON
+  `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
   text, `text_sha256`, voice/speed overrides, `pause_after_ms`, active audio asset).
 
 ## Cast & world (`projects.ts`)

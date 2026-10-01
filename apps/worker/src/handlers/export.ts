@@ -972,6 +972,7 @@ export async function buildInterchange(
             })),
           },
           outfits: worn.map((w) => ({ character: `c-${w.characterId}`, outfit: `o-${w.outfitId}`, scope: w.scope })),
+          video: pn.video ?? null,
         });
       }
       pageDocs.push({
@@ -1014,6 +1015,7 @@ export async function buildInterchange(
         panel: l.panelId ? `pn-${l.panelId}` : null,
         showOnPage: l.showOnPage,
         box: l.box,
+        video: l.video && { ...l.video, untilPanelId: l.video.untilPanelId && `pn-${l.video.untilPanelId}` },
         segments: segDocs,
       });
     }
