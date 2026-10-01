@@ -14,10 +14,8 @@ import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { withBatchClaim } from "../lib/batch-claim.ts";
 import { isQueueFull, roundSuffix, waitForBatchRoom } from "../lib/batch-wait.ts";
-import type { GenerationJob } from "../lib/runner.ts";
-import { recordTextCalls } from "../lib/runner.ts";
+import { type GenerationJob, inProject, recordTextCalls } from "../lib/runner.ts";
 import { BatchCollector, ParkedForBatch } from "../lib/text-batch-provider.ts";
-
 import { TEXT_HANDLERS } from "./text-handlers.ts";
 
 type BatchRow = typeof providerBatches.$inferSelect;
@@ -25,9 +23,10 @@ type BatchRow = typeof providerBatches.$inferSelect;
 const choiceOf = (job: { parameters: Record<string, unknown> }) => (job.parameters.ai as AiChoice | undefined) ?? null;
 
 /** Runs a job's handler only far enough to capture the request it would have made. */
-async function collectFrom(deps: WorkerDeps, job: GenerationJob): Promise<TextBatchRequestSpec | null> {
-  const handler = TEXT_HANDLERS[job.kind];
+async function collectFrom(deps: WorkerDeps, row: GenerationJob): Promise<TextBatchRequestSpec | null> {
+  const handler = TEXT_HANDLERS[row.kind];
   if (!handler) return null;
+  const job = inProject(row);
   const collector = new BatchCollector();
   try {
     await handler({ ...deps, batchCollector: collector }, job);
@@ -115,7 +114,7 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
           const [row] = await tx
             .insert(providerBatches)
             .values({
-              projectId: job.projectId,
+              projectId: inProject(job).projectId,
               userId: job.userId,
               batchId,
               capability: "text",

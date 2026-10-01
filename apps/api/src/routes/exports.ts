@@ -18,7 +18,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
-import { entityAccess, projectAccess } from "../lib/access.ts";
+import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
 import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
@@ -237,7 +237,7 @@ exportRoutes.get("/jobs/:id", async (c) => {
   const { db } = c.get("deps");
   const [gen] = await db.select().from(generationJobs).where(eq(generationJobs.id, id));
   if (gen) {
-    await projectAccess(c, gen.projectId, "read");
+    await jobAccess(c, gen, "read");
     return c.json({ type: "generation", job: gen });
   }
   const [audio] = await db.select().from(audioJobs).where(eq(audioJobs.id, id));

@@ -242,7 +242,7 @@ visionRoutes.delete("/image-descriptions/:id", async (c) => {
   const id = uuidParam(c, "id");
   const deps = c.get("deps");
   const [job] = await deps.db.select().from(generationJobs).where(eq(generationJobs.id, id));
-  if (job?.kind !== "image_describe") throw notFound("Description");
+  if (job?.kind !== "image_describe" || !job.projectId) throw notFound("Description");
   await projectAccess(c, job.projectId, "write");
   if (job.userId && job.userId !== user(c).id) throw notFound("Description");
   // Mid-flight is the only state worth refusing: the handler is holding this row. A job that has not started

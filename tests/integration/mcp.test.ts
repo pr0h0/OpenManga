@@ -879,6 +879,107 @@ describe("delete tools", () => {
   });
 });
 
+describe("expert output actions", () => {
+  type Msg = { id: string; role: string; status: string };
+  /** A chat with one finished reply from the expert, as an agent would get it. */
+  async function replied(projectId: string | null) {
+    const chat = await allowAll.call<{ data: { chat: { id: string } } }>("manage_expert_chat", {
+      action: "create",
+      create: { expert: "story-developer", projectId },
+    });
+    const chatId = chat.structured.data.chat.id;
+    await allowAll.call("send_expert_message", { chatId, text: "Outline the lighthouse story in three parts" });
+    return waitFor(
+      async () => {
+        const r = await allowAll.call<{ data: { messages: Msg[] } }>("manage_expert_chat", { action: "get", chatId });
+        const last = r.structured.data.messages.at(-1);
+        return last?.role === "assistant" && last.status === "done" ? last.id : null;
+      },
+      { label: "expert reply" },
+    );
+  }
+  const finished = (jobId: string) =>
+    waitFor(
+      async () => {
+        const j = await allowAll.call<{
+          data: { job: { status: string; result: { data: Record<string, unknown> } } };
+          links?: Record<string, string>;
+        }>("get_job", { jobId });
+        const s = j.structured.data.job.status;
+        return s === "completed" || s === "awaiting_input" || s === "failed" ? j : null;
+      },
+      { label: "extraction" },
+    );
+
+  test("extract a concept in paste mode, then create the project from it", async () => {
+    const messageId = await replied(null);
+    const run = await allowAll.call<{ data: { job: { id: string } } }>("use_expert_reply", {
+      mode: "extract",
+      action: "concept",
+      messageId,
+      ai: { manual: true },
+    });
+    expect(run.isError).toBe(false);
+    const jobId = run.structured.data.job.id;
+    // A job of no project is pollable and answerable like any other, with no project page to link to.
+    const waiting = await finished(jobId);
+    expect(waiting.structured.data.job.status).toBe("awaiting_input");
+    expect(waiting.structured.links).toBeUndefined();
+    const prompt = await allowAll.call<{ data: { format: { name: string }; example: string } }>("get_manual_prompt", {
+      jobId,
+    });
+    expect(prompt.structured.data.format.name).toBe("ProjectConcept");
+    await allowAll.call("submit_manual_answer", { jobId, answer: prompt.structured.data.example });
+    const done = await finished(jobId);
+    expect(done.structured.data.job.status).toBe("completed");
+    const applied = await allowAll.call<{ data: { project: { id: string; title: string } } }>("use_expert_reply", {
+      mode: "apply",
+      action: "concept",
+      jobId,
+      data: { ...done.structured.data.job.result.data, title: "Edited before applying" },
+    });
+    expect(applied.structured.data.project.title).toBe("Edited before applying");
+    const story = await alice.get<{ latest: { inputKind: string } }>(
+      `/api/projects/${applied.structured.data.project.id}/story`,
+    );
+    expect(story.latest.inputKind).toBe("idea");
+    // The action has to match what the job extracted.
+    const wrong = await allowAll.call("use_expert_reply", { mode: "apply", action: "outline", jobId });
+    expect(wrong.error?.code).toBe("bad_request");
+  });
+
+  test("applying waits for approval on a gated connection, then saves the outline", async () => {
+    const messageId = await replied(projectId);
+    const run = await allowAll.call<{ data: { job: { id: string } } }>("use_expert_reply", {
+      mode: "extract",
+      action: "outline",
+      messageId,
+    });
+    const jobId = run.structured.data.job.id;
+    expect((await finished(jobId)).structured.data.job.status).toBe("completed");
+    const t = await pat({
+      name: "Careful writer",
+      scopes: ALL,
+      projectAccess: "all",
+      approvalMode: "REQUIRE_APPROVAL",
+    });
+    const gated = await mcp(t.token);
+    const parked = await gated.call("use_expert_reply", { mode: "apply", action: "outline", jobId });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("sensitive-write");
+    const d = await alice.post<{ approval: { status: string } }>(
+      `/api/agents/approvals/${parked.structured.approval!.approvalRequestId}/decide`,
+      { decision: "approve" },
+    );
+    expect(d.approval.status).toBe("executed");
+    const story = await alice.get<{ latest: { inputKind: string; content: string } }>(
+      `/api/projects/${projectId}/story`,
+    );
+    expect(story.latest.inputKind).toBe("outline");
+    expect(story.latest.content).toStartWith("Chapter 1: ");
+  });
+});
+
 describe("credential lifecycle", () => {
   test("revoked and expired tokens stop working at once", async () => {
     const t = await pat({ name: "Temp", scopes: ["projects:read"], projectAccess: "all" });

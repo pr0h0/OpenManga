@@ -113,12 +113,8 @@ export async function ttsRun(c: Context<AppEnv>, ai: AiChoiceInput, voice?: stri
   };
 }
 
-/**
- * Refuses new AI work once a project's budget cap is reached, unless the caller explicitly confirmed going over
- * (header `x-allow-over-budget: 1`, sent by the web client after asking the user). Above that sits the server's
- * monthly ceiling, which an administrator sets and nobody else can confirm past.
- */
-export async function assertBudget(c: Context<AppEnv>, projectId: string, extraUsd = 0) {
+/** The server's monthly ceiling alone: for AI work outside any project (an expert extraction from a chat about none). */
+export async function assertServerBudget(c: Context<AppEnv>, extraUsd = 0) {
   const deps = c.get("deps");
   const server = await instanceBudget(deps.db, deps.config.INSTANCE_BUDGET_USD_MONTHLY);
   if (server.limitUsd !== null && server.spentUsd + extraUsd >= server.limitUsd)
@@ -130,7 +126,17 @@ export async function assertBudget(c: Context<AppEnv>, projectId: string, extraU
         : `This would pass this server's monthly AI budget of $${server.limitUsd.toFixed(2)} ($${server.spentUsd.toFixed(2)} spent this month, ~$${extraUsd.toFixed(2)} more requested). An administrator can raise it in Admin → Usage.`,
       server,
     );
-  const b = await projectBudget(deps.db, projectId);
+  return server;
+}
+
+/**
+ * Refuses new AI work once a project's budget cap is reached, unless the caller explicitly confirmed going over
+ * (header `x-allow-over-budget: 1`, sent by the web client after asking the user). Above that sits the server's
+ * monthly ceiling, which an administrator sets and nobody else can confirm past.
+ */
+export async function assertBudget(c: Context<AppEnv>, projectId: string, extraUsd = 0) {
+  await assertServerBudget(c, extraUsd);
+  const b = await projectBudget(c.get("deps").db, projectId);
   if (b.limitUsd === null || c.req.header("x-allow-over-budget") === "1") return b;
   if (b.spentUsd + extraUsd >= b.limitUsd)
     throw new ApiError(

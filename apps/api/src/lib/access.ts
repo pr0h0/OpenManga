@@ -51,6 +51,20 @@ export async function projectAccess(
   return row.project;
 }
 
+/**
+ * Access to a generation job: its project's. A job of no project (an expert extraction from a chat about none) is
+ * its owner's alone, like the chat it came from.
+ */
+export async function jobAccess(
+  c: Context<AppEnv>,
+  job: { projectId: string | null; userId: string | null },
+  action: ProjectAction,
+): Promise<ProjectRecord | null> {
+  if (job.projectId) return projectAccess(c, job.projectId, action);
+  if (job.userId !== user(c).id) throw notFound("Job");
+  return null;
+}
+
 async function projectIdOf(db: DbOrTx, kind: string, id: string): Promise<string | null> {
   switch (kind) {
     case "chapter":

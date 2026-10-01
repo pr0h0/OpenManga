@@ -1,12 +1,26 @@
-import { and, asc, assets, desc, eq, expertChats, expertMessages, experts, inArray, projects } from "@openmanga/db";
-import { BUILTIN_EXPERTS, findBuiltinExpert } from "@openmanga/prompts";
+import {
+  and,
+  asc,
+  assets,
+  desc,
+  eq,
+  expertChats,
+  expertMessages,
+  experts,
+  generationJobs,
+  inArray,
+  lt,
+  projects,
+} from "@openmanga/db";
+import { PRIORITY } from "@openmanga/domain";
+import { BUILTIN_EXPERTS, EXPERT_ACTION_KINDS, EXPERT_ACTIONS, findBuiltinExpert } from "@openmanga/prompts";
 import type { AiChoice } from "@openmanga/services";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, checkImageChoice, textRun } from "../lib/ai.ts";
+import { AiChoiceInput, assertBudget, assertServerBudget, checkImageChoice, textRun } from "../lib/ai.ts";
 import { chatChannel, finishReply, runExpertReply, STALE_REPLY_MS } from "../lib/experts.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
@@ -168,7 +182,7 @@ expertRoutes.get("/expert-chats/:id", async (c) => {
   const [project] = chat.projectId
     ? await db.select({ id: projects.id, title: projects.title }).from(projects).where(eq(projects.id, chat.projectId))
     : [];
-  return c.json({ chat, project: project ?? null, messages });
+  return c.json({ chat, project: project ?? null, messages, extractions: await extractionsOf(c, messages) });
 });
 
 const PatchChat = z.object({
@@ -456,4 +470,110 @@ expertRoutes.post("/expert-messages/:id/answer", async (c) => {
   });
   const [row] = await deps.db.select().from(expertMessages).where(eq(expertMessages.id, m.id));
   return c.json({ reply: row });
+});
+
+// ---------------------------------------------------------------- output actions
+
+/** The extraction jobs run on a chat's replies, newest first: what the chat shows under each reply. */
+async function extractionsOf(c: Parameters<typeof user>[0], messages: { id: string; role: string }[]) {
+  const ids = messages.filter((m) => m.role === "assistant").map((m) => m.id);
+  if (!ids.length) return [];
+  const rows = await c
+    .get("deps")
+    .db.select()
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.kind, "expert_extract"),
+        eq(generationJobs.userId, user(c).id),
+        inArray(generationJobs.targetId, ids),
+      ),
+    )
+    .orderBy(desc(generationJobs.createdAt))
+    .limit(200);
+  return rows.map(extractionView);
+}
+
+/** An extraction job as the chat shows it: the action, its state, and once done the object to review and apply. */
+export const extractionView = (j: typeof generationJobs.$inferSelect) => ({
+  id: j.id,
+  messageId: j.targetId,
+  projectId: j.projectId,
+  action: String(j.input.action),
+  status: j.status,
+  manual: j.parameters.manual === true,
+  result: (j.result as { data?: unknown } | null)?.data ?? null,
+  failureReason: j.failureReason,
+  createdAt: j.createdAt,
+});
+
+export const Extract = z.object({
+  /** concept: a new project; premise: the project's description; outline: an outline story revision; youtube: the YouTube package text. */
+  action: z.enum(EXPERT_ACTION_KINDS),
+  ai: AiChoiceInput,
+});
+doc({
+  method: "POST",
+  path: "/api/expert-messages/:id/extract",
+  summary:
+    "Turn an expert's reply into something to apply: a new project's concept, the project's premise, an outline or the YouTube package text. Queues a text job (provider key or paste mode) whose result you review; nothing is applied until you call the usual route with it.",
+  tag: "experts",
+  body: Extract,
+});
+expertRoutes.post("/expert-messages/:id/extract", async (c) => {
+  const id = uuidParam(c, "id");
+  const deps = c.get("deps");
+  const [m] = await deps.db.select().from(expertMessages).where(eq(expertMessages.id, id));
+  if (!m) throw notFound("Message");
+  const chat = await ownChat(c, m.chatId);
+  const input = await body(c, Extract);
+  if (m.role !== "assistant" || m.status !== "done" || !m.content.trim())
+    throw conflict("Only a finished reply from the expert can be turned into something");
+  const spec = EXPERT_ACTIONS[input.action];
+  if (spec.needsProject && !chat.projectId)
+    throw badRequest("This chat is not about a project. Choose the project it is about first.");
+  // Run inside the chat's project when it has one (its budget, its Generation page); a concept from a chat about
+  // no project is the user's own job.
+  if (chat.projectId) {
+    await projectAccess(c, chat.projectId, "generate");
+    await assertBudget(c, chat.projectId);
+  } else await assertServerBudget(c);
+  const run = await textRun(c, input.ai);
+  const [question] = await deps.db
+    .select({ content: expertMessages.content })
+    .from(expertMessages)
+    .where(
+      and(
+        eq(expertMessages.chatId, chat.id),
+        eq(expertMessages.role, "user"),
+        lt(expertMessages.createdAt, m.createdAt),
+      ),
+    )
+    .orderBy(desc(expertMessages.createdAt))
+    .limit(1);
+  const job = await deps.db.transaction((tx) =>
+    deps.jobs.createGenerationJob(tx, {
+      projectId: chat.projectId,
+      userId: user(c).id,
+      kind: "expert_extract",
+      priority: PRIORITY.single,
+      targetType: "expert_message",
+      targetId: m.id,
+      templateName: spec.template.name,
+      templateVersion: spec.template.version,
+      provider: run.provider,
+      model: run.model,
+      parameters: run.parameters,
+      // The reply is copied here: retrying it later rewrites the message, and this job extracts what was shown.
+      input: {
+        action: input.action,
+        chatId: chat.id,
+        messageId: m.id,
+        reply: m.content,
+        question: question?.content ?? "",
+      },
+    }),
+  );
+  await deps.jobs.kick();
+  return c.json({ job, extraction: extractionView(job) }, 202);
 });

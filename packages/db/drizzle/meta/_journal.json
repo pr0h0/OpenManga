@@ -162,6 +162,13 @@
       "when": 1790895860507,
       "tag": "0022_instance_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790897389745,
+      "tag": "0023_expert_extract_jobs",
+      "breakpoints": true
     }
   ]
 }

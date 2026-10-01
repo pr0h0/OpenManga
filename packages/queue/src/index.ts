@@ -237,7 +237,9 @@ const channel = (projectId: string) => `om:events:project:${projectId}`;
 export class EventBus {
   constructor(private readonly pub: Redis) {}
 
-  async publish(projectId: string, event: AppEvent) {
+  /** Nothing is published for a job of no project (an expert extraction): no project page is listening for it. */
+  async publish(projectId: string | null, event: AppEvent) {
+    if (!projectId) return;
     await this.pub.publish(channel(projectId), JSON.stringify({ ...event, projectId, at: new Date().toISOString() }));
   }
 

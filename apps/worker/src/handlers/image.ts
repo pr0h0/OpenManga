@@ -17,7 +17,7 @@ import { ProviderError } from "@openmanga/domain";
 import { probeImage, type ReferenceParams, toEditMask } from "@openmanga/image-utils";
 import type { AssetType } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
-import { type GenerationJob, InputError, isCancelRequested, JobCancelledError } from "../lib/runner.ts";
+import { InputError, isCancelRequested, JobCancelledError, type ProjectJob } from "../lib/runner.ts";
 import { maybeQueuePanelCheck } from "./qa.ts";
 
 type Input = typeof generationInputs.$inferSelect;
@@ -44,10 +44,10 @@ export async function loadInputFile(deps: WorkerDeps, input: Input): Promise<Ima
 }
 
 /** BYOK / model override stored on the job, or the server default. */
-const imageProviderFor = (deps: WorkerDeps, job: GenerationJob) =>
+const imageProviderFor = (deps: WorkerDeps, job: ProjectJob) =>
   deps.resolver.forJob("image", job) as Promise<ImageAIProvider>;
 
-export async function recordImageUsage(deps: WorkerDeps, job: GenerationJob, r: ImageResult, inputs: Input[]) {
+export async function recordImageUsage(deps: WorkerDeps, job: ProjectJob, r: ImageResult, inputs: Input[]) {
   const refs = inputs.filter((i) => i.variantId);
   await deps.usage.record({
     provider: r.provider,
@@ -79,7 +79,7 @@ export async function recordImageUsage(deps: WorkerDeps, job: GenerationJob, r: 
 
 export async function finalizeOutput(
   deps: WorkerDeps,
-  job: GenerationJob,
+  job: ProjectJob,
   r: ImageResult,
   type: AssetType,
   extraMeta: Record<string, unknown>,
@@ -135,7 +135,7 @@ export async function inputsOf(deps: WorkerDeps, jobId: string) {
     .orderBy(asc(generationInputs.order));
 }
 
-export async function panelGeneration(deps: WorkerDeps, job: GenerationJob) {
+export async function panelGeneration(deps: WorkerDeps, job: ProjectJob) {
   const panelId = job.targetId!;
   const [panel] = await deps.db.select().from(panels).where(eq(panels.id, panelId));
   if (!panel) throw new InputError("Panel no longer exists");
@@ -215,7 +215,7 @@ export async function panelGeneration(deps: WorkerDeps, job: GenerationJob) {
  * The alternate image provider for ONE retry after a content-policy block: the project's configured fallback, or the
  * server default. None when disabled or when it would be the same provider/model that just refused.
  */
-async function contentPolicyFallback(deps: WorkerDeps, job: GenerationJob, failed: ImageAIProvider) {
+async function contentPolicyFallback(deps: WorkerDeps, job: ProjectJob, failed: ImageAIProvider) {
   const [project] = await deps.db
     .select({ settings: projects.settings })
     .from(projects)
@@ -237,7 +237,7 @@ async function contentPolicyFallback(deps: WorkerDeps, job: GenerationJob, faile
 
 export async function activatePanelArt(
   deps: WorkerDeps,
-  job: GenerationJob,
+  job: ProjectJob,
   panelId: string,
   assetId: string,
   review: (typeof panels.$inferSelect)["review"] = null,
@@ -269,7 +269,7 @@ export async function activatePanelArt(
   });
 }
 
-export async function panelEdit(deps: WorkerDeps, job: GenerationJob) {
+export async function panelEdit(deps: WorkerDeps, job: ProjectJob) {
   const panelId = job.targetId!;
   const inputs = await inputsOf(deps, job.id);
   const targetInput = inputs.find((i) => i.role === "target");
@@ -321,7 +321,7 @@ const SUBJECT_ASSET: Record<string, AssetType> = {
 };
 
 /** Canonical references are generated at full provider resolution and never downscaled. */
-export async function referenceGeneration(deps: WorkerDeps, job: GenerationJob) {
+export async function referenceGeneration(deps: WorkerDeps, job: ProjectJob) {
   const kind = String(job.input.kind) as ReferenceKind;
   if (!job.compiledPrompt) throw new InputError("Job has no compiled prompt");
   // An outfit reference is drawn from the approved design, and its prompt says so: "reference image 1 is this
@@ -348,7 +348,7 @@ export async function referenceGeneration(deps: WorkerDeps, job: GenerationJob) 
  * primary if it is the first — and tell the page. Shared by a direct run and a provider batch, so a reference that
  * came back in a batch is indistinguishable from one generated on the spot.
  */
-export async function attachReference(deps: WorkerDeps, job: GenerationJob, r: ImageResult) {
+export async function attachReference(deps: WorkerDeps, job: ProjectJob, r: ImageResult) {
   const subject = String(job.input.subject) as "character" | "location" | "prop" | "style";
   const versionId = String(job.input.versionId);
   const kind = String(job.input.kind) as ReferenceKind;
@@ -399,7 +399,7 @@ export async function attachReference(deps: WorkerDeps, job: GenerationJob, r: I
   return { asset, cancelled, referenceId: ref!.id };
 }
 
-export async function coverGeneration(deps: WorkerDeps, job: GenerationJob) {
+export async function coverGeneration(deps: WorkerDeps, job: ProjectJob) {
   const inputs = await inputsOf(deps, job.id);
   const references: ImageInputFile[] = [];
   for (const i of inputs) references.push(await loadInputFile(deps, i));

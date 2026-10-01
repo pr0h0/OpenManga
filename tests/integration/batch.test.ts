@@ -15,7 +15,7 @@ import { mockImagePng } from "@openmanga/testing";
 import { imageBatchSubmit, pollProviderBatches } from "../../apps/worker/src/handlers/image-batch.ts";
 import { storyRewrite } from "../../apps/worker/src/handlers/text.ts";
 import { textBatchSubmit } from "../../apps/worker/src/handlers/text-batch.ts";
-import { runGenerationJob } from "../../apps/worker/src/lib/runner.ts";
+import { inProject, runGenerationJob } from "../../apps/worker/src/lib/runner.ts";
 import type {
   BatchHandle,
   BatchItemResult,
@@ -349,7 +349,7 @@ test("a text job batches by collecting its own handler's request, then replaying
   await runGenerationJob(
     h.workerDeps,
     { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
-    (job) => storyRewrite(h.workerDeps, job),
+    (job) => storyRewrite(h.workerDeps, inProject(job)),
   );
   const done = await waitFor(
     async () => {
