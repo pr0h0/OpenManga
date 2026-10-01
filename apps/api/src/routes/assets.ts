@@ -156,8 +156,8 @@ assetRoutes.delete("/assets/:id", requireUser, async (c) => {
 
 /**
  * /cdn/a/:id[?v=thumbnail|prompt_ref|preview][&download=name][&trash=1]
- * The API authorizes, then hands the file to nginx via X-Accel-Redirect (internal location).
- * Without nginx (dev/tests) the bytes are streamed directly.
+ * The API authorizes, then hands the file to nginx via X-Accel-Redirect (internal location), or redirects to a signed
+ * bucket URL with S3 storage. Without nginx (dev/tests) local bytes are streamed directly.
  */
 export const cdnRoutes = new Hono<AppEnv>();
 const VARIANTS = new Set(["thumbnail", "prompt_ref", "preview", "web"]);
@@ -183,7 +183,8 @@ cdnRoutes.get("/a/:id", async (c) => {
 
 /**
  * Send an asset the caller may see (the access check is the caller's): `?v=` picks a display variant, `?download=`
- * names the file. Behind nginx the bytes go out through X-Accel-Redirect; otherwise they are streamed from here.
+ * names the file. From a bucket (STORAGE_DRIVER=s3) the answer is a redirect to a signed URL; from local disk behind
+ * nginx the bytes go out through X-Accel-Redirect; otherwise they are streamed from here.
  */
 export async function sendAsset(
   c: Context<AppEnv>,
@@ -220,10 +221,27 @@ export async function sendAsset(
   if (download)
     headers["content-disposition"] = `attachment; filename="${download.replace(/[^\w.\- ]/g, "_").slice(0, 120)}"`;
   if (c.req.header("if-none-match") === headers.etag) return c.body(null, 304, headers);
-  if (c.req.header("x-accel-enabled") === "1") {
+  const storage = deps.assets.storage;
+  if (storage.presign) {
+    // `?proxy=1` is for the app's own fetch() reads (the video preview's audio): through the API they stay
+    // same-origin, so the bucket needs no CORS rule.
+    if (c.req.query("proxy") === "1") return c.body(storage.stream(storageKey), 200, headers);
+    // A bucket: the browser fetches the bytes from a short-lived signed URL that carries the type and file name.
+    // The redirect itself may be cached, but never past the URL's own expiry.
+    const expiresIn = deps.config.S3_PRESIGN_EXPIRES_SECONDS;
+    const maxAge = Math.min(Number(/max-age=(\d+)/.exec(headers["cache-control"]!)?.[1] ?? 0), expiresIn - 60);
+    const url = storage.presign(storageKey, {
+      expiresIn,
+      contentType: mime,
+      contentDisposition: headers["content-disposition"],
+    });
+    const scope = headers["cache-control"]!.startsWith("public") ? "public" : "private";
+    return c.body(null, 302, { location: url, "cache-control": `${scope}, max-age=${Math.max(0, maxAge)}` });
+  }
+  if (c.req.header("x-accel-enabled") === "1" && storage.internalPath) {
     return c.body(null, 200, {
       ...headers,
-      "x-accel-redirect": `/_protected_assets/${deps.assets.storage.internalPath(storageKey)}`,
+      "x-accel-redirect": `/_protected_assets/${storage.internalPath(storageKey)}`,
     });
   }
   const data = await deps.assets.storage.read(storageKey);

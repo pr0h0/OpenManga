@@ -198,7 +198,8 @@ All configuration is validated at startup by `packages/config` (Zod). Only three
 `DATABASE_URL`, `REDIS_URL`, `SESSION_SECRET` — everything else has a default. **There are no server-level
 provider keys**: AI keys belong to users (see below). Other useful variables: `IMAGE_QUALITY` (`low`),
 `IMAGE_SIZES` (~2 MP menu), `REFERENCE_MAX_WIDTH/HEIGHT` (192/288), `AI_TEXT_*`/`AI_IMAGE_*` timeouts and
-concurrency, `ASSET_ROOT`, `TTS_ENABLED`, `KOKORO_URL`, `APP/API/CDN_PUBLIC_URL`, `REGISTRATION_ENABLED`,
+concurrency, `ASSET_ROOT`, `STORAGE_DRIVER`/`S3_*` (assets in an S3-compatible bucket, see
+[Storage](docs/STORAGE.md)), `TTS_ENABLED`, `KOKORO_URL`, `APP/API/CDN_PUBLIC_URL`, `REGISTRATION_ENABLED`,
 `DEV_MAILBOX_ENABLED`, `IMPORT_*` limits, `MCP_*` (see [MCP](docs/MCP.md)), worker concurrency, `WORKER_QUEUES` (which queues a worker takes),
 `OPENAI_BATCH_MAX_ENQUEUED_TOKENS`/`BATCH_POLL_INTERVAL_SECONDS` (provider batches), `STALLED_JOB_TIMEOUT_MINUTES`. See [.env.example](.env.example).
 

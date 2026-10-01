@@ -44,6 +44,14 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   a pan towards the image focus. A project setting fades to black at scene breaks. A narration line can span several
   shots (they share one hold) with silence before and after it. The browser preview plays all of it from the same
   timing helpers as the render, and the settings are on the `update_panel` and `edit_narration` MCP tools.
+- **S3-compatible asset storage.** `STORAGE_DRIVER=s3` keeps assets in any S3-compatible bucket (AWS S3, R2, MinIO,
+  B2…) through Bun's built-in S3 client, configured with `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_BUCKET`,
+  `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` and `S3_PREFIX`. `/cdn` and reader
+  links redirect to a signed URL valid for `S3_PRESIGN_EXPIRES_SECONDS` (900) instead of nginx serving the file, and
+  video renders and export packages over 64 MiB upload in parts streamed from disk. nginx adds `ASSET_CSP_ORIGIN` to
+  the app's CSP. Local disk stays the default. `docs/STORAGE.md` has the copy recipe for moving an existing install;
+  with `s3`, `scripts/backup.sh` and `restore.sh` cover the database and configuration and leave the bucket to its
+  own backup tools.
 
 ### Changed
 

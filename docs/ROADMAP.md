@@ -25,10 +25,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
   Burns shots. Costly per clip, so opt-in and budgeted.
 - **Video branding.** A logo watermark and optional intro and outro cards on video exports.
-- **S3-compatible asset storage.** Assets live on local disk behind one `AssetStorage` interface with a local
-  implementation. A remote backend would need presigned downloads (the current `X-Accel-Redirect` path is
-  nginx-only) and multipart uploads, and would turn local reads in page composition and video rendering into
-  network fetches.
 
 ## Deliberately not built
 

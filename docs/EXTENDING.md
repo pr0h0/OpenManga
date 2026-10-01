@@ -346,7 +346,7 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
 
    The route returns `202 { job }`, never a file. Downloads go through the CDN asset route
    (`apps/api/src/routes/assets.ts`, `cdnRoutes.get("/a/:id")`), which authorizes, then hands off to nginx with
-   `X-Accel-Redirect` (invariant 10). Nothing to add there.
+   `X-Accel-Redirect`, or redirects to a signed URL with S3 storage (invariant 10). Nothing to add there.
 
 5. **`apps/web/src/features/exports/ExportsPage.tsx` — add an entry to `KINDS` (line 23).**
 

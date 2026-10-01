@@ -8,7 +8,7 @@ flowchart LR
   CF --> Nginx
   Nginx -->|/app/*| SPA[(static SPA)]
   Nginx -->|/api/* , /cdn/* , /healthz , /mcp , /oauth/*| API
-  Nginx -.->|X-Accel-Redirect /_protected_assets| Assets[(assets-data volume)]
+  Nginx -.->|X-Accel-Redirect /_protected_assets| Assets[(assets-data volume or S3 bucket)]
   API --> PG[(PostgreSQL)]
   API --> Redis[(Redis)]
   Worker --> PG

@@ -46,7 +46,7 @@ import {
   bootstrapReferenceData,
   JobService,
 } from "@openmanga/services";
-import { LocalAssetStorage, sha256Hex } from "@openmanga/storage";
+import { createAssetStorage, sha256Hex } from "@openmanga/storage";
 import { mockChapterPlan, mockImagePng, mockNarration, mockStoryAnalysis, mockWav } from "@openmanga/testing";
 
 const STORY = `Chapter 1: The Rooftop
@@ -66,7 +66,7 @@ const sampleArgs = repeated("--samples");
 const sampleHashes = repeated("--sha256");
 const { db, client } = createDb(config.DATABASE_URL, { max: 2 });
 await bootstrapReferenceData(db, config);
-const assetsSvc = new AssetService(db, new LocalAssetStorage(config.ASSET_ROOT), config);
+const assetsSvc = new AssetService(db, createAssetStorage(config), config);
 
 let [owner] = ownerArg
   ? await db.select().from(users).where(eq(users.username, ownerArg.toLowerCase()))

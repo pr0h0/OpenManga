@@ -6,21 +6,51 @@ Every binary the system produces or accepts — references, panel art, masks, th
 
 ## AssetStorage
 
-`packages/storage/src/index.ts` defines the interface and its only implementation, `LocalAssetStorage`, rooted at
-`ASSET_ROOT` (`/data/assets`, the `assets-data` Docker volume):
+`packages/storage/src/index.ts` defines the interface and two implementations, chosen by `STORAGE_DRIVER`
+(`createAssetStorage`): `local` (the default) and `s3`.
 
 ```ts
 put(key, data): Promise<StoredObjectMetadata>
-putFile(key, srcPath)      // copy a file from disk without buffering it in memory (exports, video)
+putFile(key, srcPath)      // store a file from disk without buffering it in memory (exports, video)
 read(key): Promise<Uint8Array>
 stream(key): ReadableStream<Uint8Array>  // for files too large to hold in memory (videos)
 exists(key) / delete(key) / getMetadata(key)
-internalPath(key): string  // relative path handed to nginx for X-Accel-Redirect
+internalPath?(key): string // local: relative path handed to nginx for X-Accel-Redirect
+presign?(key, opts): string // s3: short-lived signed download URL carrying the content type and file name
 ```
 
-Writes go to a `.tmp-<random>` sibling and are then renamed, so a reader never sees a half-written file. `delete`
-ignores a missing file. An S3/R2 implementation can be added without touching application code; `internalPath` would
-become a signed URL or redirect instead.
+Everything that reads or writes asset bytes goes through this interface: uploads, generation output, derivatives,
+page composition, video rendering (artwork and audio are read into memory and written to the job's temp directory
+for ffmpeg, as on local disk), exports, imports, duplication and deletion. Nothing reads `ASSET_ROOT` directly
+except nginx (local only) and the admin page's free-space figure (local only; `unavailable` with s3).
+
+**Local** (`LocalAssetStorage`) is rooted at `ASSET_ROOT` (`/data/assets`, the `assets-data` Docker volume). Writes
+go to a `.tmp-<random>` sibling and are then renamed, so a reader never sees a half-written file. `delete` ignores a
+missing file.
+
+**S3** (`S3AssetStorage`, `packages/storage/src/s3.ts`) uses Bun's built-in S3 client against any S3-compatible
+server (AWS S3, Cloudflare R2, MinIO, Backblaze B2, …). The object key is `S3_PREFIX` + the storage key, so a local
+file `ASSET_ROOT/<key>` and its object `<prefix><key>` correspond one to one and no database row changes between
+drivers. A single PUT is atomic, so readers never see half an object either. `putFile` sends files up to 64 MiB in
+one request and larger ones (video renders, export ZIPs) as a multipart upload read from disk 16 MiB at a time: Bun's
+own streaming writer buffers the whole file in memory before sending it (an 800 MB file peaked at 1.6 GB), so those
+parts are sent with SigV4 URLs signed in `s3.ts`; a failed upload is aborted. `delete` of a missing object succeeds.
+
+| Setting | Meaning |
+| --- | --- |
+| `STORAGE_DRIVER` | `local` (default) or `s3` |
+| `S3_ENDPOINT` | the service URL without the bucket; empty for AWS |
+| `S3_PUBLIC_ENDPOINT` | the URL browsers reach the service at, when the server uses another name (e.g. `http://minio:9000` inside Docker). Signing is local, so it may be a host the server cannot reach. Default: `S3_ENDPOINT` |
+| `S3_BUCKET`, `S3_REGION` (`us-east-1`), `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | the bucket and credentials; startup refuses `s3` without bucket and keys |
+| `S3_FORCE_PATH_STYLE` | `true`: `https://endpoint/bucket/key` (MinIO and most self-hosted servers); `false` (default): `https://bucket.endpoint/key` |
+| `S3_PREFIX` | prepended to every object key, to share a bucket |
+| `S3_PRESIGN_EXPIRES_SECONDS` | lifetime of signed download URLs, 60 to 604800 (default 900) |
+| `ASSET_CSP_ORIGIN` (nginx) | the bucket origin browsers load from, added to the app's `img-src` and `media-src`. The API logs it at startup (`asset downloads redirect to the bucket`) |
+
+The bucket stays private: no public-read policy and no CORS rule are needed. The app loads assets in `<img>`,
+`<audio>` and `<video>` elements and links, which follow the redirect; its one `fetch()` read (the video preview's
+narration audio, decoded with Web Audio) adds `?proxy=1`, which streams the object through the API instead of
+redirecting, so it stays same-origin.
 
 Keys are server-generated, opaque and sharded: `newStorageKey(prefix, ext)` returns
 `<type>/<aa>/<bb>/<32 hex>.<ext>` from 16 random bytes. Every key is validated against
@@ -65,6 +95,14 @@ thumbnail with its headline composited, when there is one), `description.txt` (w
 Without nginx (tests, `bun dev`) the header is absent and the API streams the bytes itself, so the same route works
 either way.
 
+With `STORAGE_DRIVER=s3`, steps 1–3 are the same; then, unless `if-none-match` already matches (304), the API answers
+**302** to a URL presigned for `S3_PRESIGN_EXPIRES_SECONDS` that also sets the response's `content-type` and, for
+`download=`, its `content-disposition`. The redirect carries `cache-control` with the route's scope and a `max-age` of
+the route's own value but never more than the URL's lifetime minus a minute (`private, max-age=840` for `/cdn` with
+the default 900 s), so a browser never replays an expired URL. The bucket then serves the bytes, honouring range
+requests for audio and video, and its own ETag and conditional requests. Variants work the same way: a missing
+`thumbnail`/`preview`/`web` is generated from the original in the bucket, stored back, and redirected to.
+
 Reader links do not use `/cdn`: `GET /api/public/shares/:token/pages/:pageId.png` serves the lettered page
 (`?width=` 200–1600, default 1200, rounded up to a 200 px bucket). The first request renders it and stores the PNG
 as a project asset of type `thumbnail` with `metadata.pageRender = { pageId, fingerprint, width }`
@@ -75,8 +113,45 @@ plus a compositor version, so any edit is a cache miss. Writing a new render del
 fingerprint (and any copy at the same width); the same content at other widths stays. The library list hides these
 assets and disk usage counts them as `derived`. The reader's video preview fetches panel artwork
 (`?v=web`) and narration audio through `GET /api/public/shares/:token/assets/:assetId`, which serves the stored asset
-the same way `/cdn` does, but only when it is a panel's active artwork or a segment's active audio inside the link's
-scope.
+the same way `/cdn` does (a redirect to a signed URL with S3), but only when it is a panel's active artwork or a
+segment's active audio inside the link's scope.
+
+## Moving to S3
+
+Keys are identical on both drivers, so moving is a copy plus a configuration change:
+
+1. Create a private bucket (and, for a separate key, credentials allowed to `GetObject`, `PutObject`, `DeleteObject`,
+   `AbortMultipartUpload` and `ListBucket` on it).
+2. Copy the volume while the app is still running on local storage. With `rclone` on the host (a remote named `s3`
+   configured for the bucket's service):
+
+   ```bash
+   docker run --rm -v openmanga_assets-data:/data:ro -v ~/.config/rclone:/config/rclone:ro rclone/rclone \
+     copy /data s3:<bucket>/<prefix> --exclude '*.tmp-*' --transfers 16 --checksum
+   ```
+
+   or with the AWS CLI (add `--endpoint-url https://…` for anything but AWS):
+
+   ```bash
+   docker run --rm -v openmanga_assets-data:/data:ro -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+     amazon/aws-cli s3 sync /data s3://<bucket>/<prefix> --exclude '*.tmp-*'
+   ```
+
+   `/data/<key>` becomes `<prefix><key>`; leave `<prefix>` out when `S3_PREFIX` is empty.
+3. Stop the app (`docker compose stop api worker`), run the same copy again to pick up what changed meanwhile, then
+   set `STORAGE_DRIVER=s3`, the `S3_*` settings and `ASSET_CSP_ORIGIN` in `.env` and `docker compose up -d`.
+4. Open a few projects and an export download to check; the API's startup log names the origin downloads go to. Keep
+   the volume until you are satisfied, then remove it. Going back is the same copy in the other direction.
+
+### Backups with S3
+
+`scripts/backup.sh` reads `STORAGE_DRIVER` from `.env`. With `s3` it dumps the database and saves the configuration
+as before but does not archive assets (`manifest.json` records `"storage": "s3"`): the bucket is backed up with the
+bucket's own tools — object versioning, replication to a second bucket, or a scheduled `rclone sync` to other
+storage. Take the database dump and the bucket copy close together; a row whose object is missing serves a 404, and an
+object with no row is only wasted space. `scripts/restore.sh` restores the database and configuration from such a
+backup and says that the bucket is restored separately. Restoring an older local backup (with `assets.tar.gz`) into an
+`s3` install restores the database only and points here: extract the archive and copy it into the bucket as in step 2.
 
 ## Uploads
 

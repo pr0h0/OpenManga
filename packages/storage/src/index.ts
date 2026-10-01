@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { copyFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import { S3AssetStorage } from "./s3.ts";
 
 export type StoredObjectMetadata = { key: string; byteSize: number; modifiedAt: Date };
 
@@ -15,9 +16,13 @@ export interface AssetStorage {
   exists(key: string): Promise<boolean>;
   delete(key: string): Promise<void>;
   getMetadata(key: string): Promise<StoredObjectMetadata | null>;
-  /** Filesystem path for X-Accel-Redirect style serving, relative to the storage root. */
-  internalPath(key: string): string;
+  /** Local disk: the path nginx serves through X-Accel-Redirect, relative to the storage root. */
+  internalPath?(key: string): string;
+  /** Remote storage: a short-lived URL a browser can download the object from directly. */
+  presign?(key: string, opts: PresignOptions): string;
 }
+
+export type PresignOptions = { expiresIn: number; contentType: string; contentDisposition?: string };
 
 const KEY_RE = /^[a-z0-9][a-z0-9/_.-]*$/;
 
@@ -109,6 +114,34 @@ export class LocalAssetStorage implements AssetStorage {
     assertSafeKey(key);
     return key;
   }
+}
+
+export { presignV4, S3AssetStorage } from "./s3.ts";
+
+/** The storage `STORAGE_DRIVER` names. */
+export function createAssetStorage(c: {
+  STORAGE_DRIVER: "local" | "s3";
+  ASSET_ROOT: string;
+  S3_ENDPOINT: string;
+  S3_PUBLIC_ENDPOINT: string;
+  S3_BUCKET: string;
+  S3_REGION: string;
+  S3_ACCESS_KEY_ID: string;
+  S3_SECRET_ACCESS_KEY: string;
+  S3_FORCE_PATH_STYLE: boolean;
+  S3_PREFIX: string;
+}): AssetStorage {
+  if (c.STORAGE_DRIVER === "local") return new LocalAssetStorage(c.ASSET_ROOT);
+  return new S3AssetStorage({
+    bucket: c.S3_BUCKET,
+    region: c.S3_REGION,
+    accessKeyId: c.S3_ACCESS_KEY_ID,
+    secretAccessKey: c.S3_SECRET_ACCESS_KEY,
+    endpoint: c.S3_ENDPOINT,
+    publicEndpoint: c.S3_PUBLIC_ENDPOINT,
+    forcePathStyle: c.S3_FORCE_PATH_STYLE,
+    prefix: c.S3_PREFIX,
+  });
 }
 
 /** Dedicated temp workspace; callers must dispose. */

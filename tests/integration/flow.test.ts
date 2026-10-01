@@ -1116,6 +1116,27 @@ describe("full production flow (mock AI)", () => {
     expect((await h.client().raw("GET", `/cdn/a/${artworkAssetId}`)).status).toBe(401);
     expect((await alice.raw("GET", `/cdn/a/${artworkAssetId}?v=thumbnail`)).status).toBe(200);
     expect((await alice.raw("GET", "/cdn/a/../../etc/passwd")).status).toBe(404);
+    // A download names its file whichever storage serves it.
+    const art = await alice.raw("GET", `/cdn/a/${artworkAssetId}?download=art.png`);
+    expect(art.status).toBe(200);
+    expect(art.headers.get("content-type")).toBe("image/png");
+    expect(art.headers.get("content-disposition")).toContain('filename="art.png"');
+    if (h.config.STORAGE_DRIVER === "s3") {
+      // From a bucket the API answers with a signed URL, and the redirect is never cached past the URL's lifetime.
+      const peek = h.client();
+      peek.cookies = alice.cookies;
+      peek.followSigned = false;
+      const r = await peek.raw("GET", `/cdn/a/${artworkAssetId}?v=thumbnail`);
+      expect(r.status).toBe(302);
+      const signed = new URL(r.headers.get("location")!);
+      expect(signed.searchParams.get("X-Amz-Expires")).toBe(String(h.config.S3_PRESIGN_EXPIRES_SECONDS));
+      expect(signed.searchParams.get("response-content-type")).toBe("image/webp");
+      expect(r.headers.get("cache-control")).toBe(`private, max-age=${h.config.S3_PRESIGN_EXPIRES_SECONDS - 60}`);
+      // The app's own fetch() reads stream through the API instead, so the bucket needs no CORS rule.
+      const proxied = await peek.raw("GET", `/cdn/a/${artworkAssetId}?proxy=1`);
+      expect(proxied.status).toBe(200);
+      expect((await sharp(new Uint8Array(await proxied.arrayBuffer())).metadata()).format).toBe("png");
+    }
   });
 
   test("usage and cost accounting recorded", async () => {
@@ -1549,13 +1570,15 @@ describe("full production flow (mock AI)", () => {
     const again = await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=390`);
     expect(again.status).toBe(200);
     expect((await renders()).map((r) => r.id)).toEqual([kept!.id]);
-    expect(
-      (
-        await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`, undefined, {
-          "if-none-match": again.headers.get("etag")!,
-        })
-      ).status,
-    ).toBe(304);
+    // Served by the API from local disk; a bucket answers conditional requests itself.
+    if (h.config.STORAGE_DRIVER === "local")
+      expect(
+        (
+          await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`, undefined, {
+            "if-none-match": again.headers.get("etag")!,
+          })
+        ).status,
+      ).toBe(304);
     await alice.post(`/api/pages/${first.id}/sfx`, { text: "THUD" }, 201);
     expect((await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`)).status).toBe(
       200,

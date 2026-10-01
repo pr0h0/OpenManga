@@ -371,7 +371,9 @@ export function VideoPreview({
     const decode = (id: string) => {
       let b = buffers.current.get(id);
       if (!b) {
-        b = fetch(urls.asset(id))
+        // Read through the API even with bucket storage: a redirect to the bucket would need a CORS rule there.
+        const url = urls.asset(id);
+        b = fetch(`${url}${url.includes("?") ? "&" : "?"}proxy=1`)
           .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
           .then((data) => p.ctx.decodeAudioData(data))
           .catch(() => null);
