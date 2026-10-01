@@ -27,8 +27,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Expert output actions.** Turn an expert's reply into something applied: a new project from a concept, a
   replacement premise, an outline, or the YouTube package fields, through a structured extraction step.
 - **Video branding.** A logo watermark and optional intro and outro cards on video exports.
-- **End-to-end tests in CI.** The existing `scripts/e2e.sh` on a nightly or manual workflow against the full stack
-  with mock AI.
 - **S3-compatible asset storage.** Assets live on local disk behind one `AssetStorage` interface with a local
   implementation. A remote backend would need presigned downloads (the current `X-Accel-Redirect` path is
   nginx-only) and multipart uploads, and would turn local reads in page composition and video rendering into

@@ -1,0 +1,73 @@
+name: E2E
+
+# The browser test against the whole stack, built from source and run with mock AI: too slow for every pull request
+# (it builds the images), so it runs nightly, by hand (Actions → E2E → Run workflow, on any branch), and on pull
+# requests that change the test or how it runs.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+  pull_request:
+    paths:
+      - "tests/e2e/**"
+      - "scripts/e2e.sh"
+      - "deploy/docker/e2e.Dockerfile"
+      - ".github/workflows/e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Throwaway values for a stack that lives for one run. Mock AI needs no keys and spends nothing.
+      POSTGRES_PASSWORD: e2e-postgres-password
+      SESSION_SECRET: e2e-session-secret-for-a-throwaway-stack-0123
+      AI_MOCK_MODE: "true"
+      AI_MOCK_ALLOW_IN_PRODUCTION: "true"
+      TTS_PROVIDER: fake
+      REGISTRATION_ENABLED: "true"
+      # Plain HTTP inside the runner: a Secure cookie would never come back.
+      COOKIE_SECURE: "false"
+      APP_PUBLIC_URL: http://nginx/app
+      API_PUBLIC_URL: http://nginx/api
+      CDN_PUBLIC_URL: http://nginx/cdn
+      # Inside the repo mount, so traces, screenshots and the HTML report survive the Playwright container.
+      E2E_OUTPUT_DIR: /repo/tests/e2e/test-results
+      E2E_EXTRA_ENV: -e E2E_HTML_REPORT=/repo/tests/e2e/playwright-report
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The nightly run tests what is about to be released, not the last release.
+          ref: ${{ github.event_name == 'schedule' && 'staging' || github.ref }}
+      # The spec imports @playwright/test from the repo's node_modules, which the Playwright container mounts.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Install
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Start the stack
+        run: docker compose up -d --build --wait --wait-timeout 600
+      - name: Playwright
+        run: ./scripts/e2e.sh http://nginx
+      - name: Stack logs
+        if: failure()
+        run: mkdir -p tests/e2e/test-results && docker compose logs --no-color --timestamps > tests/e2e/test-results/compose.log 2>&1
+      - name: Upload the report, traces and logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-${{ github.run_id }}
+          path: |
+            tests/e2e/test-results
+            tests/e2e/playwright-report
+          retention-days: 14
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
