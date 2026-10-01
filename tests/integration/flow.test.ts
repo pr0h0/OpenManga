@@ -680,8 +680,11 @@ describe("full production flow (mock AI)", () => {
       "pdf_kdp",
       "pdf_project",
       "webtoon_project",
+      "png_pages_project",
       "cbz",
+      "cbz_project",
       "epub",
+      "epub_project",
       "narration_audio",
       "project_json",
       "zip_package",
@@ -690,10 +693,12 @@ describe("full production flow (mock AI)", () => {
       const r = await alice.post<{ job: { id: string } }>(
         `/api/projects/${projectId}/exports`,
         {
-          kind: kind === "pdf_kdp" || kind === "pdf_project" ? "pdf" : kind === "webtoon_project" ? "webtoon" : kind,
-          chapterId: ["project_json", "zip_package", "agent_package", "pdf_project", "webtoon_project"].includes(kind)
-            ? null
-            : chapterId,
+          // `<kind>_project` is that kind over the whole project, with no chapter.
+          kind: kind === "pdf_kdp" ? "pdf" : kind.replace(/_project$/, ""),
+          chapterId:
+            ["project_json", "zip_package", "agent_package"].includes(kind) || kind.endsWith("_project")
+              ? null
+              : chapterId,
           audio: { format: "wav", normalize: false },
           ...(kind === "pdf_kdp" ? { pdf: { pageSize: "kdp_6x9" } } : {}),
         },
@@ -726,16 +731,31 @@ describe("full production flow (mock AI)", () => {
           expect(names).toContain(f);
       }
       if (kind === "pdf") expect(new TextDecoder().decode(buf.slice(0, 5))).toBe("%PDF-");
+      // Whole-project exports hold every page of every chapter, plus the cover where the kind prints one.
+      const [n] = await h.deps.db.execute<{ pages: number; cover: boolean }>(
+        sql`select (select count(*)::int from pages where project_id = ${projectId}) as pages,
+          (select cover_asset_id is not null from projects where id = ${projectId}) as cover`,
+      );
+      const cover = n!.cover ? 1 : 0;
       if (kind === "pdf_project") {
-        // Every page of every chapter, plus the cover when the project has one.
-        const [n] = await h.deps.db.execute<{ pages: number; cover: boolean }>(
-          sql`select (select count(*)::int from pages where project_id = ${projectId}) as pages,
-            (select cover_asset_id is not null from projects where id = ${projectId}) as cover`,
-        );
-        expect((await PDFDocument.load(buf)).getPageCount()).toBe(n!.pages + (n!.cover ? 1 : 0));
+        expect((await PDFDocument.load(buf)).getPageCount()).toBe(n!.pages + cover);
         expect(f.fileName).toContain("_project");
       }
       if (kind === "webtoon_project") expect(f.mimeType.startsWith("image/") || f.fileName.endsWith(".zip")).toBe(true);
+      if (kind === "png_pages_project") {
+        // Page numbers restart per chapter, so every name carries its chapter too.
+        const names = f.fileName.endsWith(".zip") ? Object.keys(unzipSync(buf)) : [f.fileName];
+        expect(names.length).toBe(n!.pages);
+        for (const name of names) expect(name).toMatch(/_ch\d\d_p\d{3}\.png$/);
+      }
+      if (kind === "cbz_project")
+        expect(new TextDecoder().decode(unzipSync(buf)["ComicInfo.xml"])).toContain(
+          `<PageCount>${n!.pages}</PageCount>`,
+        );
+      if (kind === "epub_project") {
+        const opf = new TextDecoder().decode(unzipSync(buf)["OEBPS/content.opf"]);
+        expect([...opf.matchAll(/<itemref /g)].length).toBe(n!.pages + cover);
+      }
       if (kind === "pdf_kdp") {
         // 6" x 9" trim plus KDP bleed (0.125" wide, 0.25" tall), trim box marking the cut, outside edge first.
         const page = (await PDFDocument.load(buf)).getPage(0);

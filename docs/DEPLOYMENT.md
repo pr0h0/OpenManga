@@ -269,17 +269,19 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
   `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
   fixed-layout with the cover.
-  Page images, CBZ, EPUB, narration audio and timeline need a chapter (or page ids). PDF and webtoon also take the
-  whole project (no `chapterId`), every chapter in order: both stream to disk, so a long project costs no more
-  memory than one chapter. A whole-project webtoon without `split` is still one image, capped at 200 MP like any
-  strip, so leave splitting on for a long project.
-- **Memory**: every output is written to a file in the job's temp directory as it is built. A PDF holds one page at
-  a time, a webtoon strip one chunk (`maxChunkHeight`), a ZIP one entry (a video goes in chunk by chunk), so memory
-  does not grow with project length. ZIPs switch to ZIP64 records past 4 GiB or 65,535 entries; smaller archives
-  stay plain ZIP. A package over 4 GiB is written, but importing one back is limited by `IMPORT_MAX_UPLOAD_MB`.
+  Narration audio and timeline need a chapter (or page ids). Every page-based kind (page images, PDF, CBZ, EPUB,
+  webtoon) also takes the whole project (no `chapterId`), every chapter in order: they all stream to disk, so a long
+  project costs no more memory than one chapter. Page images spanning chapters are named
+  `<title>_project_ch02_p003.png`, since page numbers restart in every chapter. A whole-project webtoon without
+  `split` is still one image, capped at 200 MP like any strip, so leave splitting on for a long project.
   `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
   project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
   `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
+- **Memory**: every output is written to a file in the job's temp directory as it is built. A PDF, CBZ or EPUB holds
+  one page at a time (the EPUB's manifest and spine are written last, from page sizes alone), a webtoon strip one
+  chunk (`maxChunkHeight`), a ZIP one entry (a video goes in chunk by chunk), so memory does not grow with project
+  length. ZIPs switch to ZIP64 records past 4 GiB or 65,535 entries; smaller archives stay plain ZIP. A package over
+  4 GiB is written, but importing one back is limited by `IMPORT_MAX_UPLOAD_MB`.
 - **Deleting**: `DELETE /api/exports/:id` or `DELETE /api/projects/:id/exports` removes finished exports and their
   files from disk at once (no trash); running exports are kept.
 - **Video export (panel cut)** `video_panels`: one clip per panel in reading order, clean artwork cropped exactly as

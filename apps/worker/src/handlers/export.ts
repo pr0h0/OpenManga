@@ -52,7 +52,7 @@ import {
 } from "@openmanga/services";
 import { withTempDir } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
-import { type BookMeta, comicInfoXml, epubFiles } from "../lib/ebook.ts";
+import { type BookImage, type BookMeta, writeBook } from "../lib/ebook.ts";
 import { type ImagePage, PdfWriter } from "../lib/pdf.ts";
 import { renderPageCutVideo, renderPanelCutVideo, type VideoOptions } from "../lib/video.ts";
 import { ZipWriter } from "../lib/zip.ts";
@@ -214,32 +214,27 @@ type OutFile = { name: string; mime: string; width?: number; height?: number; du
   | { path: string }
 );
 
-/** Always scoped to the job's own project: page ids reach this through job options, i.e. from a request body. */
-async function pageIdsFor(deps: WorkerDeps, opts: Opts, projectId: string) {
-  if (opts.pageIds?.length) {
-    const rows = await deps.db
-      .select({ id: pages.id })
-      .from(pages)
-      .where(and(eq(pages.projectId, projectId), inArray(pages.id, opts.pageIds)))
-      .orderBy(asc(pages.order));
-    return rows.map((r) => r.id);
-  }
-  if (!opts.chapterId) {
-    // The whole project, in reading order. Only kinds that stream their output get here (see exports.ts).
-    const rows = await deps.db
-      .select({ id: pages.id })
-      .from(pages)
-      .innerJoin(chapters, eq(chapters.id, pages.chapterId))
-      .where(eq(pages.projectId, projectId))
-      .orderBy(asc(chapters.order), asc(pages.order));
-    return rows.map((r) => r.id);
-  }
-  const rows = await deps.db
-    .select({ id: pages.id })
+/**
+ * The export's pages in reading order, each with its chapter's number: a chosen chapter, a page selection, or the
+ * whole project. Always scoped to the job's own project: page ids reach this through job options, i.e. from a request
+ * body.
+ */
+async function pagesFor(deps: WorkerDeps, opts: Opts, projectId: string) {
+  return deps.db
+    .select({ id: pages.id, chapter: chapters.order })
     .from(pages)
-    .where(and(eq(pages.projectId, projectId), eq(pages.chapterId, opts.chapterId)))
-    .orderBy(asc(pages.order));
-  return rows.map((r) => r.id);
+    .innerJoin(chapters, eq(chapters.id, pages.chapterId))
+    .where(
+      and(
+        eq(pages.projectId, projectId),
+        opts.pageIds?.length
+          ? inArray(pages.id, opts.pageIds)
+          : opts.chapterId
+            ? eq(pages.chapterId, opts.chapterId)
+            : undefined,
+      ),
+    )
+    .orderBy(asc(chapters.order), asc(pages.order));
 }
 
 async function buildExport(
@@ -270,13 +265,17 @@ async function buildExport(
     case "png_pages":
     case "jpg_pages": {
       const fmt = job.kind === "png_pages" ? "png" : "jpg";
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const zip = ids.length > 1 ? new ZipWriter(join(dir, "pages.zip")) : null;
-      for (const [i, pid] of ids.entries()) {
+      for (const [i, { id: pid, chapter: chapterNo }] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
         const img = await renderPageImage(page, fmt, { scale: opts.scale, quality: opts.jpgQuality });
-        const name = `${prefix}_p${String(page.order).padStart(3, "0")}.${fmt}`;
+        // Page numbers restart in every chapter, so an export spanning chapters names each page by both.
+        const pageNo = `p${String(page.order).padStart(3, "0")}`;
+        const name = opts.chapterId
+          ? `${prefix}_${pageNo}.${fmt}`
+          : `${prefix}_ch${String(chapterNo).padStart(2, "0")}_${pageNo}.${fmt}`;
         if (!zip) return [{ name, data: img.data, mime: img.mime, width: img.width, height: img.height }];
         await zip.add(name, img.data);
         await progress((i + 1) / ids.length);
@@ -284,7 +283,7 @@ async function buildExport(
       return [{ name: `${prefix}_${fmt}_pages.zip`, path: await zip!.close(), mime: "application/zip" }];
     }
     case "pdf": {
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       // Streamed page by page into the file, so a whole-project PDF costs the memory of one page.
       const path = join(dir, "book.pdf");
@@ -305,7 +304,7 @@ async function buildExport(
           await pdf.addPage(imagePage(png, 1200, 1800, opts));
         }
       }
-      for (const [i, pid] of ids.entries()) {
+      for (const [i, { id: pid }] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
         const img = await renderPageImage(page, "png", { scale: opts.scale });
         await pdf.addPage(imagePage(img.data, img.width, img.height, opts, i));
@@ -315,7 +314,7 @@ async function buildExport(
       return [{ name: `${prefix}.pdf`, path, mime: "application/pdf" }];
     }
     case "webtoon": {
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const width = opts.webtoon.width ?? project.settings.webtoonWidth;
       const gap = opts.webtoon.gap ?? project.settings.webtoonGap;
@@ -323,7 +322,7 @@ async function buildExport(
       // Panel blocks wait on disk, not in memory: a whole project is thousands of them. Only the chunk being
       // stitched is read back, so memory is bounded by the chunk height rather than by the length of the strip.
       const blocks: (SeamedBlock & { path: string })[] = [];
-      for (const [i, pid] of ids.entries()) {
+      for (const [i, { id: pid }] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
         for (const b of await renderWebtoonBlocks(page, width)) {
           const path = join(dir, `block-${blocks.length}.png`);
@@ -553,7 +552,7 @@ async function buildExport(
     }
     case "cbz":
     case "epub": {
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const meta: BookMeta = {
         id: job.id,
@@ -566,48 +565,39 @@ async function buildExport(
         rtl: project.readingDirection === "rtl",
         blackAndWhite: project.colorMode !== "full_color",
       };
-      const images: { file: string; data: Uint8Array; width: number; height: number }[] = [];
-      let hasCover = false;
+      let cover: BookImage | undefined;
       if (job.kind === "epub" && project.coverAssetId) {
-        const cover = await deps.assets.get(project.coverAssetId);
-        if (cover) {
-          const png = await renderCover(await deps.assets.read(cover), project.title, chapterTitle, meta.author);
+        const art = await deps.assets.get(project.coverAssetId);
+        if (art) {
+          const png = await renderCover(
+            await deps.assets.read(art),
+            project.title,
+            opts.chapterId ? chapterTitle : "",
+            meta.author,
+          );
           const jpg = await sharp(png)
             .jpeg({ quality: opts.jpgQuality, mozjpeg: true })
             .toBuffer({ resolveWithObject: true });
-          images.push({
-            file: "cover.jpg",
-            data: new Uint8Array(jpg.data),
-            width: jpg.info.width,
-            height: jpg.info.height,
-          });
-          hasCover = true;
+          cover = { data: new Uint8Array(jpg.data), width: jpg.info.width, height: jpg.info.height };
         }
       }
-      for (const [i, pid] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
-        const img = await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
-        images.push({
-          file: `${String(i + 1).padStart(4, "0")}.jpg`,
-          data: img.data,
-          width: img.width,
-          height: img.height,
-        });
-        await progress(((i + 1) / ids.length) * 0.95);
+      // Each page goes into the archive as it is composed; only its size is kept for the EPUB package files.
+      async function* rendered() {
+        for (const [i, { id: pid }] of ids.entries()) {
+          const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+          yield await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
+          await progress(((i + 1) / ids.length) * 0.95);
+        }
       }
-      const enc = new TextEncoder();
-      if (job.kind === "cbz") {
-        const zip = new ZipWriter(join(dir, "book.cbz"));
-        for (const im of images) await zip.add(im.file, im.data);
-        await zip.add("ComicInfo.xml", enc.encode(comicInfoXml(meta, images.length)));
-        return [{ name: `${prefix}.cbz`, path: await zip.close(), mime: "application/vnd.comicbook+zip" }];
-      }
-      const zip = new ZipWriter(join(dir, "book.epub"));
-      // Must be the first entry, stored uncompressed (ZipWriter never compresses).
-      await zip.add("mimetype", enc.encode("application/epub+zip"));
-      for (const f of epubFiles(meta, images, hasCover)) await zip.add(f.name, enc.encode(f.text));
-      for (const im of images) await zip.add(`OEBPS/images/${im.file}`, im.data);
-      return [{ name: `${prefix}.epub`, path: await zip.close(), mime: "application/epub+zip" }];
+      const ext = job.kind === "cbz" ? "cbz" : "epub";
+      const path = await writeBook(job.kind, join(dir, `book.${ext}`), meta, rendered(), cover);
+      return [
+        {
+          name: `${prefix}.${ext}`,
+          path,
+          mime: job.kind === "cbz" ? "application/vnd.comicbook+zip" : "application/epub+zip",
+        },
+      ];
     }
     case "zip_package": {
       const zip = new ZipWriter(join(dir, "package.zip"));
