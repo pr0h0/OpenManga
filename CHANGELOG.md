@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Higher rate limits for real use, lower for guessing.** A signed-in user gets 2000 API requests a minute (was 600)
+  and an MCP connection 750 (was 240); requests with no session get their own lower ceiling per address,
+  `RATE_LIMIT_ANON_PER_MINUTE` (300). Registration is capped at 10 an hour and reset emails at 5 per 15 minutes per
+  address.
+
+### Security
+
+- Wrong guesses are capped like failed logins: reader-link tokens (30 per 15 minutes per address), unknown MCP tokens
+  (20), password-reset tokens (10 an hour) and the current password when changing it (5 per 15 minutes per user).
+
 ## [0.12.0] — 2026-09-30
 
 Upgrading: pull the new images and restart. No migrations. Reload open tabs to get the new web app.

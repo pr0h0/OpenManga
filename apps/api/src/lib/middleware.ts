@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { safeEqual } from "@openmanga/auth";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { AppEnv, Deps } from "../context.ts";
 import { ApiError, clientIp } from "./http.ts";
@@ -104,7 +104,8 @@ export const csrf: MiddlewareHandler<AppEnv> = async (c, next) => {
 /** Fixed-window Redis rate limiter. Fails open if Redis is unavailable. */
 export function rateLimit(opts: {
   key: string;
-  limit: (deps: Deps) => number;
+  /** `signedIn` lets one limiter give a session a higher ceiling than an anonymous address. */
+  limit: (deps: Deps, signedIn: boolean) => number;
   windowSec: number;
   by?: "ip" | "user";
 }): MiddlewareHandler<AppEnv> {
@@ -116,7 +117,7 @@ export function rateLimit(opts: {
     try {
       const n = await deps.redis.incr(key);
       if (n === 1) await deps.redis.expire(key, opts.windowSec + 1);
-      const limit = opts.limit(deps);
+      const limit = opts.limit(deps, Boolean(c.get("user")));
       c.header("x-ratelimit-limit", String(limit));
       c.header("x-ratelimit-remaining", String(Math.max(0, limit - n)));
       if (n > limit) {
@@ -127,6 +128,28 @@ export function rateLimit(opts: {
       if (e instanceof ApiError) throw e;
     }
     await next();
+  };
+}
+
+/**
+ * Caps wrong guesses at a secret — a token, a link, a current password — per client (or per user): past `max` failures
+ * in the window every attempt answers 429, right or wrong, until the window ends. Successful requests cost nothing,
+ * so real use never runs into it. Fails open like the other limiters.
+ */
+export async function failureGuard(c: Context<AppEnv>, scope: string, max: number, windowSec: number, who?: string) {
+  const deps = c.get("deps");
+  const key = `om:fail:${scope}:${who ?? clientIp(c) ?? "unknown"}`;
+  const n = Number((await deps.redis.get(key).catch(() => null)) ?? 0);
+  if (n >= max) {
+    const ttl = await deps.redis.ttl(key).catch(() => windowSec);
+    c.header("retry-after", String(Math.max(1, ttl)));
+    throw new ApiError(429, "rate_limited", "Too many failed attempts. Please wait and try again later.");
+  }
+  return {
+    async fail() {
+      const count = await deps.redis.incr(key).catch(() => 0);
+      if (count === 1) await deps.redis.expire(key, windowSec).catch(() => {});
+    },
   };
 }
 

@@ -44,17 +44,30 @@ sub-app and only loads the session. `/mcp` and `/oauth/*` sit outside `/api` and
 
 | Limiter | Key | Window | Limit |
 | --- | --- | --- | --- |
-| All of `/api` | user id, else client IP | 60 s | `RATE_LIMIT_PER_MINUTE` (default 600) |
+| All of `/api`, signed in | user id | 60 s | `RATE_LIMIT_PER_MINUTE` (default 2000) |
+| All of `/api`, no session | client IP | 60 s | `RATE_LIMIT_ANON_PER_MINUTE` (default 300) |
 | `register`, `login`, both password-reset routes | client IP | 60 s | 30 |
+| `register` | client IP | 1 h | 10 |
+| `password-reset/request` (sends mail) | client IP | 15 min | 5 |
 | `POST /api/auth/password` | user id | 60 s | 10 |
 | OAuth client registration | client IP | 1 h | 20 |
 | OAuth `authorize`, `token`, `revoke` (each) | client IP | 60 s | 60 |
-| `/mcp` | connection | 60 s | `MCP_RATE_LIMIT_PER_MINUTE` (default 240) |
+| `/mcp` | connection | 60 s | `MCP_RATE_LIMIT_PER_MINUTE` (default 750) |
 
 All are fixed-window Redis counters that answer 429 `rate_limited` with `retry-after` when exceeded (the `rateLimit`
 middleware also sets `x-ratelimit-limit` and `x-ratelimit-remaining`), and **fail open** if Redis errors so a Redis
 blip cannot lock everyone out. As a backstop that does not need Redis, nginx limits `login`, `register` and
 `password-reset/request` to 30 requests a minute per client address (burst 20).
+
+Wrong guesses at a secret are capped separately (`failureGuard`). Only failures count, so normal use never reaches
+these; past the cap every attempt answers 429 `rate_limited` with `retry-after`, right or wrong, until the window ends:
+
+| Secret | Counted per | Failures | Window |
+| --- | --- | --- | --- |
+| Reader-link token (`/api/public/shares/:token…`) | client IP | 30 | 15 min |
+| MCP bearer token that matches no token ever issued (an expired or revoked one does not count: that is a real client about to refresh or stop) | client IP | 20 | 15 min |
+| Current password on `POST /api/auth/password` | user id | 5 | 15 min |
+| Password-reset token | client IP | 10 | 1 h |
 
 Login attempts are counted twice: per `identifier + IP` against `LOGIN_MAX_ATTEMPTS` (default 10), and per identifier
 alone against five times that, which is what a distributed attempt runs into. Past either limit the response is 429

@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
 import { body, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { failureGuard } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 import { sendAsset } from "./assets.ts";
 import { previewPayload } from "./video.ts";
@@ -82,12 +83,17 @@ export const publicShareRoutes = new Hono<AppEnv>();
 
 async function openShare(c: Parameters<typeof uuidParam>[0], token: string) {
   const { db } = c.get("deps");
+  // A reader link is its token: cap wrong ones per address so the token space cannot be walked.
+  const guesses = await failureGuard(c, "share-token", 30, 900);
   const [row] = await db
     .select({ s: shareLinks, p: projects })
     .from(shareLinks)
     .innerJoin(projects, eq(projects.id, shareLinks.projectId))
     .where(and(eq(shareLinks.token, token), isNull(shareLinks.revokedAt), isNull(projects.deletedAt)));
-  if (!row) throw notFound("Link");
+  if (!row) {
+    await guesses.fail();
+    throw notFound("Link");
+  }
   return row;
 }
 

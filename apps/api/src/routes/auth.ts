@@ -6,7 +6,13 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { ApiError, body, clientIp, notFound, requireUser, user, uuidParam } from "../lib/http.ts";
-import { checkLoginThrottle, clearSessionCookie, rateLimit, setSessionCookie } from "../lib/middleware.ts";
+import {
+  checkLoginThrottle,
+  clearSessionCookie,
+  failureGuard,
+  rateLimit,
+  setSessionCookie,
+} from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 
 const LoginInput = z.object({ identifier: z.string().trim().min(1).max(254), password: z.string().min(1).max(256) });
@@ -18,6 +24,9 @@ export const authRoutes = new Hono<AppEnv>();
 const authLimit = rateLimit({ key: "auth", limit: () => 30, windowSec: 60 });
 /** Change-password verifies the current one, so it is a guessing oracle for whoever holds the session. */
 const passwordLimit = rateLimit({ key: "password", limit: () => 10, windowSec: 60, by: "user" });
+/** Creating accounts and sending reset mail are rare for a real person; per address, per hour. */
+const registerLimit = rateLimit({ key: "register", limit: () => 10, windowSec: 3600 });
+const resetMailLimit = rateLimit({ key: "reset-mail", limit: () => 5, windowSec: 900 });
 
 doc({ method: "GET", path: "/api/auth/config", summary: "Public auth configuration", tag: "auth", auth: false });
 authRoutes.get("/config", (c) => {
@@ -33,7 +42,7 @@ doc({
   body: RegisterInput,
   auth: false,
 });
-authRoutes.post("/register", authLimit, async (c) => {
+authRoutes.post("/register", authLimit, registerLimit, async (c) => {
   const deps = c.get("deps");
   if (!deps.config.REGISTRATION_ENABLED)
     throw new AuthError("registration_disabled", "Registration is disabled. Ask an administrator for an account.");
@@ -177,7 +186,12 @@ authRoutes.post("/password", requireUser, passwordLimit, async (c) => {
   const deps = c.get("deps");
   const u = user(c);
   const input = await body(c, ChangePassword);
-  await deps.auth.changePassword(u.id, input.currentPassword, input.newPassword);
+  // A stolen session must not be able to try passwords until it finds the current one.
+  const guesses = await failureGuard(c, "current-password", 5, 900, u.id);
+  await deps.auth.changePassword(u.id, input.currentPassword, input.newPassword).catch(async (e) => {
+    if (e instanceof AuthError && e.code === "invalid_credentials") await guesses.fail();
+    throw e;
+  });
   await deps.auth.revokeAllSessions(u.id);
   const s = await deps.auth.createSession(u.id, { ip: clientIp(c), userAgent: c.req.header("user-agent") });
   setSessionCookie(c, s.token, s.expiresAt);
@@ -193,7 +207,7 @@ doc({
   body: ResetRequest,
   auth: false,
 });
-authRoutes.post("/password-reset/request", authLimit, async (c) => {
+authRoutes.post("/password-reset/request", authLimit, resetMailLimit, async (c) => {
   const deps = c.get("deps");
   const { identifier } = await body(c, ResetRequest);
   const r = await deps.auth.createPasswordReset(identifier);
@@ -227,7 +241,11 @@ doc({
 authRoutes.post("/password-reset/confirm", authLimit, async (c) => {
   const deps = c.get("deps");
   const { token, password } = await body(c, ResetConfirm);
-  const userId = await deps.auth.resetPassword(token, password);
+  const guesses = await failureGuard(c, "reset-token", 10, 3600);
+  const userId = await deps.auth.resetPassword(token, password).catch(async (e) => {
+    if (e instanceof AuthError && e.code === "invalid_token") await guesses.fail();
+    throw e;
+  });
   await recordAudit(deps.db, { userId, action: "auth.password_reset", ip: clientIp(c), requestId: c.get("requestId") });
   return c.json({ ok: true });
 });

@@ -9,6 +9,7 @@ import { agentContext } from "@openmanga/services";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { ApiError, notFound } from "../lib/http.ts";
+import { failureGuard } from "../lib/middleware.ts";
 import { runTool, setToolIndex, type ToolRun } from "./approvals.ts";
 import { authenticateBearer, bearerChallenge } from "./auth.ts";
 import { type McpActor, mcpAllowedHosts } from "./context.ts";
@@ -162,8 +163,11 @@ mcpRoutes.all("/mcp", async (c) => {
     hostHeaderValidationResponse(c.req.raw, hosts) ??
     originValidationResponse(c.req.raw, [...hosts, "chatgpt.com", "chat.openai.com"]);
   if (rejected) return rejected;
+  // Guessed tokens are capped per address; an expired or revoked one is a real client and does not count.
+  const guesses = await failureGuard(c, "mcp-token", 20, 900);
   const auth = await authenticateBearer(deps, c.req.header("authorization"));
   if ("error" in auth) {
+    if (auth.unknown) await guesses.fail();
     c.header(
       "WWW-Authenticate",
       bearerChallenge(

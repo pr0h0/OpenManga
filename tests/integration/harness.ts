@@ -47,6 +47,7 @@ export async function startHarness() {
     CDN_PUBLIC_URL: "http://test.local/cdn",
     DEV_MAILBOX_ENABLED: "true",
     RATE_LIMIT_PER_MINUTE: "100000",
+    RATE_LIMIT_ANON_PER_MINUTE: "50000",
   });
   setConfig(config);
   await runMigrations(dbUrl);

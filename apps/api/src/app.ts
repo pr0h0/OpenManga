@@ -85,7 +85,12 @@ export function createApp(deps: Deps) {
     "*",
     loadSession,
     csrf,
-    rateLimit({ key: "api", limit: (d) => d.config.RATE_LIMIT_PER_MINUTE, windowSec: 60, by: "user" }),
+    rateLimit({
+      key: "api",
+      limit: (d, signedIn) => (signedIn ? d.config.RATE_LIMIT_PER_MINUTE : d.config.RATE_LIMIT_ANON_PER_MINUTE),
+      windowSec: 60,
+      by: "user",
+    }),
   );
   // Everything is authenticated except auth endpoints, public meta and docs.
   api.use("*", async (c, next) => {
