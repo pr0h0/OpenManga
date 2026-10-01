@@ -27,15 +27,19 @@ export type GenerationKind =
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
   | "image_batch_submit"
   /** The same for text jobs: harvests each job's request and submits them together. */
-  | "text_batch_submit";
+  | "text_batch_submit"
+  /** Turns an expert's reply into something to apply (a project concept, premise, outline or YouTube text). */
+  | "expert_extract";
 
 export const generationJobs = pgTable(
   "generation_jobs",
   {
     id: id(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    /**
+     * Every job belongs to a project, except an expert_extract from a chat about no project (a concept for a new
+     * one): that job is its user's alone, and access to it is checked by owner instead.
+     */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     kind: text("kind").$type<GenerationKind>().notNull(),
     queue: text("queue").notNull(),

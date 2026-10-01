@@ -204,7 +204,7 @@ request waits per identical call — retrying, even simultaneously, returns the 
 
 ## Tools
 
-Seventy-four task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
+Seventy-five task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
 There is deliberately no generic "call any endpoint" tool.
 
 What a connection is shown depends on it. A personal access token lists only the tools it can ever call (a
@@ -224,7 +224,7 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
 | Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
 | Exports | `create_export`, `list_exports`, `delete_exports` |
-| Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply` |
+| Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` (extract a concept, premise, outline or YouTube text from a reply, then apply it; applying is sensitive) |
 
 Not exposed (UI/REST only): multipart uploads (project import, own artwork, masks, own references, expert image
 attachments), masked edits (they need an uploaded mask), accounts, admin, provider keys, and managing connections,

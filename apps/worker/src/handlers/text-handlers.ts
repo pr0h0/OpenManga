@@ -4,7 +4,7 @@
  * would otherwise form an import cycle whose resolution order decided whether batching worked.
  */
 import type { WorkerDeps } from "../context.ts";
-import type { GenerationJob } from "../lib/runner.ts";
+import type { ProjectJob } from "../lib/runner.ts";
 import { panelCheck } from "./qa.ts";
 import {
   chapterPlan,
@@ -16,7 +16,7 @@ import {
   youtubePackage,
 } from "./text.ts";
 
-export type GenerationHandler = (deps: WorkerDeps, job: GenerationJob) => Promise<Record<string, unknown>>;
+export type GenerationHandler = (deps: WorkerDeps, job: ProjectJob) => Promise<Record<string, unknown>>;
 
 export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   story_analysis: storyAnalysis,

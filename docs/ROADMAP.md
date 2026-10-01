@@ -24,8 +24,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
   Burns shots. Costly per clip, so opt-in and budgeted.
-- **Expert output actions.** Turn an expert's reply into something applied: a new project from a concept, a
-  replacement premise, an outline, or the YouTube package fields, through a structured extraction step.
 - **Video branding.** A logo watermark and optional intro and outro cards on video exports.
 - **S3-compatible asset storage.** Assets live on local disk behind one `AssetStorage` interface with a local
   implementation. A remote backend would need presigned downloads (the current `X-Accel-Redirect` path is

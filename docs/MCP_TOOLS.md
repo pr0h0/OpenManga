@@ -14,10 +14,10 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | Scope | Consent description | Tools |
 | --- | --- | --- |
 | `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets` |
-| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets` |
-| `projects:create` | Create new projects. | `create_project`, `duplicate_project` |
+| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `use_expert_reply` |
+| `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis` |
-| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite` |
+| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter`, `get_page` |
@@ -30,7 +30,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
 | `exports:read` | Read export status and files. | `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
-| `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply` |
+| `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
 
 `get_server_info`, `get_answer_schema`, `describe_api` and `get_approval_request` (for the connection's own
@@ -114,6 +114,7 @@ requests) need no scope.
 | [`send_expert_message`](#send_expert_message) | spend | `experts:use` |
 | [`answer_expert_reply`](#answer_expert_reply) | write | `experts:use` |
 | [`retry_expert_reply`](#retry_expert_reply) | spend | `experts:use` |
+| [`use_expert_reply`](#use_expert_reply) | spend | `experts:use` `projects:create` `projects:write` `story:write` |
 
 ### get_server_info
 
@@ -178,7 +179,10 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "NarrationDraft",
         "ImageDescription",
         "PanelCheck",
-        "YoutubePackage"
+        "YoutubePackage",
+        "ProjectConcept",
+        "ProjectPremise",
+        "StoryOutline"
       ]
     }
   },
@@ -8474,6 +8478,108 @@ Write the chat's last reply again (after a failure, or for a different answer). 
   },
   "required": [
     "chatId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### use_expert_reply
+
+Turn an expert's reply into something applied, in two steps. extract: queue a text job that reads the reply (messageId, from manage_expert_chat get) as action concept (a new project: title, logline, premise, type, format, story idea), premise (a new logline and premise for the chat's project), outline (chapters, for a new outline story revision) or youtube (the project's YouTube package text). premise, outline and youtube need a chat about a project. Asynchronous: poll get_job; with ai.manual=true answer it via get_manual_prompt / submit_manual_answer (no spending); a provider run spends credits (may need approval). The completed job's result.data is the extracted object: show it to the user. apply: after the user agrees, apply the job's result (jobId and the same action; pass data to apply an edited version) through the normal routes: concept creates the project with the story idea as its first revision (needs permission to create projects), premise replaces the project description, outline adds a story revision, youtube replaces settings.youtubePackage. apply is sensitive (may need approval).
+
+- **Scopes:** `experts:use`, `projects:create`, `projects:write`, `story:write` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `expert.extract`, `expert.apply_concept`, `expert.apply_premise`, `expert.apply_outline`, `expert.apply_youtube`
+- **Wraps:** `POST /api/expert-messages/:id/extract`, `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/projects/:projectId/story/revisions`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": [
+        "extract",
+        "apply"
+      ]
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "concept",
+        "premise",
+        "outline",
+        "youtube"
+      ]
+    },
+    "messageId": {
+      "description": "extract: the expert's reply.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "jobId": {
+      "description": "apply: the completed extraction job.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "data": {
+      "description": "apply: an edited version of the job's result.data, checked against the same schema.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  },
+  "required": [
+    "mode",
+    "action"
   ]
 }
 ```

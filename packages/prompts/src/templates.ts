@@ -12,6 +12,7 @@ import {
   StoryRewrite,
   YoutubePackage,
 } from "@openmanga/schemas";
+import { expertConceptV1, expertOutlineV1, expertPremiseV1, expertYoutubeV1 } from "./expert-actions.ts";
 import { expertChatV1, expertChatV2 } from "./experts.ts";
 import { DATA_RULE, defineTextTemplate, schemaInstructions, templateHeader, untrusted } from "./text-templates.ts";
 
@@ -798,6 +799,10 @@ export const narrationV5 = defineTextTemplate<Parameters<typeof narrationV3.buil
 export const TEXT_TEMPLATES = [
   expertChatV1,
   expertChatV2,
+  expertConceptV1,
+  expertPremiseV1,
+  expertOutlineV1,
+  expertYoutubeV1,
   storyAnalysisV1,
   storyAnalysisV2,
   storyAnalysisV3,

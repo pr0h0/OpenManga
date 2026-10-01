@@ -23,6 +23,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   chapter_plan: "text-ai",
   page_prompts: "text-ai",
   narration_text: "text-ai",
+  expert_extract: "text-ai",
   character_reference: "image-generation",
   location_reference: "image-generation",
   prop_reference: "image-generation",
@@ -64,7 +65,7 @@ export type NewGenerationInput = {
 };
 
 export type NewGenerationJob = {
-  projectId: string;
+  projectId: string | null;
   userId: string | null;
   kind: GenerationKind;
   priority: number;

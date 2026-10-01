@@ -20,6 +20,9 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [ImageDescription](#imagedescription)
 - [PanelCheck](#panelcheck)
 - [YoutubePackage](#youtubepackage)
+- [ProjectConcept](#projectconcept)
+- [ProjectPremise](#projectpremise)
+- [StoryOutline](#storyoutline)
 
 ## StoryAnalysis
 
@@ -2263,6 +2266,151 @@ interface YoutubePackage {
   "thumbnailHeadlines": [
     "HE NEVER LEFT",
     "THE LAST KEEPER"
+  ]
+}
+```
+
+</details>
+
+## ProjectConcept
+
+Asked by **New project** from an expert's reply — the concept as a title, premise and story idea.
+
+```ts
+/** A new project drawn from a concept in an expert's reply. You review it before the project is created. */
+interface ProjectConcept {
+  /**
+   * The project's title.
+   * Between 1 and 200 characters.
+   * @example "The Lamp at Vell"
+   */
+  title: string;
+  /**
+   * One sentence: who wants what, and what stands in the way. The first line of the project description.
+   * Between 1 and 300 characters.
+   * @example "An engineer sent to close the last lighthouse finds its keeper will not leave."
+   */
+  logline: string;
+  /**
+   * A paragraph on the story: setting, main characters, the central conflict and its stakes, without the ending.
+   * Between 1 and 4000 characters.
+   * @example "Ines repairs lighthouses nobody visits. At Vell, the old keeper Tomas says the lamp turns by itself, and she has a week to shut it down before the storm season."
+   */
+  premise: string;
+  /**
+   * What kind of comic the project is.
+   * Optional — defaults to "manhwa" when left out.
+   * @example "manhwa"
+   */
+  projectType?: "manga" | "manhwa" | "webtoon" | "comic" | "illustrated_story";
+  /**
+   * How it is made: "comic" (pages of panels), "film" (16:9 shots for a narrated video) or "vertical" (a scrolling strip).
+   * Optional — defaults to "comic" when left out.
+   * @example "comic"
+   */
+  format?: "comic" | "film" | "vertical";
+  /**
+   * The concept written out as a story idea, as much as the reply gives. Saved as the project's first story revision, to analyse or develop further.
+   * Between 1 and 20000 characters.
+   * @example "Ines arrives at Vell to close the light. Tomas refuses to leave. On the third night she stays awake and sees the lamp turn on its own."
+   */
+  storyIdea: string;
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "title": "The Lamp at Vell",
+  "logline": "An engineer sent to close the last lighthouse finds its keeper will not leave.",
+  "premise": "Ines repairs lighthouses nobody visits. At Vell, the old keeper Tomas says the lamp turns by itself, and she has a week to shut it down before the storm season.",
+  "projectType": "manhwa",
+  "format": "comic",
+  "storyIdea": "Ines arrives at Vell to close the light. Tomas refuses to leave. On the third night she stays awake and sees the lamp turn on its own."
+}
+```
+
+</details>
+
+## ProjectPremise
+
+Asked by **Use as premise** from an expert's reply — a logline and premise for the project description.
+
+```ts
+/** A replacement premise for the project, from an expert's reply. It becomes the project description. */
+interface ProjectPremise {
+  /**
+   * One sentence: who wants what, and what stands in the way.
+   * Between 1 and 300 characters.
+   * @example "An engineer sent to close the last lighthouse finds its keeper will not leave."
+   */
+  logline: string;
+  /**
+   * A paragraph on the story: setting, main characters, the central conflict and its stakes, without the ending.
+   * Between 1 and 4000 characters.
+   * @example "Ines has a week to shut down Vell Light before the storm season, and Tomas has kept it for forty years."
+   */
+  premise: string;
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "logline": "An engineer sent to close the last lighthouse finds its keeper will not leave.",
+  "premise": "Ines has a week to shut down Vell Light before the storm season, and Tomas has kept it for forty years."
+}
+```
+
+</details>
+
+## StoryOutline
+
+Asked by **Save as outline** from an expert's reply — the chapters, saved as an outline story revision.
+
+```ts
+/** An outline from an expert's reply, chapter by chapter. Saved as a new story revision of kind outline. */
+interface StoryOutline {
+  /**
+   * A title for the outline revision. Empty for none.
+   * At most 200 characters.
+   * Optional — defaults to "" when left out.
+   * @example "Three-act outline"
+   */
+  title?: string;
+  /**
+   * The chapters in story order; at least one.
+   * Between 1 and 100 items.
+   */
+  chapters: {
+    /**
+     * The chapter's title.
+     * Between 1 and 200 characters.
+     * @example "Arrival at Vell"
+     */
+    title: string;
+    /**
+     * What happens in the chapter.
+     * Between 1 and 4000 characters.
+     * @example "Ines reaches Vell and meets Tomas, who refuses to leave; she agrees to stay until the storm passes."
+     */
+    summary: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "title": "Three-act outline",
+  "chapters": [
+    {
+      "title": "Arrival at Vell",
+      "summary": "Ines reaches Vell and meets Tomas, who refuses to leave; she agrees to stay until the storm passes."
+    }
   ]
 }
 ```

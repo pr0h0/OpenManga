@@ -17,7 +17,7 @@ const FORMATS_URL = "https://github.com/pr0h0/OpenManga/blob/master/docs/ANSWER_
  * The other half of a keyless run: the prompt is above, this is where the answer comes back. Held to exactly the
  * schema a provider's answer is, so a rejected paste explains itself and can simply be pasted again.
  */
-function ManualAnswer({
+export function ManualAnswer({
   jobId,
   lastError,
   attachments,

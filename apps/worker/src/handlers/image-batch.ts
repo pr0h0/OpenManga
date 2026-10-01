@@ -17,7 +17,7 @@ import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { withBatchClaim } from "../lib/batch-claim.ts";
 import { dueWaitingJobs, isQueueFull, roundSuffix, waitForBatchRoom } from "../lib/batch-wait.ts";
-import { type GenerationJob, pausedByBudget } from "../lib/runner.ts";
+import { type GenerationJob, inProject, pausedByBudget } from "../lib/runner.ts";
 import {
   activatePanelArt,
   attachReference,
@@ -121,7 +121,7 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
           const [row] = await tx
             .insert(providerBatches)
             .values({
-              projectId: job.projectId,
+              projectId: inProject(job).projectId,
               userId: job.userId,
               batchId,
               capability: "image",
@@ -423,7 +423,8 @@ async function finishCancelledBatchJob(deps: WorkerDeps, job: GenerationJob) {
   });
 }
 
-async function ingestOne(deps: WorkerDeps, job: GenerationJob, item: Extract<BatchItemResult, { ok: true }>) {
+async function ingestOne(deps: WorkerDeps, row: GenerationJob, item: Extract<BatchItemResult, { ok: true }>) {
+  const job = inProject(row);
   const inputs = await inputsOf(deps, job.id);
   // Recorded against the ":batch" model so the discounted price is what the run is charged.
   const usage = () => recordImageUsage(deps, job, { ...item.result, model: batchModel(item.result.model) }, inputs);
@@ -472,7 +473,8 @@ async function finishIngested(
   });
 }
 
-async function failOne(deps: WorkerDeps, job: GenerationJob, item: Extract<BatchItemResult, { ok: false }>) {
+async function failOne(deps: WorkerDeps, row: GenerationJob, item: Extract<BatchItemResult, { ok: false }>) {
+  const job = inProject(row);
   // Billed-but-unusable is still billed: record what the provider charged before failing the job.
   if (item.usage?.imageOutputTokens || item.usage?.textInputTokens)
     await recordImageUsage(

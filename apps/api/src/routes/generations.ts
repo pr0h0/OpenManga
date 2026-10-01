@@ -35,7 +35,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
-import { entityAccess, projectAccess } from "../lib/access.ts";
+import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
 import {
   AiChoiceInput,
   assertBatchable,
@@ -143,7 +143,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
 async function jobWithAccess(c: Context<AppEnv>, id: string, action: "read" | "generate") {
   const [job] = await c.get("deps").db.select().from(generationJobs).where(eq(generationJobs.id, id));
   if (!job) throw notFound("Job");
-  await projectAccess(c, job.projectId, action);
+  await jobAccess(c, job, action);
   return job;
 }
 
@@ -235,7 +235,7 @@ generationRoutes.post("/generations/:id/retry", async (c) => {
   const job = await jobWithAccess(c, uuidParam(c, "id"), "generate");
   const deps = c.get("deps");
   // A retry is a fresh paid call, so it goes through the same budget gate as the route that queued the original.
-  await assertBudget(c, job.projectId);
+  if (job.projectId) await assertBudget(c, job.projectId);
   const created = await deps.jobs.retryGeneration(job.id, user(c).id);
   if (!created)
     throw conflict(
@@ -904,7 +904,7 @@ generationRoutes.get("/generations/batches/:batchId", async (c) => {
     .from(generationJobs)
     .where(eq(generationJobs.batchId, batchId))
     .limit(1);
-  if (!first) throw notFound("Batch");
+  if (!first?.projectId) throw notFound("Batch");
   await projectAccess(c, first.projectId, "read");
   const [row] = await db.execute<Record<string, number>>(sql`select count(*)::int as total,
     count(*) filter (where status='completed')::int as completed, count(*) filter (where status='processing')::int as generating,
@@ -921,7 +921,7 @@ async function batchProject(c: Parameters<typeof projectAccess>[0], batchId: str
     .from(generationJobs)
     .where(eq(generationJobs.batchId, batchId))
     .limit(1);
-  if (!first) throw notFound("Batch");
+  if (!first?.projectId) throw notFound("Batch");
   return projectAccess(c, first.projectId, "generate");
 }
 
@@ -995,7 +995,7 @@ generationRoutes.post("/generations/batches/:batchId/cancel", async (c) => {
       ),
     );
   if (!jobs.length) return c.json({ cancelled: 0 });
-  await projectAccess(c, jobs[0]!.projectId, "generate");
+  await jobAccess(c, jobs[0]!, "generate");
   let cancelled = 0;
   for (const j of jobs) if ((await deps.jobs.cancelGeneration(j.id)) !== "not_cancellable") cancelled++;
   await deps.db.execute(sql`update panels set status = case when active_artwork_asset_id is null then 'planned'::panel_status else 'ready'::panel_status end

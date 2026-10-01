@@ -16,6 +16,9 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
     "**Describe image** — what a reference image shows, by the aspects you asked for. Attach the image.",
   PanelCheck: "**Check panel** — a consistency check of finished artwork against its cast. Attach the image.",
   YoutubePackage: "**Write YouTube package** — titles, description, tags, a pinned comment and thumbnail headlines.",
+  ProjectConcept: "**New project** from an expert's reply — the concept as a title, premise and story idea.",
+  ProjectPremise: "**Use as premise** from an expert's reply — a logline and premise for the project description.",
+  StoryOutline: "**Save as outline** from an expert's reply — the chapters, saved as an outline story revision.",
 };
 
 /**

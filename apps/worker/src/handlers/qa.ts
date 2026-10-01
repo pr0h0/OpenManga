@@ -16,11 +16,11 @@ import { CharacterBible, PanelCheck } from "@openmanga/schemas";
 import { resolveOutfits, wardrobeText } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { formatPrompt, isManual, manualProvider } from "../lib/manual-provider.ts";
-import { type GenerationJob, InputError, recordTextCalls } from "../lib/runner.ts";
+import { InputError, type ProjectJob, recordTextCalls } from "../lib/runner.ts";
 import { batchAware } from "../lib/text-batch-provider.ts";
 
 /** Queue an automatic consistency check for a panel's new artwork when the project opted in. */
-export async function maybeQueuePanelCheck(deps: WorkerDeps, job: GenerationJob, panelId: string, assetId: string) {
+export async function maybeQueuePanelCheck(deps: WorkerDeps, job: ProjectJob, panelId: string, assetId: string) {
   const [p] = await deps.db
     .select({ settings: projects.settings })
     .from(projects)
@@ -68,7 +68,7 @@ export async function maybeQueuePanelCheck(deps: WorkerDeps, job: GenerationJob,
  * Vision QA of a panel: the model counts people and names which expected characters appear; the verdict is then
  * decided here (deterministically) and stored on the panel so the UI can flag it for a re-roll.
  */
-export async function panelCheck(deps: WorkerDeps, job: GenerationJob) {
+export async function panelCheck(deps: WorkerDeps, job: ProjectJob) {
   const panelId = String(job.input.panelId);
   const assetId = String(job.input.assetId);
   const [pn] = await deps.db.select().from(panels).where(eq(panels.id, panelId));

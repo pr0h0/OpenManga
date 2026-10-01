@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling).
+Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project).
 
 ### Added
 
@@ -23,6 +23,11 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   which also shows this month's spend against it. `INSTANCE_BUDGET_USD_MONTHLY` sets the default. Past the ceiling,
   new AI work is refused with `402 instance_budget_exceeded`, which users cannot confirm past, and queued batches and
   production runs pause the same way they do at a project's cap.
+- **Expert output actions.** Under an expert's reply, *Use as* turns it into a new project (title, premise, type,
+  format and story idea), the project's premise, an outline story revision, or the project's YouTube text. Each runs
+  a structured extraction as a text job (provider key or paste mode, shown in Generation); you review and edit the
+  result, and nothing changes until you apply it through the usual routes. Agents get the same through
+  `use_expert_reply`.
 - **Agents can clean up.** Three MCP tools, each a delete-class action that waits for approval on an "Ask me first"
   connection: `delete_exports` (one export, or every finished export of a project), `delete_narration_audio` (a
   chapter's, one track of it, or the whole project's; the text stays) and `manage_assets` (list a project's assets or

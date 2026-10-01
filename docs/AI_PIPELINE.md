@@ -14,6 +14,7 @@
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
+| Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
 `export`); see `docs/ARCHITECTURE.md` for the queue table and `docs/PROMPT_SYSTEM.md` for the templates.
@@ -114,6 +115,26 @@ to copy, and the pasted answer (plus any image uploaded with it) completes it. U
 `expert_image`, against the chat's project, or against no project, which the user's own usage page includes.
 Images attached to or drawn in a chat are `source_image` assets owned by the user, in the chat's project when it has
 one; an image with no project is readable by its owner only.
+
+### Output actions
+
+A finished reply offers four actions (*Use as*: New project, Premise, Outline, YouTube text). Each queues an
+`expert_extract` text job (`POST /api/expert-messages/:id/extract` with the action and the usual `ai` choice), so it
+runs with a provider key or in paste mode like any text step, with validation and one repair. The reply and the
+question it answered are copied onto the job when it is queued, so retrying the reply later does not change what an
+extraction read. The four templates share one frame: work from the reply, keep its names and wording, take the option
+it recommends (or the first), and write in the project's language. Their schemas are in `packages/schemas`
+(`experts.ts`): `ProjectConcept` (title, logline, premise, project type, format, story idea), `ProjectPremise`
+(logline and premise), `StoryOutline` (chapters with title and summary) and the existing `YoutubePackage`.
+
+Nothing is applied by the job. The chat shows the result under the reply for review and editing, and applying calls
+the ordinary routes: `POST /api/projects` with the story idea as an `idea` revision (and, optionally, the chat moved
+to the new project), `PATCH /api/projects/:id` for the description (logline, a blank line, the premise) or
+`settings.youtubePackage`, and `POST /api/projects/:id/story/revisions` for an `outline` revision (one
+`Chapter N: title` paragraph per chapter). Premise, outline and YouTube text need a chat about a project; the job runs
+in that project (its budget, its Generation page). A concept from a chat about no project is the one job without a
+project: `generation_jobs.project_id` is null, only its owner can read or answer it, its usage is recorded against no
+project (only the server's monthly ceiling applies to it), and it is followed from the chat itself.
 
 ## What each text step is given
 
