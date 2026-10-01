@@ -74,9 +74,9 @@ test("full studio flow in the browser (mock AI)", async ({ page }) => {
     await expect(page.getByText(/prompt ref/i).first()).toBeVisible({ timeout: 15_000 });
   });
 
-  await test.step("chapters: plan with DeepSeek", async () => {
+  await test.step("chapters: plan the chapter", async () => {
     await page.goto(`${projectUrl}/chapters`);
-    await page.getByRole("button", { name: "Plan with DeepSeek" }).first().click();
+    await page.getByRole("button", { name: "Plan chapter" }).first().click();
     await expect(async () => {
       await page.goto(`${projectUrl}/pages`);
       await expect(page.getByRole("link", { name: "Open page 1 in editor" })).toBeVisible({ timeout: 3000 });

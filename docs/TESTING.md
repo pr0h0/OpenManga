@@ -114,7 +114,25 @@ any failure.
 register → logout → login by username → wizard (analysis, review, apply) → reference generation and approval →
 chapter planning → page editor generation and a lettering bubble → every screen renders → generation inspector →
 page export completes, and asserts no page or console errors were collected (resource-load, EventSource and CSP noise
-is ignored).
+is ignored). `E2E_HTML_REPORT=<dir>` (passed through `E2E_EXTRA_ENV`) also writes Playwright's HTML report.
+
+The stack it runs against needs mock AI and plain-HTTP cookies: `AI_MOCK_MODE=true`, `AI_MOCK_ALLOW_IN_PRODUCTION=true`
+(compose runs `NODE_ENV=production`), `TTS_PROVIDER=fake`, `REGISTRATION_ENABLED=true` and `COOKIE_SECURE=false`.
+`docker-compose.yml` pins its network names (`openmanga_internal`, `openmanga_edge`), so do not start a second copy
+next to a running install: its `postgres`, `redis` and `worker` would share the install's networks and DNS names,
+and its worker could take the install's queued jobs. On such a host, use a compose override that renames both
+networks and the image tags, and point `E2E_NETWORK` at the renamed edge network.
+
+### E2E in CI
+
+`.github/workflows/e2e.yml` runs nightly (03:17 UTC, against `staging`), on pull requests that touch the test or how
+it runs (`tests/e2e/`, `scripts/e2e.sh`, the e2e Dockerfile, the workflow), and on demand: **Actions → E2E → Run
+workflow**, or `gh workflow run e2e.yml --ref <branch>`. GitHub offers the manual run and the nightly schedule only
+once the workflow is on the default branch (`master`). It builds the images, starts the stack with the settings
+above (`docker compose up -d --build --wait`), runs `./scripts/e2e.sh http://nginx`, and always tears the stack
+down. When it fails it uploads `playwright-<run id>`, which holds the HTML
+report, the trace and screenshots (`npx playwright show-trace trace.zip`), and `compose.log` with every service's
+log. A run takes a few minutes, about half of it building the images, so other pull requests skip it.
 
 ## CI
 
@@ -123,7 +141,7 @@ and `redis:7-alpine` services: install (`--frozen-lockfile`), `bunx biome ci .`,
 integration tests (`--timeout 300000`, ffmpeg and DejaVu/Comic Neue fonts installed first), web build, then a build of
 the app and nginx images. A second job checks every non-merge commit in a pull request carries a matching
 `Signed-off-by` line (bot commits are exempt, and so are GitHub's own squash commits in a `staging` → `master` release
-pull request). E2E and the smoke script are not run in CI.
+pull request). The smoke script is not run in CI; E2E runs in its own workflow (above).
 
 `.github/workflows/release.yml` builds and pushes `openmanga-app`, `openmanga-nginx` and `openmanga-kokoro` to
 `ghcr.io/pr0h0/` on a `v*` tag, or by hand for an existing tag (linux/amd64 only; arm64 is a self-build — see

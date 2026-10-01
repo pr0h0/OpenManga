@@ -11,6 +11,10 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Added
 
+- **End-to-end tests in CI.** `.github/workflows/e2e.yml` builds the full stack with mock AI, waits for it to be
+  healthy and runs the Playwright test: nightly against `staging`, by hand, and on pull requests that change the
+  test or how it runs. A failed run uploads the HTML report, traces and every service's log. The test now clicks
+  **Plan chapter**, the button's current name.
 - **Streaming PDF and webtoon exports, and ZIP64.** PDFs are written to disk page by page and webtoon strips are
   stitched one chunk at a time from panel blocks kept on disk, so memory no longer grows with length. Both can now
   export the whole project (every chapter in order) as well as one chapter. ZIP exports switch to ZIP64 past 4 GiB or
