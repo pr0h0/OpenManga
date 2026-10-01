@@ -255,4 +255,36 @@ export const narrationTools = [
       };
     },
   }),
+
+  defineMcpTool({
+    name: "delete_narration_audio",
+    title: "Delete narration audio",
+    description:
+      "Delete synthesized narration audio from disk: a chapter's (chapterId; every take, or one track with language) or the whole project's (projectId, including takes of deleted lines). The narration text is kept and can be synthesized again with synthesize_narration. Refused while synthesis is running there. Cannot be undone. Always a delete-class action (may need the user's approval).",
+    input: z.object({
+      chapterId: Uuid.optional(),
+      projectId: Uuid.optional(),
+      language: z.string().trim().min(2).max(16).optional().describe("Chapter only: delete just this track."),
+    }),
+    output: z.object({ files: z.number(), bytes: z.number(), segments: z.number() }).passthrough(),
+    scopes: ["narration:write"],
+    sensitivity: "delete",
+    idempotent: true,
+    routes: ["DELETE /api/chapters/:id/narration/audio", "DELETE /api/projects/:projectId/narration/audio"],
+    actionKeys: ["narration.delete_audio"],
+    classify: async ({ chapterId, projectId, language }, ctx) => {
+      if (!chapterId === !projectId) throw toolError(400, "bad_request", "Pass either chapterId or projectId");
+      return cls(
+        "delete",
+        "narration.delete_audio",
+        chapterId ? await projectOf(ctx, "chapter", chapterId) : projectId!,
+        `Delete ${chapterId ? "a chapter's" : "the whole project's"} narration audio${language ? ` (${language})` : ""}`,
+      );
+    },
+    handler: async ({ chapterId, projectId, language }, ctx) => ({
+      data: chapterId
+        ? await ctx.invoke("DELETE", `/api/chapters/${chapterId}/narration/audio`, { query: { language } })
+        : await ctx.invoke("DELETE", `/api/projects/${projectId}/narration/audio`),
+    }),
+  }),
 ];

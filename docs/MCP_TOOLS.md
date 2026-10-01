@@ -13,8 +13,8 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image` |
-| `projects:write` | Change project settings, state and metadata. | `update_project`, `set_project_status`, `delete_project` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets` |
+| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite` |
@@ -27,9 +27,9 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch` |
 | `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status` |
-| `narration:write` | Edit narration and request synthesis. | `edit_narration`, `run_narration_generation`, `synthesize_narration` |
+| `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
 | `exports:read` | Read export status and files. | `list_exports` |
-| `exports:create` | Queue project exports. | `create_export` |
+| `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
 
@@ -90,6 +90,7 @@ requests) need no scope.
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
 | [`get_image`](#get_image) | read | `panels:read` `library:read` `projects:read` |
+| [`manage_assets`](#manage_assets) | delete | `projects:read` `projects:write` |
 | [`list_jobs`](#list_jobs) | read | `generations:read` |
 | [`get_job`](#get_job) | read | `generations:read` |
 | [`get_manual_prompt`](#get_manual_prompt) | read | `generations:read` |
@@ -104,8 +105,10 @@ requests) need no scope.
 | [`edit_narration`](#edit_narration) | delete | `narration:write` |
 | [`run_narration_generation`](#run_narration_generation) | spend | `narration:write` `generations:run` |
 | [`synthesize_narration`](#synthesize_narration) | spend | `narration:write` |
+| [`delete_narration_audio`](#delete_narration_audio) | delete | `narration:write` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
 | [`list_exports`](#list_exports) | read | `exports:read` |
+| [`delete_exports`](#delete_exports) | delete | `exports:create` |
 | [`list_experts`](#list_experts) | read | `experts:use` |
 | [`manage_expert_chat`](#manage_expert_chat) | delete | `experts:use` |
 | [`send_expert_message`](#send_expert_message) | spend | `experts:use` |
@@ -5996,6 +5999,83 @@ Look at an image itself, returned as image content (not just its id): a panel's 
 
 </details>
 
+### manage_assets
+
+The project's stored images and files, as the app's Assets and Trash pages show them. list: newest first (trash=true lists the trash instead; type filters, e.g. panel_art, reference, cover, audio). trash: move an asset to trash (not one that is a panel's active artwork or locked; delete class). restore: bring it back from trash. delete: PERMANENTLY delete an asset that is already in trash, with its file (not a locked reference; cannot be undone; delete class). Panel artwork versions and reference images also have their own trash actions (manage_panel_artwork, manage_references).
+
+- **Scopes:** `projects:read`, `projects:write` — per action, see description
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `asset.trash`, `asset.restore`, `asset.delete`
+- **Wraps:** `GET /api/projects/:projectId/assets`, `POST /api/assets/:id/trash`, `POST /api/assets/:id/restore`, `DELETE /api/assets/:id`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "trash",
+        "restore",
+        "delete"
+      ]
+    },
+    "projectId": {
+      "description": "For list.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "assetId": {
+      "description": "For trash, restore, delete.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "trash": {
+      "default": false,
+      "description": "list: the trash instead of live assets.",
+      "type": "boolean"
+    },
+    "type": {
+      "description": "list: only this asset type.",
+      "type": "string",
+      "maxLength": 40
+    },
+    "limit": {
+      "default": 50,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### list_jobs
 
 A project's AI generation jobs, newest first, with status counts. Filter by status (comma-separated: queued, awaiting_input, processing, completed, failed, cancelled), kind, targetId or batchId. Paginate with `cursor` (nextCursor from the previous page). Prompts are not included (get_manual_prompt / get_job detail). Read-only.
@@ -7427,6 +7507,74 @@ Queue speech synthesis for one segment (segmentId) or every missing/stale segmen
 
 </details>
 
+### delete_narration_audio
+
+Delete synthesized narration audio from disk: a chapter's (chapterId; every take, or one track with language) or the whole project's (projectId, including takes of deleted lines). The narration text is kept and can be synthesized again with synthesize_narration. Refused while synthesis is running there. Cannot be undone. Always a delete-class action (may need the user's approval).
+
+- **Scopes:** `narration:write`
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=true, idempotent=true, openWorld=false
+- **Approval action keys:** `narration.delete_audio`
+- **Wraps:** `DELETE /api/chapters/:id/narration/audio`, `DELETE /api/projects/:projectId/narration/audio`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "language": {
+      "description": "Chapter only: delete just this track.",
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16
+    }
+  }
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "files": {
+      "type": "number"
+    },
+    "bytes": {
+      "type": "number"
+    },
+    "segments": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "files",
+    "bytes",
+    "segments"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### create_export
 
 Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
@@ -7812,6 +7960,74 @@ A project's export jobs (newest first) and their downloadable files (file names,
   },
   "required": [
     "jobs"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### delete_exports
+
+Delete export files from disk now instead of waiting for their 30-day expiry: one export (exportId) or every finished export of a project (projectId with all=true; running exports and import records are kept). A queued or running export must be cancelled first (control_job). Cannot be undone, but an export can be queued again. Always a delete-class action (may need the user's approval).
+
+- **Scopes:** `exports:create`
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=true, idempotent=true, openWorld=false
+- **Approval action keys:** `export.delete`, `export.delete_all`
+- **Wraps:** `DELETE /api/exports/:id`, `DELETE /api/projects/:projectId/exports`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "exportId": {
+      "description": "One export job (ids from list_exports).",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectId": {
+      "description": "With all=true: every finished export of this project.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "all": {
+      "default": false,
+      "type": "boolean"
+    }
+  }
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "exports": {
+      "type": "number"
+    },
+    "files": {
+      "type": "number"
+    },
+    "bytes": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "exports",
+    "files",
+    "bytes"
   ],
   "additionalProperties": {}
 }

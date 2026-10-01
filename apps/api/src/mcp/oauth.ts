@@ -21,8 +21,8 @@ import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { clientIp } from "../lib/http.ts";
 import { rateLimit } from "../lib/middleware.ts";
-import { hashMcpToken, loadActor, mcpUrls, newToken, TOKEN_PREFIX } from "./context.ts";
-import { ALL_SCOPES, isScope } from "./scopes.ts";
+import { declinedScopes, hashMcpToken, loadActor, mcpUrls, newToken, TOKEN_PREFIX } from "./context.ts";
+import { ALL_SCOPES, isScope, normalizeScopes } from "./scopes.ts";
 
 /**
  * OpenManga as its own OAuth 2.1 authorization server for the MCP resource at /mcp.
@@ -648,17 +648,12 @@ export async function approveAuthorization(
   const req = await openAuthorizationRequest(deps, requestId);
   if (!req || !(await closeRequest(deps, requestId))) return null;
   const scopes = req.r.scopes.filter((s) => grant.scopes.includes(s) && isScope(s));
-  const [existing] = await deps.db
-    .select()
-    .from(userServices)
-    .where(
-      and(
-        eq(userServices.userId, userId),
-        eq(userServices.kind, "oauth"),
-        eq(userServices.clientId, req.client.id),
-        isNull(userServices.revokedAt),
-      ),
-    );
+  const existing = await clientConnection(deps, userId, req.client.id);
+  // What was asked for and left unticked is declined; anything granted now is no longer declined.
+  const declined = normalizeScopes([
+    ...(existing ? declinedScopes(existing) : []),
+    ...req.r.scopes.filter((s) => !scopes.includes(s)),
+  ]).filter((s) => !scopes.includes(s));
   const values = {
     name: grant.name.trim().slice(0, 100) || req.client.name,
     scopes,
@@ -668,7 +663,13 @@ export async function approveAuthorization(
     updatedAt: new Date(),
   };
   const serviceId = existing
-    ? (await deps.db.update(userServices).set(values).where(eq(userServices.id, existing.id)).returning())[0]!.id
+    ? (
+        await deps.db
+          .update(userServices)
+          .set({ ...values, metadata: { ...existing.metadata, declinedScopes: declined } })
+          .where(eq(userServices.id, existing.id))
+          .returning()
+      )[0]!.id
     : (
         await deps.db
           .insert(userServices)
@@ -677,7 +678,7 @@ export async function approveAuthorization(
             userId,
             kind: "oauth",
             clientId: req.client.id,
-            metadata: { clientName: req.client.name },
+            metadata: { clientName: req.client.name, declinedScopes: declined },
           })
           .returning()
       )[0]!.id;
@@ -700,15 +701,58 @@ export async function approveAuthorization(
     targetType: "user_service",
     targetId: serviceId,
     serviceId,
-    metadata: { client: req.client.name, scopes, projectAccess: grant.projectAccess, approvalMode: grant.approvalMode },
+    metadata: {
+      client: req.client.name,
+      scopes,
+      declinedScopes: declined,
+      projectAccess: grant.projectAccess,
+      approvalMode: grant.approvalMode,
+    },
   });
   return { serviceId, redirectTo: redirectBack(deps, req.r.redirectUri, { code }, req.r.state) };
 }
 
-/** The user said no: the client learns it was denied, nothing is created. */
-export async function denyAuthorization(deps: Deps, requestId: string) {
+/** The user's live connection to a client, if they already have one. */
+async function clientConnection(deps: Deps, userId: string, clientId: string) {
+  const [row] = await deps.db
+    .select()
+    .from(userServices)
+    .where(
+      and(
+        eq(userServices.userId, userId),
+        eq(userServices.kind, "oauth"),
+        eq(userServices.clientId, clientId),
+        isNull(userServices.revokedAt),
+      ),
+    );
+  return row ?? null;
+}
+
+/**
+ * The user said no: the client learns it was denied, nothing is created. When this was a step-up for a connection
+ * the user already has, that connection stays as it is and remembers the scopes it was refused, so the agent is not
+ * sent back to the same screen.
+ */
+export async function denyAuthorization(deps: Deps, userId: string, requestId: string) {
   const req = await openAuthorizationRequest(deps, requestId);
   if (!req || !(await closeRequest(deps, requestId))) return null;
+  const existing = await clientConnection(deps, userId, req.client.id);
+  const refused = existing ? req.r.scopes.filter((s) => !existing.scopes.includes(s)) : [];
+  if (existing && refused.length) {
+    const declined = normalizeScopes([...declinedScopes(existing), ...refused]);
+    await deps.db
+      .update(userServices)
+      .set({ metadata: { ...existing.metadata, declinedScopes: declined } })
+      .where(eq(userServices.id, existing.id));
+    await recordAudit(deps.db, {
+      userId,
+      action: "oauth.scopes_declined",
+      targetType: "user_service",
+      targetId: existing.id,
+      serviceId: existing.id,
+      metadata: { client: req.client.name, declinedScopes: refused },
+    });
+  }
   return {
     redirectTo: redirectBack(
       deps,

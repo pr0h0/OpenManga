@@ -755,6 +755,130 @@ describe("approvals", () => {
   });
 });
 
+describe("delete tools", () => {
+  let gated: Awaited<ReturnType<typeof mcp>>;
+  let chapterId: string;
+  const approve = (id: string) =>
+    alice.post<{ approval: { status: string } }>(`/api/agents/approvals/${id}/decide`, { decision: "approve" });
+
+  beforeAll(async () => {
+    const t = await pat({ name: "Tidy agent", scopes: ALL, projectAccess: "all", approvalMode: "REQUIRE_APPROVAL" });
+    gated = await mcp(t.token);
+    const list = await allowAll.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    chapterId = list.structured.data.chapters[0]!.id;
+  });
+
+  const exportDone = async () => {
+    const r = await allowAll.call<{ data: { job: { id: string } } }>("create_export", {
+      projectId,
+      kind: "project_json",
+    });
+    const jobId = r.structured.data.job.id;
+    await waitFor(
+      async () =>
+        (await allowAll.call<{ data: { job: { status: string } } }>("get_job", { jobId })).structured.data.job
+          .status === "completed",
+      { label: "export" },
+    );
+    return jobId;
+  };
+
+  test("delete_exports: one export parks for approval, then every finished export goes", async () => {
+    const first = await exportDone();
+    const parked = await gated.call("delete_exports", { exportId: first });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("delete");
+    expect((await approve(parked.structured.approval!.approvalRequestId)).approval.status).toBe("executed");
+    const after = await allowAll.call<{ data: { jobs: { id: string }[] } }>("list_exports", { projectId });
+    expect(after.structured.data.jobs.map((j) => j.id)).not.toContain(first);
+
+    await exportDone();
+    expect((await allowAll.call("delete_exports", { projectId })).error?.code).toBe("bad_request");
+    const all = await allowAll.call<{ data: { exports: number; files: number } }>("delete_exports", {
+      projectId,
+      all: true,
+    });
+    expect(all.structured.data.exports).toBeGreaterThan(0);
+    const none = await allowAll.call<{ data: { jobs: { kind: string }[] } }>("list_exports", { projectId });
+    expect(none.structured.data.jobs.filter((j) => j.kind !== "project_import").length).toBe(0);
+  });
+
+  test("delete_narration_audio: a chapter's audio after approval, then the whole project's; the text stays", async () => {
+    await allowAll.call("edit_narration", {
+      action: "add_line",
+      chapterId,
+      line: { text: "The lamp turns at three in the morning." },
+    });
+    await allowAll.call("synthesize_narration", { chapterId });
+    type Lines = { data: { lines: { segments: { activeAudioAssetId: string | null }[] }[] } };
+    const segments = async () =>
+      (await allowAll.call<Lines>("get_chapter_narration", { chapterId })).structured.data.lines.flatMap(
+        (l) => l.segments,
+      );
+    await waitFor(async () => (await segments()).some((s) => s.activeAudioAssetId), { label: "tts" });
+
+    expect((await allowAll.call("delete_narration_audio", {})).error?.code).toBe("bad_request");
+    const parked = await gated.call("delete_narration_audio", { chapterId });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect((await approve(parked.structured.approval!.approvalRequestId)).approval.status).toBe("executed");
+    const after = await segments();
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((s) => s.activeAudioAssetId === null)).toBe(true);
+
+    const project = await allowAll.call<{ data: { files: number } }>("delete_narration_audio", { projectId });
+    expect(project.isError).toBe(false);
+    const left = await h.deps.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from assets where project_id = ${projectId} and type = 'audio'`,
+    );
+    expect(left[0]!.n).toBe(0);
+  });
+
+  test("manage_assets: trash, list the trash, restore, and a permanent delete after approval", async () => {
+    const { panels } = await alice.get<{ panels: { id: string; activeArtworkAssetId: string | null }[] }>(
+      `/api/chapters/${chapterId}/panels`,
+    );
+    const drawn = panels.find((p) => p.activeArtworkAssetId)!;
+    // A second version, so one of the two is not the panel's active artwork.
+    const gen = await allowAll.call<{ data: { job: { id: string } } }>("generate_panel", { panelId: drawn.id });
+    await waitFor(
+      async () =>
+        (
+          await allowAll.call<{ data: { job: { status: string } } }>("get_job", {
+            jobId: gen.structured.data.job.id,
+          })
+        ).structured.data.job.status === "completed",
+      { label: "second version" },
+    );
+    const { panel } = await alice.get<{ panel: { activeArtworkAssetId: string } }>(`/api/panels/${drawn.id}`);
+    type Listed = { data: { assets: { id: string }[] } };
+    const live = await allowAll.call<Listed>("manage_assets", { action: "list", projectId, type: "panel_art" });
+    const old = live.structured.data.assets.find((a) => a.id !== panel.activeArtworkAssetId)!;
+    expect(old).toBeTruthy();
+
+    // The active artwork cannot be trashed; an old version can.
+    const active = await allowAll.call("manage_assets", { action: "trash", assetId: panel.activeArtworkAssetId });
+    expect(active.error?.code).toBe("conflict");
+    expect((await allowAll.call("manage_assets", { action: "trash", assetId: old.id })).isError).toBe(false);
+    const trash = await allowAll.call<Listed>("manage_assets", { action: "list", projectId, trash: true });
+    expect(trash.structured.data.assets.map((a) => a.id)).toContain(old.id);
+    await allowAll.call("manage_assets", { action: "restore", assetId: old.id });
+    const back = await allowAll.call<Listed>("manage_assets", { action: "list", projectId, trash: true });
+    expect(back.structured.data.assets.map((a) => a.id)).not.toContain(old.id);
+
+    // Permanent deletion needs it in trash first, and waits for the user on a gated connection.
+    expect((await allowAll.call("manage_assets", { action: "delete", assetId: old.id })).error?.code).toBe("conflict");
+    await allowAll.call("manage_assets", { action: "trash", assetId: old.id });
+    const parked = await gated.call("manage_assets", { action: "delete", assetId: old.id });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("delete");
+    expect((await approve(parked.structured.approval!.approvalRequestId)).approval.status).toBe("executed");
+    const gone = await h.deps.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from assets where id = ${old.id}`,
+    );
+    expect(gone[0]!.n).toBe(0);
+  });
+});
+
 describe("credential lifecycle", () => {
   test("revoked and expired tokens stop working at once", async () => {
     const t = await pat({ name: "Temp", scopes: ["projects:read"], projectAccess: "all" });
@@ -1034,6 +1158,58 @@ describe("OAuth 2.1", () => {
     });
     expect(disabled.status).toBe(401);
     await h.deps.db.update(users).set({ status: "active" }).where(eq(users.username, "agentowner"));
+  });
+
+  test("a declined scope is not asked for again until the user grants it in Agent access", async () => {
+    const exchange = async (code: string) =>
+      (
+        (await (
+          await token({
+            grant_type: "authorization_code",
+            code,
+            client_id: clientId,
+            redirect_uri: redirect,
+            code_verifier: verifier,
+            resource: "http://test.local/mcp",
+          })
+        ).json()) as { access_token: string }
+      ).access_token;
+    const challenged = (r: { meta?: Record<string, unknown> }) =>
+      String((r.meta?.["mcp/www_authenticate"] as string[] | undefined)?.[0] ?? "").includes("insufficient_scope");
+
+    // consent() asks for projects:read and story:read and grants only projects:read: story:read is declined.
+    const agent = await mcp(await exchange(await consent()));
+    const read = await agent.call("get_story", { projectId });
+    expect(read.error?.code).toBe("scope_missing");
+    expect((read.error?.details as { declined?: string[] } | undefined)?.declined).toEqual(["story:read"]);
+    expect(read.error?.message).toContain("Agent access");
+    expect(challenged(read)).toBe(false);
+    // A scope never asked for still steps up.
+    const write = await agent.call("save_story_revision", { projectId, content: "x" });
+    expect(challenged(write)).toBe(true);
+
+    // The user denies that step-up: story:write is declined as well, and the connection keeps what it had.
+    const res = await authorize({ scope: "projects:read story:write" });
+    const requestId = res.headers.get("location")!.split("/connect/")[1]!;
+    await alice.post(`/api/agents/consent/${requestId}`, { approve: false });
+    const again = await agent.call("save_story_revision", { projectId, content: "x" });
+    expect((again.error?.details as { declined?: string[] } | undefined)?.declined).toEqual(["story:write"]);
+    expect(challenged(again)).toBe(false);
+    expect((await agent.call("list_projects")).isError).toBe(false);
+
+    // Agent access lists the declines; granting story:read there clears that one.
+    type Conn = { id: string; clientId: string | null; scopes: string[]; metadata: { declinedScopes?: string[] } };
+    const conn = async () =>
+      (await alice.get<{ connections: Conn[] }>("/api/agents/connections")).connections.find(
+        (c) => c.clientId === clientId && c.scopes.length,
+      )!;
+    expect((await conn()).metadata.declinedScopes).toEqual(["story:read", "story:write"]);
+    await alice.patch(`/api/agents/connections/${(await conn()).id}`, { scopes: ["projects:read", "story:read"] });
+    expect((await conn()).metadata.declinedScopes).toEqual(["story:write"]);
+    // This token was issued for projects:read only, so it is asked to step up for story:read again, as normal.
+    const stepUp = await agent.call("get_story", { projectId });
+    expect(stepUp.error?.details).not.toHaveProperty("declined");
+    expect(challenged(stepUp)).toBe(true);
   });
 
   test("a CIMD client id pointing inside the network is refused", async () => {

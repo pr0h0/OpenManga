@@ -27,6 +27,8 @@ export type McpActor = {
   serviceKind: "oauth" | "pat";
   clientId: string | null;
   scopes: Set<McpScope>;
+  /** Scopes the user said no to on a consent screen: a call needing one is refused without another step-up. */
+  declinedScopes: Set<McpScope>;
   projectAccess: McpProjectAccess;
   /** The granted projects, when access is `selected`. */
   projectIds: Set<string>;
@@ -140,12 +142,17 @@ export async function loadActor(db: Database, serviceId: string, tokenScopes?: s
     serviceKind: row.s.kind,
     clientId: row.s.clientId,
     scopes: new Set(scopes),
+    declinedScopes: new Set(declinedScopes(row.s).filter((s) => !granted.includes(s))),
     projectAccess: row.s.projectAccess,
     projectIds,
     allowProjectCreate: row.s.allowProjectCreate,
     approvalMode: row.s.approvalMode,
   };
 }
+
+/** The scopes a connection's user declined, kept in its metadata (no column: it is a short list read with the row). */
+export const declinedScopes = (s: { metadata: Record<string, unknown> }) =>
+  normalizeScopes(Array.isArray(s.metadata.declinedScopes) ? (s.metadata.declinedScopes as string[]) : []);
 
 /** Whether a connection may touch a project at all (membership is checked separately, and both must pass). */
 export const serviceMayAccess = (r: ServiceRestriction, projectId: string) =>

@@ -99,16 +99,21 @@ export async function expireApprovals(deps: Deps) {
 function scopeGate(tool: McpTool, args: Record<string, unknown>, actor: McpActor) {
   const needed = tool.scopesFor ? tool.scopesFor(args as never) : tool.scopes;
   const missing = needed.filter((s) => !actor.scopes.has(s));
-  if (missing.length)
+  if (!missing.length) return;
+  const plural = missing.length > 1 ? "s" : "";
+  // A scope the user already said no to is not asked for again: the server sends no step-up challenge for it.
+  const declined = missing.filter((s) => actor.declinedScopes.has(s));
+  if (declined.length)
     throw toolError(
       403,
       "scope_missing",
-      `This connection lacks the ${missing.join(", ")} scope${missing.length > 1 ? "s" : ""}.`,
-      {
-        required: needed,
-        missing,
-      },
+      `The user declined the ${declined.join(", ")} scope${declined.length > 1 ? "s" : ""} for this connection, so it will not be asked for again. Do not retry; tell the user they can grant it in OpenManga → Agent access.`,
+      { required: needed, missing, declined },
     );
+  throw toolError(403, "scope_missing", `This connection lacks the ${missing.join(", ")} scope${plural}.`, {
+    required: needed,
+    missing,
+  });
 }
 
 /**
