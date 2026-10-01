@@ -79,6 +79,15 @@ docker run --rm --network openmanga_edge -v "$PWD":/repo -w /repo oven/bun:1.4-d
 
 Then check Cost → providers. `docs/TESTING.md` documents the other smoke-test options.
 
+### Server budget ceiling
+
+Each project has its own budget cap, which its owner can raise. On a shared install, hold the whole server to a
+monthly figure as well: **Admin → Usage → Server budget** sets a ceiling in USD per calendar month (UTC) and shows
+this month's spend against it. `INSTANCE_BUDGET_USD_MONTHLY` sets the default (empty for none). A value saved in
+Admin overrides it, and **Use default** goes back to it. Once the ceiling is reached, new AI work is refused with
+402 `instance_budget_exceeded`, queued batches pause, and production runs pause, until an admin raises it or the
+month turns. Users cannot confirm past it. See [COSTS](COSTS.md#keeping-spend-visible).
+
 ## Future subdomains
 
 Set `APP_PUBLIC_URL`, `API_PUBLIC_URL` and `CDN_PUBLIC_URL` to separate hosts and add nginx server blocks; every URL

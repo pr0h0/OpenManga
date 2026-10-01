@@ -323,6 +323,17 @@ export const errorEvents = pgTable(
 );
 
 /**
+ * Server-wide settings an administrator changes at runtime, one row per key (`budget`: the monthly AI spend
+ * ceiling). No row means the env default applies.
+ */
+export const instanceSettings = pgTable("instance_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<Record<string, unknown>>().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});
+
+/**
  * One submission to a provider's async batch API, covering many generation jobs. A row is written before the
  * jobs are parked so a worker that dies mid-submit can find the batch it already paid for (by `idempotencyKey`,
  * which is echoed in the provider's own metadata) instead of submitting it again.

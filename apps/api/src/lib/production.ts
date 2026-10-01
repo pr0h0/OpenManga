@@ -103,7 +103,10 @@ async function router(deps: Deps) {
   return app;
 }
 
-/** A route refused the call; `code` is the REST error code (budget_exceeded pauses the run instead of failing it). */
+/**
+ * A route refused the call; `code` is the REST error code (budget_exceeded and instance_budget_exceeded pause the
+ * run instead of failing it).
+ */
 class CallError extends Error {
   constructor(
     readonly status: number,
@@ -457,7 +460,8 @@ export async function advanceRun(deps: Deps, runId: string) {
         const msg = e instanceof Error ? e.message : String(e);
         // Spending stops at the project's cap: pause, so raising the cap and continuing picks up right here.
         if (e instanceof CallError && (e.code === "budget_exceeded" || e.status === 402)) {
-          await save({ status: "paused", reason: `Budget cap reached: ${msg}` });
+          const which = e.code === "instance_budget_exceeded" ? "Server budget ceiling reached" : "Budget cap reached";
+          await save({ status: "paused", reason: `${which}: ${msg}` });
           return;
         }
         step.status = "failed";

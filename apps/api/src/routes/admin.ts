@@ -8,13 +8,14 @@ import {
   generationInputs,
   generationJobs,
   inArray,
+  instanceSettings,
   projects,
   providerRateSnapshots,
   sessions,
   sql,
   users,
 } from "@openmanga/db";
-import { credentialKeyStatus, recordAudit, rotateCredentials } from "@openmanga/services";
+import { credentialKeyStatus, instanceBudget, recordAudit, rotateCredentials } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -203,6 +204,66 @@ adminRoutes.post("/jobs/:id/cancel", async (c) => {
 
 doc({ method: "GET", path: "/api/admin/usage", summary: "Global API usage and cost", tag: "admin" });
 adminRoutes.get("/usage", async (c) => c.json(await usageSummary(c.get("deps").db, null)));
+
+doc({
+  method: "GET",
+  path: "/api/admin/budget",
+  summary: "The server's monthly AI spend ceiling (UTC calendar month): limit, where it comes from, spend so far",
+  tag: "admin",
+});
+adminRoutes.get("/budget", async (c) => {
+  const deps = c.get("deps");
+  return c.json({
+    budget: await instanceBudget(deps.db, deps.config.INSTANCE_BUDGET_USD_MONTHLY),
+    envDefaultUsd: deps.config.INSTANCE_BUDGET_USD_MONTHLY ?? null,
+  });
+});
+
+const BudgetInput = z.object({
+  /** USD per calendar month (UTC); null for no ceiling at all, even when the env sets a default. */
+  monthlyUsd: z.number().min(0).max(1_000_000).nullable(),
+});
+doc({
+  method: "PUT",
+  path: "/api/admin/budget",
+  summary: "Set the server's monthly AI spend ceiling in USD (null for none); overrides INSTANCE_BUDGET_USD_MONTHLY",
+  tag: "admin",
+  body: BudgetInput,
+});
+adminRoutes.put("/budget", async (c) => {
+  const input = await body(c, BudgetInput);
+  const deps = c.get("deps");
+  const value = { monthlyUsd: input.monthlyUsd };
+  await deps.db
+    .insert(instanceSettings)
+    .values({ key: "budget", value, updatedBy: user(c).id })
+    .onConflictDoUpdate({ target: instanceSettings.key, set: { value, updatedBy: user(c).id, updatedAt: new Date() } });
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    action: "admin.budget.set",
+    metadata: value,
+    requestId: c.get("requestId"),
+  });
+  return c.json({ budget: await instanceBudget(deps.db, deps.config.INSTANCE_BUDGET_USD_MONTHLY) });
+});
+
+doc({
+  method: "DELETE",
+  path: "/api/admin/budget",
+  summary: "Drop the admin-set ceiling, so INSTANCE_BUDGET_USD_MONTHLY (or no ceiling) applies again",
+  tag: "admin",
+});
+adminRoutes.delete("/budget", async (c) => {
+  const deps = c.get("deps");
+  await deps.db.delete(instanceSettings).where(eq(instanceSettings.key, "budget"));
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    action: "admin.budget.reset",
+    metadata: {},
+    requestId: c.get("requestId"),
+  });
+  return c.json({ budget: await instanceBudget(deps.db, deps.config.INSTANCE_BUDGET_USD_MONTHLY) });
+});
 
 const RateInput = z.object({
   provider: z.string().min(1).max(64),

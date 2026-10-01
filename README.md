@@ -298,7 +298,7 @@ tokens) costs about **$0.50–1.13** in text against **$11–17** in images.
 Measured figures and the controls that keep spend visible: [docs/COSTS.md](docs/COSTS.md). On a 50-project run,
 1,226 images for **$14.31**, 14–47 panels per chapter (the planner decides how many).
 The in-app cost dashboard reports spend per provider with an images/text split, and each project can set a budget
-cap that asks for confirmation before going over.
+cap that asks for confirmation before going over. An admin can also cap the whole server's spend per month.
 
 ### All supported providers
 

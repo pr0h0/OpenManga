@@ -29,8 +29,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Video branding.** A logo watermark and optional intro and outro cards on video exports.
 - **End-to-end tests in CI.** The existing `scripts/e2e.sh` on a nightly or manual workflow against the full stack
   with mock AI.
-- **Instance-wide budget ceiling.** The per-project cap exists; an instance-wide ceiling is the better control for
-  a shared install, but with registration off by default multi-user is the rare case.
 - **S3-compatible asset storage.** Assets live on local disk behind one `AssetStorage` interface with a local
   implementation. A remote backend would need presigned downloads (the current `X-Accel-Redirect` path is
   nginx-only) and multipart uploads, and would turn local reads in page composition and video rendering into

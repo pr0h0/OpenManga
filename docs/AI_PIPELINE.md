@@ -222,6 +222,10 @@ Reference derivatives are sized per provider — see `docs/IMAGE_REFERENCES.md`.
   `budget_exceeded` once recorded spend reaches the cap; the web client asks and retries with
   `x-allow-over-budget: 1`. Bulk estimates include the budget, a confirmed bulk run is refused when its estimate
   would reach the cap, and queued batch jobs re-check it when they start, pausing the batch instead of overspending.
+- **Server budget ceiling** (Admin → Usage, default `INSTANCE_BUDGET_USD_MONTHLY`): the whole server's spend this
+  calendar month (UTC). Checked before the project cap at the same points (`assertBudget`, the worker's batch gate),
+  refused with 402 `instance_budget_exceeded`, which no header overrides. Batches pause and production runs pause
+  exactly as at the project cap.
 - **Pause/resume batches**: `POST /api/generations/batches/:batchId/pause|resume`. Pausing removes not-yet-started
   jobs from Redis and marks them `paused` (reason in `failure_reason`); running jobs finish. A job failing with `auth`
   or `quota` pauses the rest of its batch automatically. Resume re-arms the jobs' outbox rows — same job ids, so

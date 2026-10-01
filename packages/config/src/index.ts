@@ -25,6 +25,11 @@ const EnvSchema = z.object({
 
   AI_MOCK_MODE: bool.default(false),
   /**
+   * Default ceiling on the whole server's AI spend per calendar month (UTC), in USD. Empty means none. An admin can
+   * override it in Admin → Usage; the stored value wins over this one.
+   */
+  INSTANCE_BUDGET_USD_MONTHLY: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().min(0).optional()),
+  /**
    * Development only: lets an `openai_compatible` credential point at a private address, which is how the bundled
    * `mock-ai` service is reached. Leave false on anything reachable from the internet — it is the check that stops
    * a saved endpoint from being aimed at cloud metadata or a neighbouring container.

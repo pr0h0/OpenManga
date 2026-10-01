@@ -1,5 +1,5 @@
 import { BATCH_CAPABLE_PROVIDERS, PROVIDER_CATALOG, ProviderError, type ProviderKind } from "@openmanga/domain";
-import { projectBudget } from "@openmanga/services";
+import { instanceBudget, instanceBudgetReason, projectBudget } from "@openmanga/services";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -115,10 +115,22 @@ export async function ttsRun(c: Context<AppEnv>, ai: AiChoiceInput, voice?: stri
 
 /**
  * Refuses new AI work once a project's budget cap is reached, unless the caller explicitly confirmed going over
- * (header `x-allow-over-budget: 1`, sent by the web client after asking the user).
+ * (header `x-allow-over-budget: 1`, sent by the web client after asking the user). Above that sits the server's
+ * monthly ceiling, which an administrator sets and nobody else can confirm past.
  */
 export async function assertBudget(c: Context<AppEnv>, projectId: string, extraUsd = 0) {
-  const b = await projectBudget(c.get("deps").db, projectId);
+  const deps = c.get("deps");
+  const server = await instanceBudget(deps.db, deps.config.INSTANCE_BUDGET_USD_MONTHLY);
+  if (server.limitUsd !== null && server.spentUsd + extraUsd >= server.limitUsd)
+    throw new ApiError(
+      402,
+      "instance_budget_exceeded",
+      server.exceeded
+        ? `No new AI work: ${instanceBudgetReason(server)}. An administrator can raise it in Admin → Usage; it resets on the 1st (UTC).`
+        : `This would pass this server's monthly AI budget of $${server.limitUsd.toFixed(2)} ($${server.spentUsd.toFixed(2)} spent this month, ~$${extraUsd.toFixed(2)} more requested). An administrator can raise it in Admin → Usage.`,
+      server,
+    );
+  const b = await projectBudget(deps.db, projectId);
   if (b.limitUsd === null || c.req.header("x-allow-over-budget") === "1") return b;
   if (b.spentUsd + extraUsd >= b.limitUsd)
     throw new ApiError(

@@ -2,7 +2,7 @@ import { StructuredOutputError, type TextCallRecord } from "@openmanga/ai-text";
 import { and, asc, eq, generationJobs, generationOutputs, panels, sql } from "@openmanga/db";
 import { ProviderError, policyCategories } from "@openmanga/domain";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
-import { projectBudget, recordError } from "@openmanga/services";
+import { instanceBudget, instanceBudgetReason, projectBudget, recordError } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import {
   answersBeforeFailure,
@@ -351,14 +351,22 @@ export async function runGenerationJob(
 }
 
 /**
- * The budget gate for batch work: a batch job of a project over its budget pauses its whole batch instead of
- * running, unless the person who started it confirmed going over. Returns whether it paused.
+ * The budget gate for batch work: a batch job pauses its whole batch instead of running once the server's monthly
+ * ceiling is reached, or its project's budget is, unless the person who started it confirmed going over the
+ * project's. Nobody confirms past the server's ceiling. Returns whether it paused.
  */
 export async function pausedByBudget(deps: WorkerDeps, job: GenerationJob) {
-  if (!job.batchId || (job.parameters as { allowOverBudget?: boolean } | null)?.allowOverBudget) return false;
-  const budget = await projectBudget(deps.db, job.projectId);
-  if (!budget.exceeded) return false;
-  const reason = `project budget of $${budget.limitUsd!.toFixed(2)} reached ($${budget.spentUsd.toFixed(2)} spent)`;
+  if (!job.batchId) return false;
+  const server = await instanceBudget(deps.db, deps.config.INSTANCE_BUDGET_USD_MONTHLY);
+  let reason = server.exceeded ? instanceBudgetReason(server) : null;
+  let budget: Record<string, unknown> = server;
+  if (!reason && !(job.parameters as { allowOverBudget?: boolean } | null)?.allowOverBudget) {
+    const project = await projectBudget(deps.db, job.projectId);
+    if (project.exceeded)
+      reason = `project budget of $${project.limitUsd!.toFixed(2)} reached ($${project.spentUsd.toFixed(2)} spent)`;
+    budget = project;
+  }
+  if (!reason) return false;
   const [paused] = await deps.db
     .update(generationJobs)
     .set({ status: "paused", failureReason: `Paused: ${reason}` })
