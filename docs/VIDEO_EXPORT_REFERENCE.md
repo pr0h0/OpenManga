@@ -40,7 +40,7 @@ Defaults from the export request schema; every value is overridable per export.
 | `pageWidthRatio` | `0.6` | Page cut, `framing: "width"` or `"scroll"` |
 | `pageHeightRatio` | `0.96` | Page cut, `framing: "height"` |
 | `maxScrollPxPerSec` | `60` | Scroll-rate cap for the page cut |
-| `zoom` | `0.06` | Panel cut: Ken Burns travel over the hold (6%) |
+| `zoom` | `0.06` | Panel cut: camera travel over the hold (6% zoom, or the slack a pan crosses) |
 | `concurrency` | `VIDEO_ENCODE_CONCURRENCY` (4) | Clips rendered and encoded at once |
 | `maxDurationMs` | unset | Partial render: stop after the shot that reaches this length (10 s to 24 h); see below |
 
@@ -70,14 +70,47 @@ Lines that fall outside the scope are counted and reported as `unplacedLines` on
 left out of a film is visible rather than lost. A page, page-selection or panel scope does not count them: leaving
 the rest out is the point.
 
+## Shot settings
+
+Each panel carries its settings as a video shot in `panels.video` (`ShotVideo`; editor → Panel → *Video shot*,
+`PATCH /api/panels/:id` `{ video }`, MCP `update_panel`):
+
+| Field | Values | Effect |
+| --- | --- | --- |
+| `motion` | `auto` (default), `static`, `pan-left`, `pan-right`, `pan-up`, `pan-down`, `push-in`, `pull-out` | Panel cut camera move (below) |
+| `fade` | `auto` (default), `on`, `off` | The cut *into* this shot: follow the project's scene-break fade, always fade through black, or always a hard cut |
+| `disabled` | `false` (default) | Leave the shot and its narration out of every video; the panel stays on the page |
+
+A disabled panel is left out of the panel cut, and its narration out of both cuts; a page whose panels are all
+disabled leaves the page cut too. Disabled panels are reported as `disabledPanels`, not as unplaced lines. Scoping
+a preview to a disabled panel still plays it, so its move can be checked.
+
+**Fades.** `settings.video.fadeAtSceneBreaks` fades to black where the scene changes (a panel's scene, else its
+page's). A fade is half a second out of the last shot and half a second into the next (`VIDEO_FADE_MS`), never more
+than a third of either clip, rendered as ffmpeg `fade` filters counted in frames inside each clip. Clip lengths do not
+change, so the hold arithmetic and the duration check are unaffected. In the page cut a page's override is its first
+panel's. `fadeCuts` and `fadeOpacity` in `@openmanga/domain` are the shared rule and ramp.
+
+**Spanning narration.** A narration line's `video` (`NarrationLineVideo`, `PATCH /api/narration-lines/:id`
+`{ video }`, MCP `edit_narration`) holds `untilPanelId`, `startOffsetMs` and `endOffsetMs`. `untilPanelId` (a panel
+in the same chapter) joins the line's shot to every following shot up to that panel's, so the run shares one hold
+(see timing). The offsets are silence before and after the line, and apply to any line, spanning or not. When the
+end panel is disabled the span ends on the last shot before it.
+
 ## Timing: frame-exact holds
 
-`holdFor(narrationMs, hasNarration, minHoldMs, fps, breathMs)` is the whole timing rule:
+`holdFor(narrationMs, hasNarration, minHoldMs, fps, breathMs)` is the timing rule for one shot:
 
 ```
 frames = ceil(max(minHoldMs, narrationMs + (hasNarration ? breathMs : 0)) * fps / 1000)
 holdMs = frames * 1000 / fps
 ```
+
+`timeGroup` applies it to a *hold group*: one shot, or the run of shots a spanning line joins (`shotGroups`). A
+group's lines play one after another — each line's start offset, its segments with their pauses between them, its end
+offset, then its last pause before the next line — and the group holds that plus the breath, at least `minHoldMs` per
+shot, in whole frames split evenly over its shots (earlier shots take the odd frames). A single shot without offsets
+times exactly as `holdFor`. The render and the preview both call `timeGroup`.
 
 Holds are whole frames, so a clip and its audio are exactly the same length. That is why there is no `-shortest`
 anywhere in the pipeline and no per-clip drift to accumulate: the concat is muxed with
@@ -92,17 +125,18 @@ change an audible ~1.2 s hole, which is where the 150 ms comes from.
 
 ## Audio assembly
 
-Pass 1 walks the shots in order and appends narration to a single `narration.wav` on disk — never the whole film in
-memory. Per shot:
+Pass 1 walks the hold groups in order and writes narration to a single `narration.wav` on disk — never the whole
+film in memory. Per group:
 
 1. Read each segment's active audio asset. Anything that is not 24 kHz mono 16-bit PCM is converted with
-   `ffmpegConvert` first; `concatWav` refuses mixed formats.
-2. Concatenate the segments with their `pauseAfterMs` gaps between them (not after the last one).
-3. Append the result, then append `holdMs - narrationMs` of silence so the track matches the frame-exact hold.
-4. Record subtitle cues on the running clock, and per-shot report fields (`narrationMs`, `holdMs`, `segments`,
-   `missingAudio`).
+   `ffmpegConvert` first.
+2. Time the group with `timeGroup`, which gives every segment its start on the group's clock.
+3. Write each segment at its sample position on the film clock, with silence up to it, then silence up to the end of
+   the group. Positions are absolute, so rounding never accumulates.
+4. Record subtitle cues at the same positions, and per-shot report fields (`holdMs`, `segments`, `missingAudio`; the
+   group's first shot also `narrationMs`, and `spanShots` and `fade` where they apply).
 
-The WAV header is rewritten with the final sizes once the last shot is appended. A shot with no narration at all is
+The WAV header is rewritten with the final sizes once the last group is written. A shot with no narration at all is
 simply `minHoldMs` of silence in that track — there is no separate silent input and no `anullsrc`, so a film that
 mixes narrated and un-narrated pages still concats as one uniform stream.
 
@@ -144,17 +178,24 @@ frame aspect and image transform) — no bubbles. A panel with no active artwork
 the rendered page (reported as `source: "lettered-page-crop"`), which keeps the real art with its bubbles rather
 than leaving a hole.
 
-Direction comes from the panel's own `shotType`: `close`, `extreme-close` and `insert` pull **out**; everything else
-pushes **in** (`kenBurnsPullsOut`). The move is a `zoompan` over the clip's frames, anchored on the image focus
-(`focusInCrop`) rather than the geometric centre, so the move ends on what the panel is about:
+The move is the shot's `motion`. `auto` comes from the panel's own `shotType`: `close`, `extreme-close` and `insert`
+pull **out**; everything else pushes **in** (`kenBurnsPullsOut`) — unless the shot before made the same move, in which
+case it pans towards the image focus instead (sideways, else up or down; `resolveMotions`), so a run of wide shots
+does not read as one long zoom. An explicit motion is kept as set.
+
+`motionPath` gives a move's start and end: the zoom, and where the visible window sits in the slack the zoom leaves
+(0 = left/top, 1 = right/bottom). Pushes and pulls stay anchored on the image focus (`focusInCrop`) rather than the
+geometric centre, so the move ends on what the panel is about; pans hold `1 + zoom` and travel the whole slack on
+their axis, keeping the focus on the other; `static` is a still frame. The render turns it into a `zoompan` over the
+clip's frames (`zoompanFor`), for example a push in:
 
 ```
-zoompan=z='1+0.06*on/<frames>':x='(iw-iw/zoom)*<focus.x>':y='(ih-ih/zoom)*<focus.y>':d=1:s=<w>x<h>:fps=<fps>
+zoompan=z='(1.0000+0.0600*on/<frames>)':x='(iw-iw/zoom)*<focus.x>':y='(ih-ih/zoom)*<focus.y>':d=1:s=<w>x<h>:fps=<fps>
 ```
 
 **Supersample 3× before `zoompan`.** Zooming a source at display size quantises the crop and visibly shakes.
 Rendering the foreground at 3× the box and letting `zoompan` output at box size removes it entirely.
-`kenBurnsZoomAt` in `@openmanga/domain` is the same curve, used by the preview.
+The preview reads the same `motionPath` through `motionAt`.
 
 ## Backdrop
 

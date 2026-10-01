@@ -261,6 +261,25 @@ export function SettingsPage() {
         />
 
         <section className="card space-y-3 p-4">
+          <h2 className="font-medium">Video</h2>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={s.video?.fadeAtSceneBreaks ?? false}
+              onChange={(e) => setS("video", { ...s.video, fadeAtSceneBreaks: e.target.checked })}
+            />
+            <span>
+              Fade to black at scene breaks
+              <span className="muted block text-xs">
+                Half a second out and in where the scene changes. A panel's Video shot settings can force a fade or a
+                hard cut on its own.
+              </span>
+            </span>
+          </label>
+        </section>
+
+        <section className="card space-y-3 p-4">
           <h2 className="font-medium">Production</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field

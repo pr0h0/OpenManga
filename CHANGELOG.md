@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns).
+
 ### Added
 
 - **Agents can clean up.** Three MCP tools, each a delete-class action that waits for approval on an "Ask me first"
@@ -19,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   commented render-only worker service. Renders queued before the upgrade still finish on the `export` queue (see
   `docs/DEPLOYMENT.md`). The worker's health-check heartbeat moved from the shared `/data/tmp` volume to `/tmp`
   inside its own container, so one worker cannot keep another looking healthy.
+- **Shots as video units.** Each panel's *Video shot* settings in the editor: its camera move (auto, static, pan
+  left/right/up/down, push in, pull out), a fade through black into it or a hard cut, and leaving it out of videos
+  (with its narration) without deleting the panel. Auto moves no longer repeat on neighbouring shots: a repeat becomes
+  a pan towards the image focus. A project setting fades to black at scene breaks. A narration line can span several
+  shots (they share one hold) with silence before and after it. The browser preview plays all of it from the same
+  timing helpers as the render, and the settings are on the `update_panel` and `edit_narration` MCP tools.
 
 ### Changed
 

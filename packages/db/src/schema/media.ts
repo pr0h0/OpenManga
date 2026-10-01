@@ -2,10 +2,12 @@ import type {
   Bubble,
   Frame,
   ImageTransform,
+  NarrationLineVideo,
   PanelSeam,
   PanelSpec,
   PlannedLettering,
   SfxStyle,
+  ShotVideo,
 } from "@openmanga/schemas";
 import { bigint, boolean, index, integer, jsonb, pgTable, real, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
@@ -198,6 +200,8 @@ export const panels = pgTable(
     seam: jsonb("seam").$type<PanelSeam>(),
     /** The plan's dialogue and SFX for this panel, until they are lettered onto the page. */
     plannedLettering: jsonb("planned_lettering").$type<PlannedLettering>(),
+    /** The panel as a video shot: motion, fade override, disabled. Null = all defaults. */
+    video: jsonb("video").$type<ShotVideo>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -306,6 +310,8 @@ export const narrationLines = pgTable(
     text: text("text").notNull(),
     showOnPage: boolean("show_on_page").notNull().default(false),
     box: jsonb("box").$type<Bubble>(),
+    /** Spanning several shots and start/end offsets in the video. Null = over its own shot, no offsets. */
+    video: jsonb("video").$type<NarrationLineVideo>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

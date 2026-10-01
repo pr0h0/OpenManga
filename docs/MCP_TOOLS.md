@@ -1351,6 +1351,15 @@ Change a project's title, description, type, language, reading direction, colour
           "type": "string",
           "maxLength": 500
         },
+        "video": {
+          "type": "object",
+          "properties": {
+            "fadeAtSceneBreaks": {
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        },
         "consistencyCheck": {
           "type": "object",
           "properties": {
@@ -5131,7 +5140,7 @@ One panel: fields (shot, camera, story beat, cast/location/prop versions, prompt
 
 ### update_panel
 
-Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status; and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
+Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
 
 - **Scopes:** `panels:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -5303,6 +5312,45 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
             "color": {
               "type": "string",
               "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "video": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "motion": {
+              "default": "auto",
+              "type": "string",
+              "enum": [
+                "auto",
+                "static",
+                "pan-left",
+                "pan-right",
+                "pan-up",
+                "pan-down",
+                "push-in",
+                "pull-out"
+              ]
+            },
+            "fade": {
+              "default": "auto",
+              "type": "string",
+              "enum": [
+                "auto",
+                "on",
+                "off"
+              ]
+            },
+            "disabled": {
+              "default": false,
+              "type": "boolean"
             }
           }
         },
@@ -6975,7 +7023,7 @@ Synthesis progress for every chapter of a project: segments, how many have audio
 
 ### edit_narration
 
-add_line: add a narration line to a chapter (auto-split into TTS segments), optionally tied to a panel and shown on the page. update_line: edit text (re-segments; unchanged segments keep their audio), panel, on-page box or order. delete_line (delete class). resegment_line: re-split a line. update_segment: text, voice, speed, pause. split_segment / merge_segment. apply_pauses: re-apply the project's pause settings to a chapter. No audio is produced here; use synthesize_narration.
+add_line: add a narration line to a chapter (auto-split into TTS segments), optionally tied to a panel and shown on the page. update_line: edit text (re-segments; unchanged segments keep their audio), panel, on-page box, order, or its video span and offsets (`video`). delete_line (delete class). resegment_line: re-split a line. update_segment: text, voice, speed, pause. split_segment / merge_segment. apply_pauses: re-apply the project's pause settings to a chapter. No audio is produced here; use synthesize_narration.
 
 - **Scopes:** `narration:write`
 - **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
@@ -7221,6 +7269,43 @@ add_line: add a narration line to a chapter (auto-split into TTS segments), opti
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
+        },
+        "video": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "untilPanelId": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "startOffsetMs": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "endOffsetMs": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },

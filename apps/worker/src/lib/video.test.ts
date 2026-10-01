@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fitBox, scrollPlan } from "@openmanga/domain";
 import { focusInCrop } from "@openmanga/image-utils";
-import { kenBurnsZoom, toSrt } from "./video.ts";
+import { fadeFilter, toSrt, zoompanFor } from "./video.ts";
 
 test("scroll is capped and centred when the hold is short", () => {
   expect(scrollPlan(648, 1.1, 60)).toEqual({ y0: 291, travel: 66 });
@@ -9,11 +9,22 @@ test("scroll is capped and centred when the hold is short", () => {
   expect(scrollPlan(-10, 5, 60)).toEqual({ y0: 0, travel: 0 });
 });
 
-test("Ken Burns: wide shots push in, close shots pull out", () => {
-  expect(kenBurnsZoom("wide", 0.06, 90)).toBe("1+0.06*on/90");
-  expect(kenBurnsZoom("medium", 0.06, 90)).toBe("1+0.06*on/90");
-  expect(kenBurnsZoom("close", 0.06, 90)).toBe("1.0600-0.06*on/90");
-  expect(kenBurnsZoom("insert", 0.1, 0)).toBe("1.1000-0.1*on/1");
+test("zoompan follows the move: zooms anchored on the focus, pans across the slack", () => {
+  const focus = { x: 0.25, y: 0.75 };
+  expect(zoompanFor("push-in", 0.06, focus, 90, 676, 1014, 30)).toBe(
+    "zoompan=z='(1.0000+0.0600*on/90)':x='(iw-iw/zoom)*0.2500':y='(ih-ih/zoom)*0.7500':d=1:s=676x1014:fps=30",
+  );
+  expect(zoompanFor("pull-out", 0.1, focus, 0, 2, 2, 24)).toContain("z='(1.1000-0.1000*on/1)'");
+  expect(zoompanFor("pan-left", 0.06, focus, 90, 2, 2, 30)).toContain(
+    "z='1.0600':x='(iw-iw/zoom)*(1.0000-1.0000*on/90)':y='(ih-ih/zoom)*0.7500'",
+  );
+  expect(zoompanFor("static", 0.06, focus, 90, 2, 2, 30)).toContain("z='1.0000'");
+});
+
+test("scene-break fades are frame counted and never longer than a third of the clip", () => {
+  expect(fadeFilter({ in: false, out: false }, 90, 30)).toBe("");
+  expect(fadeFilter({ in: true, out: true }, 90, 30)).toBe(",fade=t=in:s=0:n=15,fade=t=out:s=75:n=15");
+  expect(fadeFilter({ in: true, out: false }, 30, 30)).toBe(",fade=t=in:s=0:n=10");
 });
 
 test("panels fit inside the frame margin with even dimensions", () => {

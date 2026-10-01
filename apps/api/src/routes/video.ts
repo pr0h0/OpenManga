@@ -1,6 +1,12 @@
-import { assets, eq, inArray, pages } from "@openmanga/db";
-import { computeCrop, focusInCrop } from "@openmanga/image-utils";
-import { loadRenderPage, narrationSegmentsFor, planVideoShots, renderPageImage } from "@openmanga/services";
+import { eq, pages } from "@openmanga/db";
+import { computeCrop } from "@openmanga/image-utils";
+import {
+  loadRenderPage,
+  narrationSegmentsFor,
+  panelAspect,
+  planVideoShots,
+  renderPageImage,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -59,8 +65,8 @@ videoRoutes.get("/pages/:id/render.png", async (c) => {
 });
 
 /**
- * The preview's shot list: the same shots, crops, focus points and narration as the final render. Shared by the
- * signed-in preview and a reader link's (which passes its own, already checked, scope).
+ * The preview's shot list: the same shots, crops, focus points, moves, fades, spans and narration as the final
+ * render. Shared by the signed-in preview and a reader link's (which passes its own, already checked, scope).
  */
 export async function previewPayload(
   db: AppEnv["Variables"]["deps"]["db"],
@@ -79,19 +85,22 @@ export async function previewPayload(
     db,
     planned.shots.flatMap((s) => s.lineIds),
   );
-  const artIds = planned.shots.map((s) => s.panel?.activeArtworkAssetId).filter((x): x is string => Boolean(x));
-  const arts = artIds.length ? await db.select().from(assets).where(inArray(assets.id, artIds)) : [];
+  const lineById = new Map(planned.lines.map((l) => [l.id, l]));
   return {
     cut,
     language,
     unplacedLines: planned.unplacedLines,
+    disabledPanels: planned.disabledPanels,
     shots: planned.shots.map((s) => {
       const pn = s.panel;
-      const art = pn?.activeArtworkAssetId ? arts.find((a) => a.id === pn.activeArtworkAssetId) : undefined;
-      const aspect = pn ? (pn.frame.width * s.page.width) / Math.max(1, pn.frame.height * s.page.height) : null;
+      const art = s.art;
+      const aspect = pn ? panelAspect(pn, s.page) : null;
       return {
         key: s.key,
         label: s.label,
+        joinNext: s.joinNext,
+        fade: s.fade,
+        motion: s.motion,
         page: {
           id: s.page.id,
           order: s.page.order,
@@ -107,6 +116,7 @@ export async function previewPayload(
                 shotType: pn.shotType,
                 frame: pn.frame,
                 aspect,
+                focus: s.focus,
                 art:
                   art?.width && art.height
                     ? {
@@ -114,20 +124,25 @@ export async function previewPayload(
                         width: art.width,
                         height: art.height,
                         crop: computeCrop(art.width, art.height, aspect, pn.imageTransform),
-                        focus: focusInCrop(art.width, art.height, aspect, pn.imageTransform),
                       }
                     : null,
               }
             : null,
-        segments: s.lineIds.flatMap((id) =>
-          (byLine.get(id) ?? []).map(({ s: seg, a }) => ({
-            id: seg.id,
-            text: seg.text,
-            pauseAfterMs: seg.pauseAfterMs,
-            audioAssetId: a?.assetId ?? null,
-            durationMs: a?.durationMs ?? null,
-          })),
-        ),
+        lines: s.lineIds.map((id) => {
+          const v = lineById.get(id)?.video;
+          return {
+            id,
+            startOffsetMs: v?.startOffsetMs ?? 0,
+            endOffsetMs: v?.endOffsetMs ?? 0,
+            segments: (byLine.get(id) ?? []).map(({ s: seg, a }) => ({
+              id: seg.id,
+              text: seg.text,
+              pauseAfterMs: seg.pauseAfterMs,
+              audioAssetId: a?.assetId ?? null,
+              durationMs: a?.durationMs ?? null,
+            })),
+          };
+        }),
       };
     }),
   };
