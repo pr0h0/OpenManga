@@ -38,7 +38,7 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { buildTimeline, chunkStrip, youtubeChapters } from "@openmanga/domain";
+import { buildTimeline, chunkStrip, type SeamedBlock, youtubeChapters } from "@openmanga/domain";
 import { extForMime, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
@@ -51,9 +51,9 @@ import {
   renderWebtoonBlocks,
 } from "@openmanga/services";
 import { withTempDir } from "@openmanga/storage";
-import { PDFDocument, ReadingDirection } from "pdf-lib";
 import type { WorkerDeps } from "../context.ts";
 import { type BookMeta, comicInfoXml, epubFiles } from "../lib/ebook.ts";
+import { type ImagePage, PdfWriter } from "../lib/pdf.ts";
 import { renderPageCutVideo, renderPanelCutVideo, type VideoOptions } from "../lib/video.ts";
 import { ZipWriter } from "../lib/zip.ts";
 import { buildAgentPackage } from "./agent-package.ts";
@@ -139,7 +139,7 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
     await mkdir(deps.config.TEMP_ROOT, { recursive: true });
     const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
     if (!project) throw new UnrecoverableError("Project no longer exists");
-    // Files built on disk (video) are stored from the temp dir, so everything happens before it is removed.
+    // Files built on disk (video, PDF, archives) are stored from the temp dir, so everything happens before it is removed.
     const files = await withTempDir(deps.config.TEMP_ROOT, async (dir) => {
       const files = await buildExport(deps, job, opts, project, progress, dir);
       await deps.db.transaction(async (tx) => {
@@ -224,7 +224,16 @@ async function pageIdsFor(deps: WorkerDeps, opts: Opts, projectId: string) {
       .orderBy(asc(pages.order));
     return rows.map((r) => r.id);
   }
-  if (!opts.chapterId) return [];
+  if (!opts.chapterId) {
+    // The whole project, in reading order. Only kinds that stream their output get here (see exports.ts).
+    const rows = await deps.db
+      .select({ id: pages.id })
+      .from(pages)
+      .innerJoin(chapters, eq(chapters.id, pages.chapterId))
+      .where(eq(pages.projectId, projectId))
+      .orderBy(asc(chapters.order), asc(pages.order));
+    return rows.map((r) => r.id);
+  }
   const rows = await deps.db
     .select({ id: pages.id })
     .from(pages)
@@ -277,12 +286,12 @@ async function buildExport(
     case "pdf": {
       const ids = await pageIdsFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
-      const readingDir = opts.pdf.readingDirection ?? project.readingDirection;
-      const ordered = ids;
-      const pdf = await PDFDocument.create();
-      if (readingDir === "rtl") pdf.catalog.getOrCreateViewerPreferences().setReadingDirection(ReadingDirection.R2L);
-      pdf.setTitle(`${project.title} — ${chapterTitle}`);
-      pdf.setCreator("OpenManga");
+      // Streamed page by page into the file, so a whole-project PDF costs the memory of one page.
+      const path = join(dir, "book.pdf");
+      const pdf = await PdfWriter.create(path, {
+        title: opts.chapterId ? `${project.title} — ${chapterTitle}` : project.title,
+        rtl: (opts.pdf.readingDirection ?? project.readingDirection) === "rtl",
+      });
       // A KDP interior carries no cover: the cover is a separate file uploaded next to it.
       if (project.coverAssetId && !KDP_TRIM_IN[opts.pdf.pageSize]) {
         const cover = await deps.assets.get(project.coverAssetId);
@@ -290,19 +299,20 @@ async function buildExport(
           const png = await renderCover(
             await deps.assets.read(cover),
             project.title,
-            chapterTitle,
+            opts.chapterId ? chapterTitle : "",
             project.settings.author,
           );
-          addImagePage(pdf, await pdf.embedPng(png), 1200, 1800, opts);
+          await pdf.addPage(imagePage(png, 1200, 1800, opts));
         }
       }
-      for (const [i, pid] of ordered.entries()) {
+      for (const [i, pid] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
         const img = await renderPageImage(page, "png", { scale: opts.scale });
-        addImagePage(pdf, await pdf.embedPng(img.data), img.width, img.height, opts, i);
-        await progress((i + 1) / ordered.length);
+        await pdf.addPage(imagePage(img.data, img.width, img.height, opts, i));
+        await progress((i + 1) / ids.length);
       }
-      return [{ name: `${prefix}.pdf`, data: await pdf.save(), mime: "application/pdf" }];
+      await pdf.close();
+      return [{ name: `${prefix}.pdf`, path, mime: "application/pdf" }];
     }
     case "webtoon": {
       const ids = await pageIdsFor(deps, opts, project.id);
@@ -310,10 +320,16 @@ async function buildExport(
       const width = opts.webtoon.width ?? project.settings.webtoonWidth;
       const gap = opts.webtoon.gap ?? project.settings.webtoonGap;
       const maxH = opts.webtoon.maxChunkHeight ?? project.settings.webtoonChunkHeight;
-      const blocks: { data: Uint8Array; height: number }[] = [];
+      // Panel blocks wait on disk, not in memory: a whole project is thousands of them. Only the chunk being
+      // stitched is read back, so memory is bounded by the chunk height rather than by the length of the strip.
+      const blocks: (SeamedBlock & { path: string })[] = [];
       for (const [i, pid] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
-        blocks.push(...(await renderWebtoonBlocks(page, width)));
+        for (const b of await renderWebtoonBlocks(page, width)) {
+          const path = join(dir, `block-${blocks.length}.png`);
+          await Bun.write(path, b.data);
+          blocks.push({ path, height: b.height, seam: b.seam });
+        }
         await progress(((i + 1) / ids.length) * 0.8);
       }
       // Seam-aware: a vertical project authors what happens between panels, so chunking has to respect blends
@@ -321,7 +337,8 @@ async function buildExport(
       const chunks = opts.webtoon.split ? chunkStrip(blocks, maxH, { gap }) : [blocks];
       const zip = chunks.length > 1 ? new ZipWriter(join(dir, "webtoon.zip")) : null;
       for (const [i, chunk] of chunks.entries()) {
-        const strip = await renderStrip(chunk, width, gap);
+        const loaded = await Promise.all(chunk.map(async (b) => ({ ...b, data: await Bun.file(b.path).bytes() })));
+        const strip = await renderStrip(loaded, width, gap);
         const data =
           opts.webtoon.format === "jpg"
             ? new Uint8Array(
@@ -333,6 +350,7 @@ async function buildExport(
         const name = `${prefix}_webtoon_${String(i + 1).padStart(2, "0")}.${opts.webtoon.format}`;
         if (!zip) return [{ name, data, mime: opts.webtoon.format === "jpg" ? "image/jpeg" : "image/png", width }];
         await zip.add(name, data);
+        await progress(0.8 + ((i + 1) / chunks.length) * 0.2);
       }
       await progress(1);
       return [{ name: `${prefix}_webtoon.zip`, path: await zip!.close(), mime: "application/zip" }];
@@ -496,7 +514,8 @@ async function buildExport(
       const zip = new ZipWriter(join(dir, "youtube.zip"));
       let chaptersText = "";
       for (const [i, f] of files.entries()) {
-        if (f.name.endsWith(".mp4")) await zip.addStream(`video/${f.name}`, deps.assets.storage.stream(f.a.storageKey));
+        if (f.name.endsWith(".mp4"))
+          await zip.addStream(`video/${f.name}`, deps.assets.storage.stream(f.a.storageKey), f.a.byteSize);
         else {
           const data = await deps.assets.read(f.a);
           if (f.name.endsWith(".chapters.txt")) chaptersText = new TextDecoder().decode(data).trim();
@@ -644,27 +663,30 @@ async function chapterFile(deps: WorkerDeps, starts: { chapterId: string; startM
     : [];
 }
 
-function addImagePage(
-  pdf: PDFDocument,
-  image: Awaited<ReturnType<PDFDocument["embedPng"]>>,
+/** Page size and image placement in points, for the page size, margins and bleed the export asked for. */
+function imagePage(
+  png: Uint8Array,
   pxW: number,
   pxH: number,
   opts: Opts,
   /** Interior page index, for which edge is the outside one in a KDP book. */
   index = 0,
-) {
+): ImagePage {
   const kdp = KDP_TRIM_IN[opts.pdf.pageSize];
   if (kdp) {
     // Full bleed to KDP's spec: the art covers the whole page (cropping a sliver at the edges) and the trim box
     // marks where the book is cut — bleed on the outside edge, which is the right of a recto (odd) page.
     const [tw, th] = [kdp[0] * 72, kdp[1] * 72];
-    const [pageW, pageH] = [tw + 9, th + 18];
-    const page = pdf.addPage([pageW, pageH]);
-    const k = Math.max(pageW / pxW, pageH / pxH);
-    page.drawImage(image, { x: (pageW - pxW * k) / 2, y: (pageH - pxH * k) / 2, width: pxW * k, height: pxH * k });
-    page.setTrimBox(index % 2 === 0 ? 0 : 9, 9, tw, th);
-    page.setBleedBox(0, 0, pageW, pageH);
-    return;
+    const [width, height] = [tw + 9, th + 18];
+    const k = Math.max(width / pxW, height / pxH);
+    return {
+      png,
+      width,
+      height,
+      image: { x: (width - pxW * k) / 2, y: (height - pxH * k) / 2, width: pxW * k, height: pxH * k },
+      trimBox: { x: index % 2 === 0 ? 0 : 9, y: 9, width: tw, height: th },
+      bleedBox: { x: 0, y: 0, width, height },
+    };
   }
   const bleed = mm(opts.pdf.bleedMm);
   const margin = mm(opts.pdf.marginMm);
@@ -678,13 +700,12 @@ function addImagePage(
     pageW = w + bleed * 2;
     pageH = h + bleed * 2;
   }
-  const page = pdf.addPage([pageW, pageH]);
   const availW = pageW - (margin + bleed) * 2;
   const availH = pageH - (margin + bleed) * 2;
   const k = Math.min(availW / pxW, availH / pxH);
   const w = pxW * k;
   const h = pxH * k;
-  page.drawImage(image, { x: (pageW - w) / 2, y: (pageH - h) / 2, width: w, height: h });
+  return { png, width: pageW, height: pageH, image: { x: (pageW - w) / 2, y: (pageH - h) / 2, width: w, height: h } };
 }
 
 /** Stable interchange document (schemaVersion 1). Never raw DB rows; assets referenced by manifest id. */

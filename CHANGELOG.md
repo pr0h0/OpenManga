@@ -11,6 +11,10 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns).
 
 ### Added
 
+- **Streaming PDF and webtoon exports, and ZIP64.** PDFs are written to disk page by page and webtoon strips are
+  stitched one chunk at a time from panel blocks kept on disk, so memory no longer grows with length. Both can now
+  export the whole project (every chapter in order) as well as one chapter. ZIP exports switch to ZIP64 past 4 GiB or
+  65,535 entries instead of failing with "Archive is larger than 4 GB".
 - **Agents can clean up.** Three MCP tools, each a delete-class action that waits for approval on an "Ask me first"
   connection: `delete_exports` (one export, or every finished export of a project), `delete_narration_audio` (a
   chapter's, one track of it, or the whole project's; the text stays) and `manage_assets` (list a project's assets or

@@ -21,7 +21,9 @@
     "@openmanga/services": "workspace:*",
     "@openmanga/storage": "workspace:*",
     "fflate": "^0.8.2",
-    "pdf-lib": "^1.17.1",
     "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "pdf-lib": "^1.17.1"
   }
 }

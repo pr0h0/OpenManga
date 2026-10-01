@@ -53,6 +53,8 @@ const AREAS: Record<string, ("art" | "narration")[]> = {
 };
 const USES_LANGUAGE = new Set(["narration_audio", "timeline", "agent_package", "video_pages", "video_panels"]);
 const isVideo = (k: string) => k === "video_pages" || k === "video_panels";
+/** Chapter kinds that can also cover the whole project: they stream to disk, so length costs no memory. */
+const WHOLE_PROJECT = new Set(["pdf", "webtoon"]);
 type Issue = {
   code: string;
   area: "art" | "narration";
@@ -109,10 +111,13 @@ export function ExportsPage() {
 
   const needsChapter = KINDS.find((k) => k.value === kind)!.chapter;
   const [agentChapter, setAgentChapter] = useState("");
-  const selectedChapter = chapterId || chapters.data?.chapters[0]?.id || "";
+  const wholeProject = WHOLE_PROJECT.has(kind) && chapterId === "all";
+  const selectedChapter = (chapterId !== "all" && chapterId) || chapters.data?.chapters[0]?.id || "";
 
   const scopeChapter = needsChapter
-    ? selectedChapter
+    ? wholeProject
+      ? null
+      : selectedChapter
     : kind === "agent_package" || isVideo(kind) || kind === "youtube_package"
       ? agentChapter || null
       : null;
@@ -244,7 +249,12 @@ export function ExportsPage() {
           </Field>
           {needsChapter && (
             <Field label="Chapter">
-              <select className="input" value={selectedChapter} onChange={(e) => setChapterId(e.target.value)}>
+              <select
+                className="input"
+                value={wholeProject ? "all" : selectedChapter}
+                onChange={(e) => setChapterId(e.target.value)}
+              >
+                {WHOLE_PROJECT.has(kind) && <option value="all">Whole project (all chapters)</option>}
                 {chapters.data?.chapters.map((c) => (
                   <option key={c.id} value={c.id}>
                     Ch. {c.order} — {c.title}

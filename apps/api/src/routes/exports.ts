@@ -128,7 +128,8 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
   const input = await body(c, ExportOptions);
   if (
-    ["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon", "narration_audio", "timeline"].includes(input.kind) &&
+    // PDF and webtoon stream to disk, so they can cover the whole project; these kinds are per chapter.
+    ["png_pages", "jpg_pages", "cbz", "epub", "narration_audio", "timeline"].includes(input.kind) &&
     !input.chapterId &&
     !input.pageIds?.length
   ) {

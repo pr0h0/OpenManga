@@ -1,71 +1,182 @@
+import { type FileHandle, open } from "node:fs/promises";
+import { crc32 } from "node:zlib";
 import { UnrecoverableError } from "@openmanga/queue";
 import type { FileSink } from "bun";
-import { Unzip, UnzipInflate, Zip, ZipPassThrough } from "fflate";
+import { Unzip, UnzipInflate } from "fflate";
 
-// ponytail: fflate writes no ZIP64, so an archive must stay under 4 GiB and 65,535 entries (same limit zipSync had).
-const MAX_ZIP_BYTES = 2 ** 32 - 1;
+const MAX16 = 0xffff;
+const MAX32 = 0xffffffff;
 
-/** Stored (uncompressed) ZIP written straight to disk; only the entry being added is in memory. */
+type CentralEntry = { name: Uint8Array; crc: number; size: number; offset: number; time: number; date: number };
+
+/**
+ * Stored (uncompressed) ZIP written straight to disk; only the entry being added is in memory. Sizes, offsets and
+ * the entry count past the classic format's limits (4 GiB, 65,535 entries) switch that record to ZIP64, so a
+ * package of any size is written; smaller archives stay plain ZIP, readable by every tool.
+ */
 export class ZipWriter {
-  private readonly sink;
-  private readonly zip: Zip;
+  private readonly file: Promise<FileHandle>;
+  private readonly central: CentralEntry[] = [];
   private readonly names = new Set<string>();
-  private error: Error | null = null;
-  private bytes = 0;
+  private offset = 0;
 
-  constructor(readonly path: string) {
-    this.sink = Bun.file(path).writer();
-    this.zip = new Zip((err, chunk) => {
-      if (err) this.error = err;
-      else {
-        this.bytes += chunk.byteLength;
-        this.sink.write(chunk);
-      }
-    });
+  constructor(
+    readonly path: string,
+    /** Sizes and offsets from this value up take ZIP64 fields. Tests lower it to write ZIP64 without 4 GiB of data. */
+    private readonly zip64From = MAX32,
+  ) {
+    this.file = open(path, "w");
   }
 
   /** Later entries with an already-used name are skipped. */
   async add(name: string, data: Uint8Array) {
     if (this.names.has(name)) return;
     this.names.add(name);
-    const entry = new ZipPassThrough(name);
-    this.zip.add(entry);
-    entry.push(data, true);
-    await this.check();
+    const header = this.localHeader(name, data.byteLength, crc32(data));
+    await this.write(header);
+    await this.write(data);
   }
 
-  /** A large entry, chunk by chunk from a stream, so a multi-GB video never sits in memory. */
-  async addStream(name: string, stream: ReadableStream<Uint8Array>) {
+  /**
+   * A large entry, chunk by chunk from a stream, so a multi-GB video never sits in memory. `size` comes from the
+   * asset row; the CRC is only known at the end, so it is written into the header afterwards.
+   */
+  async addStream(name: string, stream: ReadableStream<Uint8Array>, size: number) {
     if (this.names.has(name)) return;
     this.names.add(name);
-    const entry = new ZipPassThrough(name);
-    this.zip.add(entry);
+    const header = this.localHeader(name, size, 0);
+    const crcAt = this.offset + 14;
+    await this.write(header);
+    let crc = 0;
+    let written = 0;
     const reader = stream.getReader();
     for (let r = await reader.read(); !r.done; r = await reader.read()) {
-      entry.push(r.value);
-      await this.check();
+      crc = crc32(r.value, crc);
+      written += r.value.byteLength;
+      await this.write(r.value);
     }
-    entry.push(new Uint8Array(), true);
-    await this.check();
-  }
-
-  get entries() {
-    return this.names.size;
+    if (written !== size) throw new Error(`ZIP entry ${name} was ${written} bytes, expected ${size}`);
+    const patch = new Uint8Array(4);
+    new DataView(patch.buffer).setUint32(0, crc, true);
+    await (await this.file).write(patch, 0, 4, crcAt);
+    this.central.at(-1)!.crc = crc;
   }
 
   async close() {
-    this.zip.end();
-    await this.check();
-    await this.sink.end();
+    const cdStart = this.offset;
+    for (const e of this.central) await this.write(this.centralHeader(e));
+    const cdSize = this.offset - cdStart;
+    const count = this.central.length;
+    const zip64 = count >= Math.min(MAX16, this.zip64From) || cdStart >= this.zip64From || cdSize >= this.zip64From;
+    if (zip64) {
+      // ZIP64 end of central directory record, then its locator; the classic record below points readers at them.
+      const at = this.offset;
+      const rec = new Uint8Array(56 + 20);
+      const v = new DataView(rec.buffer);
+      v.setUint32(0, 0x06064b50, true);
+      v.setBigUint64(4, 44n, true);
+      v.setUint16(12, 45, true);
+      v.setUint16(14, 45, true);
+      v.setBigUint64(24, BigInt(count), true);
+      v.setBigUint64(32, BigInt(count), true);
+      v.setBigUint64(40, BigInt(cdSize), true);
+      v.setBigUint64(48, BigInt(cdStart), true);
+      v.setUint32(56, 0x07064b50, true);
+      v.setBigUint64(64, BigInt(at), true);
+      v.setUint32(72, 1, true);
+      await this.write(rec);
+    }
+    const end = new Uint8Array(22);
+    const v = new DataView(end.buffer);
+    v.setUint32(0, 0x06054b50, true);
+    v.setUint16(8, zip64 ? MAX16 : count, true);
+    v.setUint16(10, zip64 ? MAX16 : count, true);
+    v.setUint32(12, zip64 ? MAX32 : cdSize, true);
+    v.setUint32(16, zip64 ? MAX32 : cdStart, true);
+    await this.write(end);
+    await (await this.file).close();
     return this.path;
   }
 
-  private async check() {
-    await this.sink.flush();
-    if (this.error) throw this.error;
-    if (this.bytes > MAX_ZIP_BYTES || this.names.size > 65_535)
-      throw new UnrecoverableError("Archive is larger than 4 GB; export chapters separately");
+  private localHeader(name: string, size: number, crc: number) {
+    const encoded = new TextEncoder().encode(name);
+    const zip64 = size >= this.zip64From;
+    const { time, date } = dosTime(new Date());
+    this.central.push({ name: encoded, crc, size, offset: this.offset, time, date });
+    const h = new Uint8Array(30 + encoded.byteLength + (zip64 ? 20 : 0));
+    const v = new DataView(h.buffer);
+    v.setUint32(0, 0x04034b50, true);
+    v.setUint16(4, zip64 ? 45 : 20, true);
+    v.setUint16(6, 0x0800, true); // names are UTF-8
+    v.setUint16(10, time, true);
+    v.setUint16(12, date, true);
+    v.setUint32(14, crc, true);
+    v.setUint32(18, zip64 ? MAX32 : size, true);
+    v.setUint32(22, zip64 ? MAX32 : size, true);
+    v.setUint16(26, encoded.byteLength, true);
+    v.setUint16(28, zip64 ? 20 : 0, true);
+    h.set(encoded, 30);
+    if (zip64) {
+      const x = 30 + encoded.byteLength;
+      v.setUint16(x, 1, true);
+      v.setUint16(x + 2, 16, true);
+      v.setBigUint64(x + 4, BigInt(size), true);
+      v.setBigUint64(x + 12, BigInt(size), true);
+    }
+    return h;
   }
+
+  private centralHeader(e: CentralEntry) {
+    const bigSize = e.size >= this.zip64From;
+    const bigOffset = e.offset >= this.zip64From;
+    // The ZIP64 extra holds only the fields that overflowed, in this fixed order: sizes, then the offset.
+    const extra = (bigSize ? 16 : 0) + (bigOffset ? 8 : 0);
+    const h = new Uint8Array(46 + e.name.byteLength + (extra ? 4 + extra : 0));
+    const v = new DataView(h.buffer);
+    const version = extra ? 45 : 20;
+    v.setUint32(0, 0x02014b50, true);
+    v.setUint16(4, version, true);
+    v.setUint16(6, version, true);
+    v.setUint16(8, 0x0800, true);
+    v.setUint16(12, e.time, true);
+    v.setUint16(14, e.date, true);
+    v.setUint32(16, e.crc, true);
+    v.setUint32(20, bigSize ? MAX32 : e.size, true);
+    v.setUint32(24, bigSize ? MAX32 : e.size, true);
+    v.setUint16(28, e.name.byteLength, true);
+    v.setUint16(30, extra ? 4 + extra : 0, true);
+    v.setUint32(42, bigOffset ? MAX32 : e.offset, true);
+    h.set(e.name, 46);
+    if (extra) {
+      let x = 46 + e.name.byteLength;
+      v.setUint16(x, 1, true);
+      v.setUint16(x + 2, extra, true);
+      x += 4;
+      if (bigSize) {
+        v.setBigUint64(x, BigInt(e.size), true);
+        v.setBigUint64(x + 8, BigInt(e.size), true);
+        x += 16;
+      }
+      if (bigOffset) v.setBigUint64(x, BigInt(e.offset), true);
+    }
+    return h;
+  }
+
+  private async write(data: Uint8Array) {
+    const fh = await this.file;
+    for (let done = 0; done < data.byteLength; ) {
+      const { bytesWritten } = await fh.write(data, done, data.byteLength - done, this.offset);
+      done += bytesWritten;
+      this.offset += bytesWritten;
+    }
+  }
+}
+
+function dosTime(d: Date) {
+  return {
+    time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1),
+    date: ((Math.max(1980, d.getFullYear()) - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
+  };
 }
 
 /** Limits applied while extracting a package, all enforced as chunks arrive rather than after decompression. */

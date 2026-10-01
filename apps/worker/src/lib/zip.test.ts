@@ -132,11 +132,120 @@ test("a streamed entry lands whole, chunk by chunk", async () => {
     const src = join(dir, "src.bin");
     await Bun.write(src, big);
     const zip = new ZipWriter(join(dir, "out.zip"));
-    await zip.addStream("video/big.mp4", Bun.file(src).stream());
+    await zip.addStream("video/big.mp4", Bun.file(src).stream(), big.byteLength);
     await zip.add("note.txt", new TextEncoder().encode("hi"));
     const files = unzipSync(new Uint8Array(await Bun.file(await zip.close()).arrayBuffer()));
     expect(files["video/big.mp4"]).toEqual(big);
     expect(new TextDecoder().decode(files["note.txt"])).toBe("hi");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+/** Readers outside this codebase, when the machine has them (CI's Ubuntu runner does). */
+const externalCheck = (path: string) => {
+  if (Bun.which("unzip")) expect(Bun.spawnSync(["unzip", "-tqq", path]).exitCode).toBe(0);
+  if (Bun.which("python3")) {
+    const py = Bun.spawnSync([
+      "python3",
+      "-c",
+      "import sys,zipfile; sys.exit(zipfile.ZipFile(sys.argv[1]).testzip() is not None)",
+      path,
+    ]);
+    expect(py.exitCode).toBe(0);
+  }
+};
+
+const u32 = (b: Uint8Array, at: number) => new DataView(b.buffer, b.byteOffset).getUint32(at, true);
+
+test("ZIP64 records are written and read back when the classic limits are passed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "om-zip64-"));
+  try {
+    // Threshold 0: every size, offset and the entry count count as too big, so every ZIP64 field is exercised.
+    const zip = new ZipWriter(join(dir, "out.zip"), 0);
+    const big = new Uint8Array(1024 * 1024).map((_, i) => i % 249);
+    await zip.add("mimetype", new TextEncoder().encode("application/epub+zip"));
+    await zip.add("a/big.bin", big);
+    const src = join(dir, "src.bin");
+    await Bun.write(src, big);
+    await zip.addStream("video/clip.mp4", Bun.file(src).stream(), big.byteLength);
+    const path = await zip.close();
+    const buf = new Uint8Array(await Bun.file(path).arrayBuffer());
+
+    // Classic end record defers to the ZIP64 one: counts 0xFFFF, size and offset 0xFFFFFFFF.
+    const eocd = buf.byteLength - 22;
+    expect(u32(buf, eocd)).toBe(0x06054b50);
+    expect(u32(buf, eocd + 12)).toBe(0xffffffff);
+    expect(u32(buf, eocd + 16)).toBe(0xffffffff);
+    expect(u32(buf, eocd - 20)).toBe(0x07064b50); // locator
+    expect(u32(buf, eocd - 20 - 56)).toBe(0x06064b50); // ZIP64 end record
+
+    const files = unzipSync(buf);
+    expect(Object.keys(files).sort()).toEqual(["a/big.bin", "mimetype", "video/clip.mp4"]);
+    expect(files["a/big.bin"]).toEqual(big);
+    expect(files["video/clip.mp4"]).toEqual(big);
+    // The streaming reader that imports use reads the ZIP64 local headers too.
+    const out = await extractZip({
+      path,
+      dir: join(dir, "x"),
+      wanted: (name) => name,
+      limits: { maxEntryBytes: 8 * 1024 * 1024, maxTotalBytes: 64 * 1024 * 1024, maxRatio: 5 },
+    });
+    expect(await out.read("video/clip.mp4")).toEqual(big);
+    externalCheck(path);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an entry past the 4 GiB mark is found through its ZIP64 offset", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "om-zip64-off-"));
+  try {
+    const zip = new ZipWriter(join(dir, "out.zip"));
+    await zip.add("first.txt", new TextEncoder().encode("first"));
+    // Stand-in for 5 GiB of earlier entries: writes are positional, so skipping ahead leaves a sparse hole on disk
+    // instead of writing the bytes. Readers go by the central directory, which is what is being checked.
+    (zip as unknown as { offset: number }).offset = 5 * 2 ** 30;
+    const payload = new TextEncoder().encode("past four gibibytes");
+    await zip.add("late.txt", payload);
+    const path = await zip.close();
+    const file = Bun.file(path);
+    expect(file.size).toBeGreaterThan(5 * 2 ** 30);
+
+    // Walk it the way a reader does, from the tail: end record → locator → ZIP64 end record → central directory.
+    const tail = new Uint8Array(await file.slice(file.size - 22 - 20 - 56).arrayBuffer());
+    const v = new DataView(tail.buffer);
+    expect(v.getUint32(56 + 20, true)).toBe(0x06054b50);
+    expect(v.getUint32(76 + 16, true)).toBe(0xffffffff); // central directory offset deferred to ZIP64
+    expect(v.getUint32(56, true)).toBe(0x07064b50);
+    expect(v.getUint32(0, true)).toBe(0x06064b50);
+    const cdOffset = Number(v.getBigUint64(48, true));
+    const cdSize = Number(v.getBigUint64(40, true));
+    expect(Number(v.getBigUint64(32, true))).toBe(2);
+    const cd = new Uint8Array(await file.slice(cdOffset, cdOffset + cdSize).arrayBuffer());
+    const cv = new DataView(cd.buffer);
+    const firstLen = 46 + cv.getUint16(28, true) + cv.getUint16(30, true);
+    expect(cv.getUint32(42, true)).toBe(0); // first.txt: a plain offset
+    // late.txt: offset 0xFFFFFFFF, real value in its ZIP64 extra (id 1, 8 bytes: the offset alone).
+    expect(cv.getUint32(firstLen + 42, true)).toBe(0xffffffff);
+    const extraAt = firstLen + 46 + cv.getUint16(firstLen + 28, true);
+    expect(cv.getUint16(extraAt, true)).toBe(1);
+    expect(cv.getUint16(extraAt + 2, true)).toBe(8);
+    const local = Number(cv.getBigUint64(extraAt + 4, true));
+    expect(local).toBe(5 * 2 ** 30);
+    const head = new Uint8Array(await file.slice(local, local + 30 + 8 + payload.byteLength).arrayBuffer());
+    expect(u32(head, 0)).toBe(0x04034b50);
+    expect(new TextDecoder().decode(head.slice(30, 38))).toBe("late.txt");
+    expect(head.slice(38)).toEqual(payload);
+    if (Bun.which("python3")) {
+      const py = Bun.spawnSync([
+        "python3",
+        "-c",
+        "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); sys.exit(z.read('late.txt') != b'past four gibibytes')",
+        path,
+      ]);
+      expect(py.exitCode).toBe(0);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

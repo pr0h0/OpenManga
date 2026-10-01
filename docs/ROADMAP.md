@@ -31,9 +31,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
   with mock AI.
 - **Instance-wide budget ceiling.** The per-project cap exists; an instance-wide ceiling is the better control for
   a shared install, but with registration off by default multi-user is the rare case.
-- **Streaming PDF and webtoon strips.** ZIP-based exports and video stream to disk. PDF and stitched webtoon strips
-  are still built in memory, but both are scoped to one chapter, so size is bounded. ZIPs use no ZIP64 (4 GiB cap,
-  with a clear error). Revisit when whole-project PDFs are requested or ZIP packages approach 4 GiB.
 - **S3-compatible asset storage.** Assets live on local disk behind one `AssetStorage` interface with a local
   implementation. A remote backend would need presigned downloads (the current `X-Accel-Redirect` path is
   nginx-only) and multipart uploads, and would turn local reads in page composition and video rendering into

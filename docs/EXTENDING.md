@@ -297,9 +297,10 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
    `{ data }` is in-memory bytes; `{ path }` is a file already on disk. **Large outputs stream to disk** — multi-file
    exports build through `ZipWriter` (`apps/worker/src/lib/zip.ts`, stored uncompressed, only the current entry in
    memory) and return `{ path: await zip.close() }`; video exports return the rendered file's path. An entry too large
-   for memory goes in with `zip.addStream(name, stream)` from `deps.assets.storage.stream(key)`, as `youtube_package`
-   does with the video it repackages. Single small
-   outputs (a PDF, a timeline JSON, an `.srt`) return `{ data }`. `AssetService.store` accepts the same
+   for memory goes in with `zip.addStream(name, stream, size)` from `deps.assets.storage.stream(key)`, as
+   `youtube_package` does with the video it repackages; past 4 GiB the archive switches to ZIP64 by itself. A PDF
+   is written page by page with `PdfWriter` (`apps/worker/src/lib/pdf.ts`) and returned as `{ path }`. Single small
+   outputs (a timeline JSON, an `.srt`) return `{ data }`. `AssetService.store` accepts the same
    `{ data } | { filePath }` split, so either one is stored without a round trip through memory.
 
    Everything runs inside `withTempDir(deps.config.TEMP_ROOT, …)` and receives `dir`. A `{ path }` pointing outside
@@ -335,7 +336,8 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
      as a local `Opts` type and casts the job's `options` to it — the cast is unchecked, so an option added to the Zod
      schema but not to `Opts` is silently `undefined` in the worker.
    - There is a **hardcoded chapter-required list** in the POST handler
-     (`["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon", "narration_audio", "timeline"]`). A
+     (`["png_pages", "jpg_pages", "cbz", "epub", "narration_audio", "timeline"]`; `pdf` and `webtoon` may cover the
+     whole project). A
      chapter-scoped kind missing from it is accepted with no `chapterId` (or `pageIds`), then fails in the worker with
      `UnrecoverableError("No pages to export")` — a 202 followed by a failed job instead of a 400.
    - MCP's `create_export` (`apps/api/src/mcp/tools/exports.ts`) takes this same schema, so agents can request the
