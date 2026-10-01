@@ -135,14 +135,17 @@ const EnvSchema = z.object({
   MCP_APPROVAL_TTL_MINUTES: int(1440),
   /** A mutation expected to touch more entities than this needs approval under REQUIRE_APPROVAL, even if it is an ordinary write. */
   MCP_BULK_APPROVAL_THRESHOLD: int(25),
-  MCP_RATE_LIMIT_PER_MINUTE: int(240),
+  MCP_RATE_LIMIT_PER_MINUTE: int(750),
   /**
    * Allow Client ID Metadata Documents from private, loopback or link-local addresses. Only for local development:
    * the server fetches these URLs, so allowing private addresses in production is an SSRF hole.
    */
   MCP_CIMD_ALLOW_PRIVATE: bool.default(false),
 
-  RATE_LIMIT_PER_MINUTE: int(600),
+  /** Requests to /api per minute for a signed-in user. */
+  RATE_LIMIT_PER_MINUTE: int(2000),
+  /** Requests to /api per minute from one client address with no session: reader links, sign-in, probes. */
+  RATE_LIMIT_ANON_PER_MINUTE: int(300),
   LOGIN_MAX_ATTEMPTS: int(10),
 
   API_PORT: int(3000),

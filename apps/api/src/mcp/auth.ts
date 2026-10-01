@@ -1,8 +1,11 @@
-import { and, eq, isNull, oauthAccessTokens, personalAccessTokens, sql, userServices } from "@openmanga/db";
+import { and, eq, oauthAccessTokens, personalAccessTokens, sql, userServices } from "@openmanga/db";
 import type { Deps } from "../context.ts";
 import { hashMcpToken, loadActor, type McpActor, mcpUrls, TOKEN_PREFIX } from "./context.ts";
 
-export type BearerResult = { actor: McpActor; expiresAt?: number } | { error: "missing" | "invalid" };
+/** `unknown`: the token matches nothing we ever issued — a guess, not an expired or revoked token a client still holds. */
+export type BearerResult =
+  | { actor: McpActor; expiresAt?: number }
+  | { error: "missing" | "invalid"; unknown?: boolean };
 
 /** Touches last-used at most once a minute, so a busy agent does not write on every call. */
 const touch = (deps: Deps, serviceId: string) =>
@@ -29,11 +32,9 @@ export async function authenticateBearer(deps: Deps, header: string | undefined)
   const now = new Date();
 
   if (token.startsWith(TOKEN_PREFIX.pat)) {
-    const [pat] = await deps.db
-      .select()
-      .from(personalAccessTokens)
-      .where(and(eq(personalAccessTokens.tokenHash, hash), isNull(personalAccessTokens.revokedAt)));
-    if (!pat || (pat.expiresAt && pat.expiresAt < now)) return { error: "invalid" };
+    const [pat] = await deps.db.select().from(personalAccessTokens).where(eq(personalAccessTokens.tokenHash, hash));
+    if (!pat) return { error: "invalid", unknown: true };
+    if (pat.revokedAt || (pat.expiresAt && pat.expiresAt < now)) return { error: "invalid" };
     const actor = await loadActor(deps.db, pat.serviceId);
     if (!actor) return { error: "invalid" };
     await Promise.all([
@@ -52,18 +53,17 @@ export async function authenticateBearer(deps: Deps, header: string | undefined)
   }
 
   if (token.startsWith(TOKEN_PREFIX.access)) {
-    const [at] = await deps.db
-      .select()
-      .from(oauthAccessTokens)
-      .where(and(eq(oauthAccessTokens.tokenHash, hash), isNull(oauthAccessTokens.revokedAt)));
+    const [at] = await deps.db.select().from(oauthAccessTokens).where(eq(oauthAccessTokens.tokenHash, hash));
+    if (!at) return { error: "invalid", unknown: true };
     // Audience binding: a token minted for another resource is not accepted here.
-    if (!at || at.expiresAt < now || at.resource !== mcpUrls(deps.config).resource) return { error: "invalid" };
+    if (at.revokedAt || at.expiresAt < now || at.resource !== mcpUrls(deps.config).resource)
+      return { error: "invalid" };
     const actor = await loadActor(deps.db, at.serviceId, at.scopes);
     if (!actor || actor.clientId !== at.clientId) return { error: "invalid" };
     await touch(deps, actor.serviceId);
     return { actor, expiresAt: Math.floor(at.expiresAt.getTime() / 1000) };
   }
-  return { error: "invalid" };
+  return { error: "invalid", unknown: true };
 }
 
 /** The RFC 6750 / RFC 9728 challenge that sends an OAuth client to discover how to sign in. */

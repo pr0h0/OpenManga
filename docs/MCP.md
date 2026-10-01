@@ -54,7 +54,7 @@ URL is derived from `API_PUBLIC_URL`'s origin. The bundled nginx already routes 
 | `MCP_AUTH_CODE_TTL_SECONDS` | `300` | Authorization code lifetime (single use). |
 | `MCP_APPROVAL_TTL_MINUTES` | `1440` | How long a parked request waits for you before it expires. |
 | `MCP_BULK_APPROVAL_THRESHOLD` | `25` | A change touching more panels than this counts as sensitive. |
-| `MCP_RATE_LIMIT_PER_MINUTE` | `240` | Requests to `/mcp` per minute per connection; above it `/mcp` answers HTTP 429 with `Retry-After: 60`. |
+| `MCP_RATE_LIMIT_PER_MINUTE` | `750` | Requests to `/mcp` per minute per connection; above it `/mcp` answers HTTP 429 with `Retry-After: 60`. |
 | `MCP_CIMD_ALLOW_PRIVATE` | `false` | Development only: let an OAuth client-id document live on a private address. |
 
 ## Connecting ChatGPT (OAuth)
