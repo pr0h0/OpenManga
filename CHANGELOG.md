@@ -7,7 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Agents can clean up.** Three MCP tools, each a delete-class action that waits for approval on an "Ask me first"
+  connection: `delete_exports` (one export, or every finished export of a project), `delete_narration_audio` (a
+  chapter's, one track of it, or the whole project's; the text stays) and `manage_assets` (list a project's assets or
+  its trash, trash, restore, and permanently delete what is in trash).
+
 ### Changed
+
+- **A declined scope is not asked for again.** When you untick a scope on an agent's consent screen, or deny a step-up,
+  that connection remembers it: later calls needing it get `scope_missing` saying it was declined (with
+  `details.declined`) and no new step-up challenge, so the agent stops sending you back to the same screen. Agent
+  access lists the declined scopes; granting one there, or on a later consent screen, clears it.
 
 - **Higher rate limits for real use, lower for guessing.** A signed-in user gets 2000 API requests a minute (was 600)
   and an MCP connection 750 (was 240); requests with no session get their own lower ceiling per address,

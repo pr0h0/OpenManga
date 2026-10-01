@@ -1,7 +1,9 @@
+import { and, eq, exportJobs, ne, notInArray } from "@openmanga/db";
 import { z } from "zod";
 import { ExportOptions } from "../../routes/exports.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
-import { cls, jobView, links, Uuid } from "./common.ts";
+import { toolError } from "../runtime.ts";
+import { cls, jobView, links, projectOf, Uuid } from "./common.ts";
 
 export const exportTools = [
   defineMcpTool({
@@ -47,5 +49,60 @@ export const exportTools = [
       const r = await ctx.invoke<{ jobs: Record<string, unknown>[] }>("GET", `/api/projects/${projectId}/exports`);
       return { data: { ...r, jobs: r.jobs.slice(0, limit) }, links: { exports: links(ctx).exports(projectId) } };
     },
+  }),
+
+  defineMcpTool({
+    name: "delete_exports",
+    title: "Delete exports",
+    description:
+      "Delete export files from disk now instead of waiting for their 30-day expiry: one export (exportId) or every finished export of a project (projectId with all=true; running exports and import records are kept). A queued or running export must be cancelled first (control_job). Cannot be undone, but an export can be queued again. Always a delete-class action (may need the user's approval).",
+    input: z.object({
+      exportId: Uuid.optional().describe("One export job (ids from list_exports)."),
+      projectId: Uuid.optional().describe("With all=true: every finished export of this project."),
+      all: z.boolean().default(false),
+    }),
+    output: z.object({ exports: z.number(), files: z.number(), bytes: z.number() }).passthrough(),
+    scopes: ["exports:create"],
+    sensitivity: "delete",
+    idempotent: true,
+    routes: ["DELETE /api/exports/:id", "DELETE /api/projects/:projectId/exports"],
+    actionKeys: ["export.delete", "export.delete_all"],
+    classify: async ({ exportId, projectId, all }, ctx) => {
+      if (exportId) {
+        const [job] = await ctx.deps.db
+          .select({ status: exportJobs.status, kind: exportJobs.kind })
+          .from(exportJobs)
+          .where(eq(exportJobs.id, exportId));
+        if (!job) throw toolError(404, "not_found", "Export not found");
+        return cls("delete", "export.delete", await projectOf(ctx, "job", exportId), `Delete a ${job.kind} export`, {
+          target: job,
+        });
+      }
+      if (!projectId || !all)
+        throw toolError(400, "bad_request", "Pass exportId, or projectId with all=true to delete every export");
+      // What would go, so an approval given before another export finished does not delete that one as well.
+      const target = (
+        await ctx.deps.db
+          .select({ id: exportJobs.id })
+          .from(exportJobs)
+          .where(
+            and(
+              eq(exportJobs.projectId, projectId),
+              ne(exportJobs.kind, "project_import"),
+              notInArray(exportJobs.status, ["queued", "processing", "cancel_requested"]),
+            ),
+          )
+      )
+        .map((j) => j.id)
+        .sort();
+      return cls("delete", "export.delete_all", projectId, `Delete all ${target.length} finished exports`, { target });
+    },
+    handler: async ({ exportId, projectId }, ctx) =>
+      exportId
+        ? { data: await ctx.invoke("DELETE", `/api/exports/${exportId}`) }
+        : {
+            data: await ctx.invoke("DELETE", `/api/projects/${projectId}/exports`),
+            links: { exports: links(ctx).exports(projectId!) },
+          },
   }),
 ];

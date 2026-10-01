@@ -4,7 +4,7 @@
  */
 export const MCP_SCOPES = {
   "projects:read": "View projects and project metadata.",
-  "projects:write": "Change project settings, state and metadata.",
+  "projects:write": "Change project settings, state and metadata, and trash or delete stored assets.",
   "projects:create": "Create new projects.",
   "story:read": "Read story revisions and analyses.",
   "story:write": "Create and edit story revisions and apply story analyses.",
@@ -17,9 +17,9 @@ export const MCP_SCOPES = {
   "generations:read": "Read AI job, batch, prompt and generation status.",
   "generations:run": "Start, retry, answer or control AI and image generation work (may spend your provider credits).",
   "narration:read": "Read narration text, segments, audio status and timelines.",
-  "narration:write": "Edit narration and request synthesis.",
+  "narration:write": "Edit narration, request synthesis and delete narration audio.",
   "exports:read": "Read export status and files.",
-  "exports:create": "Queue project exports.",
+  "exports:create": "Queue and delete project exports.",
   "experts:use": "Read and use your expert chats.",
   "usage:read": "Read usage and cost information.",
 } as const;

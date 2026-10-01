@@ -71,8 +71,10 @@ function toErrorResult(deps: Deps, actor: McpActor, e: unknown, requestId: strin
     _meta?: Record<string, unknown>;
   } = { isError: true, content: [{ type: "text", text: JSON.stringify({ ok: false, error }) }] };
   // OAuth clients can step up: the challenge names the scopes to ask the user for (ChatGPT reads it from _meta).
-  if (err.code === "scope_missing" && actor.serviceKind === "oauth") {
-    const missing = ((err.details as { missing?: string[] })?.missing ?? []) as string[];
+  // Not for a scope the user already declined: the client would only show them the same consent screen again.
+  const details = (err.details ?? {}) as { missing?: string[]; declined?: string[] };
+  if (err.code === "scope_missing" && actor.serviceKind === "oauth" && !details.declined?.length) {
+    const missing = details.missing ?? [];
     const scope = [...new Set([...actor.scopes, ...missing])].join(" ");
     result._meta = {
       "mcp/www_authenticate": [bearerChallenge(deps, { code: "insufficient_scope", description: err.message, scope })],

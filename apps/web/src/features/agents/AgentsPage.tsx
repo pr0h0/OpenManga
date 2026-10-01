@@ -40,6 +40,7 @@ type Connection = Omit<Grant, "projectIds"> & {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  metadata: { declinedScopes?: string[] };
   projects: { id: string; title: string }[];
   tokens: { id: string; hint: string; expiresAt: string | null; lastUsedAt: string | null; revokedAt: string | null }[];
 };
@@ -450,6 +451,11 @@ function Connections() {
             <div>
               <div className="label">Scopes</div>
               <span className="break-words">{c.scopes.join(", ") || "none"}</span>
+              {Boolean(c.metadata?.declinedScopes?.length) && (
+                <div className="muted mt-1 break-words">
+                  Declined (the agent will not ask again; edit to grant): {c.metadata.declinedScopes!.join(", ")}
+                </div>
+              )}
             </div>
           </div>
         </div>

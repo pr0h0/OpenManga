@@ -34,8 +34,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Expert output actions.** Turn an expert's reply into something applied: a new project from a concept, a
   replacement premise, an outline, or the YouTube package fields, through a structured extraction step.
 - **Video branding.** A logo watermark and optional intro and outro cards on video exports.
-- **Agent (MCP) additions.** Tools to delete exports, narration audio and images, and not asking again for a scope a
-  user has already declined.
 - **End-to-end tests in CI.** The existing `scripts/e2e.sh` on a nightly or manual workflow against the full stack
   with mock AI.
 - **Cached reader-link renders.** Reader pages render on every request; keep them as asset variants if a link ever
