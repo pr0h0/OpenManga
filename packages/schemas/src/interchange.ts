@@ -60,6 +60,8 @@ export const ProjectInterchange = z.object({
     colorMode: z.string(),
     settings: ProjectSettings,
     cover: AssetRef.nullable().default(null),
+    /** The video watermark's image; `settings.video.watermark.assetId` is remapped to it on import. */
+    videoLogo: AssetRef.nullable().default(null),
   }),
   style: z
     .object({

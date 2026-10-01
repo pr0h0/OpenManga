@@ -24,7 +24,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
   Burns shots. Costly per clip, so opt-in and budgeted.
-- **Video branding.** A logo watermark and optional intro and outro cards on video exports.
 
 ## Deliberately not built
 

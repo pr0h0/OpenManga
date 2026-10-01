@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ffmpegConvert, parseWav, pcmToWav } from "@openmanga/audio";
 import {
   ConcurrencyLimiter,
+  cardFrames,
   fadeFrames,
   frameSizeFor,
   type Motion,
@@ -13,14 +14,18 @@ import {
   scrollPlan,
   shotGroups,
   timeGroup,
+  watermarkBox,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
 import {
+  type BrandedProject,
+  backdrop,
   loadRenderPage,
   narrationSegmentsFor,
   panelAspect,
   planVideoShots,
   renderPageImage,
+  renderProjectVideoCard,
   type VideoScope,
 } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
@@ -47,7 +52,7 @@ export type VideoOptions = {
   maxDurationMs?: number;
 };
 
-type Project = Parameters<typeof planVideoShots>[1] & { language: string };
+type Project = Parameters<typeof planVideoShots>[1] & BrandedProject & { language: string };
 
 const SAMPLE_RATE = 24_000;
 
@@ -73,14 +78,47 @@ async function run(cmd: string[], label: string, timeoutMs = FFMPEG_TIMEOUT_MS) 
   }
 }
 
-/** Blurred, darkened full-frame backdrop. Blurring a small copy then scaling up is as good for a heavy wash and ~10x faster. */
-export async function backdrop(png: Uint8Array, frameW: number, frameH: number) {
-  const small = await sharp(png)
-    .resize(Math.round(frameW / 10), Math.round(frameH / 10), { fit: "cover" })
-    .blur(2)
-    .modulate({ brightness: 0.55 })
-    .toBuffer();
-  return new Uint8Array(await sharp(small).resize(frameW, frameH, { kernel: "cubic" }).png().toBuffer());
+/** A title card prepared for the render: its PNG at frame size and its length in frames. */
+type Card = { path: string; frames: number };
+/** The logo prepared for the render: scaled to its box, placed at x/y over every clip. */
+type Watermark = { path: string; x: number; y: number; opacity: number };
+type Branding = { intro: Card | null; outro: Card | null; watermark: Watermark | null };
+
+/**
+ * The project's video branding as files in the temp dir: intro and outro cards drawn by the same
+ * `renderProjectVideoCard` the preview loads, and the logo scaled to its `watermarkBox`. A logo whose asset is gone
+ * is left out rather than failing the render.
+ */
+async function prepareBranding(
+  deps: WorkerDeps,
+  project: Project,
+  frameW: number,
+  frameH: number,
+  fps: number,
+  dir: string,
+): Promise<Branding> {
+  const video = project.settings.video;
+  const card = async (which: "intro" | "outro") => {
+    const png = await renderProjectVideoCard(deps.db, deps.assets, project, which, frameW, frameH);
+    if (!png || !video?.[which]) return null;
+    const path = join(dir, `${which}.png`);
+    await Bun.write(path, png);
+    return { path, frames: cardFrames(video[which].durationMs, fps) };
+  };
+  const wm = video?.watermark;
+  const logo = wm ? await deps.assets.get(wm.assetId) : null;
+  let watermark: Watermark | null = null;
+  if (wm && logo?.width && logo.height && !logo.deletedAt && logo.projectId === project.id) {
+    const box = watermarkBox(frameW, frameH, { width: logo.width, height: logo.height }, wm.corner, wm.size);
+    const path = join(dir, "watermark.png");
+    const png = await sharp(await deps.assets.read(logo))
+      .resize(box.w, box.h, { fit: "fill" })
+      .png()
+      .toBuffer();
+    await Bun.write(path, new Uint8Array(png));
+    watermark = { path, x: box.x, y: box.y, opacity: wm.opacity };
+  }
+  return { intro: await card("intro"), outro: await card("outro"), watermark };
 }
 
 /**
@@ -159,6 +197,7 @@ async function buildFilm<S extends Shot>(
   opts: VideoOptions,
   dir: string,
   progress: (p: number) => Promise<void>,
+  branding: Branding,
   encodeShot: EncodeShot<S>,
 ) {
   const audioPath = join(dir, "narration.wav");
@@ -179,8 +218,15 @@ async function buildFilm<S extends Shot>(
   /** Where each shot starts in the film, for chapter timestamps. */
   const startsMs: number[] = [];
   let totalFrames = 0;
+  // A card is silence on the audio track; everything after it (cues, chapter marks) starts that much later.
+  const holdCard = async (card: Card) => {
+    totalFrames += card.frames;
+    await padTo(sampleAt((totalFrames * 1000) / opts.fps));
+  };
+  let partial = false;
   const groups = shotGroups(shots.map((s) => s.joinNext));
   try {
+    if (branding.intro) await holdCard(branding.intro);
     for (const [gi, g] of groups.entries()) {
       const members = shots.slice(g.first, g.last + 1);
       const lines: { wav: Uint8Array; text: string; pauseAfterMs: number; ms: number }[][] = [];
@@ -248,27 +294,45 @@ async function buildFilm<S extends Shot>(
       const clockMs = (totalFrames * 1000) / opts.fps;
       if (opts.maxDurationMs && clockMs >= opts.maxDurationMs && g.last < shots.length - 1) {
         shots.splice(g.last + 1);
+        partial = true;
         break;
       }
     }
+    // A partial render is for checking the film itself, so it ends without the outro.
+    if (branding.outro && !partial) await holdCard(branding.outro);
   } catch (e) {
     await audioFile.close().catch(() => {});
     throw e;
   }
 
-  const clips = shots.map((_, i) => join(dir, `clip-${String(i + 1).padStart(5, "0")}.mp4`));
+  // Clips in film order: the intro card, the shots, the outro card.
+  const clipPath = (n: number) => join(dir, `clip-${String(n).padStart(5, "0")}.mp4`);
+  const cardJob = (card: Card, n: number) => ({
+    clip: clipPath(n),
+    encode: (clip: string) =>
+      encodeClip(null, card.path, "[0:v]null", card.frames, opts.fps, clip, "card", true, branding.watermark),
+  });
+  const jobs = [
+    ...(branding.intro ? [cardJob(branding.intro, 0)] : []),
+    ...shots.map((shot, i) => ({
+      clip: clipPath(i + 1),
+      encode: (clip: string) => encodeShot(shot, i, holds[i]!.frames, holds[i]!.holdSec, clip),
+    })),
+    ...(branding.outro && !partial ? [cardJob(branding.outro, shots.length + 1)] : []),
+  ];
+  const clips = jobs.map((j) => j.clip);
   const limiter = new ConcurrencyLimiter(Math.max(1, opts.concurrency ?? 1));
   let failed: unknown = null;
   let done = 0;
   // Wait for every running encode before surfacing the first error, so nothing writes into a removed temp dir.
   await Promise.all(
-    shots.map((shot, i) =>
+    jobs.map((job) =>
       limiter.run(async () => {
         if (failed) return;
         try {
-          await encodeShot(shot, i, holds[i]!.frames, holds[i]!.holdSec, clips[i]!);
+          await job.encode(job.clip);
           done++;
-          await progress(0.1 + (done / shots.length) * 0.55);
+          await progress(0.1 + (done / jobs.length) * 0.55);
         } catch (e) {
           failed ??= e;
         }
@@ -448,25 +512,36 @@ export async function renderPageCutVideo(
     opts,
     "page",
   );
-  const film = await buildFilm(deps, shots, narration, opts, dir, progress, async (shot, i, frames, holdSec, clip) => {
-    const pg = shot.page;
-    const { w: fgW, h: fgH } = pageShotBox(pg.width, pg.height, frameW, frameH, opts);
-    const n = String(i + 1).padStart(5, "0");
-    const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
-    const png = await renderPageImage(render, "png", { scale: Math.min(3, Math.max(0.25, (fgW / pg.width) * 1.25)) });
-    const bgPath = join(dir, `bg-${n}.png`);
-    const fgPath = join(dir, `fg-${n}.png`);
-    await Bun.write(bgPath, await backdrop(png.data, frameW, frameH));
-    await Bun.write(fgPath, new Uint8Array(await sharp(png.data).resize(fgW, fgH, { fit: "fill" }).png().toBuffer()));
-    const { y0, travel } = scrollPlan(fgH - frameH, holdSec, opts.maxScrollPxPerSec, opts.framing);
-    shot.report.scrollPxPerSec = travel ? Math.round(travel / holdSec) : 0;
-    const fg =
-      fgH > frameH
-        ? `[1:v]crop=${fgW}:${frameH}:0:'${y0}+${travel}*t/${holdSec.toFixed(3)}'[fg];[0:v][fg]overlay=(W-w)/2:0`
-        : `[0:v][1:v]overlay=(W-w)/2:(H-h)/2`;
-    await encodeClip(bgPath, fgPath, fg + fadeFilter(shot.fade, frames, opts.fps), frames, opts.fps, clip, shot.label);
-    await Promise.all([rm(bgPath), rm(fgPath)]);
-  });
+  const branding = await prepareBranding(deps, project, frameW, frameH, opts.fps, dir);
+  const film = await buildFilm(
+    deps,
+    shots,
+    narration,
+    opts,
+    dir,
+    progress,
+    branding,
+    async (shot, i, frames, holdSec, clip) => {
+      const pg = shot.page;
+      const { w: fgW, h: fgH } = pageShotBox(pg.width, pg.height, frameW, frameH, opts);
+      const n = String(i + 1).padStart(5, "0");
+      const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+      const png = await renderPageImage(render, "png", { scale: Math.min(3, Math.max(0.25, (fgW / pg.width) * 1.25)) });
+      const bgPath = join(dir, `bg-${n}.png`);
+      const fgPath = join(dir, `fg-${n}.png`);
+      await Bun.write(bgPath, await backdrop(png.data, frameW, frameH));
+      await Bun.write(fgPath, new Uint8Array(await sharp(png.data).resize(fgW, fgH, { fit: "fill" }).png().toBuffer()));
+      const { y0, travel } = scrollPlan(fgH - frameH, holdSec, opts.maxScrollPxPerSec, opts.framing);
+      shot.report.scrollPxPerSec = travel ? Math.round(travel / holdSec) : 0;
+      const fg =
+        fgH > frameH
+          ? `[1:v]crop=${fgW}:${frameH}:0:'${y0}+${travel}*t/${holdSec.toFixed(3)}'[fg];[0:v][fg]overlay=(W-w)/2:0`
+          : `[0:v][1:v]overlay=(W-w)/2:(H-h)/2`;
+      const filter = fg + fadeFilter(shot.fade, frames, opts.fps);
+      await encodeClip(bgPath, fgPath, filter, frames, opts.fps, clip, shot.label, true, branding.watermark);
+      await Promise.all([rm(bgPath), rm(fgPath)]);
+    },
+  );
   return {
     path: film.path,
     srt: film.srt,
@@ -502,49 +577,59 @@ export async function renderPanelCutVideo(
     opts,
     "panel",
   );
-  const film = await buildFilm(deps, shots, narration, opts, dir, progress, async (shot, i, frames, _holdSec, clip) => {
-    const pg = shot.page;
-    const pn = shot.panel!;
-    const n = String(i + 1).padStart(5, "0");
-    const aspect = panelAspect(pn, pg);
-    const box = panelShotBox(aspect, frameW, frameH);
-    // Supersample 3x before zoompan: zooming at display size quantises the crop and visibly shakes.
-    const superW = box.w * 3;
-    const superH = Math.max(2, Math.round(superW / aspect / 2) * 2);
-    const { art, focus } = shot;
-    let fgPng: Uint8Array;
-    if (art) {
-      fgPng = await renderPanelArt(await deps.assets.read(art), superW, superH, pn.imageTransform);
-      shot.report.source = "art";
-    } else {
-      const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
-      const scale = Math.min(3, Math.max(0.5, superW / Math.max(1, pn.frame.width * pg.width)));
-      const page = await renderPageImage(render, "png", { scale });
-      const left = Math.max(0, Math.round(pn.frame.x * page.width));
-      const top = Math.max(0, Math.round(pn.frame.y * page.height));
-      const width = Math.max(1, Math.min(page.width - left, Math.round(pn.frame.width * page.width)));
-      const height = Math.max(1, Math.min(page.height - top, Math.round(pn.frame.height * page.height)));
-      fgPng = new Uint8Array(
-        await sharp(page.data)
-          .extract({ left, top, width, height })
-          .resize(superW, superH, { fit: "fill" })
-          .png()
-          .toBuffer(),
-      );
-      shot.report.source = "lettered-page-crop";
-    }
-    const bgPath = box.full ? null : join(dir, `bg-${n}.png`);
-    const fgPath = join(dir, `fg-${n}.png`);
-    if (bgPath) await Bun.write(bgPath, await backdrop(fgPng, frameW, frameH));
-    await Bun.write(fgPath, fgPng);
-    const motion = shot.motion ?? "static";
-    Object.assign(shot.report, { motion, fullFrame: box.full, focus });
-    const move = zoompanFor(motion, zoom, focus, frames, box.w, box.h, opts.fps);
-    const filter = bgPath ? `[1:v]${move}[fg];[0:v][fg]overlay=(W-w)/2:(H-h)/2` : `[0:v]${move}`;
-    const fade = fadeFilter(shot.fade, frames, opts.fps);
-    await encodeClip(bgPath, fgPath, filter + fade, frames, opts.fps, clip, shot.label, false);
-    await Promise.all([bgPath ? rm(bgPath) : null, rm(fgPath)]);
-  });
+  const branding = await prepareBranding(deps, project, frameW, frameH, opts.fps, dir);
+  const film = await buildFilm(
+    deps,
+    shots,
+    narration,
+    opts,
+    dir,
+    progress,
+    branding,
+    async (shot, i, frames, _holdSec, clip) => {
+      const pg = shot.page;
+      const pn = shot.panel!;
+      const n = String(i + 1).padStart(5, "0");
+      const aspect = panelAspect(pn, pg);
+      const box = panelShotBox(aspect, frameW, frameH);
+      // Supersample 3x before zoompan: zooming at display size quantises the crop and visibly shakes.
+      const superW = box.w * 3;
+      const superH = Math.max(2, Math.round(superW / aspect / 2) * 2);
+      const { art, focus } = shot;
+      let fgPng: Uint8Array;
+      if (art) {
+        fgPng = await renderPanelArt(await deps.assets.read(art), superW, superH, pn.imageTransform);
+        shot.report.source = "art";
+      } else {
+        const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+        const scale = Math.min(3, Math.max(0.5, superW / Math.max(1, pn.frame.width * pg.width)));
+        const page = await renderPageImage(render, "png", { scale });
+        const left = Math.max(0, Math.round(pn.frame.x * page.width));
+        const top = Math.max(0, Math.round(pn.frame.y * page.height));
+        const width = Math.max(1, Math.min(page.width - left, Math.round(pn.frame.width * page.width)));
+        const height = Math.max(1, Math.min(page.height - top, Math.round(pn.frame.height * page.height)));
+        fgPng = new Uint8Array(
+          await sharp(page.data)
+            .extract({ left, top, width, height })
+            .resize(superW, superH, { fit: "fill" })
+            .png()
+            .toBuffer(),
+        );
+        shot.report.source = "lettered-page-crop";
+      }
+      const bgPath = box.full ? null : join(dir, `bg-${n}.png`);
+      const fgPath = join(dir, `fg-${n}.png`);
+      if (bgPath) await Bun.write(bgPath, await backdrop(fgPng, frameW, frameH));
+      await Bun.write(fgPath, fgPng);
+      const motion = shot.motion ?? "static";
+      Object.assign(shot.report, { motion, fullFrame: box.full, focus });
+      const move = zoompanFor(motion, zoom, focus, frames, box.w, box.h, opts.fps);
+      const filter = bgPath ? `[1:v]${move}[fg];[0:v][fg]overlay=(W-w)/2:(H-h)/2` : `[0:v]${move}`;
+      const fade = fadeFilter(shot.fade, frames, opts.fps);
+      await encodeClip(bgPath, fgPath, filter + fade, frames, opts.fps, clip, shot.label, false, branding.watermark);
+      await Promise.all([bgPath ? rm(bgPath) : null, rm(fgPath)]);
+    },
+  );
   return {
     path: film.path,
     srt: film.srt,
@@ -556,7 +641,10 @@ export async function renderPanelCutVideo(
   };
 }
 
-/** Encodes one clip. `filter` ends on the picture's stream (no label); the pixel format and output label are added here. */
+/**
+ * Encodes one clip. `filter` ends on the picture's stream (no label); the watermark (over any fade, so the logo stays
+ * up through a scene break), the pixel format and the output label are added here.
+ */
 async function encodeClip(
   bgPath: string | null,
   fgPath: string,
@@ -566,7 +654,12 @@ async function encodeClip(
   clip: string,
   label: string,
   still = true,
+  watermark: Watermark | null = null,
 ) {
+  const logo = bgPath ? 2 : 1;
+  const graph = watermark
+    ? `${filter}[base];[${logo}:v]format=rgba,colorchannelmixer=aa=${watermark.opacity.toFixed(3)}[wm];[base][wm]overlay=${watermark.x}:${watermark.y},format=yuv420p[v]`
+    : `${filter},format=yuv420p[v]`;
   await run(
     [
       "ffmpeg",
@@ -581,8 +674,9 @@ async function encodeClip(
       String(fps),
       "-i",
       fgPath,
+      ...(watermark ? ["-loop", "1", "-framerate", String(fps), "-i", watermark.path] : []),
       "-filter_complex",
-      `${filter},format=yuv420p[v]`,
+      graph,
       "-map",
       "[v]",
       "-frames:v",

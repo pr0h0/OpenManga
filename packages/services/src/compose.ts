@@ -540,6 +540,61 @@ ${subtitle ? `<text x="${x}" y="${top + lines.length * size * 1.02 + size * 0.15
   );
 }
 
+/** Blurred, darkened full-frame backdrop. Blurring a small copy then scaling up is as good for a heavy wash and ~10x faster. */
+export async function backdrop(png: Uint8Array, frameW: number, frameH: number, brightness = 0.55) {
+  const small = await sharp(png)
+    .resize(Math.max(1, Math.round(frameW / 10)), Math.max(1, Math.round(frameH / 10)), { fit: "cover" })
+    .blur(2)
+    .modulate({ brightness })
+    .toBuffer();
+  return new Uint8Array(await sharp(small).resize(frameW, frameH, { kernel: "cubic" }).png().toBuffer());
+}
+
+/**
+ * An intro or outro card at `width`×`height`: the project's art as a dark wash behind the title and subtitle, set in
+ * the project's narration lettering font. Deterministic, so the preview shows the pixels the render encodes.
+ */
+export async function renderVideoCard(
+  card: { title: string; subtitle: string },
+  width: number,
+  height: number,
+  art: Uint8Array | null,
+  font: string,
+) {
+  const bg = art
+    ? await backdrop(art, width, height, 0.4)
+    : new Uint8Array(
+        await sharp({ create: { width, height, channels: 3, background: "#111111" } })
+          .png()
+          .toBuffer(),
+      );
+  const short = Math.min(width, height);
+  const title = card.title.trim();
+  const lines = wrapWords(title, Math.max(12, Math.round(width / short) * 14), 3);
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  const size = Math.round(Math.min(short / 8, (width * 0.84) / (longest * 0.6)));
+  const sub = card.subtitle.trim();
+  const subSize = Math.round(size * 0.42);
+  const blockH = lines.length * size * 1.1 + (sub ? subSize * 1.6 : 0);
+  const top = (height - blockH) / 2 + size * 0.85;
+  const family = esc(FONT_STACK(font));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+${lines
+  .map(
+    (l, i) =>
+      `<text x="${width / 2}" y="${(top + i * size * 1.1).toFixed(1)}" text-anchor="middle" font-family="${family}" font-weight="700" font-size="${size}" fill="#fff" stroke="#000" stroke-width="${(size / 16).toFixed(1)}" paint-order="stroke">${esc(l)}</text>`,
+  )
+  .join("\n")}
+${sub ? `<text x="${width / 2}" y="${(top + lines.length * size * 1.1 + subSize * 0.6).toFixed(1)}" text-anchor="middle" font-family="${family}" font-size="${subSize}" fill="#ddd">${esc(sub)}</text>` : ""}
+</svg>`;
+  return new Uint8Array(
+    await sharp(bg)
+      .composite([{ input: Buffer.from(svg) }])
+      .png()
+      .toBuffer(),
+  );
+}
+
 /** Cover: artwork from the model + app-composited title/subtitle/author (never model-rendered text). */
 export async function renderCover(art: Uint8Array, title: string, subtitle: string, author: string, width = 1200) {
   const height = Math.round(width * 1.5);

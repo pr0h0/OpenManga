@@ -1,4 +1,5 @@
 import {
+  cardFrames,
   fadeOpacity,
   frameSizeFor,
   type Motion,
@@ -9,6 +10,7 @@ import {
   scrollPlan,
   shotGroups,
   timeGroup,
+  watermarkBox,
 } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -54,9 +56,25 @@ type PreviewShot = {
   } | null;
   lines: { id: string; startOffsetMs: number; endOffsetMs: number; segments: PreviewSegment[] }[];
 };
+type Card = { title: string; subtitle: string; durationMs: number };
+type Branding = {
+  intro: Card | null;
+  outro: Card | null;
+  watermark: {
+    assetId: string;
+    corner: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+    opacity: number;
+    size: number;
+    width: number;
+    height: number;
+  } | null;
+  /** Changes whenever the project's settings do, so a re-rendered card is not served from the cache. */
+  version: string;
+};
 type Preview = {
   cut: "page" | "panel";
   language: string;
+  branding: Branding;
   unplacedLines: number;
   disabledPanels: number;
   shots: PreviewShot[];
@@ -87,15 +105,45 @@ type Options = {
   maxScrollPxPerSec: number;
 };
 
+/** One entry of the timeline: a shot, or the intro or outro card. */
+type Timed = {
+  key: string;
+  label: string;
+  shot: PreviewShot | null;
+  card: "intro" | "outro" | null;
+  startMs: number;
+  holdMs: number;
+  frames: number;
+  missingAudio: number;
+};
+
 /**
- * Timeline with the same holds as the final render: the shared `timeGroup` over each run of shots a narration line
- * spans (narration + offsets + breath, at least the minimum per shot, whole frames).
+ * Timeline with the same holds as the final render: the intro card, the shared `timeGroup` over each run of shots a
+ * narration line spans (narration + offsets + breath, at least the minimum per shot, whole frames), the outro card.
  */
-function buildTimeline(shots: PreviewShot[], minHoldMs: number) {
+function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined) {
   let frames = 0;
   const at = (f: number) => (f * 1000) / FPS;
   const cues: { startMs: number; endMs: number; audioAssetId: string }[] = [];
-  const timed: { shot: PreviewShot; startMs: number; holdMs: number; frames: number; missingAudio: number }[] = [];
+  const timed: Timed[] = [];
+  const card = (which: "intro" | "outro") => {
+    const c = branding?.[which];
+    if (!c || !shots.length) return;
+    const n = cardFrames(c.durationMs, FPS);
+    const label = which === "intro" ? "Intro card" : "Outro card";
+    timed.push({
+      key: which,
+      label,
+      shot: null,
+      card: which,
+      startMs: at(frames),
+      holdMs: at(n),
+      frames: n,
+      missingAudio: 0,
+    });
+    frames += n;
+  };
+  card("intro");
   for (const g of shotGroups(shots.map((s) => s.joinNext))) {
     const members = shots.slice(g.first, g.last + 1);
     const lines = members.flatMap((s) =>
@@ -120,10 +168,20 @@ function buildTimeline(shots: PreviewShot[], minHoldMs: number) {
       const n = timing.frames[m]!;
       const all = shot.lines.flatMap((l) => l.segments);
       const voiced = all.filter((x) => x.audioAssetId && x.durationMs).length;
-      timed.push({ shot, startMs: at(frames), holdMs: at(n), frames: n, missingAudio: all.length - voiced });
+      timed.push({
+        key: shot.key,
+        label: shot.label,
+        shot,
+        card: null,
+        startMs: at(frames),
+        holdMs: at(n),
+        frames: n,
+        missingAudio: all.length - voiced,
+      });
       frames += n;
     });
   }
+  card("outro");
   return { timed, cues, totalMs: at(frames) };
 }
 
@@ -131,17 +189,49 @@ function buildTimeline(shots: PreviewShot[], minHoldMs: number) {
 type PreviewUrls = {
   page: (pageId: string, updatedAt: string) => string;
   asset: (id: string, variant?: "web") => string;
+  card: (which: "intro" | "outro", version: string) => string;
 };
-const SIGNED_IN: PreviewUrls = {
+const signedInUrls = (projectId: string): PreviewUrls => ({
   page: (pageId, updatedAt) => `${API_BASE}/pages/${pageId}/render.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => assetUrl(id, variant),
-};
+  card: (which, version) =>
+    `${API_BASE}/projects/${projectId}/video-card/${which}.png?height=${H}&v=${encodeURIComponent(version)}`,
+});
 const sharedUrls = (token: string): PreviewUrls => ({
   page: (pageId, updatedAt) =>
     `${API_BASE}/public/shares/${token}/pages/${pageId}.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => `${API_BASE}/public/shares/${token}/assets/${id}${variant ? `?v=${variant}` : ""}`,
+  card: (which, version) =>
+    `${API_BASE}/public/shares/${token}/video-card/${which}.png?height=${H}&v=${encodeURIComponent(version)}`,
 });
-const Urls = createContext<PreviewUrls>(SIGNED_IN);
+const Urls = createContext<PreviewUrls>(sharedUrls(""));
+
+/** An entry of the timeline on the stage, with the logo over it, as the render composites it. */
+function StageFrame({ entry, t, o, branding }: { entry: Timed; t: number; o: Options; branding: Branding }) {
+  const urls = useContext(Urls);
+  const wm = branding.watermark;
+  const box = wm ? watermarkBox(W, H, wm, wm.corner, wm.size) : null;
+  return (
+    <>
+      {entry.card ? (
+        <img
+          src={urls.card(entry.card, branding.version)}
+          alt=""
+          style={{ position: "absolute", inset: 0, width: W, height: H }}
+        />
+      ) : (
+        entry.shot && <ShotFrame shot={entry.shot} t={t} holdMs={entry.holdMs} frames={entry.frames} o={o} />
+      )}
+      {wm && box && (
+        <img
+          src={urls.asset(wm.assetId)}
+          alt=""
+          style={{ position: "absolute", left: box.x, top: box.y, width: box.w, height: box.h, opacity: wm.opacity }}
+        />
+      )}
+    </>
+  );
+}
 
 /** Black over the picture where a scene break fades (the render's ffmpeg fade, same ramp). */
 function FadeShade({ shot, t, frames }: { shot: PreviewShot; t: number; frames: number }) {
@@ -294,7 +384,7 @@ export function VideoPreview({
   /** Played from a reader link: public, read-only routes, and nothing to render. */
   shareToken?: string;
 }) {
-  const urls = useMemo(() => (shareToken ? sharedUrls(shareToken) : SIGNED_IN), [shareToken]);
+  const urls = useMemo(() => (shareToken ? sharedUrls(shareToken) : signedInUrls(projectId)), [shareToken, projectId]);
   const [o, setO] = useState<Options>({
     cut: scope.panelId ? "panel" : defaultCut,
     minHoldMs: 2500,
@@ -314,7 +404,10 @@ export function VideoPreview({
       get<Preview>(shareToken ? `/public/shares/${shareToken}/video-preview?${params}` : `/video-preview?${params}`),
     enabled: open,
   });
-  const timeline = useMemo(() => buildTimeline(preview.data?.shots ?? [], o.minHoldMs), [preview.data, o.minHoldMs]);
+  const timeline = useMemo(
+    () => buildTimeline(preview.data?.shots ?? [], o.minHoldMs, preview.data?.branding),
+    [preview.data, o.minHoldMs],
+  );
 
   const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -456,6 +549,7 @@ export function VideoPreview({
   // Warm the next shots' images so cuts land on a loaded picture.
   useEffect(() => {
     for (const next of timeline.timed.slice(current + 1, current + 3)) {
+      if (!next.shot) continue;
       const pn = next.shot.panel;
       const img = new Image();
       img.src =
@@ -544,7 +638,7 @@ export function VideoPreview({
   }, [current, showLines]);
 
   const missingAudio = timeline.timed.reduce((n, s) => n + s.missingAudio, 0);
-  const noArt = o.cut === "panel" ? timeline.timed.filter((s) => s.shot.panel && !s.shot.panel.art).length : 0;
+  const noArt = o.cut === "panel" ? timeline.timed.filter((s) => s.shot?.panel && !s.shot.panel.art).length : 0;
   const scale = stageW / W;
   const t = shot ? Math.min(1, Math.max(0, (clock - shot.startMs) / shot.holdMs)) : 0;
 
@@ -601,10 +695,10 @@ export function VideoPreview({
                     overflow: "hidden",
                   }}
                 >
-                  {shot && <ShotFrame shot={shot.shot} t={t} holdMs={shot.holdMs} frames={shot.frames} o={o} />}
+                  {shot && preview.data && <StageFrame entry={shot} t={t} o={o} branding={preview.data.branding} />}
                 </div>
                 <div className="absolute right-2 bottom-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
-                  {shot?.shot.label}
+                  {shot?.label}
                 </div>
               </button>
             </div>
@@ -761,24 +855,24 @@ export function VideoPreview({
                 className="h-[calc(5*1.85rem+6px)] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
               >
                 {timeline.timed.map((s, i) => {
-                  const narration = s.shot.lines
+                  const narration = (s.shot?.lines ?? [])
                     .flatMap((l) => l.segments)
                     .map((x) => x.text)
                     .join(" ");
                   // A line spanning the cut keeps speaking over this shot.
-                  const continues = timeline.timed[i - 1]?.shot.joinNext;
+                  const continues = timeline.timed[i - 1]?.shot?.joinNext;
                   return (
-                    <li key={s.shot.key} data-shot={i}>
+                    <li key={s.key} data-shot={i}>
                       <button
                         type="button"
                         className={`flex h-[1.85rem] w-full items-center gap-3 px-2 text-left hover:bg-[var(--panel-2)] ${i === current ? "bg-accent-600/15" : ""}`}
                         onClick={() => seek(s.startMs + 1)}
                       >
-                        <span className="w-44 shrink-0 truncate font-medium">{s.shot.label}</span>
+                        <span className="w-44 shrink-0 truncate font-medium">{s.label}</span>
                         <span className="muted w-24 shrink-0 tabular-nums">
                           {mmss(s.startMs)} · {(s.holdMs / 1000).toFixed(1)}s
                         </span>
-                        {o.cut === "panel" && s.shot.panel && (
+                        {o.cut === "panel" && s.shot?.panel && (
                           <span className="muted w-16 shrink-0">
                             {s.shot.motion ? MOTION_LABEL[s.shot.motion] : ""}
                             {s.shot.fade.in ? " · fade" : ""}
@@ -786,7 +880,9 @@ export function VideoPreview({
                         )}
                         {/* Truncated to keep the row one line; the title shows the whole narration on hover. */}
                         <span className="muted truncate" title={narration || undefined}>
-                          {narration || (continues ? "↳ narration continues" : "— no narration —")}
+                          {s.card
+                            ? (preview.data?.branding[s.card]?.title ?? "")
+                            : narration || (continues ? "↳ narration continues" : "— no narration —")}
                         </span>
                       </button>
                     </li>

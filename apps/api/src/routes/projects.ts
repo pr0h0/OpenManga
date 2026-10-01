@@ -338,6 +338,23 @@ projectRoutes.patch("/:projectId", async (c) => {
       settings.lettering = { ...VERTICAL_LETTERING, ...settings.lettering };
     }
   }
+  // A watermark is one of this project's own images: any other id would put someone else's file in the video.
+  const logoId = settings.video?.watermark?.assetId;
+  if (logoId && logoId !== p.settings.video?.watermark?.assetId) {
+    const [logo] = await c
+      .get("deps")
+      .db.select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.id, logoId),
+          eq(assets.projectId, p.id),
+          isNull(assets.deletedAt),
+          sql`${assets.mimeType} like 'image/%'`,
+        ),
+      );
+    if (!logo) throw badRequest("The watermark must be an image of this project (upload one with POST video-logo)");
+  }
   const [row] = await c
     .get("deps")
     .db.update(projects)

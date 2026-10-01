@@ -9,6 +9,7 @@ import type { TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
+import { VideoSection } from "./VideoSettings.tsx";
 
 type Form = {
   title: string;
@@ -260,24 +261,12 @@ export function SettingsPage() {
           onChange={(v) => setS("targetRuntime", v)}
         />
 
-        <section className="card space-y-3 p-4">
-          <h2 className="font-medium">Video</h2>
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={s.video?.fadeAtSceneBreaks ?? false}
-              onChange={(e) => setS("video", { ...s.video, fadeAtSceneBreaks: e.target.checked })}
-            />
-            <span>
-              Fade to black at scene breaks
-              <span className="muted block text-xs">
-                Half a second out and in where the scene changes. A panel's Video shot settings can force a fade or a
-                hard cut on its own.
-              </span>
-            </span>
-          </label>
-        </section>
+        <VideoSection
+          projectId={projectId}
+          projectTitle={form.title}
+          value={s.video}
+          onChange={(v) => setS("video", v)}
+        />
 
         <section className="card space-y-3 p-4">
           <h2 className="font-medium">Production</h2>

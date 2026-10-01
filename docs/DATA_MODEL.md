@@ -54,7 +54,7 @@ slot).
   | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
   | `batchPolicy` | `interactive` (default), `images` (text now, images through provider batches), `hybrid` (text in batches, images now) or `cheapest` (both through provider batches) — how a production run spends; only keys whose provider has a batch API are batched. |
   | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
-  | `video` | `{fadeAtSceneBreaks}` — video export settings: fade to black where the scene changes (each shot can override it). |
+  | `video` | `{fadeAtSceneBreaks, watermark, intro, outro}` — video export settings: fade to black where the scene changes (each shot can override it), a logo watermark `{assetId, corner, opacity, size}` (an image of the project) and intro/outro cards `{title, subtitle, durationMs}`. |
 
 - `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
   `user_id` it acts as, `status` (`running|waiting|paused|completed|failed|cancelled`; `waiting` is a review step,

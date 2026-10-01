@@ -1086,6 +1086,7 @@ export async function buildInterchange(
       colorMode: project.colorMode,
       settings: project.settings,
       cover: await assetRef(project.coverAssetId, "exports"),
+      videoLogo: await assetRef(project.settings.video?.watermark?.assetId ?? null, "exports"),
     },
     style: style
       ? {

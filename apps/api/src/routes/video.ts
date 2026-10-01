@@ -1,18 +1,24 @@
-import { eq, pages } from "@openmanga/db";
+import { assets, eq, pages } from "@openmanga/db";
+import { frameSizeFor } from "@openmanga/domain";
 import { computeCrop } from "@openmanga/image-utils";
+import type { ProjectSettings } from "@openmanga/schemas";
 import {
+  type BrandedProject,
   loadRenderPage,
   narrationSegmentsFor,
   panelAspect,
   planVideoShots,
+  recordAudit,
   renderPageImage,
+  renderProjectVideoCard,
 } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
-import { entityAccess } from "../lib/access.ts";
-import { badRequest, notFound, query, uuidParam } from "../lib/http.ts";
+import { entityAccess, projectAccess } from "../lib/access.ts";
+import { badRequest, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
+import { readImageUpload } from "../lib/uploads.ts";
 
 export const videoRoutes = new Hono<AppEnv>();
 
@@ -64,13 +70,96 @@ videoRoutes.get("/pages/:id/render.png", async (c) => {
   });
 });
 
+const CardQuery = z.object({ height: z.coerce.number().int().min(180).max(1440).default(1080) });
+
+/** A project's intro or outro card PNG, the pixels the render encodes; 404 when that card is off. */
+export async function videoCardResponse(
+  deps: AppEnv["Variables"]["deps"],
+  project: BrandedProject,
+  which: string,
+  height: number,
+  cacheControl: string,
+) {
+  if (which !== "intro" && which !== "outro") throw notFound("Card");
+  const { frameW, frameH } = frameSizeFor(height);
+  const png = await renderProjectVideoCard(deps.db, deps.assets, project, which, frameW, frameH);
+  if (!png) throw notFound("Card");
+  return new Response(png, { headers: { "content-type": "image/png", "cache-control": cacheControl } });
+}
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/video-card/:which.png",
+  summary:
+    "The project's intro or outro video card (`which`: intro|outro) as the render draws it, at ?height= (16:9). 404 when the card is off.",
+  tag: "exports",
+});
+videoRoutes.get("/projects/:projectId/video-card/:file", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const { height } = query(c, CardQuery);
+  return videoCardResponse(c.get("deps"), p, c.req.param("file").replace(/\.png$/, ""), height, "private, max-age=30");
+});
+
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/video-logo",
+  summary:
+    "Upload a logo for the video watermark (multipart: file; PNG with transparency works best). Returns the asset; set it as settings.video.watermark.assetId with PATCH /api/projects/:projectId.",
+  tag: "exports",
+});
+videoRoutes.post("/projects/:projectId/video-logo", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
+  const up = await readImageUpload(c);
+  const deps = c.get("deps");
+  const asset = await deps.assets.store({
+    projectId: p.id,
+    ownerUserId: user(c).id,
+    type: "source_image",
+    data: up.data,
+    mimeType: up.mime,
+    width: up.width,
+    height: up.height,
+    metadata: { role: "video_logo", originalName: up.originalName },
+  });
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: p.id,
+    action: "project.video_logo",
+    targetType: "asset",
+    targetId: asset.id,
+    metadata: { bytes: up.data.byteLength },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
+});
+
+/** What the preview needs to draw the project's branding: the cards' lengths and the logo's placement inputs. */
+async function brandingPayload(
+  db: AppEnv["Variables"]["deps"]["db"],
+  projectId: string,
+  settings: ProjectSettings | undefined,
+) {
+  const v = settings?.video;
+  const wm = v?.watermark;
+  const [logo] = wm ? await db.select().from(assets).where(eq(assets.id, wm.assetId)) : [];
+  return {
+    intro: v?.intro ?? null,
+    outro: v?.outro ?? null,
+    watermark:
+      wm && logo?.width && logo.height && !logo.deletedAt && logo.projectId === projectId
+        ? { ...wm, width: logo.width, height: logo.height }
+        : null,
+  };
+}
+
 /**
  * The preview's shot list: the same shots, crops, focus points, moves, fades, spans and narration as the final
- * render. Shared by the signed-in preview and a reader link's (which passes its own, already checked, scope).
+ * render, plus the project's branding. Shared by the signed-in preview and a reader link's (which passes its own,
+ * already checked, scope).
  */
 export async function previewPayload(
   db: AppEnv["Variables"]["deps"]["db"],
-  project: Parameters<typeof planVideoShots>[1],
+  project: Parameters<typeof planVideoShots>[1] & { settings?: ProjectSettings; updatedAt?: Date | string },
   scope: Parameters<typeof planVideoShots>[2],
   cut: "page" | "panel",
   language: string,
@@ -89,6 +178,10 @@ export async function previewPayload(
   return {
     cut,
     language,
+    branding: {
+      ...(await brandingPayload(db, project.id, project.settings)),
+      version: String(project.updatedAt ?? ""),
+    },
     unplacedLines: planned.unplacedLines,
     disabledPanels: planned.disabledPanels,
     shots: planned.shots.map((s) => {
