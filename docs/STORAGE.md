@@ -64,8 +64,15 @@ thumbnail with its headline composited, when there is one), `description.txt` (w
 Without nginx (tests, `bun dev`) the header is absent and the API streams the bytes itself, so the same route works
 either way.
 
-Reader links do not use `/cdn`: `GET /api/public/shares/:token/pages/:pageId.png` renders the lettered page on each
-request (`?width=` 200–1600, default 1200) and nothing is stored. The reader's video preview fetches panel artwork
+Reader links do not use `/cdn`: `GET /api/public/shares/:token/pages/:pageId.png` serves the lettered page
+(`?width=` 200–1600, default 1200, rounded up to a 200 px bucket). The first request renders it and stores the PNG
+as a project asset of type `thumbnail` with `metadata.pageRender = { pageId, fingerprint, width }`
+(`cachedPageRender` in `packages/services/src/compose.ts`); later requests serve that file the same way `/cdn` does,
+with `cache-control: public, max-age=300` and an ETag. The fingerprint is a hash of everything the page is drawn
+from — the page, panel frames, transforms and seams, each active artwork's hash, dialogue, narration boxes and SFX —
+plus a compositor version, so any edit is a cache miss. Writing a new render deletes the page's renders with an older
+fingerprint (and any copy at the same width); the same content at other widths stays. The library list hides these
+assets and disk usage counts them as `derived`. The reader's video preview fetches panel artwork
 (`?v=web`) and narration audio through `GET /api/public/shares/:token/assets/:assetId`, which serves the stored asset
 the same way `/cdn` does, but only when it is a panel's active artwork or a segment's active audio inside the link's
 scope.
@@ -89,6 +96,7 @@ the only thing that deletes on a timer:
 | Canonical references, active panel art, panel version history | kept |
 | Thumbnail / preview / web variants | generated on demand, cached, kept |
 | `prompt_ref` variants | deleted after 30 days without use, recreated on demand |
+| Reader-link page renders | replaced when the page changes; a deleted page's renders are removed by the next cycle |
 | Export files | `exports.expires_at` is 30 days after the export; the file is deleted once it passes and the job row is kept as history |
 | Trashed assets | hard-deleted 30 days after `deleted_at`, never when `locked` or when a panel still points at them |
 | Temp files under `TEMP_ROOT` | per-job directories removed after use; anything older than 6 hours swept |

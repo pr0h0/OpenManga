@@ -65,6 +65,21 @@ export async function runMaintenance(deps: WorkerDeps) {
     );
   result.promptDerivativesRemoved = staleVariants.length;
 
+  // Reader-link page renders replace their own superseded copies when drawn again; a deleted page's are swept here.
+  const orphanRenders = await deps.db
+    .select()
+    .from(assets)
+    .where(
+      and(
+        eq(assets.type, "thumbnail"),
+        sql`${assets.metadata} ? 'pageRender'`,
+        sql`not exists (select 1 from pages pg where pg.id::text = ${assets.metadata}->'pageRender'->>'pageId')`,
+      ),
+    )
+    .limit(500);
+  for (const a of orphanRenders) await deps.assets.hardDelete(a);
+  result.orphanPageRendersRemoved = orphanRenders.length;
+
   // Expired export files (the export job record stays for history).
   const expired = await deps.db
     .select({ e: exportsTable, a: assets })

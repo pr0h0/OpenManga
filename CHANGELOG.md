@@ -20,7 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   that connection remembers it: later calls needing it get `scope_missing` saying it was declined (with
   `details.declined`) and no new step-up challenge, so the agent stops sending you back to the same screen. Agent
   access lists the declined scopes; granting one there, or on a later consent screen, clears it.
-
+- **Reader-link pages are rendered once.** A reader link's page PNG is stored after the first request and served from
+  storage until the page changes (artwork, frames, bubbles, narration boxes or SFX); an edit draws it again and removes
+  the old copy. Widths round up to 200 px steps. The stored renders count toward the project's disk use, and
+  maintenance sweeps the renders of deleted pages.
 - **Higher rate limits for real use, lower for guessing.** A signed-in user gets 2000 API requests a minute (was 600)
   and an MCP connection 750 (was 240); requests with no session get their own lower ceiling per address,
   `RATE_LIMIT_ANON_PER_MINUTE` (300). Registration is capped at 10 an hour and reset emails at 5 per 15 minutes per
