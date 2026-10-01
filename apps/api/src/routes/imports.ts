@@ -120,7 +120,7 @@ importRoutes.post("/projects/import", async (c) => {
     throw e;
   }
 
-  // Imports ride the export queue one at a time and each upload sits on disk until it is consumed, so a user
+  // Imports ride the render queue one at a time and each upload sits on disk until it is consumed, so a user
   // cannot stack them: without this, repeated 512 MB uploads fill the volume long before any is processed.
   const [pending] = await deps.db
     .select({ n: sql<number>`count(*)::int` })

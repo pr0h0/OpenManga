@@ -74,6 +74,8 @@ x-app-env: &app-env
   TEXT_WORKER_CONCURRENCY: ${TEXT_WORKER_CONCURRENCY:-4}
   TTS_WORKER_CONCURRENCY: ${TTS_WORKER_CONCURRENCY:-4}
   EXPORT_WORKER_CONCURRENCY: ${EXPORT_WORKER_CONCURRENCY:-1}
+  RENDER_WORKER_CONCURRENCY: ${RENDER_WORKER_CONCURRENCY:-1}
+  WORKER_QUEUES: ${WORKER_QUEUES:-}
   VIDEO_ENCODE_CONCURRENCY: ${VIDEO_ENCODE_CONCURRENCY:-4}
   STALLED_JOB_TIMEOUT_MINUTES: ${STALLED_JOB_TIMEOUT_MINUTES:-120}
   OPENAI_BATCH_MAX_ENQUEUED_TOKENS: ${OPENAI_BATCH_MAX_ENQUEUED_TOKENS:-1000000}
@@ -222,7 +224,7 @@ services:
       - tmp-data:/data/tmp
     healthcheck:
       # The worker touches a heartbeat file every 30 s; stale for 2 min = event loop stuck or process wedged.
-      test: ["CMD-SHELL", "test -f /data/tmp/worker-heartbeat && [ $$(( $$(date +%s) - $$(stat -c %Y /data/tmp/worker-heartbeat) )) -lt 120 ]"]
+      test: ["CMD-SHELL", "test -f /tmp/worker-heartbeat && [ $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 120 ]"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -233,6 +235,35 @@ services:
       redis:
         condition: service_healthy
     networks: [internal]
+
+  # A worker that takes only video renders and imports, e.g. on a bigger CPU budget, so a long render never shares
+  # cores or a slot with the rest. To use it, uncomment, and set WORKER_QUEUES in .env to every other queue so the
+  # main worker stops taking renders (see docs/DEPLOYMENT.md, "Dedicated render worker").
+  # worker-render:
+  #   <<: *hardened
+  #   mem_limit: 6g
+  #   image: openmanga-app:1
+  #   restart: unless-stopped
+  #   command: ["bun", "apps/worker/src/main.ts"]
+  #   stop_grace_period: 6m
+  #   environment:
+  #     <<: *app-env
+  #     WORKER_QUEUES: render
+  #   volumes:
+  #     - assets-data:/data/assets
+  #     - tmp-data:/data/tmp
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "test -f /tmp/worker-heartbeat && [ $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 120 ]"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 60s
+  #   depends_on:
+  #     migrate:
+  #       condition: service_completed_successfully
+  #     redis:
+  #       condition: service_healthy
+  #   networks: [internal]
 
   nginx:
     <<: *hardened

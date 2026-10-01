@@ -13,7 +13,7 @@ import {
   sql,
 } from "@openmanga/db";
 import { providerSupports } from "@openmanga/domain";
-import { issuesForExport, projectReadiness, recordAudit } from "@openmanga/services";
+import { exportQueuesFor, issuesForExport, projectReadiness, recordAudit } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -266,7 +266,7 @@ exportRoutes.post("/exports/:id/cancel", async (c) => {
   if (!job) throw notFound("Export");
   await projectAccess(c, job.projectId, "read");
   if (job.status === "queued") {
-    await deps.queue.removeWaiting("export", job.id);
+    for (const q of exportQueuesFor(job.kind)) await deps.queue.removeWaiting(q, job.id);
     await deps.db.update(exportJobs).set({ status: "cancelled", finishedAt: new Date() }).where(eq(exportJobs.id, id));
     return c.json({ result: "cancelled" });
   }

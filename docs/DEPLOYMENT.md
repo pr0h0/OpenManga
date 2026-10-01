@@ -199,10 +199,34 @@ Losing every key that can decrypt a row makes that saved key unreadable and the 
   are the rest. Per-provider request concurrency is capped separately by `AI_IMAGE_MAX_CONCURRENCY` and
   `AI_TEXT_MAX_CONCURRENCY`.
 - **Video export** renders and encodes `VIDEO_ENCODE_CONCURRENCY` clips at once (default 4, roughly one core each at
-  `veryfast`); narration audio is still assembled in page order.
+  `veryfast`); narration audio is still assembled in page order. Video renders and project imports run on their own
+  `render` queue (`RENDER_WORKER_CONCURRENCY`, default 1), so a long render never holds up a PDF or a ZIP on the
+  `export` queue (`EXPORT_WORKER_CONCURRENCY`, default 1). Each render already uses `VIDEO_ENCODE_CONCURRENCY` cores,
+  so raise `RENDER_WORKER_CONCURRENCY` only with cores to spare.
 - **Polling jobs**: `GET /api/jobs/:id` returns `{ type, job }` for any generation, audio, export or import job the
   caller can read (exports include their files). `POST /api/projects/:id/exports` returns the export *job*, not a
   file.
+
+### Dedicated render worker
+
+One worker container consumes every queue by default. To give video renders their own container (more memory or
+CPU, or a separate host with the same volumes and network), split the queues with `WORKER_QUEUES`:
+
+1. Uncomment the `worker-render` service in `docker-compose.yml`. It runs the same image with `WORKER_QUEUES: render`.
+2. In `.env`, set `WORKER_QUEUES` for the main worker to every other queue:
+   `WORKER_QUEUES=text-ai,image-generation,image-edit,asset-processing,tts,export,maintenance,image-batch`.
+   Leaving it empty also works, but then the main worker keeps taking renders too.
+3. `docker compose up -d worker worker-render`.
+
+Both containers need the `assets-data` and `tmp-data` volumes: imports read their upload from `tmp-data`. Every
+worker runs the outbox publisher and the Redis reconcile loop, which are safe to run twice. An unknown name in
+`WORKER_QUEUES` stops the worker at start, and the worker logs the queues it consumes. The Queues table in Admin shows the
+`render` queue's counts next to the others.
+
+**Upgrading from a release without the `render` queue.** Renders and imports queued before the upgrade stay on the
+`export` queue and still run there: the `export` worker takes any export kind, and reconcile, cancel and the stalled
+sweep look on both queues. They need a worker that consumes `export`, which the main worker does in both setups above.
+Nothing needs to be moved by hand.
 
 ## GPU Kokoro (later)
 
@@ -211,7 +235,7 @@ Add a compose override with `deploy.resources.reservations.devices` for the koko
 
 ## Health and recovery
 
-- Every long-running service has a health check. The worker writes `/data/tmp/worker-heartbeat` every 30 s and is
+- Every long-running service has a health check. The worker writes `/tmp/worker-heartbeat` (inside its own container) every 30 s and is
   unhealthy after 2 minutes without it.
 - The hourly `maintenance` job fails jobs that have not written to their row for `STALLED_JOB_TIMEOUT_MINUTES`
   (120) and that no worker still holds, fails batched panels whose submitter died, and prunes expired sessions,

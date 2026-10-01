@@ -98,6 +98,13 @@ const EnvSchema = z.object({
   TTS_TRIM_THRESHOLD_DB: z.coerce.number().min(-90).max(-10).default(-45),
   TTS_TRIM_KEEP_MS: int(25),
   EXPORT_WORKER_CONCURRENCY: int(1),
+  /** Video renders and imports, on their own `render` queue. Each render already encodes VIDEO_ENCODE_CONCURRENCY clips. */
+  RENDER_WORKER_CONCURRENCY: int(1),
+  /**
+   * Comma-separated queues this worker consumes; empty means all. Lets a second worker container take only `render`
+   * (see docs/DEPLOYMENT.md). Every worker still runs the outbox publisher and the Redis reconcile loop.
+   */
+  WORKER_QUEUES: z.string().default(""),
   /** Page clips a video export renders/encodes in parallel (each ffmpeg is roughly one core at veryfast). */
   VIDEO_ENCODE_CONCURRENCY: int(4),
   /**

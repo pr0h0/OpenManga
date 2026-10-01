@@ -13,6 +13,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   connection: `delete_exports` (one export, or every finished export of a project), `delete_narration_audio` (a
   chapter's, one track of it, or the whole project's; the text stays) and `manage_assets` (list a project's assets or
   its trash, trash, restore, and permanently delete what is in trash).
+- **Dedicated render workers.** Video renders and project imports run on their own `render` queue
+  (`RENDER_WORKER_CONCURRENCY`, default 1), so a long render no longer holds up a PDF or a ZIP on the `export` queue.
+  `WORKER_QUEUES` (comma-separated, default all) picks the queues a worker consumes, and `docker-compose.yml` carries a
+  commented render-only worker service. Renders queued before the upgrade still finish on the `export` queue (see
+  `docs/DEPLOYMENT.md`). The worker's health-check heartbeat moved from the shared `/data/tmp` volume to `/tmp`
+  inside its own container, so one worker cannot keep another looking healthy.
 
 ### Changed
 
