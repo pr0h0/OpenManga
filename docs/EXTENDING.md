@@ -883,7 +883,7 @@ use Redis DB 5, so your dev data is safe:
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 TEST_DATABASE_URL=postgres://<user>:<password>@postgres:5432/<db> \
-TEST_REDIS_URL=redis://redis:6379/5 \
+TEST_REDIS_URL=redis://redis:6379/5 OM_NETWORK=openmanga_internal \
   ./scripts/bunx.sh bun test tests/integration
 ```
 

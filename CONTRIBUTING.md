@@ -48,8 +48,9 @@ Full containerised stack, closer to production: `docker compose up -d --build`.
 
 ## Running tools without installing Bun
 
-`./scripts/bunx.sh <command>` runs a command inside a disposable Bun container with the repo mounted, joined to the
-compose network when it exists. Use it for anything you would otherwise run with `bun` or `bunx`:
+`./scripts/bunx.sh <command>` runs a command inside a disposable Bun container with the repo mounted. It joins a
+Docker network only when `OM_NETWORK` names one (`OM_NETWORK=openmanga_internal` reaches the dev stack's
+`postgres` and `redis`). Use it for anything you would otherwise run with `bun` or `bunx`:
 
 ```bash
 ./scripts/bunx.sh bun install
@@ -81,7 +82,7 @@ use Redis DB 5, so they will not touch your dev data:
 
 ```bash
 TEST_DATABASE_URL=postgres://<user>:<password>@postgres:5432/<db> \
-TEST_REDIS_URL=redis://redis:6379/5 \
+TEST_REDIS_URL=redis://redis:6379/5 OM_NETWORK=openmanga_internal \
   ./scripts/bunx.sh bun test tests/integration
 ```
 

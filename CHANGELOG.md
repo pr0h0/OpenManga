@@ -47,6 +47,8 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Changed
 
+- `scripts/bunx.sh` joins a Docker network only when `OM_NETWORK` names one; it used to join `openmanga_internal`
+  whenever that existed, putting every lint and typecheck on a running stack's internal network.
 - **A declined scope is not asked for again.** When you untick a scope on an agent's consent screen, or deny a step-up,
   that connection remembers it: later calls needing it get `scope_missing` saying it was declined (with
   `details.declined`) and no new step-up challenge, so the agent stops sending you back to the same screen. Agent
