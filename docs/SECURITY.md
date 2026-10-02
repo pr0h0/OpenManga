@@ -15,7 +15,8 @@ gate), `docs/STORAGE.md` (uploads, keys, asset serving) and `docs/PROMPT_SYSTEM.
 | Provider keys | bring-your-own only: no server-level provider keys exist, so a compromised server holds no shared credential (see below) |
 | Uploads | magic-byte MIME detection (PNG/JPEG/WebP only), `UPLOAD_MAX_BYTES` checked on both the header and the parsed file, Sharp re-encode that strips EXIF/GPS, 40 MP input limit |
 | Path traversal | server-generated opaque sharded keys, strict key regex (no `..`, `//`, trailing `/`), resolved-path root check, nginx `internal` location |
-| Asset access | the API authorizes each `/cdn` request (the asset's owner, or `read` on its project; expert-chat images are owner-only), then answers with `X-Accel-Redirect`; trashed assets are 404 outside the trash views (`?trash=1`); client-supplied `X-Accel-Enabled` is stripped at the edge |
+| Asset access | the API authorizes each `/cdn` request (the asset's owner, or `read` on its project; expert-chat images are owner-only), then answers with `X-Accel-Redirect` or, with S3 storage, a redirect to a signed URL valid for
+`S3_PRESIGN_EXPIRES_SECONDS` (900 s by default); trashed assets are 404 outside the trash views (`?trash=1`); client-supplied `X-Accel-Enabled` is stripped at the edge |
 | Reader links | `/api/public/shares/:token` needs no session: an unlisted 144-bit random token (stored as issued, so it can be shown again) opens one project or chapter read-only — its title, description, author, chapter titles, lettered page images and, for its video preview, the shot list plus the active artwork and narration audio of the panels and lines inside its scope (any other asset id answers 404), nothing else; only an owner (`manage`) creates or revokes one; a revoked link or a trashed project answers 404 at once, though a browser may keep a page image it already loaded for up to 5 minutes |
 | Secrets | server-side only, never sent to the browser; the logger redacts by key and by value (API keys, bearer tokens, cookies, passwords); boot refuses a `SESSION_SECRET` or `POSTGRES_PASSWORD` still set to the `.env.example` placeholder |
 | Errors | sanitized envelopes `{code, message, requestId}`; stack traces only in logs and `error_events` |
@@ -64,6 +65,11 @@ in the system. `packages/services/src/credentials.ts` owns it.
 - Keep `backups/` out of the repository and off public storage; it contains a copy of `.env`.
 - Cloudflare may inject scripts (Web Analytics, for example); the strict CSP blocks them. Disable those features in
   the zone or extend the CSP deliberately.
+- With `STORAGE_DRIVER=s3` the bucket stays private and every download is a presigned URL. Such a URL is a bearer
+  credential for one object until it expires: whoever holds it (browser history, a proxy log, a forwarded link) can
+  fetch that object without a session, and revoking access or a reader link does not cancel URLs already issued. Keep
+  `S3_PRESIGN_EXPIRES_SECONDS` short (the default 900 s; the redirect itself is cached at most a minute less), and
+  give the app's S3 key access to its own bucket (or prefix) only.
 - `assets.visibility` allows `public`, but nothing in the code creates a public asset, so in practice every `/cdn`
   request is authorized. If you add one, remember it is then served with no auth check and a one-year immutable
   cache.

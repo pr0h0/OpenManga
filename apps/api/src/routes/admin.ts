@@ -45,10 +45,12 @@ adminRoutes.get("/overview", async (c) => {
   const queues = await deps.queue.counts().catch(() => null);
   const tts = deps.tts ? await deps.tts.health() : { ok: false, state: "disabled" };
   let disk: { totalBytes: number; freeBytes: number } | null = null;
-  try {
-    const s = await statfs(deps.config.ASSET_ROOT);
-    disk = { totalBytes: s.blocks * s.bsize, freeBytes: s.bavail * s.bsize };
-  } catch {}
+  // A bucket has no free space to report; ASSET_ROOT would describe an unused local volume.
+  if (deps.config.STORAGE_DRIVER === "local")
+    try {
+      const s = await statfs(deps.config.ASSET_ROOT);
+      disk = { totalBytes: s.blocks * s.bsize, freeBytes: s.bavail * s.bsize };
+    } catch {}
   const recentErrors = await deps.db.select().from(errorEvents).orderBy(desc(errorEvents.createdAt)).limit(25);
   return c.json({
     counts,

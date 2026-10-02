@@ -31,7 +31,7 @@ Self-hosted AI manhwa/webtoon/video studio: story → analysis → cast/world �
 - `packages/domain` pure logic (layouts, bubbles, text wrap, narration segmentation, cost, permissions, retry/limiter, video timing and framing, runtime budgets, production presets). `@openmanga/domain/browser` is web-safe.
 - `packages/prompts` versioned prompt templates (text + image). Change prompt ⇒ bump version.
 - `packages/ai-text` text providers (OpenAI-compatible, DeepSeek, Anthropic, Gemini, Meta) + fake. `packages/ai-image` image providers (OpenAI, Gemini, Meta, OpenRouter) + fake. Both also hold the OpenAI/Gemini batch clients. `packages/audio` Kokoro, cloud (OpenAI, Gemini, ElevenLabs) and fake TTS + WAV/ffmpeg.
-- `packages/image-utils` Sharp: sniffing, sanitizing, derivatives, crop, masks. `packages/storage` `AssetStorage` + local impl.
+- `packages/image-utils` Sharp: sniffing, sanitizing, derivatives, crop, masks. `packages/storage` `AssetStorage` + local and S3 impls (`STORAGE_DRIVER`).
 - `packages/auth` passwords, sessions, tokens. `packages/queue` BullMQ queues + outbox relay. `packages/mail` mail interface + the dev mailbox provider. `packages/logger` logging with secret redaction. `packages/testing` mock text/media scenarios.
 - `packages/services` shared API/worker services: assets, usage, jobs+outbox, `GenerationPlanner` (reference selection & prompt compile), analysis/plan appliers.
 - `apps/api` HTTP routes by domain (`src/routes/*`) and the production-run runner (`src/lib/production.ts`). `apps/worker` queue processors + compositor/exports. `apps/mock-ai` mock provider HTTP service. `apps/web` SPA.
@@ -46,7 +46,7 @@ Self-hosted AI manhwa/webtoon/video studio: story → analysis → cast/world �
 7. Dialogue, SFX and narration boxes are vector overlays; artwork prompts forbid text. Exports are deterministic compositions (no AI): `youtube_package` only zips an existing video with text a separate text job wrote.
 8. Long AI work always goes through the queue; jobs are created with their outbox row in one transaction.
 9. Story content is untrusted data inside delimiters; never interpolate it as instructions.
-10. Keys never leave the server; logs redact secrets. User BYOK keys are AES-GCM encrypted at rest, returned only as `…last4`, and usable only by their owner. Assets are served only after authorization (X-Accel-Redirect).
+10. Keys never leave the server; logs redact secrets. User BYOK keys are AES-GCM encrypted at rest, returned only as `…last4`, and usable only by their owner. Assets are served only after authorization (X-Accel-Redirect, or a short-lived presigned URL with S3 storage).
 11. MCP tools (`apps/api/src/mcp`) do their work by calling the REST route handlers in-process through a private router, not by duplicating business logic; every tool is registered in `mcp/tools/*` with its scopes and sensitivity (plus `classify` for anything that is not a plain read), and `docs/MCP_TOOLS.md` is regenerated from the registry (`bun scripts/mcp-docs.ts`). Production runs follow the same rule: each step calls the existing routes in-process as the run's user, so access, preflight and budget checks apply; a step never creates jobs itself.
 
 ## Where to look next

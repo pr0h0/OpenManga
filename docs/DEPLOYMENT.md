@@ -56,7 +56,7 @@ Profiles (set `COMPOSE_PROFILES` in `.env`):
 | `/api/public/*` | reader-link API (`/api/public/shares/<token>`), no sign-in; the SPA's reader is `/app/read/<token>` |
 | `/mcp` | MCP endpoint for AI agents: unbuffered (replies can upgrade to SSE), 300 s read timeout, 8 MB body (`docs/MCP.md`) |
 | `/oauth/*`, `/.well-known/oauth-*` | the MCP's OAuth authorization server and discovery documents, 64 KB body |
-| `/cdn/*` | API authorization → `X-Accel-Redirect` → the internal `/_protected_assets/` location |
+| `/cdn/*` | API authorization → `X-Accel-Redirect` → the internal `/_protected_assets/` location; with `STORAGE_DRIVER=s3`, a 302 to a short-lived signed bucket URL instead |
 | `/healthz`, `/readyz` | API health and readiness (`/readyz` checks Postgres and Redis; Kokoro is reported as optional and never fails readiness) |
 
 Security headers (CSP, nosniff, frame options, referrer policy, permissions policy, HSTS) are set by nginx;
@@ -161,7 +161,8 @@ being killed after the user has already paid for it.
 ## Persistence
 
 Named volumes: `postgres-data`, `redis-data` (AOF, `maxmemory-policy noeviction`), `assets-data`, `tmp-data`,
-`kokoro-cache`. `docker compose down` keeps them — never use `-v` in production. Restart policy `unless-stopped`;
+`kokoro-cache`. With `STORAGE_DRIVER=s3`, `assets-data` stays empty and the files live in the bucket; `tmp-data` is
+still needed (imports, export and render work files). `docker compose down` keeps them — never use `-v` in production. Restart policy `unless-stopped`;
 health checks on postgres, redis, api, nginx, kokoro and the worker.
 
 ## Backups
@@ -175,9 +176,20 @@ asset volume, the compose and deploy configuration, a mode-600 copy of `.env`, a
 ```
 
 `scripts/restore.sh <dir> [--yes]` verifies the checksums, stops the app services, recreates the database, restores
-the assets, flushes Redis and restarts. The procedure was verified by backing up, deleting data and files, and
+the assets, flushes Redis and restarts. With `STORAGE_DRIVER=s3` neither script touches the bucket: back it up and
+restore it with the bucket's own tools ([STORAGE.md](STORAGE.md#backups-with-s3)). The procedure was verified by backing up, deleting data and files, and
 restoring. Redis being flushed is safe: the worker re-publishes still-queued jobs from the database within a minute of
 starting.
+
+## S3-compatible storage
+
+Assets can live in a bucket instead of the `assets-data` volume: set `STORAGE_DRIVER=s3`, the `S3_*` settings and
+`ASSET_CSP_ORIGIN` (the bucket origin browsers load from, which nginx adds to the app's CSP) in `.env`, then
+`docker compose up -d`. `/cdn` then answers with a redirect to a URL signed for `S3_PRESIGN_EXPIRES_SECONDS` (900),
+large files are uploaded in parts, and nothing else changes. The settings, the copy recipe for an existing install
+and what backups cover are in [STORAGE.md](STORAGE.md#assetstorage). A MinIO next to the stack works: put it on the
+`internal` network, set `S3_ENDPOINT=http://minio:9000`, `S3_FORCE_PATH_STYLE=true` and `S3_PUBLIC_ENDPOINT` to the
+address browsers reach it at.
 
 ## Rotating the provider-key encryption key
 

@@ -59,7 +59,23 @@ const EnvSchema = z.object({
   REFERENCE_FORMAT: z.enum(["webp", "png", "jpeg"]).default("webp"),
   REFERENCE_QUALITY: int(85),
 
+  /** Where asset files live: `local` (ASSET_ROOT, served by nginx) or `s3` (any S3-compatible bucket). */
+  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   ASSET_ROOT: z.string().default("/data/assets"),
+  /** Empty for AWS; e.g. `http://minio:9000` or `https://<account>.r2.cloudflarestorage.com`. Without the bucket. */
+  S3_ENDPOINT: z.string().default(""),
+  /** The endpoint browsers download from, when the server reaches the bucket under another name. Default: S3_ENDPOINT. */
+  S3_PUBLIC_ENDPOINT: z.string().default(""),
+  S3_BUCKET: z.string().default(""),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_ACCESS_KEY_ID: z.string().default(""),
+  S3_SECRET_ACCESS_KEY: z.string().default(""),
+  /** `https://endpoint/bucket/key` instead of `https://bucket.endpoint/key`. MinIO usually needs true. */
+  S3_FORCE_PATH_STYLE: bool.default(false),
+  /** Prepended to every object key, e.g. `openmanga/`, to share a bucket. */
+  S3_PREFIX: z.string().default(""),
+  /** Lifetime of the signed download URLs `/cdn` redirects to. */
+  S3_PRESIGN_EXPIRES_SECONDS: z.coerce.number().int().min(60).max(604_800).default(900),
   TEMP_ROOT: z.string().default("/data/tmp"),
   UPLOAD_MAX_BYTES: int(15 * 1024 * 1024),
   /**
@@ -193,6 +209,13 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
     throw new ConfigError(
       "AI_MOCK_MODE=true is refused in production. Set AI_MOCK_ALLOW_IN_PRODUCTION=true to override explicitly.",
     );
+  }
+  if (c.STORAGE_DRIVER === "s3") {
+    const missing = (["S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const).filter((k) => !c[k]);
+    if (missing.length) throw new ConfigError(`STORAGE_DRIVER=s3 needs ${missing.join(", ")}`);
+    for (const k of ["S3_ENDPOINT", "S3_PUBLIC_ENDPOINT"] as const)
+      if (c[k] && !(/^https?:\/\//.test(c[k]) && URL.canParse(c[k])))
+        throw new ConfigError(`${k} must be a URL, e.g. https://s3.example.com`);
   }
   const imageSizes = c.IMAGE_SIZES.split(",").map((s) => {
     const [w, h] = s.trim().split("x").map(Number);

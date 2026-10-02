@@ -32,7 +32,17 @@ x-app-env: &app-env
   REFERENCE_FORMAT: ${REFERENCE_FORMAT:-webp}
   REFERENCE_QUALITY: ${REFERENCE_QUALITY:-85}
   REFERENCE_ALLOW_UPSCALE: ${REFERENCE_ALLOW_UPSCALE:-false}
+  STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
   ASSET_ROOT: /data/assets
+  S3_ENDPOINT: ${S3_ENDPOINT:-}
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+  S3_PREFIX: ${S3_PREFIX:-}
+  S3_PRESIGN_EXPIRES_SECONDS: ${S3_PRESIGN_EXPIRES_SECONDS:-900}
   TEMP_ROOT: /data/tmp
   TTS_ENABLED: ${TTS_ENABLED:-true}
   TTS_PROVIDER: ${TTS_PROVIDER:-kokoro}
@@ -277,6 +287,9 @@ services:
         GIT_SHA: "${GIT_SHA:-}"
     image: openmanga-nginx:1
     restart: unless-stopped
+    environment:
+      # With STORAGE_DRIVER=s3 the app loads images and media from the bucket: its origin must be in the CSP.
+      ASSET_CSP_ORIGIN: ${ASSET_CSP_ORIGIN:-}
     ports:
       - "${NGINX_BIND:-127.0.0.1}:${NGINX_PORT:-3480}:80"
     volumes:

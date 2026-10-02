@@ -1,4 +1,5 @@
 import { getConfig } from "@openmanga/config";
+import { S3AssetStorage } from "@openmanga/storage";
 import { createApp } from "./app.ts";
 import { buildDeps } from "./deps.ts";
 import { tickProductionRuns } from "./lib/production.ts";
@@ -18,6 +19,14 @@ const server = Bun.serve({
 });
 
 deps.logger.info("api listening", { port: server.port, mockMode: config.AI_MOCK_MODE, providers: deps.providers });
+const storage = deps.assets.storage;
+if (storage instanceof S3AssetStorage) {
+  // Browsers follow /cdn to this origin, so the app's CSP has to allow it (nginx's ASSET_CSP_ORIGIN).
+  const origin = new URL(storage.presign("probe", { expiresIn: 60, contentType: "text/plain" })).origin;
+  deps.logger.info("asset downloads redirect to the bucket", { origin });
+  // A wrong endpoint, bucket or key otherwise only shows up as broken images; say so once, up front.
+  await storage.check().catch((e) => deps.logger.error("the asset bucket is not reachable", { error: String(e) }));
+}
 
 // Production runs move on when their jobs finish; checking every 10 s is plenty for work measured in minutes.
 const runTicker = setInterval(() => void tickProductionRuns(deps), 10_000);
