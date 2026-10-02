@@ -417,13 +417,19 @@ export function Tabs<T extends string>({
   value,
   onChange,
   tabs,
+  dense,
 }: {
   value: T;
   onChange: (v: T) => void;
   tabs: { value: T; label: ReactNode }[];
+  /** Tighter tabs for narrow side panels, so a row of six still fits without scrolling. */
+  dense?: boolean;
 }) {
   return (
-    <div role="tablist" className="mb-4 flex gap-1 overflow-x-auto border-b border-[var(--border)]">
+    <div
+      role="tablist"
+      className={clsx("mb-4 flex overflow-x-auto border-b border-[var(--border)]", dense ? "gap-0" : "gap-1")}
+    >
       {tabs.map((t) => (
         <button
           key={t.value}
@@ -432,7 +438,8 @@ export function Tabs<T extends string>({
           aria-selected={value === t.value}
           onClick={() => onChange(t.value)}
           className={clsx(
-            "-mb-px shrink-0 whitespace-nowrap border-b-2 px-2.5 py-2 text-sm font-medium",
+            "-mb-px shrink-0 whitespace-nowrap border-b-2 py-2 font-medium",
+            dense ? "px-1.5 text-xs" : "px-2.5 text-sm",
             value === t.value
               ? "border-accent-500 text-[var(--text)]"
               : "border-transparent muted hover:text-[var(--text)]",

@@ -556,7 +556,13 @@ function ServerBudget() {
     <section className="card p-4">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <h2 className="mr-auto font-medium">Server budget · {month} (UTC)</h2>
-        <span className={b.exceeded ? "chip bg-red-500/15 text-red-600 dark:text-red-300" : "chip"}>
+        <span
+          className={
+            b.exceeded
+              ? "chip bg-red-500/15 text-red-600 dark:text-red-300"
+              : "chip bg-[var(--panel-2)] text-[var(--text)]"
+          }
+        >
           {fmt.usd(b.spentUsd)} {b.limitUsd === null ? "spent, no ceiling" : `of ${fmt.usd(b.limitUsd)}`}
         </span>
       </div>
