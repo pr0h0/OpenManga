@@ -300,6 +300,7 @@ export function PageEditorPage() {
         >
           <div className="px-3 pt-2">
             <Tabs<Tab>
+              dense
               value={tab}
               onChange={setTab}
               tabs={[

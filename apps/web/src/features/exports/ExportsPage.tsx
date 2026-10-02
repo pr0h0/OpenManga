@@ -35,7 +35,7 @@ const KINDS = [
   { value: "agent_package", label: "Agent hand-off package (everything linked)", chapter: false },
   { value: "video_pages", label: "Narrated video — page cut (MP4)", chapter: false },
   { value: "video_panels", label: "Narrated video — panel cut, Ken Burns (MP4)", chapter: false },
-  { value: "video_shorts", label: "Shorts — a 30–60 s trailer of key shots (MP4)", chapter: false },
+  { value: "video_shorts", label: "Shorts — a trailer of key shots, up to 3 min (MP4)", chapter: false },
   { value: "youtube_package", label: "YouTube package (newest video + thumbnail + text)", chapter: false },
 ] as const;
 const AREAS: Record<string, ("art" | "narration")[]> = {
