@@ -7,6 +7,7 @@ import {
   type Database,
   eq,
   inArray,
+  isNull,
   narrationLines,
   narrationSegments,
   pages,
@@ -14,6 +15,9 @@ import {
 } from "@openmanga/db";
 import { fadeCuts, type Motion, readingOrder, resolveMotions } from "@openmanga/domain";
 import { focusInCrop } from "@openmanga/image-utils";
+import type { ProjectSettings } from "@openmanga/schemas";
+import type { AssetService } from "./assets.ts";
+import { renderVideoCard } from "./compose.ts";
 
 export type VideoCut = "page" | "panel";
 export type VideoScope = {
@@ -217,6 +221,53 @@ export async function planVideoShots(
       !scope.panelId,
   ).length;
   return { shots, lines, unplacedLines, disabledPanels: disabled.size };
+}
+
+export type BrandedProject = {
+  id: string;
+  coverAssetId: string | null;
+  settings: Pick<ProjectSettings, "thumbnail" | "lettering" | "video">;
+};
+
+/**
+ * A project's intro or outro card as a PNG at `width`×`height`, or null when it has none. The art behind it is the
+ * YouTube thumbnail art, else the cover, else the first panel's artwork; the font is the narration lettering font.
+ * The render and the preview both draw it here.
+ */
+export async function renderProjectVideoCard(
+  db: Database,
+  assetSvc: AssetService,
+  project: BrandedProject,
+  which: "intro" | "outro",
+  width: number,
+  height: number,
+) {
+  const card = project.settings.video?.[which];
+  if (!card) return null;
+  const candidates = [project.settings.thumbnail?.assetId, project.coverAssetId].filter((x): x is string => Boolean(x));
+  let art: typeof assets.$inferSelect | null = null;
+  for (const id of candidates) {
+    const a = await assetSvc.get(id);
+    if (a && !a.deletedAt) {
+      art = a;
+      break;
+    }
+  }
+  if (!art) {
+    const [first] = await db
+      .select({ a: assets })
+      .from(panels)
+      .innerJoin(pages, eq(pages.id, panels.pageId))
+      .innerJoin(chapters, eq(chapters.id, pages.chapterId))
+      .innerJoin(assets, eq(assets.id, panels.activeArtworkAssetId))
+      .where(and(eq(panels.projectId, project.id), isNull(assets.deletedAt)))
+      .orderBy(asc(chapters.order), asc(pages.order), asc(panels.order))
+      .limit(1);
+    art = first?.a ?? null;
+  }
+  const lettering = project.settings.lettering?.types;
+  const font = lettering?.narration?.font ?? lettering?.normal?.font ?? "DejaVu Sans";
+  return renderVideoCard(card, width, height, art ? await assetSvc.read(art) : null, font);
 }
 
 /** Segments with their synthesized audio for the given lines, grouped per line in order. */

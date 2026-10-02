@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  cardFrames,
   fadeCuts,
   fadeFrames,
   fadeOpacity,
@@ -13,6 +14,7 @@ import {
   shotGroups,
   timeGroup,
   VIDEO_BREATH_MS,
+  watermarkBox,
   youtubeChapters,
   youtubeTimestamp,
 } from "./video.ts";
@@ -145,4 +147,21 @@ test("chapter timestamps read the way YouTube expects: first at 0:00, hours only
       { startMs: 612_000, title: "Chapter 2: The Tunnel" },
     ]),
   ).toBe("0:00 Chapter 1: Rain\n10:12 Chapter 2: The Tunnel");
+});
+
+test("branding: the watermark box sits in its corner with even sizes; cards are whole frames", () => {
+  expect(watermarkBox(1280, 720, { width: 200, height: 100 }, "bottom-right", 0.12)).toEqual({
+    x: 1104,
+    y: 620,
+    w: 154,
+    h: 78,
+  });
+  expect(watermarkBox(1920, 1080, { width: 100, height: 100 }, "top-left", 0.1)).toEqual({
+    x: 32,
+    y: 32,
+    w: 192,
+    h: 192,
+  });
+  expect(cardFrames(3000, 30)).toBe(90);
+  expect(cardFrames(1500, 24)).toBe(36);
 });

@@ -57,6 +57,10 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   the app's CSP. Local disk stays the default. `docs/STORAGE.md` has the copy recipe for moving an existing install;
   with `s3`, `scripts/backup.sh` and `restore.sh` cover the database and configuration and leave the bucket to its
   own backup tools.
+- **Video branding.** Project settings → Video takes a logo watermark (upload an image, pick the corner, opacity and
+  size) and optional intro and outro cards (title, subtitle and length, drawn over the project's own art in its
+  narration lettering font). Every video export composites them, the preview shows them, and subtitles and chapter
+  timestamps start after the intro. Reader-link previews show them too.
 
 ### Changed
 

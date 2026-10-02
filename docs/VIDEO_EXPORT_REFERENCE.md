@@ -200,10 +200,43 @@ The preview reads the same `motionPath` through `motionAt`.
 ## Backdrop
 
 **Blur at 1/10 scale, not full resolution.** Blurring a full-size frame costs tens of seconds per clip, which
-across a few dozen clips is most of the render time. `backdrop()` resizes to `frameW/10 × frameH/10` with
+across a few dozen clips is most of the render time. `backdrop()` (`@openmanga/services`) resizes to `frameW/10 × frameH/10` with
 `fit: "cover"`, blurs, darkens (`brightness: 0.55`) and scales back up with a cubic kernel — visually identical for
 a wash this heavy and roughly an order of magnitude faster. It is Sharp, not an ffmpeg `boxblur`, because the
 foreground and backdrop PNGs are prepared before ffmpeg is invoked at all.
+
+## Branding
+
+Project settings under `settings.video` (Project settings → Video, or `update_project`) apply to every video export
+and show in the preview:
+
+| Setting | Shape | Effect |
+| --- | --- | --- |
+| `watermark` | `{assetId, corner, opacity (0.8), size (0.12)}` or null | A logo over every frame, cards included |
+| `intro`, `outro` | `{title, subtitle, durationMs (3000)}` or null | A title card before or after the film |
+
+**Watermark.** The logo is an image of the project: upload one with `POST /api/projects/:projectId/video-logo`
+(stored as a `source_image` asset with `metadata.role = "video_logo"`, so it counts toward the project's disk use),
+then set its id; the settings route refuses an id that is not an image of the same project. `watermarkBox` places it:
+`size` of the frame width at the logo's own aspect, even dimensions, in the chosen corner with a margin of 3% of the
+frame's short side. The worker scales the logo to that box once per render and every clip overlays it last, after
+any scene-break fade, so the logo stays up through a fade:
+
+```
+[base][N:v]format=rgba,colorchannelmixer=aa=<opacity>[wm];[base][wm]overlay=<x>:<y>,format=yuv420p[v]
+```
+
+A logo whose asset was deleted is left out rather than failing the render. Duplicating a project copies the logo;
+the interchange package carries it as `project.videoLogo`.
+
+**Cards.** `renderProjectVideoCard` (in `@openmanga/services`) draws a card at frame size: the project's art as a
+dark wash (`backdrop` at 40% brightness; the YouTube thumbnail art, else the cover, else the first panel's artwork,
+else plain dark grey) behind the title and subtitle, centred, in the project's narration lettering font. The preview
+loads the same PNG from `GET /api/projects/:projectId/video-card/:which.png` (and a reader link from
+`/api/public/shares/:token/video-card/:which.png`). A card is `cardFrames(durationMs, fps)` whole frames of a still
+image with silence on the audio track, encoded as its own clip, so it adds nothing to the timing rules: everything
+after the intro — subtitles, chapter timestamps (the first stays pinned to `0:00`), the duration check — simply
+starts that much later. A partial render (`maxDurationMs`) ends without the outro.
 
 ## Assembly and loudness
 

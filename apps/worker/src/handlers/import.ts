@@ -404,6 +404,10 @@ async function restore(
     }
   }
   const cover = await importAsset(p.cover, "cover");
+  // The watermark points at the package's logo, never at an asset id from the exporting instance.
+  const logo = await importAsset(p.videoLogo, "source_image", { metadata: { role: "video_logo" } });
+  const wm = p.settings.video?.watermark;
+  if (wm) p.settings.video!.watermark = logo ? { ...wm, assetId: logo.id } : null;
   await tx
     .update(projects)
     .set({

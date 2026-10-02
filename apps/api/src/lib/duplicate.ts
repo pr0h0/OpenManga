@@ -89,6 +89,21 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
       return na!.id;
     };
 
+    // The video watermark must be the copy's own image: a render only uses a logo of its own project.
+    const wm = src.settings.video?.watermark;
+    if (wm) {
+      const logo = await copyAsset(wm.assetId);
+      await tx
+        .update(projects)
+        .set({
+          settings: {
+            ...src.settings,
+            video: { ...src.settings.video!, watermark: logo ? { ...wm, assetId: logo } : null },
+          },
+        })
+        .where(eq(projects.id, np));
+    }
+
     for (const r of await tx.select().from(storyRevisions).where(eq(storyRevisions.projectId, projectId))) {
       await tx
         .insert(storyRevisions)

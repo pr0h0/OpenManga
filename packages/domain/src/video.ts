@@ -119,6 +119,31 @@ export function fadeCuts(shots: { sceneId: string | null; fade?: "auto" | "on" |
   });
 }
 
+/** An intro or outro card's length in whole frames. */
+export const cardFrames = (durationMs: number, fps: number) => Math.max(1, Math.round((durationMs * fps) / 1000));
+
+/**
+ * Where a logo watermark sits: `size` of the frame width, its own aspect, in a corner with a margin of 3% of the
+ * frame's short side. Even sizes, so the render's overlay and the preview's box are the same pixels.
+ */
+export function watermarkBox(
+  frameW: number,
+  frameH: number,
+  logo: { width: number; height: number },
+  corner: "top-left" | "top-right" | "bottom-left" | "bottom-right",
+  size: number,
+) {
+  const w = even(frameW * size);
+  const h = even((w * logo.height) / Math.max(1, logo.width));
+  const m = Math.round(Math.min(frameW, frameH) * 0.03);
+  return {
+    x: corner.endsWith("left") ? m : frameW - m - w,
+    y: corner.startsWith("top") ? m : frameH - m - h,
+    w,
+    h,
+  };
+}
+
 /** Largest even-sized box of `aspect` inside `maxW`×`maxH`. */
 export function fitBox(aspect: number, maxW: number, maxH: number) {
   const floorEven = (n: number) => Math.max(2, Math.floor(n / 2) * 2);

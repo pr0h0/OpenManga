@@ -9,7 +9,7 @@ import { body, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { failureGuard } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 import { sendAsset } from "./assets.ts";
-import { previewPayload } from "./video.ts";
+import { previewPayload, videoCardResponse } from "./video.ts";
 
 /** Managing a project's read-only links: signed-in members only. */
 export const shareRoutes = new Hono<AppEnv>();
@@ -191,6 +191,19 @@ publicShareRoutes.get("/shares/:token/video-preview", async (c) => {
 
 doc({
   method: "GET",
+  path: "/api/public/shares/:token/video-card/:which.png",
+  summary: "The project's intro or outro video card for a reader link's video preview, at ?height=. No sign-in.",
+  tag: "shares",
+  auth: false,
+});
+publicShareRoutes.get("/shares/:token/video-card/:file", async (c) => {
+  const { p } = await openShare(c, c.req.param("token"));
+  const { height } = query(c, z.object({ height: z.coerce.number().int().min(180).max(1440).default(1080) }));
+  return videoCardResponse(c.get("deps"), p, c.req.param("file").replace(/\.png$/, ""), height, "public, max-age=300");
+});
+
+doc({
+  method: "GET",
   path: "/api/public/shares/:token/assets/:assetId",
   summary:
     "A panel's artwork or a narration segment's audio from inside a reader link's scope, for its video preview (`?v=web` for the display size). No sign-in.",
@@ -206,7 +219,9 @@ publicShareRoutes.get("/shares/:token/assets/:assetId", async (c) => {
     .from(assets)
     .where(and(eq(assets.id, id), eq(assets.projectId, p.id)));
   if (!a || a.deletedAt) throw notFound("Asset");
-  // Only what the preview plays, and only inside the link's scope: a panel's current artwork or a line's audio.
+  // Only what the preview plays, and only inside the link's scope: a panel's current artwork, a line's audio, or the
+  // project's video watermark.
+  if (p.settings.video?.watermark?.assetId === id) return sendAsset(c, a);
   const chapter = s.chapterId ? sql`and pg.chapter_id = ${s.chapterId}` : sql``;
   const [used] = await db.execute<{ ok: number }>(sql`
     select 1 as ok from panels pn join pages pg on pg.id = pn.page_id

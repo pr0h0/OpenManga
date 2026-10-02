@@ -670,7 +670,7 @@ Create a new project (optionally with its first story revision in `story`). Need
 
 ### update_project
 
-Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, lettering defaults, imageQuality, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
+Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
 
 - **Scopes:** `projects:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -1361,6 +1361,104 @@ Change a project's title, description, type, language, reading direction, colour
             "fadeAtSceneBreaks": {
               "default": false,
               "type": "boolean"
+            },
+            "watermark": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "corner": {
+                      "default": "bottom-right",
+                      "type": "string",
+                      "enum": [
+                        "top-left",
+                        "top-right",
+                        "bottom-left",
+                        "bottom-right"
+                      ]
+                    },
+                    "opacity": {
+                      "default": 0.8,
+                      "type": "number",
+                      "minimum": 0.05,
+                      "maximum": 1
+                    },
+                    "size": {
+                      "default": 0.12,
+                      "type": "number",
+                      "minimum": 0.03,
+                      "maximum": 0.4
+                    }
+                  },
+                  "required": [
+                    "assetId"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "intro": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    "subtitle": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "durationMs": {
+                      "default": 3000,
+                      "type": "integer",
+                      "minimum": 1000,
+                      "maximum": 15000
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "outro": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 120
+                    },
+                    "subtitle": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "durationMs": {
+                      "default": 3000,
+                      "type": "integer",
+                      "minimum": 1000,
+                      "maximum": 15000
+                    }
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         },

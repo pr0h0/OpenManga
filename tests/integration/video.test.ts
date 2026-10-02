@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { shotGroups, timeGroup } from "@openmanga/domain";
+import { cardFrames, shotGroups, timeGroup, watermarkBox } from "@openmanga/domain";
+import { sharp } from "@openmanga/image-utils";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 // Needs ffmpeg/ffprobe (present in the app image, not in the plain bun test image).
@@ -98,6 +99,36 @@ async function runExport(projectId: string, body: Record<string, unknown>) {
   );
   expect(`${done.status}:${done.failureReason ?? ""}`).toBe("completed:");
   return { id: ex.job.id, files: done.files };
+}
+
+/** What the preview's timing reads from a shot. */
+type PreviewTiming = {
+  joinNext: boolean;
+  lines: {
+    startOffsetMs: number;
+    endOffsetMs: number;
+    segments: { durationMs: number | null; pauseAfterMs: number }[];
+  }[];
+};
+/** The preview's length in frames, from the same shared helpers as the render (without cards). */
+function previewFrames(shots: PreviewTiming[], fps: number, minHoldMs: number) {
+  let frames = 0;
+  for (const g of shotGroups(shots.map((s) => s.joinNext))) {
+    const members = shots.slice(g.first, g.last + 1);
+    frames += timeGroup(
+      members.flatMap((s) =>
+        s.lines.map((l) => ({
+          ...l,
+          segments: l.segments
+            .filter((x) => x.durationMs)
+            .map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
+        })),
+      ),
+      members.length,
+      { minHoldMs, fps },
+    ).totalFrames;
+  }
+  return frames;
 }
 
 /** Duration and video size of an exported MP4. */
@@ -592,24 +623,85 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     // The preview's timeline, from the same shared helpers, is the render's length.
     const fps = 24;
     const minHoldMs = 1500;
-    let frames = 0;
-    for (const g of shotGroups(after.shots.map((s) => s.joinNext))) {
-      const members = after.shots.slice(g.first, g.last + 1);
-      frames += timeGroup(
-        members.flatMap((s) =>
-          s.lines.map((l) => ({
-            ...l,
-            segments: l.segments
-              .filter((x) => x.durationMs)
-              .map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
-          })),
-        ),
-        members.length,
-        { minHoldMs, fps },
-      ).totalFrames;
-    }
+    const frames = previewFrames(after.shots, fps, minHoldMs);
     const out = await runExport(projectId, { kind: "video_panels", chapterId, video: { height: 720, fps, minHoldMs } });
     const mp4 = await probe(out.files.find((f) => f.mimeType === "video/mp4")!.assetId);
     expect(Math.abs(mp4.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * after.shots.length);
+  }, 600_000);
+
+  test("branding: a logo watermark and intro and outro cards, in the preview and the render", async () => {
+    const { projectId, chapterId } = await narratedChapter("Branded");
+    // A solid red logo, twice as wide as tall.
+    const png = await sharp({ create: { width: 200, height: 100, channels: 4, background: "#ff0000ff" } })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(png)], "logo.png", { type: "image/png" }));
+    const logo = await u.json<{ asset: { id: string } }>("POST", `/api/projects/${projectId}/video-logo`, form, 201);
+    // Only this project's own images can be the watermark.
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { video: { fadeAtSceneBreaks: false, watermark: { assetId: crypto.randomUUID() } } } },
+      400,
+    );
+    await u.patch(`/api/projects/${projectId}`, {
+      settings: {
+        video: {
+          fadeAtSceneBreaks: false,
+          watermark: { assetId: logo.asset.id, corner: "bottom-right", opacity: 1, size: 0.12 },
+          intro: { title: "The Rooftop", subtitle: "Chapter one", durationMs: 2000 },
+          outro: { title: "Thanks for watching", subtitle: "", durationMs: 1500 },
+        },
+      },
+    });
+    const card = await u.raw("GET", `/api/projects/${projectId}/video-card/intro.png?height=720`);
+    expect(card.status).toBe(200);
+    expect(await sharp(new Uint8Array(await card.arrayBuffer())).metadata()).toMatchObject({
+      width: 1280,
+      height: 720,
+    });
+    const preview = await u.get<{
+      branding: { intro: { durationMs: number }; outro: { durationMs: number }; watermark: { width: number } };
+      shots: PreviewTiming[];
+    }>(`/api/video-preview?chapterId=${chapterId}&cut=panel`);
+    expect(preview.branding.watermark.width).toBe(200);
+
+    const fps = 24;
+    const minHoldMs = 1500;
+    const introFrames = cardFrames(2000, fps);
+    const frames = introFrames + previewFrames(preview.shots, fps, minHoldMs) + cardFrames(1500, fps);
+    const out = await runExport(projectId, { kind: "video_panels", chapterId, video: { height: 720, fps, minHoldMs } });
+    const mp4 = await probe(out.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect(Math.abs(mp4.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * (preview.shots.length + 2));
+    // Subtitles start after the intro.
+    const srt = await (
+      await u.raw("GET", `/cdn/a/${out.files.find((f) => f.fileName.endsWith(".srt"))!.assetId}`)
+    ).text();
+    const first = /(\d\d):(\d\d):(\d\d),(\d{3}) -->/.exec(srt)!;
+    const firstMs = ((Number(first[1]) * 60 + Number(first[2])) * 60 + Number(first[3])) * 1000 + Number(first[4]);
+    expect(firstMs).toBeGreaterThanOrEqual((introFrames * 1000) / fps - 1);
+    // The logo is composited where watermarkBox puts it, on a card and on a shot.
+    const box = watermarkBox(1280, 720, { width: 200, height: 100 }, "bottom-right", 0.12);
+    for (const at of [1, introFrames / fps + 0.5]) {
+      const raw = Bun.spawnSync([
+        "ffmpeg",
+        "-v",
+        "error",
+        "-ss",
+        String(at),
+        "-i",
+        mp4.path,
+        "-frames:v",
+        "1",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-",
+      ]).stdout;
+      const i = ((box.y + box.h / 2) * 1280 + box.x + box.w / 2) * 3;
+      expect(raw[i]!).toBeGreaterThan(180);
+      expect(raw[i + 1]!).toBeLessThan(80);
+    }
   }, 600_000);
 });
