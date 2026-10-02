@@ -367,6 +367,8 @@ export type PanelPromptInput = {
     referenceKind?: string;
   } | null;
   props: { name: string; description: PropDescription; referenceImageIndex?: number; referenceKind?: string }[];
+  /** The panel's layout sketch, sent after the subject references and before the previous panel. */
+  guide?: { imageIndex: number; strength: "loose" | "strict" };
   previousPanelImageIndex?: number;
   continuity: string[];
   /** Panel has app lettering (bubbles/captions); ask for calm space for it. Defaults to true. */
@@ -413,7 +415,7 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 8,
+  version: 9,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
   body: "ROLE / GOAL, PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
@@ -448,6 +450,14 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
             ? `${p.name} is shown from several angles in reference image ${p.referenceImageIndex}: draw it once, from whatever angle this panel needs.`
             : `${p.name} matches reference image ${p.referenceImageIndex}.`,
         );
+    if (i.guide)
+      refNotes.push(
+        `Reference image ${i.guide.imageIndex} is a rough layout/pose sketch: ${
+          i.guide.strength === "strict"
+            ? "follow its composition, framing, camera angle and the placement and poses of the figures closely"
+            : "use it as a loose guide for composition, framing and poses, and let this description win where they differ"
+        }. Ignore its drawing style, line quality and any text or marks in it. Identity, outfits and the look of everything come from the other references and the descriptions, never from the sketch.`,
+      );
     if (i.previousPanelImageIndex)
       refNotes.push(
         `Reference image ${i.previousPanelImageIndex} is the previous panel, for continuity of setting and lighting ONLY. Do not copy character identity from it; the character references above are the source of truth.`,

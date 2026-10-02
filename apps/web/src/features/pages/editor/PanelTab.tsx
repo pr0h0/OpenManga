@@ -1,11 +1,13 @@
-import { CameraAngle, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { CameraAngle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
   Copy,
+  ImagePlus,
   Lock,
   Move,
+  PencilLine,
   RefreshCw,
   ScanEye,
   SplitSquareHorizontal,
@@ -13,14 +15,15 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { get, patch, post, put } from "../../../api/client.ts";
+import { api, get, patch, post, put } from "../../../api/client.ts";
 import { qk, useAction } from "../../../api/hooks.ts";
 import type { EditorPanel, LocationCard, PageDocument, PropCard } from "../../../api/types.ts";
-import { clsx, Field, StatusChip, TagInput } from "../../../components/ui.tsx";
+import { AssetImage, clsx, Field, Spinner, StatusChip, TagInput, toast } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
 import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
+import { GuideDrawer } from "./GuideDrawer.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
 import { useEditor } from "./store.ts";
 
@@ -581,6 +584,13 @@ export function PanelTab({
         </button>
       </fieldset>
 
+      <LayoutGuide
+        panel={panel}
+        locked={locked}
+        aspect={(panel.frame.width * data.page.width) / (panel.frame.height * data.page.height)}
+        invalidate={[...inv, ["prompt-preview", panel.id]]}
+      />
+
       <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
 
       {panel.artwork && (
@@ -633,6 +643,127 @@ export function PanelTab({
         </div>
       )}
     </div>
+  );
+}
+
+/** A rough sketch, pose or thumbnail for this panel, sent with its generation as a layout reference. */
+function LayoutGuide({
+  panel,
+  locked,
+  aspect,
+  invalidate,
+}: {
+  panel: EditorPanel;
+  locked: boolean;
+  aspect: number;
+  invalidate: readonly (readonly unknown[])[];
+}) {
+  const qc = useQueryClient();
+  const [uploading, setUploading] = useState(false);
+  const [drawing, setDrawing] = useState(false);
+  const g = panel.guide;
+  const setGuide = useAction((guide: PanelGuide | null) => patch(`/panels/${panel.id}`, { guide }), {
+    invalidate,
+    success: "Layout guide saved",
+  });
+  const upload = async (file: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("strength", g?.strength ?? "loose");
+      await api(`/panels/${panel.id}/guide`, { method: "POST", body: form });
+      toast.success("Layout guide set");
+      for (const key of invalidate) qc.invalidateQueries({ queryKey: key });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setUploading(false);
+    }
+  };
+  return (
+    <fieldset disabled={locked} className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+      <div className="label mb-0">Layout guide</div>
+      <p className="muted text-xs">
+        A rough sketch, stick-figure pose or thumbnail. Generate and Regenerate send it as a reference for composition,
+        framing and poses only: its drawing style is ignored, and faces and outfits still come from the approved
+        references. Masked edits do not use it. With a prompt override the image is still sent, but only your text
+        describes it.
+      </p>
+      <div className="flex items-center gap-2">
+        {g && (
+          <AssetImage
+            assetId={g.assetId}
+            alt="Layout guide"
+            fit="contain"
+            className="size-20 shrink-0 rounded border border-[var(--border)]"
+          />
+        )}
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+          <label
+            className={clsx(
+              "btn-secondary cursor-pointer text-xs",
+              (uploading || locked) && "pointer-events-none opacity-50",
+            )}
+          >
+            {uploading ? <Spinner /> : <ImagePlus className="size-3.5" />} {g ? "Replace sketch" : "Upload sketch"}
+            <input
+              type="file"
+              className="sr-only"
+              accept="image/png,image/jpeg,image/webp"
+              disabled={uploading || locked}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void upload(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            disabled={uploading || locked}
+            onClick={() => setDrawing(true)}
+          >
+            <PencilLine className="size-3.5" /> {g ? "Edit drawing" : "Draw guide"}
+          </button>
+          {g && (
+            <button
+              type="button"
+              className="btn-ghost text-xs text-red-500"
+              disabled={setGuide.isPending}
+              onClick={() => setGuide.mutate(null)}
+            >
+              <Trash2 className="size-3.5" /> Remove
+            </button>
+          )}
+        </div>
+      </div>
+      {g && (
+        <Field label="How closely to follow it">
+          <select
+            className="input text-xs"
+            value={g.strength}
+            onChange={(e) => setGuide.mutate({ ...g, strength: e.target.value as PanelGuide["strength"] })}
+          >
+            <option value="loose">Loosely: the panel description wins where they differ</option>
+            <option value="strict">Strictly: keep its composition, framing and poses</option>
+          </select>
+        </Field>
+      )}
+      {drawing && (
+        <GuideDrawer
+          panelId={panel.id}
+          aspect={aspect}
+          guide={g ?? null}
+          artworkId={panel.artwork?.id ?? null}
+          onClose={() => setDrawing(false)}
+          onSaved={() => {
+            for (const key of invalidate) qc.invalidateQueries({ queryKey: key });
+          }}
+        />
+      )}
+    </fieldset>
   );
 }
 

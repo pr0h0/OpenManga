@@ -89,7 +89,16 @@ export const generationInputs = pgTable(
       .notNull()
       .references(() => generationJobs.id, { onDelete: "cascade" }),
     role: text("role")
-      .$type<"target" | "mask" | "character_ref" | "location_ref" | "prop_ref" | "style_ref" | "previous_panel">()
+      .$type<
+        | "target"
+        | "mask"
+        | "character_ref"
+        | "location_ref"
+        | "prop_ref"
+        | "style_ref"
+        | "layout_guide"
+        | "previous_panel"
+      >()
       .notNull(),
     order: integer("order").notNull(),
     assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),

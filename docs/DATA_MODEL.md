@@ -101,7 +101,8 @@ slot).
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
   plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it. `video`
   (JSON `ShotVideo`, migration `0021_video_shots`: `motion`, `fade`, `disabled`; null = defaults) is the panel as a
-  video shot (`docs/VIDEO_EXPORT_REFERENCE.md`).
+  video shot (`docs/VIDEO_EXPORT_REFERENCE.md`). `guide` (JSON `{assetId, strength}`, migration `0026_panel_guide`) is
+  the layout sketch sent with its generation (`docs/IMAGE_REFERENCES.md`).
 - `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
   project) and `expert_messages` (role, text, status `done|pending|awaiting_input|failed`, attached and generated
   image asset ids, options such as `generateImage` and the reply's `imagePrompt`); see `docs/AI_PIPELINE.md`.
@@ -149,7 +150,7 @@ slot).
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry
   created a replacement, so a poller can tell a handled failure apart.
 - `generation_inputs` — the exact asset and variant ids sent, with `role` (`target`, `mask`, `character_ref`,
-  `location_ref`, `prop_ref`, `style_ref`, `previous_panel`), order, label, sent dimensions and derivative metadata.
+  `location_ref`, `prop_ref`, `style_ref`, `layout_guide`, `previous_panel`), order, label, sent dimensions and derivative metadata.
   `generation_outputs` — produced assets with an `activated` flag.
 - `prompt_templates` / `prompt_versions` — synced from code on boot, body plus SHA-256 (`docs/PROMPT_SYSTEM.md`).
 - `audio_jobs` — one TTS request: segment target, options (including its `ai` choice), status, attempts, resulting

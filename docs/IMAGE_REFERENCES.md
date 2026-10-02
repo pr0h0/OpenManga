@@ -90,7 +90,7 @@ Each is one image, in the kind picked on the location or prop page:
 | Prop | `prop_multi_angle` | Front, side, back and top views of the object in a row. |
 
 Panels send the primary (starred) approved reference, whatever its kind. When it is a panorama, a sheet or a
-multi-angle turnaround, the panel prompt (`panel-generation` v8) says so: use it for where things are and what they
+multi-angle turnaround, the panel prompt (`panel-generation` v9) says so: use it for where things are and what they
 look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
 
 **Generate all locations / props**, and **Generate all character references** on the Cast page, draw one reference
@@ -137,7 +137,28 @@ character's *current* version, so:
 3. The approved location reference for the panel's location version.
 4. Approved prop references for the panel's props.
 5. The approved project style reference.
-6. **Last**, the previous panel in the same scene, labelled `previous panel (continuity only)`.
+6. The panel's **layout guide**, when it has one (role `layout_guide`, see below). It always keeps a slot: when
+   subject references would fill all eight, the last of them gives way, never the guide.
+7. **Last**, the previous panel in the same scene, labelled `previous panel (continuity only)`.
+
+### Layout guides (pose and sketch)
+
+A panel can carry a rough sketch, stick-figure pose or composition thumbnail (`panels.guide`: `{ assetId, strength }`).
+Upload one with `POST /api/panels/:id/guide` (multipart `file`, optional `strength=loose|strict`; stored as a
+validated and re-encoded `source_image`), or draw it in the panel inspector (pen, straight lines, eraser, posable stick
+figures, the panel's art faintly underneath for tracing; the drawing is saved through the same route). `PATCH
+/api/panels/:id` with `guide` points it at any other image of the project, changes the strength, or removes it
+(`null`).
+
+The guide goes after every identity, location, prop and style reference, so it never outranks them (identity comes
+from the character references), and before the previous panel, which stays last. It is sent as the same small
+derivative as the other references: a layout only needs shapes. The prompt says what it is ("Reference image N is a
+rough layout/pose sketch: …"): `loose` uses it as a guide and lets the panel description win where they differ,
+`strict` follows its composition, framing, camera angle and poses closely; both say to ignore its drawing style, line
+quality and any text in it. Generate and every Regenerate send it; masked edits do not (they keep the existing
+composition). With a prompt override the image is still attached, but only the override's own text describes it.
+Every supported image provider accepts reference images, so no provider ignores it. Duplicating a panel or a project
+keeps it, and the interchange export and import carry it.
 
 Draft references are never used for identity. A character with no approved reference falls back to their canonical
 text description, so a panel is always generatable.

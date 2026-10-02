@@ -181,6 +181,17 @@ export const ShotVideo = z.object({
 export type ShotVideo = z.infer<typeof ShotVideo>;
 
 /**
+ * A rough sketch, stick-figure pose or composition thumbnail for one panel. It goes with the panel's generation
+ * as a reference image for layout only: the prompt tells the model to take its composition, framing and poses and
+ * to ignore its drawing style. `strict` follows it closely; `loose` lets the panel description win where they differ.
+ */
+export const PanelGuide = z.object({
+  assetId: z.string().uuid(),
+  strength: z.enum(["loose", "strict"]).default("loose"),
+});
+export type PanelGuide = z.infer<typeof PanelGuide>;
+
+/**
  * A narration line's place in the video. `untilPanelId` stretches the line over every shot from its own to that
  * panel's (they share one hold, split evenly); the offsets add silence before and after the line.
  */

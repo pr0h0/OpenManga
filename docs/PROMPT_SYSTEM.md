@@ -40,7 +40,7 @@ versions stay in the array so old jobs remain reproducible.
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v8**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+v5, `style-reference` v5, `panel-generation` **v9**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
@@ -97,7 +97,7 @@ system-message line telling the model that anything inside those tags is end-use
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v8)
+## Panel prompt sections (`panel-generation` v9)
 
 `compile()` emits these in order, dropping any section with no content:
 
@@ -112,7 +112,9 @@ extract → validate → one repair → fail sequence.
 3. `SCENE CONTEXT` — scene title, summary, time and weather.
 4. `PANEL INTENT`
 5. `REFERENCE IMAGES` — which image is which character (and outfit), location and prop, with how to read a location
-   sheet or panorama and a multi-angle prop; the previous panel is for continuity of setting and lighting only.
+   sheet or panorama and a multi-angle prop; the panel's layout guide, if any, for composition, framing and poses only
+   (loosely or strictly, never its drawing style or text; new in v9); the previous panel is for continuity of setting
+   and lighting only.
 6. `CHARACTERS` — the exact count and who is visible where in the frame.
 7. `CANONICAL APPEARANCE REQUIREMENTS` — per character version, including its immutable traits.
 8. `WARDROBE`, then `ACTION`, `EXPRESSION`, `CAMERA`, `COMPOSITION`.

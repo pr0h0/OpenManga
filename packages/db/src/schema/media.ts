@@ -3,6 +3,7 @@ import type {
   Frame,
   ImageTransform,
   NarrationLineVideo,
+  PanelGuide,
   PanelSeam,
   PanelSpec,
   PlannedLettering,
@@ -202,6 +203,8 @@ export const panels = pgTable(
     plannedLettering: jsonb("planned_lettering").$type<PlannedLettering>(),
     /** The panel as a video shot: motion, fade override, disabled. Null = all defaults. */
     video: jsonb("video").$type<ShotVideo>(),
+    /** A layout sketch sent with the panel's generation as a reference image (composition and poses only). */
+    guide: jsonb("guide").$type<PanelGuide>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

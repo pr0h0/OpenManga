@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
+import { mockImagePng } from "@openmanga/testing";
 import { unzipSync, zipSync } from "fflate";
 import { type startHarness as Start, startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -183,6 +184,11 @@ async function details(projectId: string) {
           on c.id::text = p.planned_lettering->'dialogue'->0->>'speakerId'
         where p.project_id = ${projectId} and c.project_id = ${projectId}
           and p.planned_lettering->'sfx'->>0 = 'BANG') as planned_lettering,
+      (select string_agg(p.guide->>'strength' || ':' || a.type, ',' order by p.guide->>'strength') from panels p
+        join assets a on a.id = (p.guide->>'assetId')::uuid
+        where p.project_id = ${projectId} and a.project_id = ${projectId} and a.deleted_at is null) as guides,
+      (select count(*)::int from panels p join panels q on q.active_artwork_asset_id = (p.guide->>'assetId')::uuid
+        where p.project_id = ${projectId}) as artwork_guides,
       (select string_agg(status::text, ',' order by created_at, id) from assets
         where project_id = ${projectId} and type = 'panel_art' and deleted_at is null) as artwork_statuses`);
   return row!;
@@ -258,6 +264,18 @@ describe("project import", () => {
     // A second version, so the panel has an artwork history whose order the round trip has to preserve.
     const regen = await alice.post<{ job: Job }>(`/api/panels/${panelId}/generate`, {}, 202);
     expect((await waitGen(regen.job.id)).status).toBe("completed");
+    // Layout guides: an uploaded sketch, and another panel's artwork reused as one (it must stay a single asset).
+    const sketch = new FormData();
+    sketch.set(
+      "file",
+      new File([(await mockImagePng({ width: 120, height: 80, prompt: "pose" })) as BlobPart], "p.png"),
+    );
+    sketch.set("strength", "strict");
+    expect((await alice.raw("POST", `/api/panels/${panelId}/guide`, sketch)).status).toBe(201);
+    const [art] = await h.deps.db.execute<{ id: string }>(
+      sql`select active_artwork_asset_id as id from panels where id = ${panelId}`,
+    );
+    await alice.patch(`/api/panels/${page.panels[1]!.id}`, { guide: { assetId: art!.id, strength: "loose" } });
     await markDetails(sourceId, pageId, panelId);
     const src = await details(sourceId);
     expect(src.artwork_statuses).toBe("approved,draft");
@@ -282,6 +300,7 @@ describe("project import", () => {
     // Lossless: pauses, lock, approvals, page direction, prop pins, outfit links and artwork order all come back.
     expect(await details(projectId)).toEqual(await details(sourceId));
     expect((await details(sourceId)).planned_lettering).toBe(1);
+    expect((await details(projectId)).guides).toBe("loose:panel_art,strict:source_image");
     expect((await details(sourceId)).outfit_changes).toBe("onward:Rooftop coat");
 
     const [audio] = await h.deps.db.execute<{ n: number }>(sql`
