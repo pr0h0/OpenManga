@@ -11,6 +11,7 @@ import {
   Images,
   LayoutDashboard,
   LayoutGrid,
+  MessageSquare,
   Mic,
   PiggyBank,
   ScanEye,
@@ -46,6 +47,7 @@ const NAV = [
   { to: "/projects/$projectId/chapters", label: "Chapters", icon: FileText },
   { to: "/projects/$projectId/pages", label: "Pages", icon: LayoutGrid },
   { to: "/projects/$projectId/storyboard", label: "Storyboard", icon: GalleryVertical },
+  { to: "/projects/$projectId/comments", label: "Comments", icon: MessageSquare },
   { to: "/projects/$projectId/generation", label: "Generation", icon: Cpu },
   { to: "/projects/$projectId/narration", label: "Narration", icon: Mic },
   { to: "/projects/$projectId/describe", label: "Describe", icon: ScanEye },
@@ -269,7 +271,8 @@ export function ProjectLayout() {
             role="note"
             className="border-b border-[var(--border)] bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300"
           >
-            You have view access to this shared project: you can read it and download its exports, but not change it.
+            You have view access to this shared project: you can read it, comment on its panels and download its
+            exports, but not change it.
           </div>
         )}
         <main className="min-h-0 flex-1 overflow-y-auto">

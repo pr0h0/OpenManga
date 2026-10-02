@@ -143,6 +143,12 @@ function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
     case "production.updated":
       inv(["project", projectId, "production-runs"]);
       break;
+    case "comment.updated":
+      inv(["comments", e.panelId]);
+      inv(["project", projectId, "comments"]);
+      inv(["project", projectId, "comment-counts"]);
+      inv(["notifications"]);
+      break;
     case "members.updated":
       inv(["project", projectId, "members"]);
       // Exact, as above: the overview carries the caller's own role.

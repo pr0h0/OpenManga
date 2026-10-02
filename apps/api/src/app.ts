@@ -12,6 +12,7 @@ import { audioRoutes } from "./routes/audio.ts";
 import { authRoutes, devMailRoutes } from "./routes/auth.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
+import { commentRoutes } from "./routes/comments.ts";
 import { expertRoutes } from "./routes/experts.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
@@ -60,6 +61,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     expertRoutes,
     shareRoutes,
     memberRoutes,
+    commentRoutes,
     productionRoutes,
   ])
     api.route("/", r);

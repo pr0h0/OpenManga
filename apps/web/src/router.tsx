@@ -260,7 +260,7 @@ const projectChildren = [
   createRoute({
     getParentRoute: P,
     path: "/pages/$pageId",
-    validateSearch: z.object({ panelId: z.string().optional() }),
+    validateSearch: z.object({ panelId: z.string().optional(), tab: z.literal("comments").optional() }),
     staticData: { title: "Page editor" },
     component: lazyRouteComponent(() => import("./features/pages/PageEditorPage.tsx"), "PageEditorPage"),
   }),
@@ -270,6 +270,12 @@ const projectChildren = [
     validateSearch: chapterSearch,
     staticData: { title: "Read" },
     component: lazyRouteComponent(() => import("./features/pages/StripReader.tsx"), "StripReaderPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
+    path: "/comments",
+    staticData: { title: "Comments" },
+    component: lazyRouteComponent(() => import("./features/comments/CommentsPage.tsx"), "CommentsPage"),
   }),
   createRoute({
     getParentRoute: P,
