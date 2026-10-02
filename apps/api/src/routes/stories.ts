@@ -105,9 +105,17 @@ doc({
   tag: "stories",
   body: NewRevision,
 });
-storyRoutes.post("/projects/:projectId/story/revisions", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
-  const input = await body(c, NewRevision);
+storyRoutes.post("/projects/:projectId/story/revisions", async (c) =>
+  c.json({ revision: await createRevision(c, uuidParam(c, "projectId"), await body(c, NewRevision)) }, 201),
+);
+
+/** A new story revision: the route, and an expert's outline once the user applies it. */
+export async function createRevision(
+  c: Parameters<typeof projectAccess>[0],
+  projectId: string,
+  input: z.infer<typeof NewRevision>,
+) {
+  const p = await projectAccess(c, projectId, "write");
   const n = await nextRevisionNumber(c, p.id);
   const [rev] = await c
     .get("deps")
@@ -123,8 +131,8 @@ storyRoutes.post("/projects/:projectId/story/revisions", async (c) => {
       createdByUserId: user(c).id,
     })
     .returning();
-  return c.json({ revision: rev }, 201);
-});
+  return rev!;
+}
 
 doc({
   method: "PATCH",

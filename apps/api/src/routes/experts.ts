@@ -11,9 +11,18 @@ import {
   inArray,
   lt,
   projects,
+  sql,
 } from "@openmanga/db";
 import { PRIORITY } from "@openmanga/domain";
 import { BUILTIN_EXPERTS, EXPERT_ACTION_KINDS, EXPERT_ACTIONS, findBuiltinExpert } from "@openmanga/prompts";
+import {
+  outlineText,
+  type ProjectConcept,
+  type ProjectPremise,
+  premiseDescription,
+  type StoryOutline,
+  type YoutubePackage,
+} from "@openmanga/schemas";
 import type { AiChoice } from "@openmanga/services";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -25,6 +34,8 @@ import { chatChannel, finishReply, runExpertReply, STALE_REPLY_MS } from "../lib
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
+import { createProject, updateProject } from "./projects.ts";
+import { createRevision } from "./stories.ts";
 
 export const expertRoutes = new Hono<AppEnv>();
 
@@ -503,6 +514,7 @@ export const extractionView = (j: typeof generationJobs.$inferSelect) => ({
   status: j.status,
   manual: j.parameters.manual === true,
   result: (j.result as { data?: unknown } | null)?.data ?? null,
+  applied: (j.result as { applied?: Applied } | null)?.applied ?? null,
   failureReason: j.failureReason,
   createdAt: j.createdAt,
 });
@@ -576,4 +588,138 @@ expertRoutes.post("/expert-messages/:id/extract", async (c) => {
   );
   await deps.jobs.kick();
   return c.json({ job, extraction: extractionView(job) }, 202);
+});
+
+/** What applying an extraction did, kept on its job so it is never applied twice by accident. */
+type Applied = {
+  at: string;
+  /** How many times it has been applied (more than once only when asked to apply it again). */
+  count: number;
+  /** True while an apply is under way: a second one is refused rather than run beside it. */
+  pending?: boolean;
+  projectId?: string;
+  revisionId?: string;
+};
+
+export const ApplyExtraction = z.object({
+  /** The extracted object as the user edited it; omitted, the job's own result is applied. */
+  data: z.record(z.string(), z.unknown()).optional(),
+  /** Apply an extraction that was already applied, once more (a second project, a second revision…). */
+  again: z.boolean().default(false),
+  /** concept: move the chat to the new project. */
+  attachChat: z.boolean().default(false),
+});
+doc({
+  method: "POST",
+  path: "/api/expert-extractions/:id/apply",
+  summary:
+    "Apply a completed expert extraction (optionally edited): create the project, replace the description or YouTube text, or save the outline revision. Recorded on the job; applying it again is refused with 409 unless again=true.",
+  tag: "experts",
+  body: ApplyExtraction,
+});
+expertRoutes.post("/expert-extractions/:id/apply", async (c) => {
+  const id = uuidParam(c, "id");
+  const input = await body(c, ApplyExtraction);
+  const { db } = c.get("deps");
+  const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, id));
+  if (job?.kind !== "expert_extract" || job.userId !== user(c).id) throw notFound("Extraction");
+  if (job.status !== "completed")
+    throw conflict(`This extraction is ${job.status}; only a completed one can be applied`);
+  const action = String(job.input.action) as keyof typeof EXPERT_ACTIONS;
+  const parsed = EXPERT_ACTIONS[action].schema.safeParse(input.data ?? (job.result as { data?: unknown }).data);
+  if (!parsed.success) throw new ApiError(422, "validation_error", "Invalid data for this action", parsed.error.issues);
+  if (action !== "concept" && !job.projectId) throw conflict("This extraction belongs to no project");
+  const before = (job.result as { applied?: Applied }).applied ?? null;
+  // Claimed before anything changes, in one statement: two clicks (or an agent retrying) cannot both apply it.
+  const [claimed] = await db
+    .update(generationJobs)
+    .set({
+      result: sql`${generationJobs.result} || jsonb_build_object('applied', ${JSON.stringify({
+        at: new Date().toISOString(),
+        count: before?.count ?? 0,
+        pending: true,
+      })}::jsonb)`,
+    })
+    .where(
+      and(
+        eq(generationJobs.id, job.id),
+        input.again
+          ? sql`coalesce(${generationJobs.result}->'applied'->>'pending', 'false') <> 'true'`
+          : sql`${generationJobs.result}->'applied' is null`,
+      ),
+    )
+    .returning({ id: generationJobs.id });
+  if (!claimed) {
+    const [now] = await db
+      .select({ result: generationJobs.result })
+      .from(generationJobs)
+      .where(eq(generationJobs.id, id));
+    const was = (now?.result as { applied?: Applied } | null)?.applied;
+    throw new ApiError(
+      409,
+      "already_applied",
+      was?.pending
+        ? "This extraction is being applied right now."
+        : `This extraction was already applied (${was?.at ?? "earlier"}). Apply it again only on purpose: pass again=true.`,
+      { applied: was ?? null },
+    );
+  }
+  const created: Pick<Applied, "projectId" | "revisionId"> = {};
+  try {
+    if (action === "concept") {
+      const k = parsed.data as ProjectConcept;
+      const project = await createProject(c, {
+        title: k.title,
+        description: premiseDescription(k),
+        projectType: k.projectType,
+        format: k.format,
+        language: "en",
+        colorMode: "full_color",
+        customStyle: "",
+        story: { content: k.storyIdea, inputKind: "idea", title: k.title },
+      });
+      created.projectId = project.id;
+      const chatId = String(job.input.chatId ?? "");
+      if (input.attachChat && chatId)
+        await db
+          .update(expertChats)
+          .set({ projectId: project.id, updatedAt: new Date() })
+          .where(and(eq(expertChats.id, chatId), eq(expertChats.userId, user(c).id)));
+    } else if (action === "outline") {
+      const o = parsed.data as StoryOutline;
+      const rev = await createRevision(c, job.projectId!, {
+        content: outlineText(o),
+        title: o.title,
+        inputKind: "outline",
+      });
+      Object.assign(created, { projectId: job.projectId!, revisionId: rev.id });
+    } else {
+      await updateProject(
+        c,
+        job.projectId!,
+        action === "premise"
+          ? { description: premiseDescription(parsed.data as ProjectPremise) }
+          : { settings: { youtubePackage: parsed.data as YoutubePackage } },
+      );
+      created.projectId = job.projectId!;
+    }
+  } catch (e) {
+    // Nothing was applied: put back what was recorded before, so it can be applied (or applied again) once fixed.
+    await db
+      .update(generationJobs)
+      .set({
+        result: before
+          ? sql`${generationJobs.result} || jsonb_build_object('applied', ${JSON.stringify(before)}::jsonb)`
+          : sql`${generationJobs.result} - 'applied'`,
+      })
+      .where(eq(generationJobs.id, job.id));
+    throw e;
+  }
+  const applied: Applied = { at: new Date().toISOString(), count: (before?.count ?? 0) + 1, ...created };
+  const [row] = await db
+    .update(generationJobs)
+    .set({ result: sql`${generationJobs.result} || jsonb_build_object('applied', ${JSON.stringify(applied)}::jsonb)` })
+    .where(eq(generationJobs.id, job.id))
+    .returning();
+  return c.json({ extraction: extractionView(row!), applied });
 });

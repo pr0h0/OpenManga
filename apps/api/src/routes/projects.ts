@@ -37,6 +37,7 @@ import {
 } from "@openmanga/schemas";
 import { recordAudit, UNPRICED_USAGE } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -163,10 +164,12 @@ doc({
   tag: "projects",
   body: CreateProject,
 });
-projectRoutes.post("/", async (c) => {
+projectRoutes.post("/", async (c) => c.json({ project: await createProject(c, await body(c, CreateProject)) }, 201));
+
+/** Creates a project for the caller: the create route, and an expert's concept once the user applies it. */
+export async function createProject(c: Context<AppEnv>, input: z.infer<typeof CreateProject>) {
   const u = user(c);
   const { db } = c.get("deps");
-  const input = await body(c, CreateProject);
   // Only settings come from the preset or template: the wizard fills type, format and style from it itself.
   const presetSettings: Record<string, unknown> = input.preset?.startsWith("template:")
     ? (u.settings.projectTemplates?.find((t) => t.id === input.preset!.slice(9))?.settings ?? {})
@@ -238,8 +241,8 @@ projectRoutes.post("/", async (c) => {
     action: "project.create",
     requestId: c.get("requestId"),
   });
-  return c.json({ project }, 201);
-});
+  return project;
+}
 
 doc({ method: "GET", path: "/api/projects/:projectId", summary: "Project overview", tag: "projects" });
 projectRoutes.get("/:projectId", async (c) => {
@@ -315,9 +318,13 @@ doc({
   tag: "projects",
   body: UpdateProject,
 });
-projectRoutes.patch("/:projectId", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
-  const input = await body(c, UpdateProject);
+projectRoutes.patch("/:projectId", async (c) =>
+  c.json({ project: await updateProject(c, uuidParam(c, "projectId"), await body(c, UpdateProject)) }),
+);
+
+/** Updates a project's fields and settings: the PATCH route, and an expert's premise or YouTube text once applied. */
+export async function updateProject(c: Context<AppEnv>, projectId: string, input: z.infer<typeof UpdateProject>) {
+  const p = await projectAccess(c, projectId, "write");
   const settings = input.settings ? ProjectSettings.parse({ ...p.settings, ...input.settings }) : p.settings;
   if (settings.format !== p.settings.format) {
     const [page] = await c
@@ -344,8 +351,8 @@ projectRoutes.patch("/:projectId", async (c) => {
     .set({ ...input, settings })
     .where(eq(projects.id, p.id))
     .returning();
-  return c.json({ project: row });
-});
+  return row!;
+}
 
 doc({
   method: "POST",

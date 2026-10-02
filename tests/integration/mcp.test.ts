@@ -938,11 +938,21 @@ describe("expert output actions", () => {
       jobId,
       data: { ...done.structured.data.job.result.data, title: "Edited before applying" },
     });
-    expect(applied.structured.data.project.title).toBe("Edited before applying");
-    const story = await alice.get<{ latest: { inputKind: string } }>(
-      `/api/projects/${applied.structured.data.project.id}/story`,
-    );
+    const newId = (applied.structured.data as unknown as { applied: { projectId: string } }).applied.projectId;
+    const created = await alice.get<{ project: { title: string } }>(`/api/projects/${newId}`);
+    expect(created.project.title).toBe("Edited before applying");
+    const story = await alice.get<{ latest: { inputKind: string } }>(`/api/projects/${newId}/story`);
     expect(story.latest.inputKind).toBe("idea");
+    // Applied once: a second apply is refused, and says how to apply it again on purpose.
+    const twice = await allowAll.call("use_expert_reply", { mode: "apply", action: "concept", jobId });
+    expect(twice.error?.code).toBe("already_applied");
+    const onPurpose = await allowAll.call<{ data: { applied: { count: number } } }>("use_expert_reply", {
+      mode: "apply",
+      action: "concept",
+      jobId,
+      again: true,
+    });
+    expect(onPurpose.structured.data.applied.count).toBe(2);
     // The action has to match what the job extracted.
     const wrong = await allowAll.call("use_expert_reply", { mode: "apply", action: "outline", jobId });
     expect(wrong.error?.code).toBe("bad_request");

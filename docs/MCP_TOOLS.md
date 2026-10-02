@@ -8499,14 +8499,14 @@ Write the chat's last reply again (after a failure, or for a different answer). 
 
 ### use_expert_reply
 
-Turn an expert's reply into something applied, in two steps. extract: queue a text job that reads the reply (messageId, from manage_expert_chat get) as action concept (a new project: title, logline, premise, type, format, story idea), premise (a new logline and premise for the chat's project), outline (chapters, for a new outline story revision) or youtube (the project's YouTube package text). premise, outline and youtube need a chat about a project. Asynchronous: poll get_job; with ai.manual=true answer it via get_manual_prompt / submit_manual_answer (no spending); a provider run spends credits (may need approval). The completed job's result.data is the extracted object: show it to the user. apply: after the user agrees, apply the job's result (jobId and the same action; pass data to apply an edited version) through the normal routes: concept creates the project with the story idea as its first revision (needs permission to create projects), premise replaces the project description, outline adds a story revision, youtube replaces settings.youtubePackage. apply is sensitive (may need approval).
+Turn an expert's reply into something applied, in two steps. extract: queue a text job that reads the reply (messageId, from manage_expert_chat get) as action concept (a new project: title, logline, premise, type, format, story idea), premise (a new logline and premise for the chat's project), outline (chapters, for a new outline story revision) or youtube (the project's YouTube package text). premise, outline and youtube need a chat about a project. Asynchronous: poll get_job; with ai.manual=true answer it via get_manual_prompt / submit_manual_answer (no spending); a provider run spends credits (may need approval). The completed job's result.data is the extracted object: show it to the user. apply: after the user agrees, apply the job's result (jobId and the same action; pass data to apply an edited version) through the normal routes: concept creates the project with the story idea as its first revision (needs permission to create projects), premise replaces the project description, outline adds a story revision, youtube replaces settings.youtubePackage. apply is sensitive (may need approval). Each extraction is applied once: applying it again is refused with already_applied (409, details.applied says when and what it created) unless again=true, which you pass only when the user explicitly asks to apply it a second time.
 
 - **Scopes:** `experts:use`, `projects:create`, `projects:write`, `story:write` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** no
 - **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
 - **Approval action keys:** `expert.extract`, `expert.apply_concept`, `expert.apply_premise`, `expert.apply_outline`, `expert.apply_youtube`
-- **Wraps:** `POST /api/expert-messages/:id/extract`, `POST /api/projects`, `PATCH /api/projects/:projectId`, `POST /api/projects/:projectId/story/revisions`
+- **Wraps:** `POST /api/expert-messages/:id/extract`, `POST /api/expert-extractions/:id/apply`
 
 <details><summary>Input schema</summary>
 
@@ -8550,6 +8550,11 @@ Turn an expert's reply into something applied, in two steps. extract: queue a te
         "type": "string"
       },
       "additionalProperties": {}
+    },
+    "again": {
+      "default": false,
+      "description": "apply: apply an extraction that was already applied, once more. Only when the user explicitly asks for it.",
+      "type": "boolean"
     },
     "ai": {
       "type": "object",
