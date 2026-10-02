@@ -104,6 +104,8 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Changed
 
+- Only the project owner deletes panels. An editor turns a panel off (*leave out of videos*) instead; pages and
+  scenes, which have no off switch, editors may still delete.
 - **Provider batches go a few at a time.** A key now has at most 4 image batches and 16 text batches in flight per
   model (`BATCH_MAX_IN_FLIGHT_IMAGE`, `BATCH_MAX_IN_FLIGHT_TEXT`; 0 = no limit). The rest of a big run waits as
   "waiting for room in the provider's batch queue" and is submitted as earlier batches finish, instead of being sent

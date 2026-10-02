@@ -34,7 +34,8 @@ type PanelDetail = {
   characters: { id: string; versionNumber: number; status: string; characterId: string; name: string }[];
 };
 
-export function PanelList({ data, onDelete }: { data: PageDocument; onDelete: (id: string) => void }) {
+/** `onDelete` is left out for members who may not delete panels (only the owner can). */
+export function PanelList({ data, onDelete }: { data: PageDocument; onDelete?: (id: string) => void }) {
   const doc = useEditor((s) => s.doc);
   const selection = useEditor((s) => s.selection);
   const select = useEditor((s) => s.select);
@@ -93,14 +94,16 @@ export function PanelList({ data, onDelete }: { data: PageDocument; onDelete: (i
             >
               <ArrowDown className="size-3.5" />
             </button>
-            <button
-              type="button"
-              className="btn-ghost p-0.5 text-red-500"
-              aria-label="Delete panel"
-              onClick={() => onDelete(p.id)}
-            >
-              <Trash2 className="size-3.5" />
-            </button>
+            {onDelete && (
+              <button
+                type="button"
+                className="btn-ghost p-0.5 text-red-500"
+                aria-label="Delete panel"
+                onClick={() => onDelete(p.id)}
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
           </li>
         );
       })}
@@ -132,7 +135,7 @@ export function PanelTab({
 }: {
   data: PageDocument;
   panel: EditorPanel;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
 }) {
   const projectId = useProjectId();
   const locked = panel.approvalStatus === "locked";
@@ -249,15 +252,17 @@ export function PanelTab({
           >
             <SplitSquareHorizontal className="size-4" />
           </button>
-          <button
-            type="button"
-            className="btn-ghost p-1.5 text-red-500"
-            aria-label="Delete panel"
-            disabled={locked}
-            onClick={() => onDelete(panel.id)}
-          >
-            <Trash2 className="size-4" />
-          </button>
+          {onDelete && (
+            <button
+              type="button"
+              className="btn-ghost p-1.5 text-red-500"
+              aria-label="Delete panel"
+              disabled={locked}
+              onClick={() => onDelete(panel.id)}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          )}
         </div>
       </div>
 

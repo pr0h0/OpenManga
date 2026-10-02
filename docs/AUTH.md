@@ -113,7 +113,8 @@ What that means per role, route by route:
   project, link an expert chat to it, or see its reader links. The SPA shows a "view access" note on the project.
 - **Editor** — everything a viewer can, plus editing content (story, cast, world, scenes, pages, panels, lettering,
   narration), generating, exports, duplicating the project into their own account, and starting a production run.
-  Deleting a whole chapter, trashing or permanently deleting the project, archiving it, reader links, members and
+  An editor turns a panel off (*leave out of videos*) rather than deleting it: deleting a panel needs `delete`. Pages
+  and scenes have no off switch, so editors may delete those. Deleting a whole chapter, trashing or permanently deleting the project, archiving it, reader links, members and
   invitations stay with the owner (`delete` / `manage`), and so do three settings: `budgetUsd`, `consistencyCheck` and
   `contentPolicyFallback` (`PATCH /api/projects/:id` needs `manage` when it changes any of them; sending them back
   unchanged is fine).
