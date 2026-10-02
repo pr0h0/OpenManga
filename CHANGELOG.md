@@ -20,9 +20,12 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   was drawn.
 - **Vertical and square video, and a Shorts cut.** Every video export (and the preview) takes a shape: 16:9, 9:16
   or 1:1. Vertical and square frames crop each panel's existing art around its focal point; nothing is generated at
-  the new shape. A new *Shorts* export renders a 30–60 s trailer: it picks dramatic shots spread across a chapter or
-  the whole project, lets you change the pick and preview it, and renders those shots with their own narration,
-  vertical by default and never over a minute. Agents get the pick through `suggest_shorts`.
+  the new shape. A new *Shorts* export renders a trailer: it picks dramatic shots spread across a chapter or the
+  whole project, lets you change the pick and preview it, and renders those shots with their own narration, vertical
+  by default. Its length is a setting, 3 minutes by default (YouTube's Shorts limit) and up to 10: the pick fills up
+  to it and the render stops before the shot that would pass it. Past 3 minutes the Exports page, `suggest_shorts` and
+  the export response warn that YouTube will upload it as a regular video. Agents get the pick through
+  `suggest_shorts`.
 - **End-to-end tests in CI.** `.github/workflows/e2e.yml` builds the full stack with mock AI, waits for it to be
   healthy and runs the Playwright test: nightly against `staging`, by hand, and on pull requests that change the
   test or how it runs. A failed run uploads the HTML report, traces and every service's log. The test now clicks

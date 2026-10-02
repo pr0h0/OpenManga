@@ -3,9 +3,10 @@ import {
   cropsToFrame,
   frameSizeFor,
   pickShorts,
-  SHORTS_MAX_MS,
+  SHORTS_DEFAULT_MS,
+  SHORTS_LIMIT_MS,
   SHORTS_MIN_MS,
-  SHORTS_TARGET_MS,
+  shortsLengthWarning,
   shortsScore,
   timeGroup,
   type VideoAspect,
@@ -78,18 +79,19 @@ const ShortsQuery = z.object({
   chapterId: z.string().uuid().optional(),
   language: z.string().trim().min(2).max(16).optional(),
   minHoldMs: z.coerce.number().int().min(500).max(30_000).default(1500),
-  targetSeconds: z.coerce
+  /** The cut's length: the pick fills up to it (default 180 s, YouTube's Shorts limit; up to 600 s). */
+  lengthSeconds: z.coerce
     .number()
     .int()
-    .min(15)
-    .max(60)
-    .default(SHORTS_TARGET_MS / 1000),
+    .min(SHORTS_MIN_MS / 1000)
+    .max(SHORTS_LIMIT_MS / 1000)
+    .default(SHORTS_DEFAULT_MS / 1000),
 });
 doc({
   method: "GET",
   path: "/api/projects/:projectId/shorts",
   summary:
-    "Candidate shots for a Shorts cut of a chapter (or the whole project): every panel in story order with its hold (its own narration, at least minHoldMs), its narration text, a drama score, and `picked` for the automatic 30–60 s choice. Render the pick with POST exports { kind: video_shorts, panelIds }.",
+    "Candidate shots for a Shorts cut of a chapter (or the whole project): every panel in story order with its hold (its own narration, at least minHoldMs), its narration text, a drama score, and `picked` for the automatic choice, which fills up to `lengthSeconds` (default 180, at most 600). `warning` is set when the length or the pick goes over YouTube's 3-minute Shorts limit. Render the pick with POST exports { kind: video_shorts, panelIds, video: { shortsSeconds } }.",
   tag: "exports",
 });
 videoRoutes.get("/projects/:projectId/shorts", async (c) => {
@@ -99,10 +101,40 @@ videoRoutes.get("/projects/:projectId/shorts", async (c) => {
     const owner = await entityAccess(c, "chapter", q.chapterId, "read");
     if (owner.id !== p.id) throw notFound("Chapter");
   }
-  const { db } = c.get("deps");
+  const candidates = await shortsCandidates(
+    c.get("deps").db,
+    p,
+    { chapterId: q.chapterId ?? null },
+    q.language || p.language,
+    q.minHoldMs,
+  );
+  const maxMs = q.lengthSeconds * 1000;
+  const picked = new Set(pickShorts(candidates, { targetMs: maxMs, minMs: SHORTS_MIN_MS, maxMs }));
+  const pickedMs = candidates.filter((x) => picked.has(x.id)).reduce((n, x) => n + x.holdMs, 0);
+  return c.json({
+    minMs: SHORTS_MIN_MS,
+    maxMs,
+    pickedMs,
+    // The pick never runs past the length, so its total is the film's length.
+    warning: shortsLengthWarning(pickedMs),
+    shots: candidates.map((x) => ({ ...x, score: shortsScore(x), picked: picked.has(x.id) })),
+  });
+});
+
+/**
+ * Every panel of a scope as a Shorts candidate, in story order: its hold (its own narration through `timeGroup`, at
+ * least `minHoldMs`, as the render times it), narration text and whether it has artwork.
+ */
+export async function shortsCandidates(
+  db: AppEnv["Variables"]["deps"]["db"],
+  project: Parameters<typeof planVideoShots>[1],
+  scope: Parameters<typeof planVideoShots>[2],
+  language: string,
+  minHoldMs: number,
+) {
   let planned: Awaited<ReturnType<typeof planVideoShots>>;
   try {
-    planned = await planVideoShots(db, p, { chapterId: q.chapterId ?? null }, "panel", q.language || p.language);
+    planned = await planVideoShots(db, project, scope, "panel", language);
   } catch (e) {
     throw badRequest((e as Error).message);
   }
@@ -111,7 +143,7 @@ videoRoutes.get("/projects/:projectId/shorts", async (c) => {
     planned.shots.flatMap((s) => s.lineIds),
   );
   const lineById = new Map(planned.lines.map((l) => [l.id, l]));
-  const candidates = planned.shots.map((s) => {
+  return planned.shots.map((s) => {
     const lines = s.lineIds.map((id) => ({
       startOffsetMs: lineById.get(id)?.video?.startOffsetMs ?? 0,
       endOffsetMs: lineById.get(id)?.video?.endOffsetMs ?? 0,
@@ -126,18 +158,10 @@ videoRoutes.get("/projects/:projectId/shorts", async (c) => {
       artAssetId: s.art?.id ?? null,
       hasArt: Boolean(s.art),
       text: lines.flatMap((l) => l.segments.map((x) => x.text)).join(" "),
-      holdMs: timeGroup(lines, 1, { minHoldMs: q.minHoldMs, fps: 30 }).holdMs,
+      holdMs: timeGroup(lines, 1, { minHoldMs, fps: 30 }).holdMs,
     };
   });
-  const picked = new Set(
-    pickShorts(candidates, { targetMs: q.targetSeconds * 1000, minMs: SHORTS_MIN_MS, maxMs: SHORTS_MAX_MS }),
-  );
-  return c.json({
-    minMs: SHORTS_MIN_MS,
-    maxMs: SHORTS_MAX_MS,
-    shots: candidates.map((x) => ({ ...x, score: shortsScore(x), picked: picked.has(x.id) })),
-  });
-});
+}
 
 doc({
   method: "GET",

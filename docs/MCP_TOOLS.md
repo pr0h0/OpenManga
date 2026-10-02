@@ -8053,6 +8053,11 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
             "9:16",
             "1:1"
           ]
+        },
+        "shortsSeconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 600
         }
       }
     },
@@ -8111,7 +8116,7 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
 
 ### suggest_shorts
 
-Candidate shots for a Shorts cut (a 30–60 s trailer) of a chapter or the whole project: every panel in story order with its hold, narration text, a drama score and `picked` for the automatic choice (dramatic shots spread across the story). Change the pick freely, then render it with create_export kind=video_shorts and panelIds. Read-only.
+Candidate shots for a Shorts cut (a trailer of key shots) of a chapter or the whole project: every panel in story order with its hold, narration text, a drama score and `picked` for the automatic choice (dramatic shots spread across the story, filling up to lengthSeconds: default 180, at most 600). `warning` is set when the length or the pick goes over 3 minutes, which YouTube uploads as a regular video rather than a Short. Change the pick freely, then render it with create_export kind=video_shorts, panelIds and the same video.shortsSeconds. Read-only.
 
 - **Scopes:** `exports:read`
 - **Sensitivity:** read
@@ -8146,10 +8151,10 @@ Candidate shots for a Shorts cut (a 30–60 s trailer) of a chapter or the whole
       "minimum": 500,
       "maximum": 30000
     },
-    "targetSeconds": {
+    "lengthSeconds": {
       "type": "integer",
-      "minimum": 15,
-      "maximum": 60
+      "minimum": 30,
+      "maximum": 600
     }
   },
   "required": [

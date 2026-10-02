@@ -38,7 +38,7 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { buildTimeline, chunkStrip, type SeamedBlock, SHORTS_MAX_MS, youtubeChapters } from "@openmanga/domain";
+import { buildTimeline, chunkStrip, type SeamedBlock, SHORTS_DEFAULT_MS, youtubeChapters } from "@openmanga/domain";
 import { extForMime, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
@@ -458,8 +458,8 @@ async function buildExport(
         aspect,
         // A vertical or square frame is narrow: a page fills its width rather than 3/5 of it.
         pageWidthRatio: opts.video?.pageWidthRatio ?? (aspect === "16:9" ? 0.6 : 1),
-        // A Shorts cut is its picked shots only, at most a minute, without the intro and outro cards.
-        ...(shorts ? { capMs: SHORTS_MAX_MS, cards: false } : {}),
+        // A Shorts cut is its picked shots only, up to its chosen length, without the intro and outro cards.
+        ...(shorts ? { capMs: (opts.video?.shortsSeconds ?? SHORTS_DEFAULT_MS / 1000) * 1000, cards: false } : {}),
       };
       const render = job.kind === "video_pages" ? renderPageCutVideo : renderPanelCutVideo;
       // A panel or page selection narrows the film to those; otherwise the chapter, or the whole project.

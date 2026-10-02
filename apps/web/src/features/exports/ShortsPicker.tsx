@@ -1,9 +1,15 @@
-import { SHORTS_MAX_MS, SHORTS_MIN_MS, type VideoAspect } from "@openmanga/domain/browser";
+import {
+  SHORTS_LIMIT_MS,
+  SHORTS_MIN_MS,
+  shortsLengthWarning,
+  type VideoAspect,
+  YOUTUBE_SHORTS_MAX_MS,
+} from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import { Wand2 } from "lucide-react";
 import { useEffect } from "react";
 import { assetUrl, get } from "../../api/client.ts";
-import { clsx, ErrorBox, Spinner } from "../../components/ui.tsx";
+import { clsx, ErrorBox, Field, Spinner } from "../../components/ui.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
 
 type Candidate = {
@@ -21,8 +27,9 @@ type Candidate = {
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 
 /**
- * The shots of a Shorts cut: the automatic pick (dramatic shots spread across the story, 30–60 s), which the user
- * can change before previewing and rendering. `value` is the chosen panel ids; the render plays them in story order.
+ * The shots of a Shorts cut and its length: the automatic pick (dramatic shots spread across the story, filling up to
+ * the length, 3 minutes by default), which the user can change before previewing and rendering. `value` is the chosen
+ * panel ids; the render plays them in story order and stops before the shot that would pass the length.
  */
 export function ShortsPicker({
   projectId,
@@ -30,6 +37,8 @@ export function ShortsPicker({
   language,
   minHoldMs,
   aspect,
+  lengthSeconds,
+  onLength,
   value,
   onChange,
 }: {
@@ -38,6 +47,8 @@ export function ShortsPicker({
   language: string;
   minHoldMs: number;
   aspect: VideoAspect;
+  lengthSeconds: number;
+  onLength: (seconds: number) => void;
   value: string[];
   onChange: (ids: string[]) => void;
 }) {
@@ -45,6 +56,7 @@ export function ShortsPicker({
     ...(chapterId ? { chapterId } : {}),
     language,
     minHoldMs: String(minHoldMs),
+    lengthSeconds: String(lengthSeconds),
   });
   const q = useQuery({
     queryKey: ["shorts", projectId, params.toString()],
@@ -61,25 +73,52 @@ export function ShortsPicker({
   const shots = q.data?.shots ?? [];
   const chosen = new Set(value);
   const total = shots.filter((s) => chosen.has(s.id)).reduce((n, s) => n + s.holdMs, 0);
+  const maxMs = lengthSeconds * 1000;
+  // The render stops before the shot that would pass the length, so the film is at most that long.
+  const warning = shortsLengthWarning(Math.min(total, maxMs));
   const toggle = (id: string) => onChange(chosen.has(id) ? value.filter((x) => x !== id) : [...value, id]);
   const tone =
-    total > SHORTS_MAX_MS
+    total > maxMs
       ? "text-amber-600 dark:text-amber-400"
       : total < SHORTS_MIN_MS
         ? "muted"
         : "text-emerald-600 dark:text-emerald-400";
   return (
     <div className="space-y-2">
+      <Field
+        label="Length (seconds)"
+        hint={`The pick fills up to this; ${YOUTUBE_SHORTS_MAX_MS / 1000} s is YouTube's Shorts limit.`}
+      >
+        <input
+          className="input"
+          type="number"
+          min={SHORTS_MIN_MS / 1000}
+          max={SHORTS_LIMIT_MS / 1000}
+          step={15}
+          defaultValue={lengthSeconds}
+          onBlur={(e) => {
+            const n = Math.round(Number(e.target.value));
+            const v = Math.min(SHORTS_LIMIT_MS / 1000, Math.max(SHORTS_MIN_MS / 1000, n || lengthSeconds));
+            e.target.value = String(v);
+            if (v !== lengthSeconds) onLength(v);
+          }}
+        />
+      </Field>
+      {warning && (
+        <p role="alert" className="rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+          {warning}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className={clsx("font-medium tabular-nums", tone)}>
           {value.length} shot(s) · {secs(total)}
         </span>
         <span className="muted">
-          {total > SHORTS_MAX_MS
-            ? "Over a minute: the render stops before the shot that passes 60 s."
+          {total > maxMs
+            ? `Over ${secs(maxMs)}: the render stops before the shot that passes it.`
             : total < SHORTS_MIN_MS
               ? "Under 30 s: add a few shots."
-              : "Within 30–60 s."}
+              : `Within 30 s – ${secs(maxMs)}.`}
         </span>
         <button type="button" className="btn-ghost ml-auto py-0.5 text-xs" onClick={auto}>
           <Wand2 className="size-3.5" /> Auto-pick
@@ -126,6 +165,7 @@ export function ShortsPicker({
           className="btn-secondary w-full"
           defaultAspect={aspect}
           defaultMinHoldMs={minHoldMs}
+          capMs={maxMs}
         />
       )}
     </div>

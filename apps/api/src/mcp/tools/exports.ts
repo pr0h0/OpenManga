@@ -37,13 +37,13 @@ export const exportTools = [
     name: "suggest_shorts",
     title: "Suggest a Shorts cut",
     description:
-      "Candidate shots for a Shorts cut (a 30–60 s trailer) of a chapter or the whole project: every panel in story order with its hold, narration text, a drama score and `picked` for the automatic choice (dramatic shots spread across the story). Change the pick freely, then render it with create_export kind=video_shorts and panelIds. Read-only.",
+      "Candidate shots for a Shorts cut (a trailer of key shots) of a chapter or the whole project: every panel in story order with its hold, narration text, a drama score and `picked` for the automatic choice (dramatic shots spread across the story, filling up to lengthSeconds: default 180, at most 600). `warning` is set when the length or the pick goes over 3 minutes, which YouTube uploads as a regular video rather than a Short. Change the pick freely, then render it with create_export kind=video_shorts, panelIds and the same video.shortsSeconds. Read-only.",
     input: z.object({
       projectId: Uuid,
       chapterId: Uuid.optional(),
       language: z.string().max(16).optional(),
       minHoldMs: z.number().int().min(500).max(30_000).optional(),
-      targetSeconds: z.number().int().min(15).max(60).optional(),
+      lengthSeconds: z.number().int().min(30).max(600).optional(),
     }),
     output: z.object({ shots: z.array(Passthrough) }).passthrough(),
     scopes: ["exports:read"],

@@ -309,10 +309,19 @@ export function lineDrama(text: string) {
   return s;
 }
 
-/** A Shorts cut runs 30 to 60 seconds; the picker aims for 45. */
+/**
+ * A Shorts cut's length: at least 30 s, 3 minutes by default (YouTube's Shorts limit), and up to 10 minutes when the
+ * user asks for a longer cut. The picker fills up to the chosen length and the render never runs past it.
+ */
 export const SHORTS_MIN_MS = 30_000;
-export const SHORTS_MAX_MS = 60_000;
-export const SHORTS_TARGET_MS = 45_000;
+export const SHORTS_DEFAULT_MS = 180_000;
+export const SHORTS_LIMIT_MS = 600_000;
+/** YouTube takes Shorts of up to 3 minutes; anything longer uploads as a regular video. */
+export const YOUTUBE_SHORTS_MAX_MS = 180_000;
+export const SHORTS_TOO_LONG_WARNING =
+  "YouTube doesn't accept Shorts over 3 minutes; this will upload as a regular video.";
+/** The warning to show for a Shorts length (the chosen setting or the pick's total), or null within YouTube's limit. */
+export const shortsLengthWarning = (ms: number) => (ms > YOUTUBE_SHORTS_MAX_MS ? SHORTS_TOO_LONG_WARNING : null);
 
 /** A shot that could go into a Shorts cut, in story order. */
 export type ShortsCandidate = { id: string; shotType: string; text: string; holdMs: number; hasArt: boolean };

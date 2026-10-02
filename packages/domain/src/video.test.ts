@@ -14,7 +14,9 @@ import {
   panelShotBox,
   pickShorts,
   resolveMotions,
+  SHORTS_DEFAULT_MS,
   scrollPlan,
+  shortsLengthWarning,
   shotGroups,
   timeGroup,
   VIDEO_BREATH_MS,
@@ -176,6 +178,14 @@ test("frame profiles: the height is the short side of landscape, vertical and sq
   expect(frameSizeFor(720, "1:1")).toEqual({ frameW: 720, frameH: 720 });
   expect(cropsToFrame("16:9")).toBe(false);
   expect(cropsToFrame("9:16")).toBe(true);
+});
+
+test("Shorts length: three minutes by default, a warning only past YouTube's Shorts limit", () => {
+  expect(SHORTS_DEFAULT_MS).toBe(180_000);
+  expect(shortsLengthWarning(180_000)).toBeNull();
+  expect(shortsLengthWarning(180_001)).toBe(
+    "YouTube doesn't accept Shorts over 3 minutes; this will upload as a regular video.",
+  );
 });
 
 test("Shorts pick: dramatic shots spread across the story, within the length, in story order, never without art", () => {
