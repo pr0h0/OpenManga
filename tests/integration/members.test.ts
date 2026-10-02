@@ -169,6 +169,12 @@ describe("the role matrix", () => {
     expect(await status(bob, "POST", `/api/projects/${projectId}/status`, { action: "trash" })).toBe(403);
     expect(await status(bob, "POST", `/api/projects/${projectId}/status`, { action: "archive" })).toBe(403);
     expect(await status(bob, "DELETE", `/api/chapters/${chapterId}`)).toBe(403);
+    // A panel has an off switch, so an editor turns it off; deleting it is the owner's. Pages have none: editors may.
+    expect(await status(bob, "PATCH", `/api/panels/${panelId}`, { video: { disabled: true } })).toBe(200);
+    expect(await status(bob, "DELETE", `/api/panels/${panelId}`)).toBe(403);
+    await alice.patch(`/api/panels/${panelId}`, { video: null });
+    const spare = await bob.post<{ page: { id: string } }>(`/api/chapters/${chapterId}/pages`, {}, 201);
+    expect(await status(bob, "DELETE", `/api/pages/${spare.page.id}`)).toBe(200);
     expect(await status(dave, "GET", `/api/projects/${projectId}`)).toBe(404);
   });
 

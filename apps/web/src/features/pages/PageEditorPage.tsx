@@ -7,7 +7,7 @@ import { qk } from "../../api/hooks.ts";
 import type { PageDocument } from "../../api/types.ts";
 import { ConfirmDialog, ErrorBox, SaveIndicator, Spinner, Tabs, toast } from "../../components/ui.tsx";
 import { CommentBadge, PanelComments, useCommentCounts } from "../comments/comments.tsx";
-import { useProjectId } from "../project/ProjectLayout.tsx";
+import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { BulkGenerateButton } from "./BulkGenerate.tsx";
 import { EditorCanvas, useView } from "./editor/Canvas.tsx";
 import { LetteringTab } from "./editor/LetteringTab.tsx";
@@ -31,6 +31,8 @@ function useWide() {
 
 export function PageEditorPage() {
   const projectId = useProjectId();
+  // Only the owner deletes panels; an editor turns one off under Video shot instead.
+  const canDeletePanels = useProject().data?.role === "owner";
   const { pageId } = useParams({ strict: false }) as { pageId: string };
   const search = useSearch({ strict: false }) as { panelId?: string; tab?: "comments" };
   const qc = useQueryClient();
@@ -115,8 +117,10 @@ export function PageEditorPage() {
         else st.select(null);
       } else if ((e.key === "Delete" || e.key === "Backspace") && sel) {
         e.preventDefault();
-        if (sel.type === "panel") setConfirmDelete(sel.ids[0]!);
-        else {
+        if (sel.type === "panel") {
+          if (canDeletePanels) setConfirmDelete(sel.ids[0]!);
+          else toast.info("Only the project owner can delete panels. Turn it off under Video shot instead.");
+        } else {
           try {
             await Promise.all(sel.ids.map((id) => del(sel.type === "sfx" ? `/sfx/${id}` : `/dialogue/${id}`)));
             st.select(null);
@@ -160,7 +164,7 @@ export function PageEditorPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pageId, refresh]);
+  }, [pageId, refresh, canDeletePanels]);
 
   if (q.isLoading)
     return (
@@ -328,7 +332,7 @@ export function PageEditorPage() {
                     label={`Generate ${selection.ids.length} selected panels`}
                   />
                 )}
-                <PanelList data={data} onDelete={setConfirmDelete} />
+                <PanelList data={data} onDelete={canDeletePanels ? setConfirmDelete : undefined} />
               </div>
             )}
             {selectedPanel && tab === "comments" && (
@@ -362,10 +366,15 @@ export function PageEditorPage() {
             )}
             {selectedPanel && tab === "panel" && (
               <div className="space-y-4">
-                <PanelTab key={selectedPanel.id} data={data} panel={selectedPanel} onDelete={setConfirmDelete} />
+                <PanelTab
+                  key={selectedPanel.id}
+                  data={data}
+                  panel={selectedPanel}
+                  onDelete={canDeletePanels ? setConfirmDelete : undefined}
+                />
                 <div>
                   <div className="label">Reading order</div>
-                  <PanelList data={data} onDelete={setConfirmDelete} />
+                  <PanelList data={data} onDelete={canDeletePanels ? setConfirmDelete : undefined} />
                 </div>
               </div>
             )}

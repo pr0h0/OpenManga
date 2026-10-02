@@ -108,7 +108,7 @@ async function loadPageProject(
 async function loadPanel(
   c: Parameters<typeof projectAccess>[0],
   panelId: string,
-  action: "read" | "write" | "generate",
+  action: "read" | "write" | "generate" | "delete",
 ) {
   const project = await entityAccess(c, "panel", panelId, action);
   const [row] = await c
@@ -899,7 +899,9 @@ pageRoutes.delete("/outfit-assignments/:id", async (c) => {
 
 doc({ method: "DELETE", path: "/api/panels/:id", summary: "Remove panel", tag: "panels" });
 pageRoutes.delete("/panels/:id", async (c) => {
-  const { panel } = await loadPanel(c, uuidParam(c, "id"), "write");
+  // Owner only: an editor turns a panel off instead ("leave out of videos"), which loses nothing. Pages and scenes
+  // have no off switch, so editors may still delete those.
+  const { panel } = await loadPanel(c, uuidParam(c, "id"), "delete");
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
     await tx.delete(panels).where(eq(panels.id, panel.id));
