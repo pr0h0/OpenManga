@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project, `0024_project_invites` a table for invitations).
+Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project, `0024_project_invites` a table for invitations, `0025_panel_comments` tables for comments and notifications).
 
 ### Added
 
@@ -21,6 +21,12 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   or *Update production*, read a run, continue it past a review and stop it. Starting, updating and continuing spend
   the user's credits, so they wait for approval on "Ask me first" connections. `GET /api/production-runs/:id` reads
   one run.
+- **Panel comments.** Every member of a project, viewers included, can start a comment thread on a panel, reply,
+  edit or delete their own comments, resolve and reopen threads, and @mention a member. Comments are in the page
+  editor's new **Comments** tab (and under the canvas on a phone), with open-thread badges on panels and pages, and a
+  project's **Comments** page lists open (or resolved) threads per project or chapter. A bell in the header counts
+  unread mentions and replies. Comments update live over the project's events. Agents get `list_comments` and
+  `post_comment`.
 - **Incremental rendering and Update production.** Every rendered shot and card is kept as a cached section, keyed by
   a hash of everything that decides its pixels and length; the next render copies unchanged sections in and encodes
   only what changed, then re-mixes and normalises the audio over the whole film as before. Sections go with the

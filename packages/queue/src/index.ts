@@ -232,7 +232,9 @@ export type AppEvent =
   | { type: "narration.updated"; chapterId: string }
   | { type: "production.updated"; runId: string; status: string }
   /** Membership changed: an invite, an accept, a role change or a removal. `removedUserId` loses access now. */
-  | { type: "members.updated"; removedUserId?: string };
+  | { type: "members.updated"; removedUserId?: string }
+  /** A panel's comments changed: a post, reply, edit, delete, resolve or reopen. */
+  | { type: "comment.updated"; panelId: string; pageId: string | null };
 
 const channel = (projectId: string) => `om:events:project:${projectId}`;
 

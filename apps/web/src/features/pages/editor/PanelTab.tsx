@@ -18,6 +18,7 @@ import { qk, useAction } from "../../../api/hooks.ts";
 import type { EditorPanel, LocationCard, PageDocument, PropCard } from "../../../api/types.ts";
 import { clsx, Field, StatusChip, TagInput } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
+import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
@@ -35,6 +36,7 @@ export function PanelList({ data, onDelete }: { data: PageDocument; onDelete: (i
   const selection = useEditor((s) => s.selection);
   const select = useEditor((s) => s.select);
   const ordered = [...doc.panels].sort((a, b) => a.order - b.order);
+  const counts = useCommentCounts(useProjectId()).data;
   const reorder = useAction((panelIds: string[]) => post(`/pages/${data.page.id}/reorder-panels`, { panelIds }), {
     invalidate: [qk.page(data.page.id)],
   });
@@ -68,6 +70,7 @@ export function PanelList({ data, onDelete }: { data: PageDocument; onDelete: (i
               <span className="font-semibold tabular-nums">{i + 1}</span>
               <span className="muted truncate">{server?.storyBeat || "Untitled panel"}</span>
             </button>
+            <CommentBadge n={counts?.panels[p.id]} />
             {server && <StatusChip status={server.status} />}
             <button
               type="button"

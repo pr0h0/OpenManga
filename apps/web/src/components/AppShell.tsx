@@ -4,6 +4,7 @@ import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import { BarChart3, Bot, LogOut, Menu, MessagesSquare, Moon, Shield, Sun, User, X } from "lucide-react";
 import { useState } from "react";
 import { logout, useMe, useMeta } from "../api/hooks.ts";
+import { NotificationBell } from "../features/comments/NotificationBell.tsx";
 import { Logo } from "./Logo.tsx";
 
 const WEB_BUILD = buildLabel(__WEB_BUILD__);
@@ -61,7 +62,10 @@ export function AppShell() {
             Mock AI
           </span>
         )}
-        <nav className="ml-auto hidden items-center gap-1 text-sm sm:flex">
+        <div className="ml-auto">
+          <NotificationBell />
+        </div>
+        <nav className="hidden items-center gap-1 text-sm sm:flex">
           {links.map((l) => (
             <Link key={l.to} to={l.to} className="btn-ghost" activeProps={{ className: "bg-[var(--panel-2)]" }}>
               <l.icon className="size-4" /> {l.label}
@@ -78,7 +82,7 @@ export function AppShell() {
           </button>
         </nav>
         {/* Phones: the same destinations behind one menu button, with their names spelled out. */}
-        <div className="relative ml-auto sm:hidden">
+        <div className="relative sm:hidden">
           <button
             type="button"
             className="btn-ghost"

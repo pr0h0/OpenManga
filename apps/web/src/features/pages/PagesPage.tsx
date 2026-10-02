@@ -15,6 +15,7 @@ import {
   Spinner,
   StatusChip,
 } from "../../components/ui.tsx";
+import { CommentBadge, useCommentCounts } from "../comments/comments.tsx";
 import { ActiveBatches } from "../generation/BatchStatus.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
@@ -83,6 +84,7 @@ export function PagesPage() {
   const projectId = useProjectId();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { chapterId?: string };
+  const commentCounts = useCommentCounts(projectId).data;
   const chapters = useQuery({
     queryKey: qk.chapters(projectId),
     // Cache holds the raw response shape shared with other screens; select derives the list.
@@ -244,7 +246,9 @@ export function PagesPage() {
             </Link>
             <div className="flex items-center justify-between gap-1 p-2 text-sm">
               <div className="min-w-0">
-                <div className="font-medium">Page {p.order}</div>
+                <div className="flex items-center gap-1 font-medium">
+                  Page {p.order} <CommentBadge n={commentCounts?.pages[p.id]} />
+                </div>
                 <div className="muted truncate text-xs">
                   {p.readyCount}/{p.panelCount} ready
                 </div>

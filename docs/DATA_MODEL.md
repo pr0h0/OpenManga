@@ -70,6 +70,13 @@ slot).
 - `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a
   random `token` (unique), creator, `revoked_at`. Served without a session under `/api/public/shares/:token`
   (`docs/SECURITY.md`).
+- `panel_comments` — comment threads on panels (migration `0025_panel_comments`): project, panel (cascade, so
+  re-planning a chapter's pages removes their comments with them), `thread_id` (null for a thread's first comment,
+  else that comment's id), author, plain-text `body`, `mentions` (member ids resolved when written), `resolved_at` /
+  `resolved_by_user_id` on the first comment, `edited_at`, and `deleted_at` for a first comment deleted while it has
+  replies (its body is blanked; any other deleted comment is removed).
+- `notifications` — one user's mention or reply notice: user, project, `kind` (`mention|reply`), comment, actor,
+  `read_at`.
 - `story_revisions` — immutable once `locked_at` is set (analyses reference them); editing a locked revision forks a
   new one. Unique per `(project, revision_number)`.
 - `story_analyses` — the validated `StoryAnalysis` JSON for one revision; `pending → completed → applied` (or

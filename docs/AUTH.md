@@ -191,6 +191,10 @@ trashed asset is not served outside the trash views; see `docs/STORAGE.md`.
   own membership. Removing or leaving also drops the member's agent connections' grants to that project.
 - **Audit**: `member.invite`, `member.invite_revoke`, `member.accept`, `member.decline`, `member.role_change`,
   `member.remove`, `member.leave` (no email addresses in the metadata), plus `auth.register` with `via: invite`.
+- **Comments** (`apps/api/src/routes/comments.ts`) need only `read`: every member, viewers included, reads and writes
+  panel comments, resolves and reopens threads. Editing a comment is its author's alone; deleting is its author's or
+  the owner's (`manage`). A mention notifies only a current member, and the notification list shows only projects
+  the user is still a member of.
 - **Live**: every change publishes `members.updated` on the project's event stream. A removed member's open stream
   gets that event and is closed, and their SPA leaves the project.
 
