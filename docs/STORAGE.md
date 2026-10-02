@@ -79,8 +79,9 @@ thumbnail with its headline composited, when there is one), `description.txt` (w
 2. The API loads the asset by its opaque id. A trashed asset (`deleted_at` set) is 404 unless the request carries
    `trash=1`, which only the trash views send, so a deleted image does not live on wherever its id is still held.
    Unless the asset is `public` (nothing creates one — see `docs/SECURITY.md`) it requires a session (401); then
-   the asset's owner is served, an asset with no project (an expert chat image) is 404 to anyone else, and for
-   everyone else `projectAccess(…, "read")` decides, answering 404 for a non-member.
+   an asset with no project (an expert chat image) is served to its owner only, and for a project's asset
+   `projectAccess(…, "read")` decides, answering 404 for a non-member — including whoever made it, once they have
+   left the project.
 3. It resolves the requested variant. A missing `thumbnail`, `preview` or `web` is generated on the spot with Sharp
    (WebP, fitting inside 384 / 1024 / 2048 px, quality 80 / 85 / 85) and cached as a variant keyed by
    `sha256(sourceSha:variant:maxSize:webp:qN)` (`thumb` for the thumbnail). `prompt_ref` is not generated here — see

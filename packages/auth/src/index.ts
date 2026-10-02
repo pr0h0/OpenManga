@@ -3,6 +3,7 @@ import {
   and,
   authIdentities,
   type Database,
+  type DbOrTx,
   eq,
   gt,
   isNull,
@@ -85,10 +86,11 @@ export class AuthService {
     private readonly opts: { secret: string; sessionTtlDays: number },
   ) {}
 
-  async createUser(input: RegisterInput, role: "user" | "admin" = "user"): Promise<SessionUser> {
+  /** `db` lets a caller create the account inside its own transaction (accepting an invite claims it there). */
+  async createUser(input: RegisterInput, role: "user" | "admin" = "user", db: DbOrTx = this.db): Promise<SessionUser> {
     const data = RegisterInput.parse(input);
     const passwordHash = await hashPassword(data.password);
-    return this.db.transaction(async (tx) => {
+    return db.transaction(async (tx) => {
       const existing = await tx
         .select({ id: users.id })
         .from(users)

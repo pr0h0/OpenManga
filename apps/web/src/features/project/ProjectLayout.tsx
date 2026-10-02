@@ -264,6 +264,14 @@ export function ProjectLayout() {
             </Link>
           ))}
         </nav>
+        {data!.role === "viewer" && (
+          <div
+            role="note"
+            className="border-b border-[var(--border)] bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300"
+          >
+            You have view access to this shared project: you can read it and download its exports, but not change it.
+          </div>
+        )}
         <main className="min-h-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>

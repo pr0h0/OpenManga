@@ -94,12 +94,16 @@ miscRoutes.get("/projects/:projectId/events", requireUser, async (c) => {
   return streamSSE(c, async (stream) => {
     const queue: string[] = [];
     let wake: (() => void) | null = null;
+    let closed = false;
+    let removed = false;
     const unsubscribe = deps.events.subscribe(deps.config.REDIS_URL, p.id, (msg) => {
       if (queue.length >= MAX_QUEUED_EVENTS) queue.shift();
       queue.push(msg);
+      // A member removed from the project gets that event and then nothing more: access was checked when the
+      // stream opened, so it ends here rather than carrying on with a role they no longer have.
+      if (msg.includes('"members.updated"') && msg.includes(`"removedUserId":"${userId}"`)) removed = true;
       wake?.();
     });
-    let closed = false;
     stream.onAbort(() => {
       closed = true;
       wake?.();
@@ -116,6 +120,7 @@ miscRoutes.get("/projects/:projectId/events", requireUser, async (c) => {
           wake = null;
         }
         while (queue.length) await stream.writeSSE({ event: "message", data: queue.shift()! });
+        if (removed) break;
         if (Date.now() - lastPing > 14_000) {
           await stream.writeSSE({ event: "ping", data: String(Date.now()) });
           lastPing = Date.now();

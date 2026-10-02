@@ -62,6 +62,7 @@ import {
   ShotVideo,
 } from "@openmanga/schemas";
 import {
+  credentialOwnedBy,
   letterPanel,
   outfitReferenceAssets,
   outfitTimeline,
@@ -69,6 +70,7 @@ import {
   recordAudit,
   resolveOutfits,
 } from "@openmanga/services";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -1735,13 +1737,19 @@ doc({
   tag: "panels",
   body: CheckInput,
 });
-/** The vision key a check runs on: the project's own, else the caller's picker (which may not read images). */
-function checkChoice(
+/**
+ * The vision key a check runs on: the project's own, else the caller's picker (which may not read images). The
+ * project's key is one member's, so it is used only when that member is the caller.
+ */
+async function checkChoice(
+  c: Context<AppEnv>,
   project: { settings: { consistencyCheck?: { credentialId?: string | null; model?: string } } },
   ai: AiChoiceInput,
 ) {
   const cc = project.settings.consistencyCheck;
-  return cc?.credentialId ? { credentialId: cc.credentialId, model: cc.model || null } : (ai ?? null);
+  return cc?.credentialId && (await credentialOwnedBy(c.get("deps").db, cc.credentialId, user(c).id))
+    ? { credentialId: cc.credentialId, model: cc.model || null }
+    : (ai ?? null);
 }
 
 /** Queue one panel's check inside a transaction; batched checks wait for the caller's batch submit. */
@@ -1786,7 +1794,7 @@ pageRoutes.post("/panels/:id/check", async (c) => {
   if (!panel.activeArtworkAssetId) throw conflict("Panel has no artwork to check");
   // The project's own vision key wins: it was picked for this job, while `ai` is whatever the page's text picker
   // happens to hold, which may well be a model that cannot read images.
-  const choice = checkChoice(project, ai);
+  const choice = await checkChoice(c, project, ai);
   await assertBudget(c, project.id);
   const run = await textRun(c, choice ?? null);
   const deps = c.get("deps");
@@ -1872,7 +1880,7 @@ pageRoutes.post("/projects/:projectId/checks", async (c) => {
   );
   const eligible = withArt.filter((r) => !inFlight.has(r.id) && (!input.onlyUnchecked || !current(r)));
   if (eligible.length > MAX_BULK_CHECKS) throw badRequest(`Check at most ${MAX_BULK_CHECKS} panels at a time.`);
-  const choice = checkChoice(project, input.ai);
+  const choice = await checkChoice(c, project, input.ai);
   const run = await textRun(c, choice ?? null);
   assertBatchable(c, input.batch, run.provider);
   const rate = await deps.usage.rateFor(run.provider, input.batch ? batchModel(run.model) : run.model);

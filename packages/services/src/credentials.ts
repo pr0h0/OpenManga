@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } f
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { AppConfig } from "@openmanga/config";
-import { and, type Database, desc, eq, providerCredentials, sql } from "@openmanga/db";
+import { and, type Database, type DbOrTx, desc, eq, providerCredentials, sql } from "@openmanga/db";
 import { type AiCapability, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 
@@ -209,6 +209,19 @@ export async function assertPublicHttpsUrl(
 const defaultResolve = async (host: string) => (await lookup(host, { all: true })).map((a) => a.address);
 
 export class CredentialError extends Error {}
+
+/**
+ * Whether a stored key belongs to this user. Project settings can name a key (the consistency check's, the content
+ * policy fallback's); in a shared project that is one member's key, which nobody else's work may run on.
+ */
+export async function credentialOwnedBy(db: DbOrTx, id: string, userId: string | null) {
+  if (!userId) return false;
+  const [row] = await db
+    .select({ id: providerCredentials.id })
+    .from(providerCredentials)
+    .where(and(eq(providerCredentials.id, id), eq(providerCredentials.userId, userId)));
+  return Boolean(row);
+}
 
 export type CredentialSummary = {
   id: string;

@@ -3,17 +3,23 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
   ArchiveRestore,
+  Check,
   Copy,
   Download,
   FolderOpen,
+  LogOut,
+  MailOpen,
   MoreVertical,
   Plus,
   RotateCcw,
   Trash2,
   Upload,
+  Users,
+  X,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { del, get, post } from "../../api/client.ts";
+import { useAction, useMe } from "../../api/hooks.ts";
 import type { ProjectListItem } from "../../api/types.ts";
 import {
   AssetImage,
@@ -60,6 +66,7 @@ export function DashboardPage() {
           { value: "trash", label: "Trash" },
         ]}
       />
+      <PendingInvites />
       {q.isLoading && <Spinner className="size-6" />}
       <ErrorBox error={q.error} onRetry={() => q.refetch()} />
       {q.data && q.data.projects.length === 0 && (
@@ -83,6 +90,68 @@ export function DashboardPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+type Invite = {
+  id: string;
+  role: "editor" | "viewer";
+  projectId: string;
+  projectTitle: string;
+  invitedBy: string | null;
+  expiresAt: string;
+};
+
+/** Invitations to other people's projects, answered here. */
+function PendingInvites() {
+  const navigate = useNavigate();
+  const q = useQuery({ queryKey: ["invites"], queryFn: () => get<{ invites: Invite[] }>("/invites") });
+  const answer = useAction(
+    (v: { id: string; accept: boolean }) =>
+      post<{ projectId?: string }>(`/invites/${v.id}/${v.accept ? "accept" : "decline"}`),
+    {
+      invalidate: [["invites"], ["projects"]],
+      onSuccess: (r) => {
+        if (r.projectId) navigate({ to: "/projects/$projectId", params: { projectId: r.projectId } });
+      },
+    },
+  );
+  if (!q.data?.invites.length) return null;
+  return (
+    <section className="card mb-4 p-3" aria-label="Invitations">
+      <h2 className="mb-2 flex items-center gap-2 text-sm font-medium">
+        <MailOpen className="size-4" /> Invitations
+      </h2>
+      <ul className="divide-y divide-[var(--border)]">
+        {q.data.invites.map((i) => (
+          <li key={i.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+            <div className="mr-auto min-w-0">
+              <div className="truncate font-medium">{i.projectTitle}</div>
+              <div className="muted text-xs">
+                {i.invitedBy ? `@${i.invitedBy}` : "Someone"} invited you as{" "}
+                {i.role === "editor" ? "an editor" : "a viewer"} · expires {fmt.date(i.expiresAt)}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={answer.isPending}
+              onClick={() => answer.mutate({ id: i.id, accept: true })}
+            >
+              <Check className="size-4" /> Accept
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={answer.isPending}
+              onClick={() => answer.mutate({ id: i.id, accept: false })}
+            >
+              <X className="size-4" /> Decline
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -146,6 +215,8 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
     }
   };
   const open = () => navigate({ to: "/projects/$projectId", params: { projectId: p.id } });
+  const { data: me } = useMe();
+  const shared = p.role !== "owner";
   return (
     <div className="card group relative">
       <button
@@ -167,6 +238,19 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
             <div className="muted text-xs capitalize">
               {p.projectType.replace("_", " ")} · updated {fmt.ago(p.updatedAt)}
             </div>
+            {shared && (
+              <div
+                className="muted mt-1 flex items-center gap-1 text-xs"
+                title={`Shared with you by @${p.ownerUsername}`}
+              >
+                <span className="chip bg-accent-600/15 text-[var(--text)]">
+                  <Users className="size-3" /> Shared
+                </span>
+                <span className="truncate">
+                  @{p.ownerUsername} · {p.role}
+                </span>
+              </div>
+            )}
           </div>
           <StatusChip status={p.deletedAt ? "cancelled" : p.status} label={p.deletedAt ? "trash" : p.status} />
           <div>
@@ -187,13 +271,15 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
                     <button type="button" className="btn-ghost w-full justify-start" onClick={open}>
                       <FolderOpen className="size-4" /> Open
                     </button>
-                    <button
-                      type="button"
-                      className="btn-ghost w-full justify-start"
-                      onClick={() => run(() => post(`/projects/${p.id}/duplicate`), "Project duplicated")}
-                    >
-                      <Copy className="size-4" /> Duplicate
-                    </button>
+                    {p.role !== "viewer" && (
+                      <button
+                        type="button"
+                        className="btn-ghost w-full justify-start"
+                        onClick={() => run(() => post(`/projects/${p.id}/duplicate`), "Project duplicated")}
+                      >
+                        <Copy className="size-4" /> Duplicate
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn-ghost w-full justify-start"
@@ -201,7 +287,16 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
                     >
                       <Download className="size-4" /> Export
                     </button>
-                    {p.status === "active" ? (
+                    {shared ? (
+                      <button
+                        type="button"
+                        className="btn-ghost w-full justify-start text-red-500"
+                        disabled={!me}
+                        onClick={() => run(() => del(`/projects/${p.id}/members/${me?.id}`), "You left the project")}
+                      >
+                        <LogOut className="size-4" /> Leave project
+                      </button>
+                    ) : p.status === "active" ? (
                       <button
                         type="button"
                         className="btn-ghost w-full justify-start"
@@ -218,16 +313,18 @@ function ProjectCard({ p, filter }: { p: ProjectListItem; filter: Filter }) {
                         <ArchiveRestore className="size-4" /> Unarchive
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="btn-ghost w-full justify-start text-red-500"
-                      onClick={() => setConfirm("trash")}
-                    >
-                      <Trash2 className="size-4" /> Move to trash
-                    </button>
+                    {!shared && (
+                      <button
+                        type="button"
+                        className="btn-ghost w-full justify-start text-red-500"
+                        onClick={() => setConfirm("trash")}
+                      >
+                        <Trash2 className="size-4" /> Move to trash
+                      </button>
+                    )}
                   </>
                 )}
-                {filter === "trash" && (
+                {filter === "trash" && !shared && (
                   <>
                     <button
                       type="button"

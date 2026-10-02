@@ -41,6 +41,9 @@ export type * from "@openmanga/db/types";
 export type SessionUser = Pick<UserRow, "id" | "username" | "email" | "displayName" | "role" | "status" | "settings">;
 
 export type ProjectListItem = ProjectRow & {
+  /** The caller's role: anything but "owner" is a project shared with them. */
+  role: "owner" | "editor" | "viewer";
+  ownerUsername: string;
   stats: { chapters: number; panels: number; generations: number; estimatedSpendUsd: number };
   thumbnailAssetId: string | null;
 };

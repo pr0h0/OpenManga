@@ -38,6 +38,9 @@ export class PublicUrlService {
   passwordResetUrl(token: string) {
     return this.appUrl("reset-password", { token });
   }
+  inviteUrl(token: string) {
+    return this.appUrl("invite", { token });
+  }
   get appOrigin() {
     return this.app.origin;
   }

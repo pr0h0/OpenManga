@@ -14,9 +14,15 @@ import { CardQuery, previewPayload, videoCardResponse } from "./video.ts";
 /** Managing a project's read-only links: signed-in members only. */
 export const shareRoutes = new Hono<AppEnv>();
 
-doc({ method: "GET", path: "/api/projects/:projectId/shares", summary: "The project's reader links", tag: "shares" });
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/shares",
+  summary: "The project's reader links (owners only)",
+  tag: "shares",
+});
 shareRoutes.get("/projects/:projectId/shares", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  // The tokens are the links themselves: whoever cannot create or revoke one does not get to copy them either.
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "manage");
   const rows = await c
     .get("deps")
     .db.select({ s: shareLinks, chapterTitle: chapters.title })

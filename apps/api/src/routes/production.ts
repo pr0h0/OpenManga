@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { AiChoiceInput } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
+import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { advanceRun, initialSteps, STEP_LABELS } from "../lib/production.ts";
 
@@ -126,6 +126,10 @@ doc({
 });
 productionRoutes.post("/production-runs/:id/continue", async (c) => {
   const run = await runWithAccess(c, uuidParam(c, "id"));
+  // A run acts as the member who started it, on their keys: continuing it is theirs to do. Anyone who can generate
+  // may still cancel it.
+  if (run.userId !== user(c).id)
+    throw new ApiError(403, "not_your_run", "Another member started this run; only they can continue it.");
   if (run.status === "completed" || run.status === "cancelled") throw conflict(`The run is ${run.status}`);
   const steps = run.steps.map((s) => {
     if (s.status === "review") return { ...s, status: "done" as const, finishedAt: new Date().toISOString() };

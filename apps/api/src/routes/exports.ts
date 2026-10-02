@@ -137,7 +137,8 @@ doc({
   body: ExportOptions,
 });
 exportRoutes.post("/projects/:projectId/exports", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  // Viewers download what exists; making a new export queues server work every member then sees, so it is an edit.
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const input = await body(c, ExportOptions);
   if (
     // Narration and its timeline are built per chapter; every page-based kind streams, so it can take the project.
@@ -147,7 +148,8 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
   ) {
     throw badRequest("Choose a chapter (or pages) to export");
   }
-  if (input.chapterId) await entityAccess(c, "chapter", input.chapterId, "read");
+  if (input.chapterId && (await entityAccess(c, "chapter", input.chapterId, "read")).id !== p.id)
+    throw notFound("Chapter");
   const deps = c.get("deps");
   // Page ids come from the body, so they are checked here as well: without this an export could render pages
   // belonging to someone else's project and store the result as the caller's own file.
@@ -285,7 +287,7 @@ exportRoutes.post("/exports/:id/cancel", async (c) => {
   const deps = c.get("deps");
   const [job] = await deps.db.select().from(exportJobs).where(eq(exportJobs.id, id));
   if (!job) throw notFound("Export");
-  await projectAccess(c, job.projectId, "read");
+  await projectAccess(c, job.projectId, "write");
   if (job.status === "queued") {
     for (const q of exportQueuesFor(job.kind)) await deps.queue.removeWaiting(q, job.id);
     await deps.db.update(exportJobs).set({ status: "cancelled", finishedAt: new Date() }).where(eq(exportJobs.id, id));

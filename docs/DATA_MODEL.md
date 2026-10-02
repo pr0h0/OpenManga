@@ -36,7 +36,12 @@ slot).
 
 - `projects` — owner, type, language, reading direction, colour mode, `status` (`active|archived`), soft delete via
   `deleted_at` (trash), current style, cover and thumbnail (dashboard card) assets, and a `settings` JSON validated by
-  `ProjectSettings` (`packages/schemas/src/editor.ts`). `project_members` carries the role.
+  `ProjectSettings` (`packages/schemas/src/editor.ts`). `project_members` carries the role (`owner|editor|viewer`;
+  the owner also has a row).
+- `project_invites` — an owner's invitation (migration `0024_project_invites`): project, role (`editor|viewer`), the
+  invited `user_id` and/or lower-cased `email`, `token_hash` (HMAC of the emailed one-time link, unique; email
+  invitations only), inviter, `expires_at` (7 days) and one of `accepted_at`, `declined_at`, `revoked_at`. Pending =
+  none of those set and not expired (`docs/AUTH.md`).
 - `settings` is where several important knobs live, not as columns:
 
   | Field | Meaning |

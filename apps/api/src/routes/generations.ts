@@ -43,10 +43,11 @@ import {
   BatchInput,
   batchParameters,
   checkImageChoice,
+  overBudgetAllowed,
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
 export const generationRoutes = new Hono<AppEnv>();
@@ -234,6 +235,14 @@ doc({
 generationRoutes.post("/generations/:id/retry", async (c) => {
   const job = await jobWithAccess(c, uuidParam(c, "id"), "generate");
   const deps = c.get("deps");
+  // The retry runs as the caller, and a key is usable only by its owner: another member's keyed job would be claimed
+  // here and then fail in the worker. Refused up front instead; the caller can run it again with their own key.
+  if (job.userId !== user(c).id && (job.parameters.ai as { credentialId?: string } | null | undefined)?.credentialId)
+    throw new ApiError(
+      403,
+      "not_your_job",
+      "Another member ran this with their own provider key. Run it again with yours instead of retrying it.",
+    );
   // A retry is a fresh paid call, so it goes through the same budget gate as the route that queued the original.
   if (job.projectId) await assertBudget(c, job.projectId);
   const created = await deps.jobs.retryGeneration(job.id, user(c).id);
@@ -485,7 +494,7 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
     });
   await assertBudget(c, p.id, estimate.estimatedUsd ?? 0);
   // Recorded on the jobs, so the worker honours the same confirmation instead of pausing the batch it queued.
-  const allowOverBudget = c.req.header("x-allow-over-budget") === "1";
+  const allowOverBudget = await overBudgetAllowed(c, p.id);
   if (!ids.length) return c.json({ batchId: null, jobs: [], ...estimate });
   const priority = scope.panelIds ? PRIORITY.single : scope.pageId ? PRIORITY.page : PRIORITY.chapter;
   const batchId = crypto.randomUUID();
@@ -667,7 +676,7 @@ async function bulkReferences(
       credentials: await credentialReadiness(c),
     });
   await assertBudget(c, projectId, estimate.estimatedUsd ?? 0);
-  const allowOverBudget = c.req.header("x-allow-over-budget") === "1";
+  const allowOverBudget = await overBudgetAllowed(c, projectId);
   if (!eligible.length) return c.json({ batchId: null, jobs: [], ...estimate });
   const batchId = crypto.randomUUID();
   const jobs: Awaited<ReturnType<typeof deps.planner.enqueueReference>>[] = [];
@@ -947,9 +956,28 @@ doc({
 generationRoutes.post("/generations/batches/:batchId/resume", async (c) => {
   const batchId = uuidParam(c, "batchId");
   const p = await batchProject(c, batchId);
+  // Paused jobs resume as whoever started them, on that member's key: only they may restart that spending.
+  const [other] = await c
+    .get("deps")
+    .db.select({ id: generationJobs.id })
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.batchId, batchId),
+        eq(generationJobs.status, "paused"),
+        sql`${generationJobs.userId} is distinct from ${user(c).id}`,
+      ),
+    )
+    .limit(1);
+  if (other)
+    throw new ApiError(
+      403,
+      "not_your_batch",
+      "Another member started this batch, and it runs on their provider key. Ask them to resume it, or start a new run.",
+    );
   await assertBudget(c, p.id);
   const resumed = await c.get("deps").jobs.resumeBatch(batchId, {
-    allowOverBudget: c.req.header("x-allow-over-budget") === "1",
+    allowOverBudget: await overBudgetAllowed(c, p.id),
   });
   return c.json({ resumed });
 });
