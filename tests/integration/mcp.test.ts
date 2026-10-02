@@ -879,6 +879,75 @@ describe("delete tools", () => {
   });
 });
 
+describe("production run tools", () => {
+  let gated: Awaited<ReturnType<typeof mcp>>;
+  const decide = (id: string, decision: "approve" | "deny") =>
+    alice.post<{ approval: { status: string } }>(`/api/agents/approvals/${id}/decide`, { decision });
+  type Run = { id: string; status: string; steps: { key: string; status: string }[] };
+
+  beforeAll(async () => {
+    const t = await pat({ name: "Producer", scopes: ALL, projectAccess: "all", approvalMode: "REQUIRE_APPROVAL" });
+    gated = await mcp(t.token);
+    await alice.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 50 } });
+  });
+
+  test("the staleness view is a plain read", async () => {
+    const r = await gated.call<{ data: { stages: { key: string; count: number }[] } }>("get_staleness", { projectId });
+    expect(r.isError).toBe(false);
+    expect(r.structured.data.stages.map((s) => s.key)).toEqual([
+      "story",
+      "plan",
+      "prompts",
+      "art",
+      "narration",
+      "audio",
+      "render",
+    ]);
+  });
+
+  test("starting a run spends, so it parks on an Ask-me-first connection; continuing parks too; stopping does not", async () => {
+    const parked = await gated.call("start_production_run", { projectId, reviewGates: true, render: false });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("spend");
+    expect((await decide(parked.structured.approval!.approvalRequestId, "approve")).approval.status).toBe("executed");
+
+    const list = await gated.call<{ data: { runs: Run[] } }>("get_production_run", { projectId });
+    const run = list.structured.data.runs[0]!;
+    expect(run.steps.length).toBeGreaterThan(0);
+    const one = await gated.call<{ data: { run: Run } }>("get_production_run", { runId: run.id });
+    expect(one.structured.data.run.id).toBe(run.id);
+    expect((await gated.call("get_production_run", {})).error?.code).toBe("invalid_input");
+
+    // One run at a time: a second start is refused by the route, whatever the approval mode.
+    expect((await allowAll.call("start_production_run", { projectId })).error?.code).toBe("conflict");
+
+    const cont = await gated.call("continue_production_run", { runId: run.id });
+    expect(cont.structured.status).toBe("pending_approval");
+    expect((await decide(cont.structured.approval!.approvalRequestId, "deny")).approval.status).toBe("denied");
+
+    const stop = await gated.call<{ data: { ok: boolean } }>("cancel_production_run", { runId: run.id });
+    expect(stop.structured.data.ok).toBe(true);
+    const after = await gated.call<{ data: { run: Run } }>("get_production_run", { runId: run.id });
+    expect(after.structured.data.run.status).toBe("cancelled");
+  });
+
+  test("update production runs the out-of-date steps only, or says nothing is out of date", async () => {
+    const stale = (
+      await allowAll.call<{ data: { stages: { key: string; count: number }[] } }>("get_staleness", { projectId })
+    ).structured.data.stages.filter((s) => s.key !== "story" && s.count > 0);
+    const r = await allowAll.call<{ data: { run: Run } }>("update_production", { projectId, reviewGates: false });
+    if (!stale.length) {
+      expect(r.error?.code).toBe("conflict");
+      return;
+    }
+    expect(r.isError).toBe(false);
+    const keys = r.structured.data.run.steps.map((s) => s.key);
+    expect(keys).not.toContain("analyze");
+    expect(keys).not.toContain("references");
+    await allowAll.call("cancel_production_run", { runId: r.structured.data.run.id });
+  });
+});
+
 describe("expert output actions", () => {
   type Msg = { id: string; role: string; status: string };
   /** A chat with one finished reply from the expert, as an agent would get it. */

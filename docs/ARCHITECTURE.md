@@ -117,6 +117,11 @@ thumbnail and YouTube text; its art step also redraws the edited panels. The sto
 re-analysed automatically, since re-analysing can restructure chapters. The render then reuses every unchanged section
 (see `docs/VIDEO_EXPORT_REFERENCE.md`).
 
+Agents drive the same machinery through MCP (`apps/api/src/mcp/tools/production.ts`): `get_staleness`,
+`start_production_run`, `update_production`, `get_production_run`, `continue_production_run` and
+`cancel_production_run` call these routes in-process. Starting, updating and continuing are `spend` actions, so on an
+"Ask me first" connection they wait for the user's approval; stopping a run is a plain write.
+
 ## Code layout
 
 `AGENTS.md` owns the directory-by-directory list. The shape to keep in mind:

@@ -17,7 +17,10 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   members and revoke invitations; members can leave. Projects shared with you show on the dashboard marked *Shared*.
   Membership changes are audited and update open project pages live; a removed member is sent back to the dashboard.
   Agent connections reach shared projects with the member's role.
-
+- **Production runs for agents.** MCP tools to read what is out of date (`get_staleness`), start a production run
+  or *Update production*, read a run, continue it past a review and stop it. Starting, updating and continuing spend
+  the user's credits, so they wait for approval on "Ask me first" connections. `GET /api/production-runs/:id` reads
+  one run.
 - **Incremental rendering and Update production.** Every rendered shot and card is kept as a cached section, keyed by
   a hash of everything that decides its pixels and length; the next render copies unchanged sections in and encodes
   only what changed, then re-mixes and normalises the audio over the whole film as before. Sections go with the

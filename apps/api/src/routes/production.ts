@@ -111,12 +111,22 @@ productionRoutes.get("/projects/:projectId/production-runs", async (c) => {
   return c.json({ runs: rows.map(view) });
 });
 
-async function runWithAccess(c: Parameters<typeof uuidParam>[0], id: string) {
+async function runWithAccess(c: Parameters<typeof uuidParam>[0], id: string, action: "read" | "generate" = "generate") {
   const [run] = await c.get("deps").db.select().from(productionRuns).where(eq(productionRuns.id, id));
   if (!run) throw notFound("Run");
-  await projectAccess(c, run.projectId, "generate");
+  await projectAccess(c, run.projectId, action);
   return run;
 }
+
+doc({
+  method: "GET",
+  path: "/api/production-runs/:id",
+  summary: "One production run and its steps",
+  tag: "production",
+});
+productionRoutes.get("/production-runs/:id", async (c) =>
+  c.json({ run: view(await runWithAccess(c, uuidParam(c, "id"), "read")) }),
+);
 
 doc({
   method: "POST",

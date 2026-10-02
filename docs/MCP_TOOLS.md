@@ -13,7 +13,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis` |
@@ -24,8 +24,8 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page` |
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel` |
-| `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation` |
+| `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
 | `exports:read` | Read export status and files. | `suggest_shorts`, `list_exports` |
@@ -110,6 +110,12 @@ requests) need no scope.
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
 | [`list_exports`](#list_exports) | read | `exports:read` |
 | [`delete_exports`](#delete_exports) | delete | `exports:create` |
+| [`get_staleness`](#get_staleness) | read | `projects:read` |
+| [`start_production_run`](#start_production_run) | spend | `generations:run` |
+| [`update_production`](#update_production) | spend | `generations:run` |
+| [`get_production_run`](#get_production_run) | read | `generations:read` |
+| [`continue_production_run`](#continue_production_run) | spend | `generations:run` |
+| [`cancel_production_run`](#cancel_production_run) | write | `generations:run` |
 | [`list_experts`](#list_experts) | read | `experts:use` |
 | [`manage_expert_chat`](#manage_expert_chat) | delete | `experts:use` |
 | [`send_expert_message`](#send_expert_message) | spend | `experts:use` |
@@ -8315,6 +8321,469 @@ Delete export files from disk now instead of waiting for their 30-day expiry: on
     "files",
     "bytes"
   ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_staleness
+
+What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). update_production runs only these steps. Read-only.
+
+- **Scopes:** `projects:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/staleness`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "stages"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### start_production_run
+
+Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Follow it with get_production_run, and continue_production_run at each review.
+
+- **Scopes:** `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `production.run`
+- **Wraps:** `POST /api/projects/:projectId/production-runs`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "reviewGates": {
+      "default": true,
+      "description": "Pause for the user after the analysis, after the references and before the final render.",
+      "type": "boolean"
+    },
+    "preparePrompts": {
+      "default": true,
+      "description": "Prepare panel prompts with the text model before drawing.",
+      "type": "boolean"
+    },
+    "render": {
+      "default": true,
+      "description": "Render the video at the end.",
+      "type": "boolean"
+    },
+    "youtube": {
+      "description": "Also write the YouTube text and export the package (default: film projects).",
+      "type": "boolean"
+    },
+    "ai": {
+      "description": "The provider keys the run uses.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "object",
+          "properties": {
+            "manual": {
+              "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+              "type": "boolean"
+            },
+            "credentialId": {
+              "description": "One of the user's saved provider keys (ids from get_server_info).",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "provider": {
+              "description": "Use the user's first saved key for this provider kind.",
+              "type": "string",
+              "maxLength": 40
+            },
+            "model": {
+              "description": "Model id; defaults to the provider's first model.",
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "credentialId": {
+              "description": "One of the user's saved provider keys (ids from get_server_info).",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "provider": {
+              "description": "Use the user's first saved key for this provider kind.",
+              "type": "string",
+              "maxLength": 40
+            },
+            "model": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "run"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### update_production
+
+Run only what is out of date (see get_staleness), from the first stale stage on: missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.
+
+- **Scopes:** `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `production.update`
+- **Wraps:** `POST /api/projects/:projectId/production-runs (update=true)`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "reviewGates": {
+      "default": true,
+      "description": "Pause for the user after the analysis, after the references and before the final render.",
+      "type": "boolean"
+    },
+    "preparePrompts": {
+      "default": true,
+      "description": "Prepare panel prompts with the text model before drawing.",
+      "type": "boolean"
+    },
+    "render": {
+      "default": true,
+      "description": "Render the video at the end.",
+      "type": "boolean"
+    },
+    "youtube": {
+      "description": "Also write the YouTube text and export the package (default: film projects).",
+      "type": "boolean"
+    },
+    "ai": {
+      "description": "The provider keys the run uses.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "object",
+          "properties": {
+            "manual": {
+              "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+              "type": "boolean"
+            },
+            "credentialId": {
+              "description": "One of the user's saved provider keys (ids from get_server_info).",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "provider": {
+              "description": "Use the user's first saved key for this provider kind.",
+              "type": "string",
+              "maxLength": 40
+            },
+            "model": {
+              "description": "Model id; defaults to the provider's first model.",
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "credentialId": {
+              "description": "One of the user's saved provider keys (ids from get_server_info).",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "provider": {
+              "description": "Use the user's first saved key for this provider kind.",
+              "type": "string",
+              "maxLength": 40
+            },
+            "model": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "run"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_production_run
+
+A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, and every step with its status and note. Read-only.
+
+- **Scopes:** `generations:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/production-runs/:id`, `GET /api/projects/:projectId/production-runs`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  }
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### continue_production_run
+
+Continue a run: past the review step it is waiting at (only after the user has reviewed what it asks for), after the budget cap was raised, or to retry the step that failed. The run then spends the user's provider credits again: always a spend action (may need approval).
+
+- **Scopes:** `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `production.continue`
+- **Wraps:** `POST /api/production-runs/:id/continue`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "runId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### cancel_production_run
+
+Stop a production run. Jobs it already queued finish on their own (cancel them with control_job if needed); nothing made so far is removed.
+
+- **Scopes:** `generations:run`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=false, idempotent=true, openWorld=false
+- **Approval action keys:** `production.cancel`
+- **Wraps:** `POST /api/production-runs/:id/cancel`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "runId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": {}
 }
 ```
