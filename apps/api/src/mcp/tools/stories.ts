@@ -150,15 +150,20 @@ export const storyTools = [
     name: "get_story_analysis",
     title: "Get story analysis",
     description:
-      "One story analysis with its full result (the proposed cast, world and chapters) once it has completed. Read-only.",
-    input: z.object({ analysisId: Uuid }),
-    output: z.object({ analysis: Passthrough }),
+      "One story analysis with its full result (the proposed cast, world and chapters) once it has completed. diff=true adds what applying it would change in the project (chapters kept, renamed, added and removed with their pages and artwork; characters, locations and props added or removed): show it to the user before apply_story_analysis on a project that already has chapters. Applying never removes anything. Read-only.",
+    input: z.object({ analysisId: Uuid, diff: z.boolean().default(false) }),
+    output: z.object({ analysis: Passthrough }).passthrough(),
     scopes: ["story:read"],
     sensitivity: "read",
     idempotent: true,
-    routes: ["GET /api/story-analyses/:id"],
+    routes: ["GET /api/story-analyses/:id", "GET /api/story-analyses/:id/diff"],
     actionKeys: [],
-    handler: async ({ analysisId }, ctx) => ({ data: await ctx.invoke("GET", `/api/story-analyses/${analysisId}`) }),
+    handler: async ({ analysisId, diff }, ctx) => ({
+      data: {
+        ...(await ctx.invoke<Record<string, unknown>>("GET", `/api/story-analyses/${analysisId}`)),
+        ...(diff ? await ctx.invoke<Record<string, unknown>>("GET", `/api/story-analyses/${analysisId}/diff`) : {}),
+      },
+    }),
   }),
 
   defineMcpTool({
@@ -194,7 +199,7 @@ export const storyTools = [
     name: "apply_story_analysis",
     title: "Apply story analysis",
     description:
-      "Create the cast (characters with versions and outfits), locations, props and chapters proposed by a completed analysis. Creates many entities at once, so it is sensitive (may need the user's approval). Not asynchronous. Next: list_chapters, then run_chapter_plan per chapter.",
+      "Create the cast (characters with versions and outfits), locations, props and chapters proposed by a completed analysis. Creates many entities at once, so it is sensitive (may need the user's approval). On a project that already has chapters (a revised story) it is additive: chapters with pages are kept and matched by title or position, new ones are inserted in place, and nothing is removed; read get_story_analysis diff=true first and remove anything the user wants gone with the delete tools. Not asynchronous. Next: list_chapters, then run_chapter_plan per new chapter.",
     input: z.object({ analysisId: Uuid, idempotencyKey: IdempotencyKey }),
     output: z.object({ created: Passthrough }),
     scopes: ["story:write", "library:write", "chapters:write"],

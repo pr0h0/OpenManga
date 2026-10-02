@@ -2179,14 +2179,14 @@ Queue a story analysis of a revision: it proposes the cast, locations, props and
 
 ### get_story_analysis
 
-One story analysis with its full result (the proposed cast, world and chapters) once it has completed. Read-only.
+One story analysis with its full result (the proposed cast, world and chapters) once it has completed. diff=true adds what applying it would change in the project (chapters kept, renamed, added and removed with their pages and artwork; characters, locations and props added or removed): show it to the user before apply_story_analysis on a project that already has chapters. Applying never removes anything. Read-only.
 
 - **Scopes:** `story:read`
 - **Sensitivity:** read
 - **Idempotent:** yes
 - **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
 
-- **Wraps:** `GET /api/story-analyses/:id`
+- **Wraps:** `GET /api/story-analyses/:id`, `GET /api/story-analyses/:id/diff`
 
 <details><summary>Input schema</summary>
 
@@ -2199,6 +2199,10 @@ One story analysis with its full result (the proposed cast, world and chapters) 
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "diff": {
+      "default": false,
+      "type": "boolean"
     }
   },
   "required": [
@@ -2224,7 +2228,8 @@ One story analysis with its full result (the proposed cast, world and chapters) 
   },
   "required": [
     "analysis"
-  ]
+  ],
+  "additionalProperties": {}
 }
 ```
 
@@ -2294,7 +2299,7 @@ Replace a completed analysis's result before applying it (the whole StoryAnalysi
 
 ### apply_story_analysis
 
-Create the cast (characters with versions and outfits), locations, props and chapters proposed by a completed analysis. Creates many entities at once, so it is sensitive (may need the user's approval). Not asynchronous. Next: list_chapters, then run_chapter_plan per chapter.
+Create the cast (characters with versions and outfits), locations, props and chapters proposed by a completed analysis. Creates many entities at once, so it is sensitive (may need the user's approval). On a project that already has chapters (a revised story) it is additive: chapters with pages are kept and matched by title or position, new ones are inserted in place, and nothing is removed; read get_story_analysis diff=true first and remove anything the user wants gone with the delete tools. Not asynchronous. Next: list_chapters, then run_chapter_plan per new chapter.
 
 - **Scopes:** `story:write`, `library:write`, `chapters:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -8673,7 +8678,7 @@ Run the whole pipeline for a project (analysis, references, chapter plans, promp
 
 ### update_production
 
-Run only what is out of date (see get_staleness), from the first stale stage on: missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.
+Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work), then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.
 
 - **Scopes:** `generations:run`
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)

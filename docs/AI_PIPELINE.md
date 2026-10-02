@@ -2,7 +2,7 @@
 
 | Stage | Job kind / queue | Template (live version) | Output |
 | --- | --- | --- | --- |
-| Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters |
+| Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters; on a project that already has them it is additive (existing chapters keep their pages, new ones are inserted, nothing is removed; `GET /api/story-analyses/:id/diff` shows the changes first) |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
 | Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v2 then `scene-pages` v2 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v6, `shot-planning` v3 or `strip-planning` v2 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |

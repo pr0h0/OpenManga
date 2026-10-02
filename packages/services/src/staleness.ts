@@ -49,6 +49,21 @@ export async function versionFingerprint(db: Database | DbOrTx, subject: Referen
 export const isStale = (ref: { sourceFingerprint: string | null }, current: string | undefined) =>
   Boolean(ref.sourceFingerprint && current && ref.sourceFingerprint !== current);
 
+/**
+ * The latest story revision when it is newer than the one the applied analysis read, or null: the story was revised
+ * after the project was built from it. A project never analysed (or built by hand) has nothing to re-analyse.
+ */
+export async function revisedStory(db: Database, projectId: string) {
+  const [row] = await db.execute<{ id: string | null }>(sql`
+    select r.id from story_revisions r
+    where r.project_id = ${projectId}
+      and r.id <> (select a.story_revision_id from story_analyses a
+                   where a.project_id = ${projectId} and a.status = 'applied'
+                   order by a.applied_at desc nulls last limit 1)
+      and r.revision_number = (select max(revision_number) from story_revisions where project_id = ${projectId})`);
+  return row?.id ?? null;
+}
+
 /** The production pipeline's stages, in order: each one is made from the ones before it. */
 export const PIPELINE_STAGES = ["story", "plan", "prompts", "art", "narration", "audio", "render"] as const;
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
@@ -57,7 +72,8 @@ export type PipelineStage = (typeof PIPELINE_STAGES)[number];
  * What is out of date along story → plan → prompts → art → narration → audio → render, for the project's own
  * language. Each stage counts what is missing or older than what it is made from:
  *
- * - story: the latest story revision is not the one the applied analysis read (re-analysing is a person's call);
+ * - story: the latest story revision is not the one the applied analysis read (a run re-analyses it and always
+ *   stops for the user to review the changes before applying);
  * - plan: chapters with no pages;
  * - prompts: pages with a panel still to draw and no prepared prompt;
  * - art: panels without artwork, and panels whose spec was edited after their artwork was made (`staleArt`);
@@ -70,11 +86,7 @@ export async function pipelineStaleness(
   project: { id: string; language: string; settings: { narrationVoice: string; narrationSpeed: number } },
 ) {
   const one = async <T>(q: ReturnType<typeof sql>) => (await db.execute<T & Record<string, unknown>>(q))[0]!;
-  const story = await one<{ stale: boolean }>(sql`
-    select coalesce((
-      select r.id <> (select a.story_revision_id from story_analyses a
-                      where a.project_id = ${project.id} and a.status = 'applied' order by a.applied_at desc nulls last limit 1)
-      from story_revisions r where r.project_id = ${project.id} order by r.revision_number desc limit 1), false) as stale`);
+  const story = { stale: Boolean(await revisedStory(db, project.id)) };
   const counts = await one<{
     plan: number;
     prompts: number;
@@ -130,7 +142,7 @@ export async function pipelineStaleness(
     {
       key: "story",
       count: story.stale ? 1 : 0,
-      note: "The story changed after it was analysed: re-analyse on the Story page",
+      note: "The story was revised after it was analysed: an update re-analyses it and waits for your review",
     },
     { key: "plan", count: counts.plan, note: "chapters without a plan" },
     { key: "prompts", count: counts.prompts, note: "pages with panels to draw and no prepared prompt" },

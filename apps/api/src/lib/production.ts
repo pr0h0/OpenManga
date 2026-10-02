@@ -17,7 +17,7 @@ import {
   users,
 } from "@openmanga/db";
 import { BATCH_CAPABLE_PROVIDERS } from "@openmanga/domain";
-import { PIPELINE_STAGES, type PipelineStage, pipelineStaleness } from "@openmanga/services";
+import { PIPELINE_STAGES, type PipelineStage, pipelineStaleness, revisedStory } from "@openmanga/services";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { handleError, notFound } from "./http.ts";
@@ -34,13 +34,19 @@ export type RunOptions = {
   ai?: { text?: AiChoice; image?: AiChoice };
   /**
    * "Update production": only the steps from the first out-of-date stage on, and artwork whose panel was edited after
-   * it was drawn is drawn again. Analysis, references, thumbnail and YouTube text are left to a person.
+   * it was drawn is drawn again. A revised story is re-analysed (and always reviewed before it is applied); the
+   * thumbnail and YouTube text are left to a person.
    */
   update?: boolean;
 };
 
 /** Which pipeline stage a step makes; steps of no stage run only in a full production run. */
 const STAGE_OF: Partial<Record<(typeof STEPS)[number], PipelineStage>> = {
+  analyze: "story",
+  review_analysis: "story",
+  apply: "story",
+  references: "story",
+  review_references: "story",
   plan: "plan",
   prompts: "prompts",
   art: "art",
@@ -89,19 +95,18 @@ export const STEP_LABELS: Record<(typeof STEPS)[number], string> = {
 };
 
 /**
- * The steps of a run. An update starts at the first stale stage (story aside) and runs everything after it, since
- * each stage is made from the ones before: new artwork leaves the video stale even if the video was current.
+ * The steps of a run. An update starts at the first stale stage and runs everything after it, since each stage is
+ * made from the ones before: new artwork leaves the video stale even if the video was current. The analysis review is
+ * always a step: a re-analysis stops there whatever the review setting (see START.review_analysis).
  */
 export function initialSteps(o: RunOptions, stale: PipelineStage[] = []): ProductionStep[] {
-  const from = Math.min(
-    ...stale.filter((s) => s !== "story").map((s) => PIPELINE_STAGES.indexOf(s)),
-    PIPELINE_STAGES.length,
-  );
+  const from = Math.min(...stale.map((s) => PIPELINE_STAGES.indexOf(s)), PIPELINE_STAGES.length);
   return STEPS.filter((k) => {
     if (o.update) {
       const stage = STAGE_OF[k];
       if (!stage || PIPELINE_STAGES.indexOf(stage) < from) return false;
     }
+    if (k === "review_analysis") return true;
     if (k.startsWith("review_")) return o.reviewGates && (k !== "review_render" || o.render);
     if (k === "prompts") return o.preparePrompts;
     if (k === "render") return o.render;
@@ -239,11 +244,9 @@ async function each<T>(items: T[], fn: (t: T) => Promise<string[]>) {
 
 const START: Record<string, (x: Ctx) => Promise<Started>> = {
   async analyze(x) {
-    const [n] = await x.deps.db
-      .select({ c: sql<number>`count(*)::int` })
-      .from(chapters)
-      .where(eq(chapters.projectId, x.project.id));
-    if ((n?.c ?? 0) > 0) return { status: "skipped", note: "Already analysed" };
+    // A built project is analysed again only when its story was revised after the analysis it was built from.
+    const built = await hasChapters(x);
+    if (built && !(await revisedStory(x.deps.db, x.project.id))) return { status: "skipped", note: "Already analysed" };
     const story = await x.call<{ latest: { id: string } | null }>("GET", `/api/projects/${x.project.id}/story`);
     if (!story.latest) throw new CallError(400, "no_story", "Add a story on the Story page first");
     const r = await x.call<{ job: { id: string }; analysis: { id: string } }>(
@@ -251,16 +254,30 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
       `/api/story-revisions/${story.latest.id}/analyze`,
       text(x),
     );
-    return { status: "running", jobIds: [r.job.id], ref: r.analysis.id };
+    return {
+      status: "running",
+      jobIds: [r.job.id],
+      ref: r.analysis.id,
+      note: built ? "The story was revised: analysing the new revision" : undefined,
+    };
   },
   async review_analysis(x) {
-    return prev(x, "analyze")?.status === "skipped"
-      ? { status: "skipped" }
-      : { status: "review", note: "Check the analysis on the Story page, then continue: it is applied next." };
+    if (prev(x, "analyze")?.status === "skipped") return { status: "skipped" };
+    // A re-analysis can restructure chapters and cast, so it always waits for the user, whatever the review setting.
+    if (await hasChapters(x))
+      return {
+        status: "review",
+        note: "The revised story's analysis is ready. Review what it would change on the Story page; apply it there (choosing anything to remove), or continue to apply it keeping every existing chapter, character, place and prop.",
+      };
+    if (!x.o.reviewGates) return { status: "skipped" };
+    return { status: "review", note: "Check the analysis on the Story page, then continue: it is applied next." };
   },
   async apply(x) {
     const a = prev(x, "analyze");
     if (a?.status === "skipped" || !a?.ref) return { status: "skipped" };
+    const { analysis } = await x.call<{ analysis: { status: string } }>("GET", `/api/story-analyses/${a.ref}`);
+    if (analysis.status === "applied") return { status: "done", note: "Applied on the Story page" };
+    // Additive: existing chapters keep their pages, new ones are inserted, nothing is removed.
     await x.call("POST", `/api/story-analyses/${a.ref}/apply`, {});
     return { status: "done" };
   },
@@ -377,6 +394,14 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     return { status: "running", exportJobId: r.job.id };
   },
 };
+
+async function hasChapters(x: Ctx) {
+  const [n] = await x.deps.db
+    .select({ c: sql<number>`count(*)::int` })
+    .from(chapters)
+    .where(eq(chapters.projectId, x.project.id));
+  return (n?.c ?? 0) > 0;
+}
 
 function prev(x: Ctx, key: string) {
   return x.run.steps.find((s) => s.key === key) as (ProductionStep & { ref?: string }) | undefined;
