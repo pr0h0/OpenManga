@@ -60,6 +60,11 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Changed
 
+- **Provider batches go a few at a time.** A key now has at most 4 image batches and 16 text batches in flight per
+  model (`BATCH_MAX_IN_FLIGHT_IMAGE`, `BATCH_MAX_IN_FLIGHT_TEXT`; 0 = no limit). The rest of a big run waits as
+  "waiting for room in the provider's batch queue" and is submitted as earlier batches finish, instead of being sent
+  and refused over the provider's enqueued limit.
+
 - `scripts/bunx.sh` joins a Docker network only when `OM_NETWORK` names one; it used to join `openmanga_internal`
   whenever that existed, putting every lint and typecheck on a running stack's internal network.
 - **A declined scope is not asked for again.** When you untick a scope on an agent's consent screen, or deny a step-up,

@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { and, eq, generationJobs, panels, providerBatches, sql } from "@openmanga/db";
+import { and, eq, generationJobs, panels, providerBatches, sql, users } from "@openmanga/db";
 import { ProviderError } from "@openmanga/domain";
 import { imageBatchSubmit, pollProviderBatches } from "../../apps/worker/src/handlers/image-batch.ts";
 import { runMaintenance } from "../../apps/worker/src/handlers/maintenance.ts";
 import { textBatchSubmit } from "../../apps/worker/src/handlers/text-batch.ts";
+import { inFlightBatches } from "../../apps/worker/src/lib/batch-wait.ts";
 import type {
   BatchHandle,
   BatchRequestSpec,
@@ -114,7 +115,7 @@ beforeAll(async () => {
   );
   projectId = (await alice.post<{ project: { id: string } }>("/api/projects", { title: "Queue" }, 201)).project.id;
   const ch = await alice.post<{ chapter: { id: string } }>(`/api/projects/${projectId}/chapters`, { title: "C" }, 201);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     const page = await alice.post<{ page: { id: string } }>(
       `/api/chapters/${ch.chapter.id}/pages`,
       { layoutTemplate: "four-grid" },
@@ -128,6 +129,8 @@ beforeAll(async () => {
   fake = new QueueFullProvider();
   h.workerDeps.resolver.imageBatch = (async () => fake) as typeof h.workerDeps.resolver.imageBatch;
   h.deps.resolver.imageBatch = h.workerDeps.resolver.imageBatch;
+  // The fake never finishes a batch, so the in-flight limit would hold these tests' later runs; the last test sets it.
+  h.workerDeps.config.BATCH_MAX_IN_FLIGHT_IMAGE = 0;
 });
 afterAll(() => h?.stop());
 
@@ -291,4 +294,47 @@ test("a text batch refused on submit waits the same way", async () => {
   expect(submitted[0]).toMatch(/:w1$/);
   const [parked] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, r.job.id));
   expect(parked!.status).toBe("submitted");
+});
+
+test("past the in-flight limit, chunks are held back instead of submitted, and go as earlier batches finish", async () => {
+  const [me] = await h.deps.db.select().from(users).where(eq(users.username, "qfull"));
+  // Room for exactly one more batch on this key and model.
+  const busy = await inFlightBatches(h.workerDeps, me!.id, "openai", "gpt-image-2");
+  h.workerDeps.config.BATCH_MAX_IN_FLIGHT_IMAGE = busy + 1;
+  const before = fake.submitted.length;
+  const run = await startRun(pageIds[3]!);
+
+  const out = await imageBatchSubmit(h.workerDeps, run.submit);
+  expect(out).toMatchObject({ submitted: 2, batches: 1, waiting: 2 });
+  expect(fake.submitted).toHaveLength(before + 1);
+  const held = (await jobsOf(run.batchId)).filter((j) => j.status === "queued");
+  expect(held).toHaveLength(2);
+  const wait = held[0]!.parameters.queueWait as {
+    held: boolean;
+    since?: string;
+    tries: number;
+    reason: string;
+    nextAt: string;
+  };
+  // Not a refusal: no deadline clock, no new key round.
+  expect(wait).toMatchObject({ held: true, tries: 0 });
+  expect(wait.since).toBeUndefined();
+  expect(wait.reason).toMatch(/already in flight/);
+  expect((await batchView(run.batchId))?.queueWaitUntil).toBe(wait.nextAt);
+
+  // Still full: the poller holds them again without building or sending anything.
+  await pollProviderBatches(h.workerDeps);
+  expect(fake.submitted).toHaveLength(before + 1);
+
+  // The run's batch finishes; the same poll pass fills the freed slot.
+  await h.deps.db
+    .update(providerBatches)
+    .set({ state: "succeeded", ingestedAt: new Date() })
+    .where(eq(providerBatches.batchId, run.batchId));
+  await pollProviderBatches(h.workerDeps);
+  expect(fake.submitted).toHaveLength(before + 2);
+  expect(fake.submitted.at(-1)!.key).not.toMatch(/:w\d+$/);
+  const after = await jobsOf(run.batchId);
+  expect(after.filter((j) => held.some((x) => x.id === j.id)).every((j) => j.status === "submitted")).toBe(true);
+  h.workerDeps.config.BATCH_MAX_IN_FLIGHT_IMAGE = 0;
 });

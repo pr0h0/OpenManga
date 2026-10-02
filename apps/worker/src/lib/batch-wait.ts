@@ -5,7 +5,7 @@
  * and nothing was billed, and the limit clears by itself as earlier batches finish, so the right answer is to
  * wait: the jobs stay `queued` with a time to try again, and the batch poller resubmits them when it comes.
  */
-import { and, generationJobs, inArray, panels, sql } from "@openmanga/db";
+import { and, eq, generationJobs, inArray, isNull, panels, providerBatches, sql } from "@openmanga/db";
 import { ProviderError } from "@openmanga/domain";
 import type { WorkerDeps } from "../context.ts";
 import type { GenerationJob } from "./runner.ts";
@@ -18,7 +18,15 @@ const WAIT_STEPS_MIN = [5, 10, 20, 30];
  */
 export const QUEUE_WAIT_DEADLINE_MS = 24 * 3600_000;
 
-export type QueueWait = { since: string; nextAt: string; tries: number; reason: string };
+export type QueueWait = {
+  /** First refusal by the provider; the 24h deadline counts from here. Absent while only held back by our limit. */
+  since?: string;
+  nextAt: string;
+  tries: number;
+  reason: string;
+  /** Held back by the in-flight limit rather than refused: due at every poll, and never failed for waiting. */
+  held?: boolean;
+};
 
 export const queueWaitOf = (job: { parameters: Record<string, unknown> }) =>
   job.parameters.queueWait as QueueWait | undefined;
@@ -43,7 +51,7 @@ export function roundSuffix(jobs: { parameters: Record<string, unknown> }[]) {
 export async function waitForBatchRoom(deps: WorkerDeps, jobs: GenerationJob[], reason: string, now = new Date()) {
   if (!jobs.length) return { waiting: 0, failed: 0, nextAt: null };
   const ids = jobs.map((j) => j.id);
-  const earlier = jobs.map(queueWaitOf).filter((w): w is QueueWait => Boolean(w));
+  const earlier = jobs.map(queueWaitOf).filter((w): w is QueueWait & { since: string } => Boolean(w?.since));
   const since = earlier.length ? new Date(Math.min(...earlier.map((w) => Date.parse(w.since)))) : now;
   const tries = Math.max(0, ...earlier.map((w) => w.tries)) + 1;
 
@@ -110,6 +118,69 @@ export async function waitForBatchRoom(deps: WorkerDeps, jobs: GenerationJob[], 
   return { waiting: rows.length, failed: 0, nextAt: wait.nextAt };
 }
 
+/**
+ * Provider batches this user has at the provider for one model and that are still queued or running there: what
+ * counts against the provider's enqueued limit.
+ */
+export async function inFlightBatches(deps: WorkerDeps, userId: string | null, provider: string, model: string) {
+  const [row] = await deps.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(providerBatches)
+    .where(
+      and(
+        userId ? eq(providerBatches.userId, userId) : isNull(providerBatches.userId),
+        eq(providerBatches.provider, provider),
+        eq(providerBatches.model, model),
+        isNull(providerBatches.ingestedAt),
+        inArray(providerBatches.state, ["pending", "running"]),
+      ),
+    );
+  return row?.n ?? 0;
+}
+
+/**
+ * Holds jobs back because this key already has `limit` batches in flight for the model, rather than submitting
+ * and being refused. They show as waiting like a refusal does, but the poller retries them on every pass (a slot
+ * frees whenever an earlier batch finishes) and they never time out: a run of thirty chunks four at a time is
+ * expected to take a while. A refusal's round and first-refusal time are kept.
+ */
+export async function holdForSlot(
+  deps: WorkerDeps,
+  jobs: GenerationJob[],
+  limit: number,
+  now = new Date(),
+): Promise<{ waiting: number; failed: number; nextAt: string | null }> {
+  if (!jobs.length) return { waiting: 0, failed: 0, nextAt: null };
+  const earlier = jobs.map(queueWaitOf).filter((w): w is QueueWait => Boolean(w));
+  const since = earlier
+    .map((w) => w.since)
+    .filter((s): s is string => Boolean(s))
+    .sort()[0];
+  const wait: QueueWait = {
+    ...(since ? { since } : {}),
+    // Shown as the next try; the poller runs on this interval.
+    nextAt: new Date(now.getTime() + deps.config.BATCH_POLL_INTERVAL_SECONDS * 1000).toISOString(),
+    tries: Math.max(0, ...earlier.map((w) => w.tries)),
+    reason: `${limit} batch${limit === 1 ? "" : "es"} for this model already in flight on this key`,
+    held: true,
+  };
+  const rows = await deps.db
+    .update(generationJobs)
+    .set({ parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ queueWait: wait })}::jsonb` })
+    .where(
+      and(
+        inArray(
+          generationJobs.id,
+          jobs.map((j) => j.id),
+        ),
+        eq(generationJobs.status, "queued"),
+      ),
+    )
+    .returning({ id: generationJobs.id });
+  deps.logger.info("holding batch work for a free slot", { jobs: rows.length, limit });
+  return { waiting: rows.length, failed: 0, nextAt: wait.nextAt };
+}
+
 /** Jobs of a batch run whose wait is over: what the poller resubmits. */
 export async function dueWaitingJobs(deps: WorkerDeps, now = new Date()) {
   return deps.db
@@ -118,7 +189,8 @@ export async function dueWaitingJobs(deps: WorkerDeps, now = new Date()) {
     .where(
       sql`${generationJobs.status} = 'queued' and ${generationJobs.batchId} is not null
         and ${generationJobs.parameters}->>'batchMode' = 'true'
-        and (${generationJobs.parameters}->'queueWait'->>'nextAt')::timestamptz <= ${now.toISOString()}::timestamptz`,
+        and (${generationJobs.parameters}->'queueWait'->>'held' = 'true'
+          or (${generationJobs.parameters}->'queueWait'->>'nextAt')::timestamptz <= ${now.toISOString()}::timestamptz)`,
     )
     .limit(2000);
 }
