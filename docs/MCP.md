@@ -152,7 +152,7 @@ project or being removed ends the agent's access at once and drops the project f
 | read | list/get/search, schemas, prompt preview, job status, readiness, usage | runs | runs |
 | write | new story revision, draft version edits, scene/panel edits, manual answers, manual-mode text jobs | runs | runs |
 | sensitive-write | apply story analysis, duplicate, switch current version, approve/lock versions, references and panels, make a reference primary, set or switch the project style, migrate panels, activate artwork, re-plan a planned chapter, rewrite existing narration, page document replacement, clearing lettering on a chapter or project, restyling lettering or cancelling a batch over the bulk threshold, exports, budget changes | runs | **waits** |
-| spend | provider-backed text, image generation, reference generation, vision checks, expert replies, cloud TTS, retries of those, bulk generation, resuming a batch | runs | **waits** |
+| spend | provider-backed text, image generation, reference generation, vision checks, expert replies, cloud TTS, retries of those, bulk generation, resuming a batch, starting, updating or continuing a production run | runs | **waits** |
 | delete | trash, permanent delete, deleting chapters/pages/panels/lines/versions, exports and narration audio | runs | **waits** |
 
 Each call is classified by what it actually does (for example `run_chapter_plan` with `ai.manual` on a chapter without
@@ -226,6 +226,7 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
 | Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
 | Exports | `create_export`, `suggest_shorts`, `list_exports`, `delete_exports` |
+| Production runs | `get_staleness` (what is out of date, story to video), `start_production_run`, `update_production` (only the stale steps), `get_production_run`, `continue_production_run`, `cancel_production_run` |
 | Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` (extract a concept, premise, outline or YouTube text from a reply, then apply it; applying is sensitive) |
 
 Not exposed (UI/REST only): multipart uploads (project import, own artwork, masks, own references, expert image
@@ -237,7 +238,7 @@ export body as is, so it accepts the `youtube_package` kind, a `pageIds` page se
 and a partial render's `video.maxDurationMs` (its description names the YouTube package; the others are in its
 schema). `create_project` takes a
 production `preset` key, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
-the saved `youtubePackage` text. No tool calls the newer routes directly: production runs, writing the YouTube
+the saved `youtubePackage` text. No tool calls these newer routes directly: writing the YouTube
 package text (`POST /api/projects/:projectId/youtube-package`), checking every panel at once
 (`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list and saving or deleting
 project templates are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
