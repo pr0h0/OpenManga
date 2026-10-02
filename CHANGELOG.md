@@ -20,6 +20,14 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   panel or project keeps it, the interchange export and import carry it, and agents set or clear it with
   `update_panel` (`guide`, pointing at any image of the project). New routes: `POST /api/panels/:id/guide`, and
   `guide` on `PATCH /api/panels/:id`.
+- **A revised story is re-analysed safely.** When the story was revised after its analysis, *Update production* (and
+  a plain production run) analyses the new revision and then always stops for review, even with review gates off. The
+  review, on the run card and the Story page, shows what would change: chapters added, renamed, no longer in the story
+  or whose text changed, with their pages and artwork, and characters, places and props added or no longer mentioned.
+  Applying keeps every existing chapter with its pages (matched by title, else by position), inserts new chapters in
+  place and removes nothing; anything the story dropped can be ticked for removal, which a confirmation lists before
+  it happens. The run then plans and produces the new chapters. Agents read the same changes with
+  `get_story_analysis` `diff: true`.
 - **Project members.** An owner invites people by username or email as editors or viewers (**Members** on the
   project overview); an invited account accepts or declines on the dashboard, and an emailed link (one-time, 7 days)
   accepts it or creates the account for that address, even with registration closed. Owners change roles, remove

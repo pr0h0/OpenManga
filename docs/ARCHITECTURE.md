@@ -112,10 +112,23 @@ what is out of date stage by stage along story → plan → prompts → art → 
 after the applied analysis, chapters without a plan, pages without prepared prompts, panels without artwork or whose
 spec was edited after their artwork, chapters without narration, segments without current audio, and a whole-project
 video older than anything it is drawn from. A run started with `{ update: true }` is the same machinery with fewer
-steps: from the first stale stage on (each stage is made from the ones before it), skipping analysis, references,
-thumbnail and YouTube text; its art step also redraws the edited panels. The story stage is reported but never
-re-analysed automatically, since re-analysing can restructure chapters. The render then reuses every unchanged section
+steps: from the first stale stage on (each stage is made from the ones before it), skipping the thumbnail and YouTube
+text; its art step also redraws the edited panels. The render then reuses every unchanged section
 (see `docs/VIDEO_EXPORT_REFERENCE.md`).
+
+**A revised story.** When the latest story revision is newer than the one the applied analysis read (`revisedStory`),
+both an update and a plain run analyse it again, and the analysis review step then **always** waits, whatever the
+review setting, because a re-analysis can restructure chapters and cast. The review shows
+`GET /api/story-analyses/:id/diff` (`analysisDiff`): chapters kept (and whether their source text changed), renamed,
+added and no longer in the story, each with its pages and drawn panels, and characters, places and props added or no
+longer mentioned. The user applies it on the Story page, ticking anything to remove (the deletions then go through the
+ordinary delete routes and their checks, after a confirmation that lists them), or simply continues the run, which
+applies it keeping everything. Applying is additive (`applyStoryAnalysis` with `mergeChapters`): a chapter with the
+same title, else an analysis-made chapter at the same position whose title is gone, is kept with its pages and gets the
+new summary, beats and source text; new chapters are inserted at their place and chapters the story dropped stay where
+they were; characters, places and props are matched by key or name and never changed or removed. Staleness then carries
+the run on: the plan step plans the new chapters, and so on. A chapter whose text changed keeps its pages; re-planning
+it is left to the user.
 
 Agents drive the same machinery through MCP (`apps/api/src/mcp/tools/production.ts`): `get_staleness`,
 `start_production_run`, `update_production`, `get_production_run`, `continue_production_run` and

@@ -359,7 +359,7 @@ get_job({ jobId: "j1" }) → { job: { status: "awaiting_input", next: "Call get_
 get_manual_prompt({ jobId: "j1" }) → { format: { name: "StoryAnalysis", interface: "interface StoryAnalysis { … }" }, example: "{…}", awaitingAnswer: true }
 submit_manual_answer({ jobId: "j1", answer: { title: "The Lamp at Vell", characters: [ … ], chapters: [ … ] } }) → { accepted: true }
 get_job({ jobId: "j1" }) → { job: { status: "completed" } }
-apply_story_analysis({ analysisId: "a1" }) → { created: { characters: 2, locations: 1, props: 1, chapters: 3 } }
+apply_story_analysis({ analysisId: "a1" }) → { created: { characters: 2, locations: 1, props: 1, chapters: 3, renamed: 0 } }
 list_chapters({ projectId: "p1" }) → { chapters: [ { id: "c1", title: "The Lamp", stats: { pages: 0 } }, … ] }
 run_chapter_plan({ chapterId: "c1", ai: { manual: true } }) → { job: { id: "j2" } }
 get_manual_prompt({ jobId: "j2" }) → { format: { name: "ChapterOutline" }, answered: 0 }

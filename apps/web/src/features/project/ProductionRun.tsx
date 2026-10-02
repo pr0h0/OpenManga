@@ -1,11 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { CheckCircle2, Circle, CircleDot, Loader2, PauseCircle, Rocket, XCircle } from "lucide-react";
 import { useState } from "react";
 import { get, post } from "../../api/client.ts";
 import { ConfirmDialog, fmt, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
+import { AnalysisDiff } from "../story/AnalysisDiff.tsx";
 
-type Step = { key: string; label: string; status: string; note?: string };
+type Step = { key: string; label: string; status: string; note?: string; ref?: string };
 type Run = { id: string; status: string; reason: string | null; steps: Step[]; createdAt: string };
 type Stage = { key: string; count: number; note: string };
 
@@ -44,8 +46,8 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
     queryKey: ["project", projectId, "staleness", runs.data?.runs[0]?.status],
     queryFn: () => get<{ stages: Stage[] }>(`/projects/${projectId}/staleness`),
   });
-  // The story stage is a person's call (re-analysing can restructure chapters), so it never starts an update.
-  const updatable = staleness.data?.stages.some((s) => s.key !== "story" && s.count > 0) ?? false;
+  // A revised story counts too: the update re-analyses it and always stops for a review before applying.
+  const updatable = staleness.data?.stages.some((s) => s.count > 0) ?? false;
   const [update, setUpdate] = useState(false);
   const aiText = useAiBody("text");
   const aiImage = useAiBody("image");
@@ -64,6 +66,9 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
     }
   };
   const run = runs.data?.runs[0];
+  const reviewing =
+    run?.status === "waiting" && run.steps.some((s) => s.key === "review_analysis" && s.status === "review");
+  const analysisRef = run?.steps.find((s) => s.key === "analyze")?.ref;
   const active = run && ["running", "waiting", "paused", "failed"].includes(run.status);
 
   return (
@@ -160,6 +165,19 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
               );
             })}
           </ol>
+          {reviewing && analysisRef && (
+            // A re-analysis waits here: what applying it would change, and where to choose anything to remove.
+            <div className="space-y-2">
+              <AnalysisDiff analysisId={analysisRef} />
+              <Link
+                to="/projects/$projectId/story"
+                params={{ projectId }}
+                className="text-xs text-accent-500 hover:underline"
+              >
+                Review it on the Story page, where you can also choose what to remove →
+              </Link>
+            </div>
+          )}
           {active && (
             <div className="flex flex-wrap gap-2">
               {run.status !== "running" && (
@@ -202,7 +220,7 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
         <div className="space-y-3 text-sm">
           <p>
             {update
-              ? "Runs only what is out of date, from the first stale stage on: missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which reuses every unchanged section of the last render."
+              ? "Runs only what is out of date, from the first stale stage on: a revised story is analysed again and waits for your review before it is applied, then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which reuses every unchanged section of the last render."
               : "Runs every step that still has work to do."}{" "}
             Either way it spends up to the project's <strong>budget cap</strong> without asking again, and pauses there;
             the batch setting in Project settings → Production decides what waits for a half-price provider batch.

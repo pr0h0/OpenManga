@@ -2,7 +2,7 @@ import { and, desc, eq, sql, storyAnalyses, storyRevisions } from "@openmanga/db
 import { PRIORITY } from "@openmanga/domain";
 import { storyAnalysisV3, storyRewriteV1 } from "@openmanga/prompts";
 import { StoryAnalysis } from "@openmanga/schemas";
-import { applyStoryAnalysis, recordAudit } from "@openmanga/services";
+import { analysisDiff, applyStoryAnalysis, recordAudit } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -289,6 +289,19 @@ storyRoutes.get("/story-analyses/:id", async (c) =>
   c.json({ analysis: await analysisWithAccess(c, uuidParam(c, "id"), "read") }),
 );
 
+doc({
+  method: "GET",
+  path: "/api/story-analyses/:id/diff",
+  summary:
+    "What applying this analysis would change in the project: chapters kept (and whether their source text changed), renamed, added and removed, with each one's pages and drawn panels; characters, locations and props added or removed. Applying never removes anything: removed items are listed so their deletion can be confirmed separately.",
+  tag: "stories",
+});
+storyRoutes.get("/story-analyses/:id/diff", async (c) => {
+  const a = await analysisWithAccess(c, uuidParam(c, "id"), "read");
+  if (!a.result) throw badRequest("Analysis has not completed");
+  return c.json({ diff: await analysisDiff(c.get("deps").db, a.id) });
+});
+
 const PatchAnalysis = z.object({ result: StoryAnalysis });
 doc({
   method: "PATCH",
@@ -314,7 +327,8 @@ const ApplyAnalysis = z.object({ result: StoryAnalysis.optional() });
 doc({
   method: "POST",
   path: "/api/story-analyses/:id/apply",
-  summary: "Create cast, world and chapters from the (edited) analysis",
+  summary:
+    "Create cast, world and chapters from the (edited) analysis. On a project that already has them it is additive: chapters are matched by title (else renamed by position) and keep their pages, new chapters are inserted in place, and nothing is removed (see the diff route).",
   tag: "stories",
   body: ApplyAnalysis,
 });
