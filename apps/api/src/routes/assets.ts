@@ -46,6 +46,8 @@ assetRoutes.get("/projects/:projectId/assets", requireUser, async (c) => {
         eq(assets.projectId, p.id),
         q.type ? eq(assets.type, q.type as "panel_art") : sql`${assets.type} not in ('prompt_reference','thumbnail')`,
         q.trash === "1" ? isNotNull(assets.deletedAt) : isNull(assets.deletedAt),
+        // Cached video sections are the renderer's working files, not something to browse.
+        sql`not (${assets.metadata} ? 'renderSection')`,
       ),
     )
     .orderBy(desc(assets.createdAt))

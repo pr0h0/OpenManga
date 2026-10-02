@@ -146,7 +146,8 @@ slot).
   `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**, **`video_shorts`**,
   `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
   publishing text, zipped), and `project_import` (an import reuses the export job machinery and reports
-  `{projectId, warnings}` in `result`). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
+  `{projectId, warnings}` in `result`; a video render keeps its `series`, the `sectionKeys` of its cached sections and
+  `sections: {reused, encoded}` there). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
   job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made). Deleting an
   export removes its job row and file at once.
 - `ai_usage` — provider, model, operation, request id, token counts (text in/out, image in/out, cached), billable

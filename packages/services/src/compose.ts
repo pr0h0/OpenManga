@@ -130,6 +130,19 @@ const PAGE_RENDER_VERSION = 1;
 
 type PageRenderMeta = { pageId: string; fingerprint: string; width: number };
 
+const renderFingerprint = (render: RenderPage, art: ({ sha256: string } | null)[]) =>
+  sha256Hex(JSON.stringify({ v: PAGE_RENDER_VERSION, render, art: art.map((a) => a?.sha256 ?? null) }));
+
+/** A hash of everything a lettered page is drawn from (see `cachedPageRender`): equal hashes draw equal pixels. */
+export async function pageRenderFingerprint(
+  db: Database,
+  pageId: string,
+  readingDirection: "ltr" | "rtl" | "vertical",
+) {
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  return renderFingerprint(render, art);
+}
+
 /**
  * A reader link's lettered page as a cached PNG, stored as a project asset of type `thumbnail` (so the library
  * list skips it and disk usage counts it as derived). The fingerprint covers everything the page is drawn from:
@@ -145,9 +158,7 @@ export async function cachedPageRender(
   width: number,
 ) {
   const { render, art } = await loadRenderRows(db, pageId, readingDirection);
-  const fingerprint = sha256Hex(
-    JSON.stringify({ v: PAGE_RENDER_VERSION, render, art: art.map((a) => a?.sha256 ?? null) }),
-  );
+  const fingerprint = renderFingerprint(render, art);
   const cached = await db
     .select()
     .from(assets)

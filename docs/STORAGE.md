@@ -176,6 +176,7 @@ the only thing that deletes on a timer:
 | `prompt_ref` variants | deleted after 30 days without use, recreated on demand |
 | Reader-link page renders | replaced when the page changes; a deleted page's renders are removed by the next cycle |
 | Export files | `exports.expires_at` is 30 days after the export; the file is deleted once it passes and the job row is kept as history |
+| Cached video sections | kept while a video export that used them still has its files; deleted with the export, when it expires, or when a newer render of the same series no longer uses them |
 | Trashed assets | hard-deleted 30 days after `deleted_at`, never when `locked` or when a panel still points at them |
 | Temp files under `TEMP_ROOT` | per-job directories removed after use; anything older than 6 hours swept |
 | Sessions | deleted when expired, or 7 days after being revoked |
@@ -205,5 +206,6 @@ Two kinds of file skip the trash and leave the disk at once:
 ## Disk usage
 
 `GET /api/projects/:projectId` returns `disk`: the byte size of every stored file of the project, by category
-(`artwork`, `references`, `narration`, `exports`, `derived` — variants and other assets), with the part in the trash.
+(`artwork`, `references`, `narration`, `exports`, `renderCache` — cached video sections, `derived` — variants and other
+assets), with the part in the trash.
 Database rows are not counted.

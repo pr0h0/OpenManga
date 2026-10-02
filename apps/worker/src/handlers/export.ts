@@ -49,8 +49,9 @@ import {
   renderStrip,
   renderThumbnail,
   renderWebtoonBlocks,
+  sweepRenderSections,
 } from "@openmanga/services";
-import { withTempDir } from "@openmanga/storage";
+import { sha256Hex, withTempDir } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
 import { type BookImage, type BookMeta, writeBook } from "../lib/ebook.ts";
 import { type ImagePage, PdfWriter } from "../lib/pdf.ts";
@@ -467,7 +468,45 @@ async function buildExport(
         : opts.pageIds?.length
           ? { pageIds: opts.pageIds }
           : undefined;
-      const out = await render(deps, project, opts.chapterId, { ...v, language: opts.language, scope }, dir, progress);
+      // Renders of the same series (same kind, scope, language and options) supersede each other's cached sections.
+      const series = sha256Hex(
+        JSON.stringify({
+          kind: job.kind,
+          chapterId: opts.chapterId,
+          pageIds: opts.pageIds ?? null,
+          panelIds: opts.panelIds ?? null,
+          language: opts.language ?? null,
+          video: { ...v, concurrency: undefined },
+        }),
+      );
+      const claim = async (result: Record<string, unknown>) => {
+        await deps.db.update(exportJobs).set({ result }).where(eq(exportJobs.id, job.id));
+      };
+      const out = await render(
+        deps,
+        project,
+        opts.chapterId,
+        { ...v, language: opts.language, scope, onSections: (sectionKeys) => claim({ series, sectionKeys }) },
+        dir,
+        progress,
+      );
+      await deps.db
+        .update(exportJobs)
+        .set({
+          result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({ sections: out.report.sections })}::jsonb`,
+        })
+        .where(eq(exportJobs.id, job.id));
+      await deps.db
+        .update(exportJobs)
+        .set({ result: sql`${exportJobs.result} - 'sectionKeys'` })
+        .where(
+          and(
+            eq(exportJobs.projectId, job.projectId),
+            sql`${exportJobs.id} <> ${job.id}`,
+            sql`${exportJobs.result} ->> 'series' = ${series}`,
+          ),
+        );
+      await sweepRenderSections(deps.db, deps.assets, job.projectId);
       deps.logger.info("video export rendered", {
         exportJobId: job.id,
         kind: job.kind,

@@ -17,7 +17,7 @@ import {
   sql,
 } from "@openmanga/db";
 import type { QueueName } from "@openmanga/queue";
-import { exportQueuesFor, KeyRing, rotateCredentials } from "@openmanga/services";
+import { exportQueuesFor, KeyRing, rotateCredentials, sweepRenderSections } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 
 /** Periodic cleanup. Only disposable data is removed; canonical assets and version history are kept. */
@@ -89,6 +89,8 @@ export async function runMaintenance(deps: WorkerDeps) {
     .limit(500);
   for (const { a } of expired) await deps.assets.hardDelete(a);
   result.expiredExports = expired.length;
+  // Cached video sections whose exports are gone: deleted, expired or superseded.
+  result.renderSectionsRemoved = await sweepRenderSections(deps.db, deps.assets);
 
   // Trashed assets older than 30 days (never locked / never active artwork).
   const trashed = await deps.db

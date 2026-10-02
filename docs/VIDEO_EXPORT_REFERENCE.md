@@ -274,6 +274,30 @@ image with silence on the audio track, encoded as its own clip, so it adds nothi
 after the intro — subtitles, chapter timestamps (the first stays pinned to `0:00`), the duration check — simply
 starts that much later. A partial render (`maxDurationMs`) ends without the outro.
 
+## Incremental rendering
+
+Every clip — a shot or a card — is a **section** kept between exports. Its key is a SHA-256 over everything that
+decides its pixels and its length: `SECTION_VERSION` (bump it when the encoder or a filter changes), the frame size,
+fps and the watermark (logo hash, box, opacity), plus, for a page-cut shot, the lettered page's render fingerprint
+(`pageRenderFingerprint`: page, panel frames and transforms, artwork hashes, bubbles, SFX; the same one reader-link
+renders use), the page size, framing and scroll settings, the hold in frames and the fades; for a panel-cut shot, the
+artwork's hash (or the lettered page's fingerprint when it has none), the panel's frame and transform, the move, focus,
+zoom, frames and fades; for a card, the card PNG's hash and its frames.
+
+Pass 2 looks the keys up first. A key with a stored clip is copied in from storage instead of encoded; any other clip
+is encoded and stored as an `export` asset with `metadata.renderSection = {key}`. The concat, the narration track, the
+single loudness normalisation over the whole film and the duration check run on every render as before, so audio is
+always re-mixed; only the video encodes are skipped. The export report gives `sections: {reused, encoded}`, also kept
+in the job's `result`.
+
+**Claims and cleanup.** Before encoding, a render writes every key of its film to its job's `result.sectionKeys`,
+with a `series` hash (kind, scope, language and video options). `sweepRenderSections` deletes the sections no export
+claims: keys not listed by a queued or running video export, or by a completed one whose files still exist. It runs
+after every render, after exports are deleted, and in the maintenance cycle (which also expires export files after 30
+days). A finished render takes the claims away from older renders of the same series, so their sections go unless the
+new film uses them too. Cached sections count toward the project's disk use as *Video render cache*, and the asset
+list hides them.
+
 ## Assembly and loudness
 
 Pass 2 encodes the clips in parallel (`ConcurrencyLimiter`, `VIDEO_ENCODE_CONCURRENCY`) — shots are independent

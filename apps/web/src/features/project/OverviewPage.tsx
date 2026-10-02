@@ -528,6 +528,7 @@ function DiskUsage({ disk }: { disk: NonNullable<ProjectOverview["disk"]> }) {
     ["References", disk.byCategory.references],
     ["Narration audio", disk.byCategory.narration],
     ["Exports", disk.byCategory.exports],
+    ["Video render cache", disk.byCategory.renderCache],
     ["Previews and thumbnails", disk.byCategory.derived],
   ];
   return (

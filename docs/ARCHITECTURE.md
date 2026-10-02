@@ -107,6 +107,16 @@ and stops at a review step (`waiting`), a job still in flight, a failure (`faile
 passes on one run are prevented by an in-memory set, which assumes a single API process. Every change publishes a
 `production.updated` project event (`{runId, status}`) on the usual `EventBus`.
 
+**Update production.** `GET /api/projects/:projectId/staleness` (`pipelineStaleness` in `packages/services`) reports
+what is out of date stage by stage along story → plan → prompts → art → narration → audio → render: a story revised
+after the applied analysis, chapters without a plan, pages without prepared prompts, panels without artwork or whose
+spec was edited after their artwork, chapters without narration, segments without current audio, and a whole-project
+video older than anything it is drawn from. A run started with `{ update: true }` is the same machinery with fewer
+steps: from the first stale stage on (each stage is made from the ones before it), skipping analysis, references,
+thumbnail and YouTube text; its art step also redraws the edited panels. The story stage is reported but never
+re-analysed automatically, since re-analysing can restructure chapters. The render then reuses every unchanged section
+(see `docs/VIDEO_EXPORT_REFERENCE.md`).
+
 ## Code layout
 
 `AGENTS.md` owns the directory-by-directory list. The shape to keep in mind:

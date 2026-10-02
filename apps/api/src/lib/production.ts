@@ -17,6 +17,7 @@ import {
   users,
 } from "@openmanga/db";
 import { BATCH_CAPABLE_PROVIDERS } from "@openmanga/domain";
+import { PIPELINE_STAGES, type PipelineStage, pipelineStaleness } from "@openmanga/services";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { handleError, notFound } from "./http.ts";
@@ -31,6 +32,23 @@ export type RunOptions = {
   render: boolean;
   youtube: boolean;
   ai?: { text?: AiChoice; image?: AiChoice };
+  /**
+   * "Update production": only the steps from the first out-of-date stage on, and artwork whose panel was edited after
+   * it was drawn is drawn again. Analysis, references, thumbnail and YouTube text are left to a person.
+   */
+  update?: boolean;
+};
+
+/** Which pipeline stage a step makes; steps of no stage run only in a full production run. */
+const STAGE_OF: Partial<Record<(typeof STEPS)[number], PipelineStage>> = {
+  plan: "plan",
+  prompts: "prompts",
+  art: "art",
+  narration: "narration",
+  audio: "audio",
+  review_render: "render",
+  render: "render",
+  youtube_package: "render",
 };
 
 /** Every step, in order. Review steps pause the run for a person; the rest call the routes a person would. */
@@ -70,8 +88,20 @@ export const STEP_LABELS: Record<(typeof STEPS)[number], string> = {
   youtube_package: "YouTube package export",
 };
 
-export function initialSteps(o: RunOptions): ProductionStep[] {
+/**
+ * The steps of a run. An update starts at the first stale stage (story aside) and runs everything after it, since
+ * each stage is made from the ones before: new artwork leaves the video stale even if the video was current.
+ */
+export function initialSteps(o: RunOptions, stale: PipelineStage[] = []): ProductionStep[] {
+  const from = Math.min(
+    ...stale.filter((s) => s !== "story").map((s) => PIPELINE_STAGES.indexOf(s)),
+    PIPELINE_STAGES.length,
+  );
   return STEPS.filter((k) => {
+    if (o.update) {
+      const stage = STAGE_OF[k];
+      if (!stage || PIPELINE_STAGES.indexOf(stage) < from) return false;
+    }
     if (k.startsWith("review_")) return o.reviewGates && (k !== "review_render" || o.render);
     if (k === "prompts") return o.preparePrompts;
     if (k === "render") return o.render;
@@ -286,6 +316,18 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
       });
       return r.jobs.map((j) => j.id);
     });
+    // An update also redraws artwork whose panel was edited after it was drawn.
+    const stale = x.o.update ? (await pipelineStaleness(x.deps.db, x.project)).staleArt : [];
+    for (let i = 0; i < stale.length; i += 500) {
+      const r = await x.call<{ jobs: { id: string }[] }>("POST", `/api/projects/${x.project.id}/generations/bulk`, {
+        ...image(x),
+        batch: x.batch.image,
+        scope: { panelIds: stale.slice(i, i + 500) },
+        onlyMissing: false,
+        confirm: true,
+      });
+      out.jobIds.push(...r.jobs.map((j) => j.id));
+    }
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
   async narration(x) {
