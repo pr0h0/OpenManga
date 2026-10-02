@@ -53,7 +53,15 @@ export type ProjectOverview = {
   disk?: {
     totalBytes: number;
     trashBytes: number;
-    byCategory: { artwork: number; references: number; narration: number; exports: number; derived: number };
+    byCategory: {
+      artwork: number;
+      references: number;
+      narration: number;
+      exports: number;
+      /** Cached video sections, reused by the next render. */
+      renderCache: number;
+      derived: number;
+    };
   };
   style: (ProjectStyleRow & { preset: StylePresetRow | null }) | null;
 };

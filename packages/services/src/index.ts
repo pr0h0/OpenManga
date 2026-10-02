@@ -12,6 +12,7 @@ export * from "./planner.ts";
 export * from "./preflight.ts";
 export * from "./providers.ts";
 export * from "./readiness.ts";
+export * from "./render-cache.ts";
 export * from "./staleness.ts";
 export * from "./usage.ts";
 export * from "./video-plan.ts";

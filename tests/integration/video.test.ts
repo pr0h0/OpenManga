@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { sql } from "@openmanga/db";
 import { cardFrames, shotGroups, timeGroup, watermarkBox } from "@openmanga/domain";
 import { sharp } from "@openmanga/image-utils";
+import { advanceRun } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 // Needs ffmpeg/ffprobe (present in the app image, not in the plain bun test image).
@@ -757,4 +759,71 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     const square = await probe(sq.files.find((f) => f.mimeType === "video/mp4")!.assetId);
     expect({ width: square.width, height: square.height }).toEqual({ width: 720, height: 720 });
   }, 600_000);
+  test("incremental rendering: one changed page re-encodes one section; staleness; update production; cleanup", async () => {
+    const { projectId, chapterId } = await narratedChapter("Incremental");
+    const pages = (await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`)).pages;
+    expect(pages.length).toBeGreaterThan(1);
+    const opts = { kind: "video_pages", video: { height: 720, fps: 24, minHoldMs: 1500 } };
+    type Stage = { key: string; count: number };
+    const stale = async () =>
+      Object.fromEntries(
+        (await u.get<{ stages: Stage[] }>(`/api/projects/${projectId}/staleness`)).stages.map((s) => [s.key, s.count]),
+      );
+    const sectionsOf = async (id: string) =>
+      (await u.get<{ job: { result: { sections: { reused: number; encoded: number } } } }>(`/api/jobs/${id}`)).job
+        .result.sections;
+    const cached = async () => {
+      const [r] = await h.deps.db.execute<{ n: number }>(
+        sql`select count(*)::int as n from assets where project_id = ${projectId} and metadata ? 'renderSection'`,
+      );
+      return r!.n;
+    };
+
+    expect((await stale()).render).toBe(1); // no video yet
+    const first = await runExport(projectId, opts);
+    expect(await sectionsOf(first.id)).toEqual({ reused: 0, encoded: pages.length });
+    expect(await cached()).toBe(pages.length);
+    expect(await stale()).toMatchObject({ plan: 0, art: 0, narration: 0, audio: 0, render: 0 });
+    const overview = await u.get<{ disk: { byCategory: { renderCache: number } } }>(`/api/projects/${projectId}`);
+    expect(overview.disk.byCategory.renderCache).toBeGreaterThan(0);
+
+    // Re-framing one panel changes one page's pixels: only that page's section is encoded again.
+    const page = await u.get<{ panels: { id: string }[] }>(`/api/pages/${pages[1]!.id}`);
+    await u.patch(`/api/panels/${page.panels[0]!.id}`, { imageTransform: { focalX: 0.3, focalY: 0.4, scale: 1.3 } });
+    expect((await stale()).render).toBe(1);
+    const second = await runExport(projectId, opts);
+    expect(await sectionsOf(second.id)).toEqual({ reused: pages.length - 1, encoded: 1 });
+    // The first render is superseded: its changed section is gone, the shared ones stay for the second.
+    const firstJob = await u.get<{ job: { result: Record<string, unknown> } }>(`/api/jobs/${first.id}`);
+    expect(firstJob.job.result.sectionKeys).toBeUndefined();
+    expect(await cached()).toBe(pages.length);
+
+    // "Update production" runs only what is stale: here just the video.
+    await u.patch(`/api/panels/${page.panels[0]!.id}`, { imageTransform: { focalX: 0.5, focalY: 0.5, scale: 1 } });
+    await u.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 50 } });
+    const started = await u.post<{ run: { id: string; steps: { key: string }[] } }>(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, youtube: false },
+      201,
+    );
+    expect(started.run.steps.map((s) => s.key)).toEqual(["render"]);
+    const run = await waitFor(
+      async () => {
+        await advanceRun(h.deps, started.run.id);
+        const { runs } = await u.get<{ runs: { id: string; status: string; reason: string | null }[] }>(
+          `/api/projects/${projectId}/production-runs`,
+        );
+        const r = runs.find((x) => x.id === started.run.id)!;
+        return ["completed", "failed"].includes(r.status) ? r : null;
+      },
+      { label: "update run", timeoutMs: 240_000 },
+    );
+    expect(`${run.status}:${run.reason ?? ""}`).toBe("completed:");
+    expect((await stale()).render).toBe(0);
+    await u.post(`/api/projects/${projectId}/production-runs`, { update: true, reviewGates: false }, 409);
+
+    // Deleting the exports deletes the sections they claimed.
+    await u.del(`/api/projects/${projectId}/exports`);
+    expect(await cached()).toBe(0);
+  }, 900_000);
 });

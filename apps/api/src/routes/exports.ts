@@ -14,7 +14,13 @@ import {
   sql,
 } from "@openmanga/db";
 import { providerSupports } from "@openmanga/domain";
-import { exportQueuesFor, issuesForExport, projectReadiness, recordAudit } from "@openmanga/services";
+import {
+  exportQueuesFor,
+  issuesForExport,
+  projectReadiness,
+  recordAudit,
+  sweepRenderSections,
+} from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -336,6 +342,8 @@ async function deleteExportJobs(c: Context<AppEnv>, projectId: string, jobIds: s
     bytes += a.byteSize;
   }
   await deps.db.delete(exportJobs).where(and(eq(exportJobs.projectId, projectId), inArray(exportJobs.id, jobIds)));
+  // Cached video sections go with the last export that claimed them.
+  await sweepRenderSections(deps.db, deps.assets, projectId);
   await recordAudit(deps.db, {
     userId: user(c).id,
     projectId,

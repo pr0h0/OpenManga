@@ -7,6 +7,17 @@ import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 
 type Step = { key: string; label: string; status: string; note?: string };
 type Run = { id: string; status: string; reason: string | null; steps: Step[]; createdAt: string };
+type Stage = { key: string; count: number; note: string };
+
+const STAGE_LABEL: Record<string, string> = {
+  story: "Story",
+  plan: "Plan",
+  prompts: "Prompts",
+  art: "Art",
+  narration: "Narration",
+  audio: "Audio",
+  render: "Video",
+};
 
 const ICON: Record<string, typeof Circle> = {
   pending: Circle,
@@ -29,6 +40,13 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
     queryFn: () => get<{ runs: Run[] }>(`/projects/${projectId}/production-runs`),
     refetchInterval: (q) => (q.state.data?.runs[0]?.status === "running" ? 10_000 : false),
   });
+  const staleness = useQuery({
+    queryKey: ["project", projectId, "staleness", runs.data?.runs[0]?.status],
+    queryFn: () => get<{ stages: Stage[] }>(`/projects/${projectId}/staleness`),
+  });
+  // The story stage is a person's call (re-analysing can restructure chapters), so it never starts an update.
+  const updatable = staleness.data?.stages.some((s) => s.key !== "story" && s.count > 0) ?? false;
+  const [update, setUpdate] = useState(false);
   const aiText = useAiBody("text");
   const aiImage = useAiBody("image");
   const [open, setOpen] = useState(false);
@@ -55,11 +73,53 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
           <Rocket className="size-4" /> Production run
         </h3>
         {!active && (
-          <button type="button" className="btn-primary" onClick={() => setOpen(true)}>
-            Produce
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!updatable}
+              title={updatable ? "Run only the out-of-date steps below" : "Nothing is out of date"}
+              onClick={() => {
+                setUpdate(true);
+                setOpen(true);
+              }}
+            >
+              Update production
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                setUpdate(false);
+                setOpen(true);
+              }}
+            >
+              Produce
+            </button>
+          </>
         )}
       </div>
+      {staleness.data && (
+        // What is out of date, in the order each stage is made from the one before it.
+        <ol className="flex flex-wrap items-center gap-1 text-xs" aria-label="What is out of date">
+          {staleness.data.stages.map((s, i) => (
+            <li key={s.key} className="flex items-center gap-1">
+              {i > 0 && <span className="muted">→</span>}
+              <span
+                className={
+                  s.count > 0
+                    ? "chip bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                    : "chip bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                }
+                title={s.count > 0 ? s.note : "Up to date"}
+              >
+                {STAGE_LABEL[s.key] ?? s.key}
+                {s.count > 0 && s.key !== "render" && s.key !== "story" ? ` ${s.count}` : s.count > 0 ? " !" : " ✓"}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
       {!run && (
         <p className="muted text-xs">
           One button for the whole pipeline: analysis, references, chapter plans, prompts, artwork, narration, audio,
@@ -126,13 +186,14 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
       )}
       <ConfirmDialog
         open={open}
-        title="Produce this project"
+        title={update ? "Update the production" : "Produce this project"}
         confirmLabel="Start"
         busy={busy}
         onClose={() => setOpen(false)}
         onConfirm={async () => {
           await act(`/projects/${projectId}/production-runs`, {
             ...o,
+            update,
             ai: { text: aiText().ai ?? null, image: aiImage().ai ?? null },
           });
           setOpen(false);
@@ -140,9 +201,11 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
       >
         <div className="space-y-3 text-sm">
           <p>
-            Runs every step that still has work to do. It spends up to the project's <strong>budget cap</strong> without
-            asking again, and pauses there; the batch setting in Project settings → Production decides what waits for a
-            half-price provider batch.
+            {update
+              ? "Runs only what is out of date, from the first stale stage on: missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which reuses every unchanged section of the last render."
+              : "Runs every step that still has work to do."}{" "}
+            Either way it spends up to the project's <strong>budget cap</strong> without asking again, and pauses there;
+            the batch setting in Project settings → Production decides what waits for a half-price provider batch.
           </p>
           <div className="flex flex-wrap gap-2">
             <AiChip cap="text" />

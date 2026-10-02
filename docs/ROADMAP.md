@@ -8,10 +8,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Music and ambience.** Background music per scene mood, ducked under narration before loudness normalisation,
   and ambience beds tagged from the scene's time, weather and mood. From a library the user supplies, so nothing
   with unclear licensing ships in the repository.
-- **Incremental rendering.** Keep rendered sections between exports and re-render only what changed, driven by a
-  dependency graph of what is stale (story → plan → prompts → art → narration → audio → render) with one "update
-  production" action. Staleness already exists for narration audio, references and checks; loudness normalisation
-  runs over the whole film, so audio is always re-mixed.
 - **Translated lettering.** Translate bubbles and captions per language and export each edition from the same art,
   as narration already is per language.
 - **Pose and sketch guides.** Upload a rough sketch or pose for a panel and send it with the prompt as a layout

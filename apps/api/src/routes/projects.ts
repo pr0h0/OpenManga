@@ -281,6 +281,7 @@ projectRoutes.get("/:projectId", async (c) => {
         when a.type in ('character_reference', 'location_reference', 'prop_reference', 'style_reference', 'source_image')
           then 'references'
         when a.type = 'audio' then 'narration'
+        when a.metadata ? 'renderSection' then 'renderCache'
         when a.type = 'export' then 'exports'
         else 'derived' end as category,
       coalesce(sum(a.byte_size), 0)::float8 as bytes,
@@ -290,7 +291,7 @@ projectRoutes.get("/:projectId", async (c) => {
     select coalesce(sum(v.byte_size), 0)::float8 as bytes,
       coalesce(sum(v.byte_size) filter (where a.deleted_at is not null), 0)::float8 as trash
     from asset_variants v join assets a on a.id = v.asset_id where a.project_id = ${p.id}`);
-  const categories = { artwork: 0, references: 0, narration: 0, exports: 0, derived: 0 };
+  const categories = { artwork: 0, references: 0, narration: 0, exports: 0, renderCache: 0, derived: 0 };
   let trashBytes = variants?.trash ?? 0;
   for (const row of byType) {
     categories[row.category as keyof typeof categories] += row.bytes;

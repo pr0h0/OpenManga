@@ -40,7 +40,7 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
   plus a one-time model download from HuggingFace for local TTS on first boot.
 
 ## Features
-- **Production run**: one button on the project overview runs the whole pipeline — analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package — skipping whatever already exists, pausing for your review where you ask, and spending only up to the project's budget cap.
+- **Production run**: one button on the project overview runs the whole pipeline — analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package — skipping whatever already exists, pausing for your review where you ask, and spending only up to the project's budget cap. The overview shows what is out of date from story to video, and **Update production** runs only those steps; a re-render re-encodes only the shots that changed.
 - **Presets and templates**: start a project from a production preset (a YouTube recap of 30 minutes, 1, 2 or 3 hours, manga chapters, webtoon episodes, economy draft) or from your own template saved from another project's setup.
 - **Target runtime**: aim a video at a length; the story analysis asks for enough chapters to reach it, and chapter plans and narration default to the page count and words per panel that land each chapter on its share.
 - **Project wizard**: details, format (comic pages, 16:9 video shots, or a vertical scrolling strip), style preset (including a photorealistic *Realistic* preset), story input (story/chapter/outline/screenplay/idea), AI analysis, editable review, apply.

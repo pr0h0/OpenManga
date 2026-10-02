@@ -11,6 +11,13 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Added
 
+- **Incremental rendering and Update production.** Every rendered shot and card is kept as a cached section, keyed by
+  a hash of everything that decides its pixels and length; the next render copies unchanged sections in and encodes
+  only what changed, then re-mixes and normalises the audio over the whole film as before. Sections go with the
+  exports that used them, when they expire, or when a newer render of the same video no longer uses them, and they
+  count toward the project's disk use (*Video render cache*). The production run card shows what is out of date from
+  story to video, and **Update production** runs only those steps, redrawing artwork whose panel was edited after it
+  was drawn.
 - **Vertical and square video, and a Shorts cut.** Every video export (and the preview) takes a shape: 16:9, 9:16
   or 1:1. Vertical and square frames crop each panel's existing art around its focal point; nothing is generated at
   the new shape. A new *Shorts* export renders a 30–60 s trailer: it picks dramatic shots spread across a chapter or

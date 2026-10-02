@@ -1,6 +1,7 @@
 import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ffmpegConvert, parseWav, pcmToWav } from "@openmanga/audio";
+import { and, assets, eq, inArray, isNull, sql } from "@openmanga/db";
 import {
   ConcurrencyLimiter,
   cardFrames,
@@ -24,12 +25,14 @@ import {
   backdrop,
   loadRenderPage,
   narrationSegmentsFor,
+  pageRenderFingerprint,
   panelAspect,
   planVideoShots,
   renderPageImage,
   renderProjectVideoCard,
   type VideoScope,
 } from "@openmanga/services";
+import { sha256Hex } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
 
 export type VideoOptions = {
@@ -86,10 +89,10 @@ async function run(cmd: string[], label: string, timeoutMs = FFMPEG_TIMEOUT_MS) 
   }
 }
 
-/** A title card prepared for the render: its PNG at frame size and its length in frames. */
-type Card = { path: string; frames: number };
-/** The logo prepared for the render: scaled to its box, placed at x/y over every clip. */
-type Watermark = { path: string; x: number; y: number; opacity: number };
+/** A title card prepared for the render: its PNG at frame size, its length in frames and its section key. */
+type Card = { path: string; frames: number; key: string };
+/** The logo prepared for the render: scaled to its box, placed at x/y over every clip; `key` is what it looks like. */
+type Watermark = { path: string; x: number; y: number; opacity: number; key: string };
 type Branding = { intro: Card | null; outro: Card | null; watermark: Watermark | null };
 
 /**
@@ -113,7 +116,8 @@ async function prepareBranding(
     if (!png || !video?.[which]) return null;
     const path = join(dir, `${which}.png`);
     await Bun.write(path, png);
-    return { path, frames: cardFrames(video[which].durationMs, fps) };
+    const frames = cardFrames(video[which].durationMs, fps);
+    return { path, frames, key: sha256Hex(JSON.stringify({ card: sha256Hex(png), frames })) };
   };
   const wm = video?.watermark;
   const logo = wm ? await deps.assets.get(wm.assetId) : null;
@@ -126,7 +130,7 @@ async function prepareBranding(
       .png()
       .toBuffer();
     await Bun.write(path, new Uint8Array(png));
-    watermark = { path, x: box.x, y: box.y, opacity: wm.opacity };
+    watermark = { path, ...box, opacity: wm.opacity, key: `${logo.sha256}:${JSON.stringify(box)}:${wm.opacity}` };
   }
   return { intro: await card("intro"), outro: await card("outro"), watermark };
 }
@@ -193,6 +197,24 @@ type EncodeShot<S extends Shot> = (
 ) => Promise<void>;
 
 /**
+ * Bump when a clip's pixels change for the same inputs (the encoder settings, a filter, the compositor), so cached
+ * sections are encoded again.
+ */
+const SECTION_VERSION = 1;
+
+/** What a render needs besides its shots: the frame, the branding, and how to describe a shot for the section cache. */
+type FilmSetup<S extends Shot> = {
+  projectId: string;
+  frameW: number;
+  frameH: number;
+  branding: Branding;
+  /** Everything besides the common frame, fps and logo that decides a shot clip's pixels: hashed into its key. */
+  describe: (shot: S, frames: number) => Promise<Record<string, unknown>>;
+  /** Told every section key of the film before any clip is encoded, so the export can claim them. */
+  onSections?: (keys: string[]) => Promise<void>;
+};
+
+/**
  * Shared film pipeline. Pass 1 in shot order, one hold group at a time (a shot, or the run of shots a narration line
  * spans): narration audio written to disk at its place on the film clock (never the whole film in memory),
  * frame-exact holds from `timeGroup` (narration + breath, at least minHold) and subtitle cues. Pass 2: shots encoded
@@ -207,9 +229,10 @@ async function buildFilm<S extends Shot>(
   opts: VideoOptions,
   dir: string,
   progress: (p: number) => Promise<void>,
-  branding: Branding,
+  film: FilmSetup<S>,
   encodeShot: EncodeShot<S>,
 ) {
+  const { branding } = film;
   const audioPath = join(dir, "narration.wav");
   const audioFile = await open(audioPath, "w");
   let audioBytes = 0;
@@ -321,32 +344,85 @@ async function buildFilm<S extends Shot>(
     throw e;
   }
 
-  // Clips in film order: the intro card, the shots, the outro card.
+  // Clips in film order: the intro card, the shots, the outro card. Each is a section: its key hashes everything that
+  // decides its pixels and length, and a clip a previous render stored under the same key is reused, not encoded.
   const clipPath = (n: number) => join(dir, `clip-${String(n).padStart(5, "0")}.mp4`);
+  const common = {
+    v: SECTION_VERSION,
+    frame: [film.frameW, film.frameH],
+    fps: opts.fps,
+    watermark: branding.watermark?.key ?? null,
+  };
+  const keyOf = (part: unknown) => sha256Hex(JSON.stringify({ ...common, part }));
   const cardJob = (card: Card, n: number) => ({
     clip: clipPath(n),
+    key: keyOf(card.key),
     encode: (clip: string) =>
       encodeClip(null, card.path, "[0:v]null", card.frames, opts.fps, clip, "card", true, branding.watermark),
   });
   const jobs = [
     ...(branding.intro ? [cardJob(branding.intro, 0)] : []),
-    ...shots.map((shot, i) => ({
-      clip: clipPath(i + 1),
-      encode: (clip: string) => encodeShot(shot, i, holds[i]!.frames, holds[i]!.holdSec, clip),
-    })),
+    ...(await Promise.all(
+      shots.map(async (shot, i) => ({
+        clip: clipPath(i + 1),
+        key: keyOf(await film.describe(shot, holds[i]!.frames)),
+        encode: (clip: string) => encodeShot(shot, i, holds[i]!.frames, holds[i]!.holdSec, clip),
+      })),
+    )),
     ...(branding.outro && !partial ? [cardJob(branding.outro, shots.length + 1)] : []),
   ];
   const clips = jobs.map((j) => j.clip);
+  const keys = [...new Set(jobs.map((j) => j.key))];
+  await film.onSections?.(keys);
+  const cached = new Map(
+    (
+      await deps.db
+        .select()
+        .from(assets)
+        .where(
+          and(
+            eq(assets.projectId, film.projectId),
+            isNull(assets.deletedAt),
+            inArray(sql<string>`${assets.metadata}->'renderSection'->>'key'`, keys),
+          ),
+        )
+    ).map((a) => [(a.metadata.renderSection as { key: string }).key, a]),
+  );
+  let reused = 0;
   const limiter = new ConcurrencyLimiter(Math.max(1, opts.concurrency ?? 1));
   let failed: unknown = null;
   let done = 0;
+  // A cached section is copied in; anything else is encoded and stored for the next render.
+  const section = async (job: (typeof jobs)[number]) => {
+    const hit = cached.get(job.key);
+    if (hit) {
+      const copied = await Bun.write(job.clip, new Response(deps.assets.storage.stream(hit.storageKey))).catch(() => 0);
+      if (copied > 0) {
+        reused++;
+        return;
+      }
+    }
+    await job.encode(job.clip);
+    if (cached.has(job.key)) return;
+    cached.set(
+      job.key,
+      await deps.assets.store({
+        projectId: film.projectId,
+        ownerUserId: null,
+        type: "export",
+        filePath: job.clip,
+        mimeType: "video/mp4",
+        metadata: { renderSection: { key: job.key } },
+      }),
+    );
+  };
   // Wait for every running encode before surfacing the first error, so nothing writes into a removed temp dir.
   await Promise.all(
     jobs.map((job) =>
       limiter.run(async () => {
         if (failed) return;
         try {
-          await job.encode(job.clip);
+          await section(job);
           done++;
           await progress(0.1 + (done / jobs.length) * 0.55);
         } catch (e) {
@@ -460,13 +536,18 @@ async function buildFilm<S extends Shot>(
       driftMs: drift,
       driftPerClipMs: Math.round((videoMs - audioMs) / clips.length),
       clips: clips.length,
+      sections: { reused, encoded: clips.length - reused },
       subtitleCues: cues.length,
       loudness: m,
     },
   };
 }
 
-type Scoped = VideoOptions & { language?: string; scope?: VideoScope };
+type Scoped = VideoOptions & {
+  language?: string;
+  scope?: VideoScope;
+  onSections?: (keys: string[]) => Promise<void>;
+};
 
 /** The first shot of each chapter and where it starts, in film order. */
 function chapterStarts(shots: { page: { chapterId: string } }[], startsMs: number[]) {
@@ -539,7 +620,22 @@ export async function renderPageCutVideo(
     opts,
     dir,
     progress,
-    branding,
+    {
+      projectId: project.id,
+      frameW,
+      frameH,
+      branding,
+      onSections: opts.onSections,
+      // The lettered page (its render fingerprint), its framing and scroll, its length and its fades.
+      describe: async (shot, frames) => ({
+        cut: "page",
+        page: await pageRenderFingerprint(deps.db, shot.page.id, project.readingDirection),
+        size: [shot.page.width, shot.page.height],
+        framing: [opts.framing, opts.pageWidthRatio, opts.pageHeightRatio, opts.maxScrollPxPerSec],
+        frames,
+        fade: shot.fade,
+      }),
+    },
     async (shot, i, frames, holdSec, clip) => {
       const pg = shot.page;
       const { w: fgW, h: fgH } = pageShotBox(pg.width, pg.height, frameW, frameH, opts);
@@ -604,7 +700,31 @@ export async function renderPanelCutVideo(
     opts,
     dir,
     progress,
-    branding,
+    {
+      projectId: project.id,
+      frameW,
+      frameH,
+      branding,
+      onSections: opts.onSections,
+      // The artwork (its hash) and how it is cropped, or the lettered page when there is none; the move, its length
+      // and its fades.
+      describe: async (shot, frames) => {
+        const pn = shot.panel!;
+        return {
+          cut: "panel",
+          art: shot.art?.sha256 ?? null,
+          lettered: shot.art ? null : await pageRenderFingerprint(deps.db, shot.page.id, project.readingDirection),
+          transform: pn.imageTransform,
+          frame: pn.frame,
+          size: [shot.page.width, shot.page.height],
+          motion: shot.motion,
+          focus: shot.focus,
+          zoom,
+          frames,
+          fade: shot.fade,
+        };
+      },
+    },
     async (shot, i, frames, _holdSec, clip) => {
       const pg = shot.page;
       const pn = shot.panel!;
