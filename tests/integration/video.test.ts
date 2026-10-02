@@ -704,4 +704,57 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
       expect(raw[i + 1]!).toBeLessThan(80);
     }
   }, 600_000);
+  test("Shorts: an automatic pick, adjusted, rendered vertical from the existing art; a square panel cut", async () => {
+    const { projectId, chapterId } = await narratedChapter("Shorts");
+    const pick = await u.get<{
+      minMs: number;
+      maxMs: number;
+      shots: { id: string; holdMs: number; hasArt: boolean; picked: boolean; score: number }[];
+    }>(`/api/projects/${projectId}/shorts?chapterId=${chapterId}&minHoldMs=1500`);
+    expect(pick.maxMs).toBe(60_000);
+    const auto = pick.shots.filter((s) => s.picked);
+    expect(auto.length).toBeGreaterThan(0);
+    expect(auto.every((s) => s.hasArt)).toBe(true);
+    expect(auto.reduce((n, s) => n + s.holdMs, 0)).toBeLessThanOrEqual(60_000);
+    // The user drops the first pick; the render follows story order whatever order the ids come in.
+    const chosen = (auto.length > 1 ? auto.slice(1) : auto).map((s) => s.id).reverse();
+    await u.post(`/api/projects/${projectId}/exports`, { kind: "video_shorts", chapterId }, 400);
+    await u.post(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: [crypto.randomUUID()], acknowledgeIssues: true },
+      404,
+    );
+
+    const fps = 24;
+    const minHoldMs = 1500;
+    const preview = await u.get<{
+      aspect: string;
+      shots: (PreviewTiming & { key: string; panel: { fill: boolean } })[];
+    }>(`/api/video-preview?panelIds=${chosen.join(",")}&aspect=9:16`);
+    expect(preview.aspect).toBe("9:16");
+    expect(preview.shots.map((s) => s.key)).toEqual(pick.shots.filter((s) => chosen.includes(s.id)).map((s) => s.id));
+    expect(preview.shots.every((s) => s.panel.fill)).toBe(true);
+    const out = await runExport(projectId, {
+      kind: "video_shorts",
+      chapterId,
+      panelIds: chosen,
+      video: { height: 720, fps, minHoldMs },
+    });
+    const mp4 = out.files.find((f) => f.mimeType === "video/mp4")!;
+    expect(mp4.fileName).toContain("_shorts_9x16_720p.mp4");
+    const short = await probe(mp4.assetId);
+    expect({ width: short.width, height: short.height }).toEqual({ width: 720, height: 1280 });
+    expect(short.ms).toBeLessThanOrEqual(60_000 + 200);
+    const frames = previewFrames(preview.shots, fps, minHoldMs);
+    expect(Math.abs(short.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * preview.shots.length);
+
+    // Any video can be square or vertical: a square panel cut of the chapter.
+    const sq = await runExport(projectId, {
+      kind: "video_panels",
+      chapterId,
+      video: { height: 720, fps, minHoldMs, aspect: "1:1", maxDurationMs: 10_000 },
+    });
+    const square = await probe(sq.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect({ width: square.width, height: square.height }).toEqual({ width: 720, height: 720 });
+  }, 600_000);
 });

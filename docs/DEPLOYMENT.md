@@ -277,7 +277,8 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   anyway"); draft versions are informational. The same issues are written into agent packages. The endpoint also
   reports whether the caller has a usable provider key for further generation.
 - **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`, `zip_package`, `project_json`,
-  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `youtube_package`. `pdf.pageSize`
+  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `video_shorts` (a 30–60 s trailer of `panelIds`), `youtube_package`.
+  Video kinds take `video.aspect` (`16:9`, `9:16`, `1:1`). `pdf.pageSize`
   takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
   `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
   fixed-layout with the cover.

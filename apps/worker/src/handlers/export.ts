@@ -38,7 +38,7 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { buildTimeline, chunkStrip, type SeamedBlock, youtubeChapters } from "@openmanga/domain";
+import { buildTimeline, chunkStrip, type SeamedBlock, SHORTS_MAX_MS, youtubeChapters } from "@openmanga/domain";
 import { extForMime, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
@@ -64,6 +64,8 @@ type Opts = {
   kind: ExportJob["kind"];
   chapterId: string | null;
   pageIds?: string[];
+  /** video_shorts: the picked panels. */
+  panelIds?: string[];
   scale: number;
   jpgQuality: number;
   pdf: {
@@ -437,23 +439,34 @@ async function buildExport(
       ];
     }
     case "video_pages":
-    case "video_panels": {
+    case "video_panels":
+    case "video_shorts": {
+      const shorts = job.kind === "video_shorts";
+      const aspect = opts.video?.aspect ?? (shorts ? "9:16" : "16:9");
       const v: VideoOptions = {
         height: 1080,
         fps: 30,
         minHoldMs: 2500,
         framing: "width",
-        pageWidthRatio: 0.6,
         pageHeightRatio: 0.96,
         maxScrollPxPerSec: 60,
         zoom: 0.06,
         breathMs: 150,
         concurrency: deps.config.VIDEO_ENCODE_CONCURRENCY,
         ...opts.video,
+        aspect,
+        // A vertical or square frame is narrow: a page fills its width rather than 3/5 of it.
+        pageWidthRatio: opts.video?.pageWidthRatio ?? (aspect === "16:9" ? 0.6 : 1),
+        // A Shorts cut is its picked shots only, at most a minute, without the intro and outro cards.
+        ...(shorts ? { capMs: SHORTS_MAX_MS, cards: false } : {}),
       };
-      const render = job.kind === "video_panels" ? renderPanelCutVideo : renderPageCutVideo;
-      // A page selection narrows the film to those pages; otherwise the chapter, or the whole project.
-      const scope = opts.pageIds?.length ? { pageIds: opts.pageIds } : undefined;
+      const render = job.kind === "video_pages" ? renderPageCutVideo : renderPanelCutVideo;
+      // A panel or page selection narrows the film to those; otherwise the chapter, or the whole project.
+      const scope = shorts
+        ? { panelIds: opts.panelIds ?? [] }
+        : opts.pageIds?.length
+          ? { pageIds: opts.pageIds }
+          : undefined;
       const out = await render(deps, project, opts.chapterId, { ...v, language: opts.language, scope }, dir, progress);
       deps.logger.info("video export rendered", {
         exportJobId: job.id,
@@ -464,7 +477,9 @@ async function buildExport(
         loudness: undefined,
       });
       await progress(1);
-      const name = `${prefix}_${out.report.language}_${job.kind === "video_panels" ? "panel" : "page"}-cut_${v.height}p`;
+      const cut = shorts ? "shorts" : job.kind === "video_panels" ? "panel-cut" : "page-cut";
+      const shape = aspect === "16:9" ? "" : `_${aspect.replace(":", "x")}`;
+      const name = `${prefix}_${out.report.language}_${cut}${shape}_${v.height}p`;
       return [
         {
           name: `${name}.mp4`,

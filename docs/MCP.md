@@ -223,7 +223,7 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | Images | `get_image`: the picture itself (panel artwork, the lettered page, a reference, any project image) as MCP image content, `thumbnail` (384 px), `preview` (1024 px, default) or `large` (2048 px; a lettered page is capped at 1600 px). Images in the trash are refused. `manage_assets`: list the project's assets or its trash, trash, restore and permanently delete |
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
 | Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
-| Exports | `create_export`, `list_exports`, `delete_exports` |
+| Exports | `create_export`, `suggest_shorts`, `list_exports`, `delete_exports` |
 | Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` (extract a concept, premise, outline or YouTube text from a reply, then apply it; applying is sensitive) |
 
 Not exposed (UI/REST only): multipart uploads (project import, own artwork, masks, own references, expert image

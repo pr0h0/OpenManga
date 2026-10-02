@@ -7,9 +7,11 @@ import {
   motionPath,
   pageShotBox,
   panelShotBox,
+  SHORTS_MAX_MS,
   scrollPlan,
   shotGroups,
   timeGroup,
+  type VideoAspect,
   watermarkBox,
 } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
@@ -51,6 +53,8 @@ type PreviewShot = {
     shotType: string;
     frame: { x: number; y: number; width: number; height: number };
     aspect: number;
+    /** Cropped to fill the frame (vertical and square profiles). */
+    fill: boolean;
     focus: { x: number; y: number };
     art: { assetId: string; width: number; height: number; crop: Crop } | null;
   } | null;
@@ -90,13 +94,18 @@ const MOTION_LABEL: Record<Motion, string> = {
   "pan-down": "pan down",
 };
 
-export type PreviewScope = { chapterId?: string; pageId?: string; panelId?: string };
+export type PreviewScope = { chapterId?: string; pageId?: string; panelId?: string; panelIds?: string[] };
 
 const FPS = 30;
-const { frameW: W, frameH: H } = frameSizeFor(1080);
+/** The stage is the 1080p frame of the chosen shape, scaled to fit the window. */
+const stageSize = (aspect: VideoAspect) => {
+  const { frameW, frameH } = frameSizeFor(1080, aspect);
+  return { W: frameW, H: frameH };
+};
 
 type Options = {
   cut: "page" | "panel";
+  aspect: VideoAspect;
   minHoldMs: number;
   zoom: number;
   framing: "width" | "height" | "scroll";
@@ -121,7 +130,7 @@ type Timed = {
  * Timeline with the same holds as the final render: the intro card, the shared `timeGroup` over each run of shots a
  * narration line spans (narration + offsets + breath, at least the minimum per shot, whole frames), the outro card.
  */
-function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined) {
+function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined, capMs?: number) {
   let frames = 0;
   const at = (f: number) => (f * 1000) / FPS;
   const cues: { startMs: number; endMs: number; audioAssetId: string }[] = [];
@@ -157,6 +166,8 @@ function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Brandi
       members.length,
       { minHoldMs, fps: FPS },
     );
+    // A Shorts cut ends before the shot that would pass its length limit, as the render does.
+    if (capMs && timed.length && at(frames + timing.totalFrames) > capMs) break;
     const groupMs = at(frames);
     lines.forEach((l, k) => {
       l.voiced.forEach((x, j) => {
@@ -189,33 +200,34 @@ function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Brandi
 type PreviewUrls = {
   page: (pageId: string, updatedAt: string) => string;
   asset: (id: string, variant?: "web") => string;
-  card: (which: "intro" | "outro", version: string) => string;
+  card: (which: "intro" | "outro", version: string, aspect: VideoAspect) => string;
 };
 const signedInUrls = (projectId: string): PreviewUrls => ({
   page: (pageId, updatedAt) => `${API_BASE}/pages/${pageId}/render.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => assetUrl(id, variant),
-  card: (which, version) =>
-    `${API_BASE}/projects/${projectId}/video-card/${which}.png?height=${H}&v=${encodeURIComponent(version)}`,
+  card: (which, version, aspect) =>
+    `${API_BASE}/projects/${projectId}/video-card/${which}.png?${new URLSearchParams({ aspect, v: version })}`,
 });
 const sharedUrls = (token: string): PreviewUrls => ({
   page: (pageId, updatedAt) =>
     `${API_BASE}/public/shares/${token}/pages/${pageId}.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => `${API_BASE}/public/shares/${token}/assets/${id}${variant ? `?v=${variant}` : ""}`,
-  card: (which, version) =>
-    `${API_BASE}/public/shares/${token}/video-card/${which}.png?height=${H}&v=${encodeURIComponent(version)}`,
+  card: (which, version, aspect) =>
+    `${API_BASE}/public/shares/${token}/video-card/${which}.png?${new URLSearchParams({ aspect, v: version })}`,
 });
 const Urls = createContext<PreviewUrls>(sharedUrls(""));
 
 /** An entry of the timeline on the stage, with the logo over it, as the render composites it. */
 function StageFrame({ entry, t, o, branding }: { entry: Timed; t: number; o: Options; branding: Branding }) {
   const urls = useContext(Urls);
+  const { W, H } = stageSize(o.aspect);
   const wm = branding.watermark;
   const box = wm ? watermarkBox(W, H, wm, wm.corner, wm.size) : null;
   return (
     <>
       {entry.card ? (
         <img
-          src={urls.card(entry.card, branding.version)}
+          src={urls.card(entry.card, branding.version, o.aspect)}
           alt=""
           style={{ position: "absolute", inset: 0, width: W, height: H }}
         />
@@ -251,6 +263,7 @@ function ShotFrame(props: { shot: PreviewShot; t: number; holdMs: number; frames
 
 function ShotPicture({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdMs: number; o: Options }) {
   const urls = useContext(Urls);
+  const { W, H } = stageSize(o.aspect);
   const pg = shot.page;
   if (o.cut === "page" || !shot.panel) {
     const box = pageShotBox(pg.width, pg.height, W, H, o);
@@ -259,7 +272,7 @@ function ShotPicture({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; hol
     const top = box.h > H ? -(y0 + travel * t) : (H - box.h) / 2;
     return (
       <>
-        <Backdrop src={src} />
+        <Backdrop src={src} w={W} h={H} />
         <img
           key={src}
           src={src}
@@ -284,7 +297,7 @@ function ShotPicture({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; hol
           height: pn.frame.height * pg.height,
         },
       };
-  const box = panelShotBox(pn.aspect, W, H);
+  const box = pn.fill ? { full: true, w: W, h: H } : panelShotBox(pn.aspect, W, H);
   // zoompan's window: zoom z, sitting at (x, y) of the slack the zoom leaves.
   const m = motionAt(motionPath(shot.motion ?? "static", o.zoom, pn.focus), t);
   const vw = source.crop.width / m.z;
@@ -294,7 +307,7 @@ function ShotPicture({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; hol
   const s = box.w / vw;
   return (
     <>
-      {!box.full && <Backdrop src={source.src} />}
+      {!box.full && <Backdrop src={source.src} w={W} h={H} />}
       <div
         style={{
           position: "absolute",
@@ -323,7 +336,7 @@ function ShotPicture({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; hol
   );
 }
 
-function Backdrop({ src }: { src: string }) {
+function Backdrop({ src, w, h }: { src: string; w: number; h: number }) {
   return (
     <img
       key={src}
@@ -332,8 +345,8 @@ function Backdrop({ src }: { src: string }) {
       style={{
         position: "absolute",
         inset: 0,
-        width: W,
-        height: H,
+        width: w,
+        height: h,
         objectFit: "cover",
         filter: "blur(36px) brightness(0.55)",
         transform: "scale(1.12)",
@@ -372,6 +385,8 @@ export function VideoPreview({
   projectId,
   scope,
   defaultCut,
+  defaultAspect,
+  defaultMinHoldMs,
   title,
   shareToken,
 }: {
@@ -380,23 +395,34 @@ export function VideoPreview({
   projectId: string;
   scope: PreviewScope;
   defaultCut: "page" | "panel";
+  /** Frame shape to open with (a Shorts pick opens vertical). */
+  defaultAspect?: VideoAspect;
+  /** Minimum hold to open with. */
+  defaultMinHoldMs?: number;
   title: string;
   /** Played from a reader link: public, read-only routes, and nothing to render. */
   shareToken?: string;
 }) {
   const urls = useMemo(() => (shareToken ? sharedUrls(shareToken) : signedInUrls(projectId)), [shareToken, projectId]);
   const [o, setO] = useState<Options>({
-    cut: scope.panelId ? "panel" : defaultCut,
-    minHoldMs: 2500,
+    cut: scope.panelId || scope.panelIds ? "panel" : defaultCut,
+    aspect: defaultAspect ?? "16:9",
+    minHoldMs: defaultMinHoldMs ?? 2500,
     zoom: 0.06,
     framing: "width",
     pageWidthRatio: 0.6,
     pageHeightRatio: 0.96,
     maxScrollPxPerSec: 60,
   });
+  const { W, H } = stageSize(o.aspect);
   const params = new URLSearchParams({
     cut: o.cut,
-    ...Object.fromEntries(Object.entries(scope).filter(([, v]) => Boolean(v))),
+    aspect: o.aspect,
+    ...Object.fromEntries(
+      Object.entries(scope)
+        .filter(([, v]) => Boolean(v))
+        .map(([k, v]) => [k, Array.isArray(v) ? v.join(",") : v]),
+    ),
   });
   const preview = useQuery({
     queryKey: ["video-preview", params.toString()],
@@ -405,8 +431,14 @@ export function VideoPreview({
     enabled: open,
   });
   const timeline = useMemo(
-    () => buildTimeline(preview.data?.shots ?? [], o.minHoldMs, preview.data?.branding),
-    [preview.data, o.minHoldMs],
+    () =>
+      buildTimeline(
+        preview.data?.shots ?? [],
+        o.minHoldMs,
+        preview.data?.branding,
+        scope.panelIds ? SHORTS_MAX_MS : undefined,
+      ),
+    [preview.data, o.minHoldMs, scope.panelIds],
   );
 
   const [clock, setClock] = useState(0);
@@ -568,7 +600,7 @@ export function VideoPreview({
     const ro = new ResizeObserver(() => setStageW(Math.max(160, Math.min(el.clientWidth, (el.clientHeight * W) / H))));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [open, preview.data]);
+  }, [open, preview.data, W, H]);
 
   // Shot list and settings fold away; the choice is remembered in this browser.
   const [showLines, setShowLines] = useState(() => readFlag("om-preview-lines", true));
@@ -616,7 +648,7 @@ export function VideoPreview({
           fps: FPS,
           minHoldMs: o.minHoldMs,
           framing: o.framing,
-          pageWidthRatio: o.pageWidthRatio,
+          aspect: o.aspect,
           pageHeightRatio: o.pageHeightRatio,
           maxScrollPxPerSec: o.maxScrollPxPerSec,
           zoom: o.zoom,
@@ -780,7 +812,24 @@ export function VideoPreview({
             {showOptions && (
               <div className="shrink-0 space-y-2">
                 <div className="grid gap-3 sm:grid-cols-4">
-                  {!scope.panelId && (
+                  <Field label="Shape">
+                    <select
+                      className="input"
+                      value={o.aspect}
+                      onChange={(e) => {
+                        setPlaying(false);
+                        seek(0);
+                        const aspect = e.target.value as VideoAspect;
+                        // A narrow frame shows a page at its full width, as the render does.
+                        setO({ ...o, aspect, pageWidthRatio: aspect === "16:9" ? 0.6 : 1 });
+                      }}
+                    >
+                      <option value="16:9">16:9 landscape</option>
+                      <option value="9:16">9:16 vertical (Shorts)</option>
+                      <option value="1:1">1:1 square</option>
+                    </select>
+                  </Field>
+                  {!scope.panelId && !scope.panelIds && (
                     <Field label="Cut">
                       <select
                         className="input"
@@ -914,12 +963,16 @@ export function PreviewVideoButton({
   label = "Preview video",
   title,
   className = "btn-secondary",
+  defaultAspect,
+  defaultMinHoldMs,
 }: {
   projectId: string;
   scope: PreviewScope;
   label?: string;
   title: string;
   className?: string;
+  defaultAspect?: VideoAspect;
+  defaultMinHoldMs?: number;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -934,6 +987,8 @@ export function PreviewVideoButton({
           projectId={projectId}
           scope={scope}
           defaultCut="panel"
+          defaultAspect={defaultAspect}
+          defaultMinHoldMs={defaultMinHoldMs}
           title={title}
         />
       )}

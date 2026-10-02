@@ -8,9 +8,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 - **Music and ambience.** Background music per scene mood, ducked under narration before loudness normalisation,
   and ambience beds tagged from the scene's time, weather and mood. From a library the user supplies, so nothing
   with unclear licensing ships in the repository.
-- **Vertical video for Shorts.** A 9:16 (and 1:1) video profile for the renderer and preview, and a Shorts cut: a
-  30–60 s trailer built from key shots of a project. Framed from existing art rather than generated at 9:16, which
-  providers return squeezed.
 - **Incremental rendering.** Keep rendered sections between exports and re-render only what changed, driven by a
   dependency graph of what is stale (story → plan → prompts → art → narration → audio → render) with one "update
   production" action. Staleness already exists for narration audio, references and checks; loudness normalisation

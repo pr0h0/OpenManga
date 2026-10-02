@@ -10,7 +10,7 @@ export const exportTools = [
     name: "create_export",
     title: "Create export",
     description:
-      "Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.",
+      "Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts: 30–60 s, vertical by default). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.",
     input: ExportOptions.extend({ projectId: Uuid, idempotencyKey: IdempotencyKey }),
     output: z.object({ job: Passthrough }).passthrough(),
     scopes: ["exports:create"],
@@ -31,6 +31,31 @@ export const exportTools = [
       });
       return { data: { ...r, job: jobView(r.job) }, links: { exports: links(ctx).exports(projectId) } };
     },
+  }),
+
+  defineMcpTool({
+    name: "suggest_shorts",
+    title: "Suggest a Shorts cut",
+    description:
+      "Candidate shots for a Shorts cut (a 30–60 s trailer) of a chapter or the whole project: every panel in story order with its hold, narration text, a drama score and `picked` for the automatic choice (dramatic shots spread across the story). Change the pick freely, then render it with create_export kind=video_shorts and panelIds. Read-only.",
+    input: z.object({
+      projectId: Uuid,
+      chapterId: Uuid.optional(),
+      language: z.string().max(16).optional(),
+      minHoldMs: z.number().int().min(500).max(30_000).optional(),
+      targetSeconds: z.number().int().min(15).max(60).optional(),
+    }),
+    output: z.object({ shots: z.array(Passthrough) }).passthrough(),
+    scopes: ["exports:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/shorts"],
+    actionKeys: [],
+    handler: async ({ projectId, ...query }, ctx) => ({
+      data: await ctx.invoke<{ shots: Record<string, unknown>[] }>("GET", `/api/projects/${projectId}/shorts`, {
+        query,
+      }),
+    }),
   }),
 
   defineMcpTool({

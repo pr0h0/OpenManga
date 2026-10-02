@@ -26,6 +26,8 @@ export type VideoScope = {
   panelId?: string | null;
   /** A selection of pages (in reading order, whatever order they are given in). */
   pageIds?: string[] | null;
+  /** Panel cut: a selection of panels of the project, in story order whatever order they are given in (a Shorts cut). */
+  panelIds?: string[] | null;
 };
 
 type PageRow = typeof pages.$inferSelect & { chapterOrder: number };
@@ -74,7 +76,19 @@ export async function planVideoShots(
   scope: VideoScope,
   cut: VideoCut,
   language: string,
+  /** Frames of this aspect crop panel art to fill them (vertical and square profiles), which moves the focus. */
+  o: { cropAspect?: number } = {},
 ) {
+  const picked = scope.panelIds?.length ? new Set(scope.panelIds) : null;
+  const pickedPages = picked
+    ? (
+        await db
+          .selectDistinct({ id: panels.pageId })
+          .from(panels)
+          .where(and(eq(panels.projectId, project.id), inArray(panels.id, [...picked])))
+      ).map((r) => r.id)
+    : null;
+  if (pickedPages && !pickedPages.length) throw new Error("None of those panels are in this project");
   const panelRow = scope.panelId ? (await db.select().from(panels).where(eq(panels.id, scope.panelId)))[0] : null;
   if (scope.panelId && !panelRow) throw new Error("Panel not found");
   const pageId = scope.pageId ?? panelRow?.pageId ?? null;
@@ -86,11 +100,13 @@ export async function planVideoShots(
       .where(
         pageId
           ? eq(pages.id, pageId)
-          : scope.pageIds?.length
-            ? and(eq(chapters.projectId, project.id), inArray(pages.id, scope.pageIds))
-            : scope.chapterId
-              ? eq(pages.chapterId, scope.chapterId)
-              : eq(chapters.projectId, project.id),
+          : pickedPages
+            ? and(eq(chapters.projectId, project.id), inArray(pages.id, pickedPages))
+            : scope.pageIds?.length
+              ? and(eq(chapters.projectId, project.id), inArray(pages.id, scope.pageIds))
+              : scope.chapterId
+                ? eq(pages.chapterId, scope.chapterId)
+                : eq(chapters.projectId, project.id),
       )
       .orderBy(asc(chapters.order), asc(pages.order))
   ).map((r) => ({ ...r.page, chapterOrder: r.chapterOrder }));
@@ -121,7 +137,7 @@ export async function planVideoShots(
       ),
     ]),
   );
-  const off = (pn: PanelRow) => Boolean(pn.video?.disabled) && pn.id !== scope.panelId;
+  const off = (pn: PanelRow) => Boolean(pn.video?.disabled) && pn.id !== scope.panelId && !picked?.has(pn.id);
   const disabled = new Set(panelRows.filter(off).map((p) => p.id));
   const shot = (pg: PageRow, panel: PanelRow | null, k: number | null, label: string): PlannedShot => ({
     key: panel?.id ?? pg.id,
@@ -171,6 +187,7 @@ export async function planVideoShots(
       s?.lineIds.push(l.id);
     }
     if (scope.panelId) shots = shots.filter((s) => s.panel!.id === scope.panelId);
+    if (picked) shots = shots.filter((s) => picked.has(s.panel!.id));
   }
   if (!shots.length) throw new Error("There are no panels to render");
 
@@ -180,7 +197,7 @@ export async function planVideoShots(
   for (const l of lines) {
     const from = shotOfLine.get(l.id);
     const to = l.video?.untilPanelId ? shotOfPanel.get(l.video.untilPanelId) : undefined;
-    if (from === undefined || to === undefined || scope.panelId) continue;
+    if (from === undefined || to === undefined || scope.panelId || picked) continue;
     for (let i = from; i < Math.min(to, shots.length - 1); i++) shots[i]!.joinNext = true;
   }
 
@@ -201,7 +218,7 @@ export async function planVideoShots(
       const pn = s.panel!;
       s.art = arts.find((a) => a.id === pn.activeArtworkAssetId) ?? null;
       if (s.art?.width && s.art.height)
-        s.focus = focusInCrop(s.art.width, s.art.height, panelAspect(pn, s.page), pn.imageTransform);
+        s.focus = focusInCrop(s.art.width, s.art.height, o.cropAspect ?? panelAspect(pn, s.page), pn.imageTransform);
     }
     const motions = resolveMotions(
       shots.map((s) => ({ motion: s.panel!.video?.motion, shotType: s.panel!.shotType, focus: s.focus })),
@@ -218,7 +235,8 @@ export async function planVideoShots(
       !(l.panelId && disabled.has(l.panelId)) &&
       !scope.pageId &&
       !scope.pageIds?.length &&
-      !scope.panelId,
+      !scope.panelId &&
+      !picked,
   ).length;
   return { shots, lines, unplacedLines, disabledPanels: disabled.size };
 }
