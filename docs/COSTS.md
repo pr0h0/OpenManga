@@ -147,8 +147,10 @@ activated), and a batch that expires or returns nothing for a request fails that
 it waiting.
 
 A run bigger than the provider's batch queue (OpenAI's enqueued-token limit per model, 1M tokens for gpt-image-2 on
-a low tier) is not failed when the queue is full. The overflow waits, shown as "waiting for room in the provider's
-batch queue", and is submitted as earlier batches finish. A refused batch costs nothing. See
+a low tier) is not failed when the queue is full. At most `BATCH_MAX_IN_FLIGHT_IMAGE` (4) image batches and
+`BATCH_MAX_IN_FLIGHT_TEXT` (16) text batches per model are in flight on one user's key at once. The overflow waits,
+shown as "waiting for room in the provider's batch queue", and is submitted as earlier batches finish. If the
+provider still refuses one, it waits the same way. A refused batch costs nothing. See
 [AI_PIPELINE](AI_PIPELINE.md#provider-batches-half-price-up-to-24h).
 
 ## Presets and policies that spend less

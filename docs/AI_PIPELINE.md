@@ -407,6 +407,13 @@ so (`apps/worker/src/lib/batch-wait.ts`):
   exists under its old key, and reusing that key would adopt the refusal instead of submitting again.
 - After 24 hours of waiting the jobs fail with `batch_queue_full` and say why. By then every earlier batch has
   completed or expired, so something else is holding the queue.
+- Most refusals are avoided up front: a key may have at most `BATCH_MAX_IN_FLIGHT_IMAGE` (4) image batches and
+  `BATCH_MAX_IN_FLIGHT_TEXT` (16) text batches in flight per provider and model (queued or running at the provider;
+  0 = no limit). The submitter checks the count before it builds any request, submits only as many chunks as fit, and
+  holds the rest as `queueWait.held`. Held jobs show as waiting too, but the poller retries them on every pass,
+  after ingesting, so a slot freed by a finished batch is filled in the same pass. They have no deadline, and they
+  keep their idempotency round, because nothing was sent. The count is per user rather than per credential: one user
+  with two keys for the same provider shares one limit.
 - The batch banner and `GET /api/projects/:projectId/generations/batches` show the state `waiting` (or `submitted`
   while other chunks are at the provider) with `queueWaitUntil`: "waiting for room in the provider's batch queue,
   next try at HH:MM". Pause and cancel work as for any queued batch job. The maintenance sweep for stranded batch

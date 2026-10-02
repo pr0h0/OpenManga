@@ -13,7 +13,7 @@ import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { withBatchClaim } from "../lib/batch-claim.ts";
-import { isQueueFull, roundSuffix, waitForBatchRoom } from "../lib/batch-wait.ts";
+import { holdForSlot, inFlightBatches, isQueueFull, roundSuffix, waitForBatchRoom } from "../lib/batch-wait.ts";
 import { type GenerationJob, inProject, recordTextCalls } from "../lib/runner.ts";
 import { BatchCollector, ParkedForBatch } from "../lib/text-batch-provider.ts";
 import { TEXT_HANDLERS } from "./text-handlers.ts";
@@ -75,6 +75,11 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
     return { submitted: 0, batches: 0, fellBack: pending.length };
   }
 
+  // Checked before collecting: collecting runs every job's handler up to its provider call.
+  const limit = deps.config.BATCH_MAX_IN_FLIGHT_TEXT;
+  const free = limit ? limit - (await inFlightBatches(deps, job.userId, provider.provider, provider.model)) : Infinity;
+  if (free <= 0) return { submitted: 0, batches: 0, fellBack: 0, ...(await holdForSlot(deps, pending, limit)) };
+
   const specs: TextBatchRequestSpec[] = [];
   const byKey = new Map<string, GenerationJob>();
   for (const p of pending) {
@@ -97,6 +102,7 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   let refused: unknown = null;
   const chunks = provider.chunk(specs);
   for (const chunk of chunks) {
+    if (accepted >= free) break;
     const keys = chunk.map((c) => c.key);
     const idempotencyKey = `${batchId}:text:${hashOf([...keys].sort()).slice(0, 16)}${roundSuffix(keys.map((k) => byKey.get(k)!))}`;
     try {
@@ -164,10 +170,12 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
     }
   }
   deps.logger.info("submitted text batches", { batchId, jobs: submitted, batches: accepted });
-  if (refused) {
+  if (accepted < chunks.length) {
     const done = new Set(chunks.slice(0, accepted).flatMap((c) => c.map((r) => r.key)));
     const left = [...byKey.values()].filter((j) => !done.has(j.id));
-    const wait = await waitForBatchRoom(deps, left, refused instanceof Error ? refused.message : String(refused));
+    const wait = refused
+      ? await waitForBatchRoom(deps, left, refused instanceof Error ? refused.message : String(refused))
+      : await holdForSlot(deps, left, limit);
     return { submitted, batches: accepted, fellBack: 0, ...wait };
   }
   return { submitted, batches: chunks.length, fellBack: 0 };

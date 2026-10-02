@@ -16,7 +16,14 @@ import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { withBatchClaim } from "../lib/batch-claim.ts";
-import { dueWaitingJobs, isQueueFull, roundSuffix, waitForBatchRoom } from "../lib/batch-wait.ts";
+import {
+  dueWaitingJobs,
+  holdForSlot,
+  inFlightBatches,
+  isQueueFull,
+  roundSuffix,
+  waitForBatchRoom,
+} from "../lib/batch-wait.ts";
 import { type GenerationJob, inProject, pausedByBudget } from "../lib/runner.ts";
 import {
   activatePanelArt,
@@ -95,6 +102,11 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
     return { submitted: 0, batches: 0, fellBack: pending.length };
   }
 
+  // Checked before building any request: a held run would otherwise read every reference file on every poll.
+  const limit = deps.config.BATCH_MAX_IN_FLIGHT_IMAGE;
+  const free = limit ? limit - (await inFlightBatches(deps, job.userId, provider.provider, provider.model)) : Infinity;
+  if (free <= 0) return { submitted: 0, batches: 0, fellBack: 0, ...(await holdForSlot(deps, pending, limit)) };
+
   const specs: BatchRequestSpec[] = [];
   for (const p of pending) specs.push(await specFor(deps, p));
   const chunks = provider.chunk(specs);
@@ -103,6 +115,7 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   let accepted = 0;
   let refused: unknown = null;
   for (const chunk of chunks) {
+    if (accepted >= free) break;
     const keys = chunk.map((c) => c.key);
     const idempotencyKey = `${batchId}:${hashOf([...keys].sort()).slice(0, 16)}${roundSuffix(keys.map((k) => byId.get(k)!))}`;
     try {
@@ -173,10 +186,12 @@ export async function imageBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
     }
   }
   deps.logger.info("submitted image batches", { batchId, panels: submitted, batches: accepted });
-  if (refused) {
+  if (accepted < chunks.length) {
     const done = new Set(chunks.slice(0, accepted).flatMap((c) => c.map((r) => r.key)));
     const left = pending.filter((p) => !done.has(p.id));
-    const wait = await waitForBatchRoom(deps, left, refused instanceof Error ? refused.message : String(refused));
+    const wait = refused
+      ? await waitForBatchRoom(deps, left, refused instanceof Error ? refused.message : String(refused))
+      : await holdForSlot(deps, left, limit);
     return { submitted, batches: accepted, fellBack: 0, ...wait };
   }
   return { submitted, batches: chunks.length, fellBack: 0 };
@@ -229,7 +244,6 @@ async function sweepUnsubmittedJobs(deps: WorkerDeps) {
 
 /** Polls every unfinished batch and ingests the ones that are done. Called from the scheduler. */
 export async function pollProviderBatches(deps: WorkerDeps) {
-  const swept = await sweepUnsubmittedJobs(deps).catch(() => 0);
   const rows = await deps.db
     .select()
     .from(providerBatches)
@@ -241,7 +255,7 @@ export async function pollProviderBatches(deps: WorkerDeps) {
         inArray(providerBatches.state, ["pending", "running", "succeeded", "partial", "failed", "expired"]),
       ),
     );
-  const result = { polled: 0, ingested: 0, failed: 0, swept, expired: 0 };
+  const result = { polled: 0, ingested: 0, failed: 0, swept: 0, expired: 0 };
   // A batch nothing can poll any more (the credential is gone, or the provider dropped the handle) would park its
   // jobs indefinitely: nothing else watches "submitted". Gemini expires at 48h, so 50h is past every live batch.
   const tooOld = new Date(Date.now() - 50 * 3600_000);
@@ -257,6 +271,8 @@ export async function pollProviderBatches(deps: WorkerDeps) {
     }
     result.polled++;
   }
+  // After the polls, so a slot freed by a batch that just finished is filled in the same pass.
+  result.swept = await sweepUnsubmittedJobs(deps).catch(() => 0);
   return result;
 }
 

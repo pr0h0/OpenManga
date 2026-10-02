@@ -134,6 +134,13 @@ const EnvSchema = z.object({
    * submitter keeps 20% headroom under this figure.
    */
   OPENAI_BATCH_MAX_ENQUEUED_TOKENS: int(1_000_000),
+  /**
+   * Most provider batches one key may have in flight per model at once; more chunks wait as "waiting for room"
+   * and go as earlier ones finish, instead of being submitted and refused over the provider's enqueued limit.
+   * 0 = no limit. Images are the heavy ones (four 80%-of-limit chunks already overshoot a 1M-token queue).
+   */
+  BATCH_MAX_IN_FLIGHT_IMAGE: int(4),
+  BATCH_MAX_IN_FLIGHT_TEXT: int(16),
   /** Poll interval for submitted provider batches. They target 24h, so there is nothing to gain from seconds. */
   BATCH_POLL_INTERVAL_SECONDS: int(300),
   /**
