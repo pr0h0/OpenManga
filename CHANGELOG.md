@@ -7,10 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project, `0024_project_invites` a table for invitations, `0025_panel_comments` tables for comments and notifications).
+Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project, `0024_project_invites` a table for invitations, `0025_panel_comments` tables for comments and notifications, `0026_panel_guide` a nullable JSON column for layout guides).
 
 ### Added
 
+- **Pose and sketch guides.** A panel can carry a layout guide: upload a rough sketch, stick-figure pose or
+  composition thumbnail in the panel inspector, or draw one there (pen in three widths, straight lines, eraser,
+  undo/redo, posable stick figures, the panel's art faintly underneath for tracing; mouse, pen or touch). Generate
+  and Regenerate attach it as a small reference after the identity, location, prop and style references and before
+  the previous panel, and the prompt (`panel-generation` v9) tells the model to take its composition, framing and
+  poses only, loosely or strictly, never its drawing style or any text. Masked edits leave it out. Duplicating a
+  panel or project keeps it, the interchange export and import carry it, and agents set or clear it with
+  `update_panel` (`guide`, pointing at any image of the project). New routes: `POST /api/panels/:id/guide`, and
+  `guide` on `PATCH /api/panels/:id`.
 - **Project members.** An owner invites people by username or email as editors or viewers (**Members** on the
   project overview); an invited account accepts or declines on the dashboard, and an emailed link (one-time, 7 days)
   accepts it or creates the account for that address, even with registration closed. Owners change roles, remove

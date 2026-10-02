@@ -187,7 +187,7 @@ describe("panel prompt compilation", () => {
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
-    expect(panelGenerationV1.version).toBe(8);
+    expect(panelGenerationV1.version).toBe(9);
     expect(p.startsWith("Create one cinematic 16:9 film frame")).toBe(true);
     expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
     expect(p).not.toContain("panel,");
@@ -202,6 +202,16 @@ describe("panel prompt compilation", () => {
   test("previous panel is continuity only, never identity", () => {
     const p = panelGenerationV1.compile({ ...base, previousPanelImageIndex: 2 });
     expect(p).toMatch(/reference image 2 is the previous panel, for continuity of setting and lighting ONLY/i);
+  });
+
+  test("a layout guide is composition and poses only, worded by strength", () => {
+    expect(panelGenerationV1.compile(base)).not.toContain("layout/pose sketch");
+    const loose = panelGenerationV1.compile({ ...base, guide: { imageIndex: 3, strength: "loose" } });
+    expect(loose).toContain("Reference image 3 is a rough layout/pose sketch: use it as a loose guide");
+    expect(loose).toContain("Ignore its drawing style, line quality and any text");
+    const strict = panelGenerationV1.compile({ ...base, guide: { imageIndex: 3, strength: "strict" } });
+    expect(strict).toContain("Reference image 3 is a rough layout/pose sketch: follow its composition, framing");
+    expect(strict).not.toContain("loose guide");
   });
 
   test("empty panel says no people", () => {

@@ -8,7 +8,7 @@
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
 | Narration text | `narration_text` / text-ai | `narration` v5 | narration lines → TTS segments |
 | References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v8 | a new `panel_art` asset, activated on the panel |
+| Panels | `panel_generation` / image-generation | `panel-generation` v9 | a new `panel_art` asset, activated on the panel |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
@@ -22,6 +22,13 @@ Narration synthesis and exports are separate job families (`audio_jobs` on the `
 A job keeps its row, compiled prompt and cost after its image is deleted: the generation history then shows the
 output as deleted (`outputDeleted`) instead of the picture, and the job's page offers **Restore image** while the
 image is still in the trash.
+
+A panel generation attaches, in this order and at most eight: the approved character references (each followed by
+the reference of the outfit worn), the location, the props, the project style, the panel's **layout guide** (a
+sketch or pose the user uploaded or drew, role `layout_guide`, always given a slot), and last the previous panel of
+the scene for continuity only. The prompt names each one; the guide is read for composition, framing and poses only
+(`loose` or `strict`), never for style or identity, and masked edits leave it out. Details and the reasons for the
+order are in `docs/IMAGE_REFERENCES.md`.
 
 The video thumbnail (`POST /api/projects/:projectId/thumbnail`, same body as the cover plus `side: left|right`) draws
 16:9 art that keeps that side dark and clear. The title and subtitle stay text in `settings.thumbnail`, and

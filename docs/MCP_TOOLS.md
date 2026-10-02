@@ -5251,7 +5251,7 @@ One panel: fields (shot, camera, story beat, cast/location/prop versions, prompt
 
 ### update_panel
 
-Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
+Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
 
 - **Scopes:** `panels:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -5464,6 +5464,34 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
               "type": "boolean"
             }
           }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "guide": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "strength": {
+              "default": "loose",
+              "type": "string",
+              "enum": [
+                "loose",
+                "strict"
+              ]
+            }
+          },
+          "required": [
+            "assetId"
+          ]
         },
         {
           "type": "null"

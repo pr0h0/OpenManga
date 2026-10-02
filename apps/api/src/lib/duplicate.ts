@@ -311,6 +311,8 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         ids.set(pg.id, npg!.id);
         for (const pn of await tx.select().from(panels).where(eq(panels.pageId, pg.id))) {
           const art = await copyAsset(pn.activeArtworkAssetId);
+          // The guide must be the copy's own image too: generation only sends an image of the panel's own project.
+          const guide = pn.guide && (await copyAsset(pn.guide.assetId));
           const [npn] = await tx
             .insert(panels)
             .values({
@@ -323,6 +325,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
               characterVersionIds: mapArr(pn.characterVersionIds),
               propVersionIds: mapArr(pn.propVersionIds),
               activeArtworkAssetId: art,
+              guide: pn.guide && guide ? { ...pn.guide, assetId: guide } : null,
               status: art
                 ? "ready"
                 : pn.status === "ready"

@@ -55,6 +55,7 @@ import {
   CameraAngle,
   Frame,
   ImageTransform,
+  PanelGuide,
   PanelSeam,
   PanelSpec,
   SfxStyle,
@@ -677,6 +678,11 @@ export const PatchPanel = z.object({
   seam: PanelSeam.nullable().optional(),
   /** The panel as a video shot: camera motion, fade at the cut into it, disabled. Null resets every default. */
   video: ShotVideo.nullable().optional(),
+  /**
+   * Layout sketch sent with the generation (composition and poses only): any image asset of this project, e.g. one
+   * uploaded with POST /api/panels/:id/guide. Null removes it.
+   */
+  guide: PanelGuide.nullable().optional(),
   /** Clear-only: prepared prompt text is written by the text model, never authored by hand through this route. */
   promptDraft: z.null().optional(),
   approvalStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),
@@ -720,6 +726,21 @@ pageRoutes.patch("/panels/:id", async (c) => {
       .innerJoin(props, eq(props.id, propVersions.propId))
       .where(and(inArray(propVersions.id, input.propVersionIds), eq(props.projectId, project.id)));
     if (found.length !== new Set(input.propVersionIds).size) throw badRequest("Unknown prop version");
+  }
+  // The guide is sent to the image model, so it must be an image of this project that is not in the trash.
+  if (input.guide) {
+    const [a] = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.id, input.guide.assetId),
+          eq(assets.projectId, project.id),
+          isNull(assets.deletedAt),
+          inArray(assets.type, [...GUIDE_ASSET_TYPES]),
+        ),
+      );
+    if (!a) throw badRequest("Unknown guide image: use an image asset of this project");
   }
   const set: Partial<typeof panels.$inferInsert> = {
     ...input,
@@ -1112,6 +1133,58 @@ pageRoutes.post("/panels/:id/mask", async (c) => {
     metadata: { panelId: panel.id, sourceAssetId: panel.activeArtworkAssetId },
   });
   return c.json({ asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
+});
+
+/** Images a panel guide may point at: uploads, references and artwork. Masks, derivatives and exports are not art. */
+const GUIDE_ASSET_TYPES = [
+  "source_image",
+  "panel_art",
+  "character_reference",
+  "location_reference",
+  "prop_reference",
+  "style_reference",
+  "cover",
+] as const;
+
+doc({
+  method: "POST",
+  path: "/api/panels/:id/guide",
+  summary:
+    "Upload a layout guide for the panel (multipart: file, optional strength=loose|strict): a rough sketch, pose or composition thumbnail sent with generation for its layout only. Replaces any current guide; clear it with PATCH guide: null.",
+  tag: "panels",
+});
+pageRoutes.post("/panels/:id/guide", async (c) => {
+  const { panel, project } = await loadPanel(c, uuidParam(c, "id"), "write");
+  if (panel.approvalStatus === "locked") throw conflict("Panel is locked");
+  const up = await readImageUpload(c);
+  const strength = PanelGuide.shape.strength.safeParse(up.form.get("strength") ?? undefined);
+  if (!strength.success) throw badRequest("strength must be loose or strict");
+  const deps = c.get("deps");
+  const asset = await deps.assets.store({
+    projectId: project.id,
+    ownerUserId: user(c).id,
+    type: "source_image",
+    data: up.data,
+    mimeType: up.mime,
+    width: up.width,
+    height: up.height,
+    metadata: { role: "panel_guide", panelId: panel.id, originalName: up.originalName },
+  });
+  const [row] = await deps.db
+    .update(panels)
+    .set({ guide: { assetId: asset.id, strength: strength.data } })
+    .where(eq(panels.id, panel.id))
+    .returning();
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: project.id,
+    action: "panel.guide",
+    targetType: "panel",
+    targetId: panel.id,
+    metadata: { assetId: asset.id, bytes: up.data.byteLength },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ panel: row, asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
 });
 
 export const EditInput = z.object({

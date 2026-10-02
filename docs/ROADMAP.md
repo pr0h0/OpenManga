@@ -10,8 +10,6 @@ Only unfinished work: what is being considered, and what will not be built. Ever
   with unclear licensing ships in the repository.
 - **Translated lettering.** Translate bubbles and captions per language and export each edition from the same art,
   as narration already is per language.
-- **Pose and sketch guides.** Upload a rough sketch or pose for a panel and send it with the prompt as a layout
-  reference, for fewer rerolls.
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
   Burns shots. Costly per clip, so opt-in and budgeted.

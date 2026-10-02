@@ -183,6 +183,13 @@
       "when": 1790956029353,
       "tag": "0025_panel_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790958614318,
+      "tag": "0026_panel_guide",
+      "breakpoints": true
     }
   ]
 }

@@ -1006,6 +1006,7 @@ export async function buildInterchange(
           .from(outfitAssignments)
           .where(eq(outfitAssignments.panelId, pn.id))
           .orderBy(asc(outfitAssignments.createdAt), asc(outfitAssignments.id));
+        const guideAsset = await assetRef(pn.guide?.assetId ?? null, "guides");
         panelDocs.push({
           ref: `pn-${pn.id}`,
           order: pn.order,
@@ -1038,6 +1039,7 @@ export async function buildInterchange(
           },
           outfits: worn.map((w) => ({ character: `c-${w.characterId}`, outfit: `o-${w.outfitId}`, scope: w.scope })),
           video: pn.video ?? null,
+          guide: guideAsset && pn.guide ? { asset: guideAsset, strength: pn.guide.strength } : null,
         });
       }
       pageDocs.push({
