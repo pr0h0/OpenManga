@@ -12,8 +12,10 @@ service, which speaks the real provider wire formats.
 | Deployment smoke | `bun scripts/smoke.ts http://nginx` | a running stack |
 
 Run them inside a container to keep the host clean: `./scripts/bunx.sh <cmd>` mounts the repo into
-`oven/bun:1.4-debian`, joins the `openmanga_internal` network when it exists, and caches installs in the
-`openmanga-bun-cache` volume (`OM_ENV_FILE` and `OM_DOCKER_ARGS` are passed through).
+`oven/bun:1.4-debian` and caches installs in the `openmanga-bun-cache` volume (`OM_ENV_FILE` and `OM_DOCKER_ARGS`
+are passed through). It joins a Docker network only when you name one in `OM_NETWORK`, e.g.
+`OM_NETWORK=openmanga_internal` to reach the compose stack's `postgres` and `redis`; never point tests at a
+production stack's network.
 
 ## Unit
 
@@ -51,7 +53,7 @@ database and removes both directories. Config is fixed to `AI_MOCK_MODE=true`, `
 `app.request()` in-process via a cookie- and CSRF-jar client, so nothing listens on a port.
 
 ```bash
-./scripts/bunx.sh env TEST_DATABASE_URL=postgres://openmanga:<pw>@postgres:5432/openmanga bun test tests/integration
+OM_NETWORK=openmanga_internal ./scripts/bunx.sh env TEST_DATABASE_URL=postgres://openmanga:<pw>@postgres:5432/openmanga bun test tests/integration
 ```
 
 The suite runs against a bucket instead when the environment sets `STORAGE_DRIVER=s3` and the `S3_*` settings (for
