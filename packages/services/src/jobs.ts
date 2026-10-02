@@ -40,7 +40,12 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
 };
 
 type ExportKind = (typeof exportJobs.$inferSelect)["kind"];
-const RENDER_KINDS: ReadonlySet<ExportKind> = new Set(["video_pages", "video_panels", "project_import"]);
+const RENDER_KINDS: ReadonlySet<ExportKind> = new Set([
+  "video_pages",
+  "video_panels",
+  "video_shorts",
+  "project_import",
+]);
 
 /** Video renders and imports take the `render` queue, so a long render never holds up a PDF or a ZIP. */
 export const exportQueueFor = (kind: ExportKind): QueueName => (RENDER_KINDS.has(kind) ? "render" : "export");

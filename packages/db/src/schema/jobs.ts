@@ -189,6 +189,8 @@ export type ExportKind =
   | "agent_package"
   | "video_pages"
   | "video_panels"
+  /** A 30–60 s trailer of picked panels, vertical by default. */
+  | "video_shorts"
   /** The newest video of the scope, its thumbnail, subtitles, chapter timestamps and publishing text, zipped. */
   | "youtube_package"
   | "project_import";

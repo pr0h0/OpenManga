@@ -1,14 +1,18 @@
 import { expect, test } from "bun:test";
 import {
   cardFrames,
+  cropsToFrame,
   fadeCuts,
   fadeFrames,
   fadeOpacity,
+  frameSizeFor,
   holdFor,
+  lineDrama,
   motionAt,
   motionPath,
   pageShotBox,
   panelShotBox,
+  pickShorts,
   resolveMotions,
   scrollPlan,
   shotGroups,
@@ -164,4 +168,47 @@ test("branding: the watermark box sits in its corner with even sizes; cards are 
   });
   expect(cardFrames(3000, 30)).toBe(90);
   expect(cardFrames(1500, 24)).toBe(36);
+});
+
+test("frame profiles: the height is the short side of landscape, vertical and square frames", () => {
+  expect(frameSizeFor(1080)).toEqual({ frameW: 1920, frameH: 1080 });
+  expect(frameSizeFor(1080, "9:16")).toEqual({ frameW: 1080, frameH: 1920 });
+  expect(frameSizeFor(720, "1:1")).toEqual({ frameW: 720, frameH: 720 });
+  expect(cropsToFrame("16:9")).toBe(false);
+  expect(cropsToFrame("9:16")).toBe(true);
+});
+
+test("Shorts pick: dramatic shots spread across the story, within the length, in story order, never without art", () => {
+  const shot = (id: string, shotType: string, text = "", holdMs = 5000, hasArt = true) => ({
+    id,
+    shotType,
+    text,
+    holdMs,
+    hasArt,
+  });
+  expect(lineDrama("")).toBe(0);
+  expect(lineDrama("Run!")).toBeGreaterThan(
+    lineDrama("They walked home slowly through the quiet streets of the town."),
+  );
+  const story = [
+    shot("a", "wide", "The city sleeps."),
+    shot("b", "close", "Who's there?!"),
+    shot("c", "medium"),
+    shot("d", "medium"),
+    shot("e", "extreme-close", "Blood on the blade!"),
+    shot("f", "medium"),
+    shot("g", "medium"),
+    shot("h", "insert", "The secret letter."),
+    shot("i", "medium", "", 5000, false),
+    shot("j", "close", "Never again!", 5000, false),
+    shot("k", "medium"),
+    shot("l", "full"),
+  ];
+  expect(pickShorts(story, { targetMs: 20_000, minMs: 15_000, maxMs: 25_000 })).toEqual(["b", "e", "f", "h"]);
+  // Too long: the weakest go until it fits; too short: everything usable is taken.
+  expect(pickShorts(story, { targetMs: 20_000, minMs: 5000, maxMs: 10_000 })).toEqual(["b", "e"]);
+  expect(pickShorts(story.slice(0, 3), { targetMs: 45_000, minMs: 30_000, maxMs: 60_000 })).toEqual(["a", "b", "c"]);
+  expect(pickShorts([shot("x", "close", "", 5000, false)], { targetMs: 45_000, minMs: 30_000, maxMs: 60_000 })).toEqual(
+    [],
+  );
 });

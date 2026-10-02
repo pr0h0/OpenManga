@@ -1,7 +1,8 @@
 # Video export — how the exporter works
 
-Two export kinds render a narrated MP4 from a project: `video_pages` (page cut, one shot per page) and
-`video_panels` (panel cut, one shot per panel, Ken Burns move). Both are deterministic ffmpeg compositions with no
+Three export kinds render a narrated MP4 from a project: `video_pages` (page cut, one shot per page),
+`video_panels` (panel cut, one shot per panel, Ken Burns move) and `video_shorts` (a 30–60 s trailer of picked panels,
+vertical by default; see Shorts cut). All are deterministic ffmpeg compositions with no
 AI anywhere in them, consistent with the invariant that exports are deterministic compositions. `ffmpeg` is already
 a dependency of `packages/audio` (`ffmpegConvert`) for audio transcode and loudness normalisation, and `ffprobe` is
 used for the final duration check.
@@ -32,12 +33,13 @@ Defaults from the export request schema; every value is overridable per export.
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `height` | `1080` | `720`, `1080` or `1440`; width is derived 16:9 and forced even (`frameSizeFor`) |
+| `height` | `1080` | `720`, `1080` or `1440`: the frame's short side (`frameSizeFor`), the long side derived and forced even |
+| `aspect` | `"16:9"` | `"9:16"` (vertical) or `"1:1"` (square); `video_shorts` defaults to `"9:16"`. See frame profiles |
 | `fps` | `30` | 12–60 |
 | `minHoldMs` | `2500` | Floor on every shot. The Exports page pre-fills it with the project's target runtime `minShotSeconds` when one is set; the API default is unchanged |
 | `breathMs` | `150` | Silence after a shot's narration before the cut (`VIDEO_BREATH_MS`) |
 | `framing` | `"width"` | Page cut: `width` = page at `pageWidthRatio` with a capped scroll; `height` = whole page; `scroll` = the `width` box travelling the whole page over its hold |
-| `pageWidthRatio` | `0.6` | Page cut, `framing: "width"` or `"scroll"` |
+| `pageWidthRatio` | `0.6`, or `1` vertical/square | Page cut, `framing: "width"` or `"scroll"` |
 | `pageHeightRatio` | `0.96` | Page cut, `framing: "height"` |
 | `maxScrollPxPerSec` | `60` | Scroll-rate cap for the page cut |
 | `zoom` | `0.06` | Panel cut: camera travel over the hold (6% zoom, or the slack a pan crosses) |
@@ -45,6 +47,40 @@ Defaults from the export request schema; every value is overridable per export.
 | `maxDurationMs` | unset | Partial render: stop after the shot that reaches this length (10 s to 24 h); see below |
 
 Outside the `video` bucket, the request's `pageIds` (up to 500) narrows the film to those pages; see the shot list.
+
+## Frame profiles
+
+`aspect` picks the frame: 1080 gives 1920×1080 landscape, 1080×1920 vertical (Shorts, Reels, TikTok) or 1080×1080
+square. Nothing is generated at the new shape — image providers return 9:16 squeezed — so every profile is framed from
+the existing art:
+
+- **Panel cut.** Landscape keeps the whole panel as before (fitted over a blurred copy when its shape differs).
+  Vertical and square frames (`cropsToFrame`) instead crop each panel's artwork to the frame's own shape around the
+  panel's focal point (`computeCrop` with the panel's image transform, the same helper as the page crop), so the shot
+  fills the frame, and the move is anchored on the focus inside that crop (`focusInCrop`). A panel without artwork
+  keeps its fitted lettered crop.
+- **Page cut.** The page fills the frame's width (`pageWidthRatio` 1) and scrolls as before.
+- **Cards and watermark** are drawn at the frame's size (`?aspect=` on the card route).
+
+The preview has the same Shape setting and plays the same crops (`fill` on each panel of the shot list).
+
+## Shorts cut
+
+`video_shorts` renders picked panels as a trailer: `panelIds` (1–100, panels of the project) played in story order
+whatever order they are given in, each shot with its own narration (a line attached only to a page plays over that
+page's first panel when that panel is picked; spans are ignored), at most `SHORTS_MAX_MS` (60 s): the film ends before
+the shot that would pass it. It has no intro or outro card (the watermark stays) and its readiness check is empty,
+since the picker only offers panels with artwork. Files are named `…_shorts_9x16_1080p.mp4`.
+
+`GET /api/projects/:projectId/shorts?chapterId=&minHoldMs=&targetSeconds=` (MCP `suggest_shorts`) lists every panel of
+the chapter or project as a candidate with its hold (its own narration through `timeGroup`, at least `minHoldMs`), its
+narration text, a drama score and the automatic pick. `pickShorts` (`packages/domain/src/video.ts`) scores a shot by
+its type (extreme close-ups, close-ups and inserts first) plus its line (`lineDrama`: exclamations, questions, short
+punchy lines, words of sudden action), splits the story into as many stretches as shots fit the target (45 s) and takes
+the best of each, so the trailer spans the whole story rather than its opening; then drops the weakest until it fits
+60 s and adds the strongest left over until it reaches 30 s. On the Exports page (*Shorts*) the pick is a checklist with
+the running length; change it, preview it (`/api/video-preview?panelIds=…&aspect=9:16`, which applies the same 60 s
+limit) and render it.
 
 Encoding: H.264 `-preset veryfast -crf 20` per clip (`-tune stillimage` for the page cut, which is a still image
 under a crop; not for the panel cut, where `zoompan` moves every frame), AAC 192 kbit/s 48 kHz stereo on the mux,

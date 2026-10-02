@@ -9,7 +9,7 @@ import { body, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { failureGuard } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 import { sendAsset } from "./assets.ts";
-import { previewPayload, videoCardResponse } from "./video.ts";
+import { CardQuery, previewPayload, videoCardResponse } from "./video.ts";
 
 /** Managing a project's read-only links: signed-in members only. */
 export const shareRoutes = new Hono<AppEnv>();
@@ -167,7 +167,11 @@ publicShareRoutes.get("/shares/:token/pages/:file", async (c) => {
   return sendAsset(c, asset, { cacheControl: "public, max-age=300", variants: false });
 });
 
-const SharedPreview = z.object({ chapterId: z.string().uuid(), cut: z.enum(["page", "panel"]).default("panel") });
+const SharedPreview = z.object({
+  chapterId: z.string().uuid(),
+  cut: z.enum(["page", "panel"]).default("panel"),
+  aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
+});
 doc({
   method: "GET",
   path: "/api/public/shares/:token/video-preview",
@@ -186,7 +190,9 @@ publicShareRoutes.get("/shares/:token/video-preview", async (c) => {
     .from(chapters)
     .where(and(eq(chapters.id, q.chapterId), eq(chapters.projectId, p.id)));
   if (!ch || (s.chapterId && s.chapterId !== ch.id)) throw notFound("Chapter");
-  return c.json(await previewPayload(c.get("deps").db, p, { chapterId: ch.id }, q.cut, p.language));
+  return c.json(
+    await previewPayload(c.get("deps").db, p, { chapterId: ch.id }, q.cut, p.language, { aspect: q.aspect }),
+  );
 });
 
 doc({
@@ -198,8 +204,8 @@ doc({
 });
 publicShareRoutes.get("/shares/:token/video-card/:file", async (c) => {
   const { p } = await openShare(c, c.req.param("token"));
-  const { height } = query(c, z.object({ height: z.coerce.number().int().min(180).max(1440).default(1080) }));
-  return videoCardResponse(c.get("deps"), p, c.req.param("file").replace(/\.png$/, ""), height, "public, max-age=300");
+  const q = query(c, CardQuery);
+  return videoCardResponse(c.get("deps"), p, c.req.param("file").replace(/\.png$/, ""), q, "public, max-age=300");
 });
 
 doc({

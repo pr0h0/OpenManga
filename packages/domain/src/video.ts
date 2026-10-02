@@ -11,7 +11,23 @@ export const VIDEO_BREATH_MS = 150;
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
-export const frameSizeFor = (height: number) => ({ frameW: Math.round((height * 16) / 9 / 2) * 2, frameH: height });
+/**
+ * Frame size of a video profile. `height` is the short side (720, 1080, 1440): 1080 gives 1920×1080 landscape,
+ * 1080×1920 vertical and 1080×1080 square.
+ */
+export function frameSizeFor(height: number, aspect: VideoAspect = "16:9") {
+  const long = Math.round((height * 16) / 9 / 2) * 2;
+  return aspect === "9:16"
+    ? { frameW: height, frameH: long }
+    : { frameW: aspect === "1:1" ? height : long, frameH: height };
+}
+
+/**
+ * Whether panels fill a frame of this shape by cropping their art around its focal point. Landscape keeps the whole
+ * panel (fitted over a blurred copy when its shape differs); vertical and square frames crop, since a fitted panel
+ * would be a small stripe in the middle. Art is never generated at these shapes.
+ */
+export const cropsToFrame = (aspect: VideoAspect) => aspect !== "16:9";
 
 /**
  * Vertical camera travel for a page taller than the frame: at most `maxPxPerSec`; when the hold is too short to
@@ -263,4 +279,75 @@ export function youtubeTimestamp(ms: number) {
 export function youtubeChapters(marks: { startMs: number; title: string }[]) {
   if (marks.length < 2) return null;
   return marks.map((m, i) => `${youtubeTimestamp(i === 0 ? 0 : m.startMs)} ${m.title}`).join("\n");
+}
+
+/** Video frame shapes: landscape for YouTube, vertical for Shorts and Reels, square for feeds. */
+export type VideoAspect = "16:9" | "9:16" | "1:1";
+
+/** How dramatic a shot type reads in a trailer: close-ups and inserts first, establishing wides next. */
+const SHOT_DRAMA: Record<string, number> = {
+  "extreme-close": 3,
+  close: 2.5,
+  insert: 2,
+  "medium-close": 1.5,
+  "extreme-wide": 1.5,
+  wide: 1,
+  full: 0.8,
+  medium: 0.5,
+};
+
+/** How dramatic a narration line reads: exclamations, questions, a short punch, words of sudden action. */
+export function lineDrama(text: string) {
+  const t = text.trim();
+  if (!t) return 0;
+  let s = Math.min(2, (t.match(/!/g)?.length ?? 0) * 0.7) + Math.min(1, (t.match(/\?/g)?.length ?? 0) * 0.5);
+  if (t.split(/\s+/).length <= 12) s += 0.5;
+  if (
+    /\b(sudden|scream|blood|explo|crash|attack|kill|dead|death|shatter|fire|gun|sword|truth|never|secret|run)/i.test(t)
+  )
+    s += 1;
+  return s;
+}
+
+/** A Shorts cut runs 30 to 60 seconds; the picker aims for 45. */
+export const SHORTS_MIN_MS = 30_000;
+export const SHORTS_MAX_MS = 60_000;
+export const SHORTS_TARGET_MS = 45_000;
+
+/** A shot that could go into a Shorts cut, in story order. */
+export type ShortsCandidate = { id: string; shotType: string; text: string; holdMs: number; hasArt: boolean };
+
+export const shortsScore = (c: Pick<ShortsCandidate, "shotType" | "text">) =>
+  (SHOT_DRAMA[c.shotType] ?? 0.5) + lineDrama(c.text);
+
+/**
+ * The shots of a Shorts cut, in story order. The story is split into as many stretches as shots fit in `targetMs`
+ * and the most dramatic shot of each is taken, so the trailer spans the whole story rather than its opening; then
+ * the weakest are dropped until it fits `maxMs`, and the strongest left over are added until it reaches `minMs`.
+ * Shots without artwork are never picked. A story shorter than `minMs` gives every usable shot.
+ */
+export function pickShorts(cands: ShortsCandidate[], o: { targetMs: number; minMs: number; maxMs: number }) {
+  const usable = cands
+    .map((c, i) => ({ c, i, score: shortsScore(c) }))
+    .filter((x) => x.c.hasArt && x.c.holdMs <= o.maxMs);
+  if (!usable.length) return [];
+  const avg = usable.reduce((n, x) => n + x.c.holdMs, 0) / usable.length;
+  const stretches = Math.max(1, Math.min(usable.length, Math.round(o.targetMs / avg)));
+  const picked = new Set<(typeof usable)[number]>();
+  for (let b = 0; b < stretches; b++) {
+    const part = usable.slice(
+      Math.floor((b * usable.length) / stretches),
+      Math.floor(((b + 1) * usable.length) / stretches),
+    );
+    const best = part.reduce((a, x) => (x.score > a.score ? x : a), part[0]!);
+    picked.add(best);
+  }
+  const total = () => [...picked].reduce((n, x) => n + x.c.holdMs, 0);
+  const byScore = [...usable].sort((a, b) => b.score - a.score || a.i - b.i);
+  while (total() > o.maxMs && picked.size > 1) picked.delete(byScore.filter((x) => picked.has(x)).at(-1)!);
+  for (const x of byScore) {
+    if (total() >= o.minMs) break;
+    if (!picked.has(x) && total() + x.c.holdMs <= o.maxMs) picked.add(x);
+  }
+  return [...picked].sort((a, b) => a.i - b.i).map((x) => x.c.id);
 }

@@ -10,6 +10,7 @@ import {
   generationJobs,
   inArray,
   pages,
+  panels,
   sql,
 } from "@openmanga/db";
 import { providerSupports } from "@openmanga/domain";
@@ -39,10 +40,13 @@ export const ExportOptions = z.object({
     "agent_package",
     "video_pages",
     "video_panels",
+    "video_shorts",
     "youtube_package",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),
+  /** video_shorts: the picked panels (see GET /api/projects/:projectId/shorts), played in story order. */
+  panelIds: z.array(z.string().uuid()).min(1).max(100).optional(),
   scale: z.number().min(0.25).max(3).default(1),
   jpgQuality: z.number().int().min(40).max(100).default(90),
   pdf: z
@@ -89,7 +93,8 @@ export const ExportOptions = z.object({
       minHoldMs: z.number().int().min(500).max(30_000).default(2500),
       /** "scroll": 3/5 width, travelling the whole page top to bottom over its hold (the continuous scroll cut). */
       framing: z.enum(["width", "height", "scroll"]).default("width"),
-      pageWidthRatio: z.number().min(0.3).max(1).default(0.6),
+      /** Page cut share of the frame width; default 0.6 landscape, 1 vertical or square. */
+      pageWidthRatio: z.number().min(0.3).max(1).optional(),
       pageHeightRatio: z.number().min(0.5).max(1).default(0.96),
       maxScrollPxPerSec: z.number().min(10).max(400).default(60),
       /** Panel cut: Ken Burns travel over each hold, 0.06 = 6%. */
@@ -98,13 +103,14 @@ export const ExportOptions = z.object({
       breathMs: z.number().int().min(0).max(2000).default(150),
       /** A partial render for checking: stop after the shot that reaches this length (whole shots only). */
       maxDurationMs: z.number().int().min(10_000).max(86_400_000).optional(),
+      /** Frame shape: landscape, vertical (Shorts, Reels) or square. Default 16:9, and 9:16 for video_shorts. */
+      aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
     })
     .default({
       height: 1080,
       fps: 30,
       minHoldMs: 2500,
       framing: "width",
-      pageWidthRatio: 0.6,
       pageHeightRatio: 0.96,
       maxScrollPxPerSec: 60,
       zoom: 0.06,
@@ -145,6 +151,14 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
       .from(pages)
       .where(and(eq(pages.projectId, p.id), inArray(pages.id, input.pageIds)));
     if (own.length !== new Set(input.pageIds).size) throw notFound("Page");
+  }
+  if (input.kind === "video_shorts") {
+    if (!input.panelIds?.length) throw badRequest("Pick the shots of the Short (panelIds)");
+    const own = await deps.db
+      .select({ id: panels.id })
+      .from(panels)
+      .where(and(eq(panels.projectId, p.id), inArray(panels.id, input.panelIds)));
+    if (own.length !== new Set(input.panelIds).size) throw notFound("Panel");
   }
   const active = await deps.db
     .select({ n: sql<number>`count(*)::int` })

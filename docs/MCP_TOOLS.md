@@ -28,7 +28,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
-| `exports:read` | Read export status and files. | `list_exports` |
+| `exports:read` | Read export status and files. | `suggest_shorts`, `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
@@ -107,6 +107,7 @@ requests) need no scope.
 | [`synthesize_narration`](#synthesize_narration) | spend | `narration:write` |
 | [`delete_narration_audio`](#delete_narration_audio) | delete | `narration:write` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
+| [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
 | [`list_exports`](#list_exports) | read | `exports:read` |
 | [`delete_exports`](#delete_exports) | delete | `exports:create` |
 | [`list_experts`](#list_experts) | read | `experts:use` |
@@ -7764,7 +7765,7 @@ Delete synthesized narration audio from disk: a chapter's (chapterId; every take
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts: 30–60 s, vertical by default). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -7796,6 +7797,7 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "agent_package",
         "video_pages",
         "video_panels",
+        "video_shorts",
         "youtube_package"
       ]
     },
@@ -7814,6 +7816,16 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
     },
     "pageIds": {
       "maxItems": 500,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "panelIds": {
+      "minItems": 1,
+      "maxItems": 100,
       "type": "array",
       "items": {
         "type": "string",
@@ -7955,7 +7967,6 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "fps": 30,
         "minHoldMs": 2500,
         "framing": "width",
-        "pageWidthRatio": 0.6,
         "pageHeightRatio": 0.96,
         "maxScrollPxPerSec": 60,
         "zoom": 0.06,
@@ -8002,7 +8013,6 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           ]
         },
         "pageWidthRatio": {
-          "default": 0.6,
           "type": "number",
           "minimum": 0.3,
           "maximum": 1
@@ -8035,6 +8045,14 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "integer",
           "minimum": 10000,
           "maximum": 86400000
+        },
+        "aspect": {
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1"
+          ]
         }
       }
     },
@@ -8084,6 +8102,82 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
   },
   "required": [
     "job"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### suggest_shorts
+
+Candidate shots for a Shorts cut (a 30–60 s trailer) of a chapter or the whole project: every panel in story order with its hold, narration text, a drama score and `picked` for the automatic choice (dramatic shots spread across the story). Change the pick freely, then render it with create_export kind=video_shorts and panelIds. Read-only.
+
+- **Scopes:** `exports:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/shorts`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 16
+    },
+    "minHoldMs": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 30000
+    },
+    "targetSeconds": {
+      "type": "integer",
+      "minimum": 15,
+      "maximum": 60
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "shots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "shots"
   ],
   "additionalProperties": {}
 }

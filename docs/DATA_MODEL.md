@@ -143,7 +143,7 @@ slot).
 - `audio_jobs` — one TTS request: segment target, options (including its `ai` choice), status, attempts, resulting
   audio asset and a `reused_cache` flag.
 - `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`,
-  `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**,
+  `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**, **`video_shorts`**,
   `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
   publishing text, zipped), and `project_import` (an import reuses the export job machinery and reports
   `{projectId, warnings}` in `result`). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the

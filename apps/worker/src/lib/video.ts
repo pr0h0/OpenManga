@@ -4,6 +4,7 @@ import { ffmpegConvert, parseWav, pcmToWav } from "@openmanga/audio";
 import {
   ConcurrencyLimiter,
   cardFrames,
+  cropsToFrame,
   fadeFrames,
   frameSizeFor,
   type Motion,
@@ -14,6 +15,7 @@ import {
   scrollPlan,
   shotGroups,
   timeGroup,
+  type VideoAspect,
   watermarkBox,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
@@ -50,6 +52,12 @@ export type VideoOptions = {
   concurrency?: number;
   /** A partial render: stop after the shot that reaches this length. */
   maxDurationMs?: number;
+  /** Frame shape: landscape (default), vertical or square. */
+  aspect?: VideoAspect;
+  /** A hard length limit (a Shorts cut): the film ends before the shot that would pass it. */
+  capMs?: number;
+  /** Intro and outro cards, when the project has them (default true; a Shorts cut has none). */
+  cards?: boolean;
 };
 
 type Project = Parameters<typeof planVideoShots>[1] & BrandedProject & { language: string };
@@ -96,9 +104,11 @@ async function prepareBranding(
   frameH: number,
   fps: number,
   dir: string,
+  cards = true,
 ): Promise<Branding> {
   const video = project.settings.video;
   const card = async (which: "intro" | "outro") => {
+    if (!cards) return null;
     const png = await renderProjectVideoCard(deps.db, deps.assets, project, which, frameW, frameH);
     if (!png || !video?.[which]) return null;
     const path = join(dir, `${which}.png`);
@@ -266,6 +276,12 @@ async function buildFilm<S extends Shot>(
         members.length,
         { minHoldMs: opts.minHoldMs, fps: opts.fps, breathMs: opts.breathMs },
       );
+      // A capped film (a Shorts cut) ends before the first shot that would run past the limit.
+      if (opts.capMs && gi > 0 && ((totalFrames + timing.totalFrames) * 1000) / opts.fps > opts.capMs) {
+        shots.splice(g.first);
+        partial = true;
+        break;
+      }
       const groupMs = (totalFrames * 1000) / opts.fps;
       for (const [k, parts] of lines.entries()) {
         for (const [j, part] of parts.entries()) {
@@ -464,7 +480,10 @@ function chapterStarts(shots: { page: { chapterId: string } }[], startsMs: numbe
 
 async function plan(deps: WorkerDeps, project: Project, chapterId: string | null, opts: Scoped, cut: "page" | "panel") {
   const language = opts.language || project.language;
-  const planned = await planVideoShots(deps.db, project, opts.scope ?? { chapterId }, cut, language);
+  const { frameW, frameH } = frameSizeFor(opts.height, opts.aspect);
+  const planned = await planVideoShots(deps.db, project, opts.scope ?? { chapterId }, cut, language, {
+    cropAspect: cropsToFrame(opts.aspect ?? "16:9") ? frameW / frameH : undefined,
+  });
   const byLine = await narrationSegmentsFor(
     deps.db,
     planned.shots.flatMap((s) => s.lineIds),
@@ -504,7 +523,7 @@ export async function renderPageCutVideo(
   dir: string,
   progress: (p: number) => Promise<void>,
 ) {
-  const { frameW, frameH } = frameSizeFor(opts.height);
+  const { frameW, frameH } = frameSizeFor(opts.height, opts.aspect);
   const { language, shots, narration, unplacedLines, disabledPanels } = await plan(
     deps,
     project,
@@ -512,7 +531,7 @@ export async function renderPageCutVideo(
     opts,
     "page",
   );
-  const branding = await prepareBranding(deps, project, frameW, frameH, opts.fps, dir);
+  const branding = await prepareBranding(deps, project, frameW, frameH, opts.fps, dir, opts.cards !== false);
   const film = await buildFilm(
     deps,
     shots,
@@ -568,7 +587,7 @@ export async function renderPanelCutVideo(
   dir: string,
   progress: (p: number) => Promise<void>,
 ) {
-  const { frameW, frameH } = frameSizeFor(opts.height);
+  const { frameW, frameH } = frameSizeFor(opts.height, opts.aspect);
   const zoom = opts.zoom ?? 0.06;
   const { language, shots, narration, unplacedLines, disabledPanels } = await plan(
     deps,
@@ -577,7 +596,7 @@ export async function renderPanelCutVideo(
     opts,
     "panel",
   );
-  const branding = await prepareBranding(deps, project, frameW, frameH, opts.fps, dir);
+  const branding = await prepareBranding(deps, project, frameW, frameH, opts.fps, dir, opts.cards !== false);
   const film = await buildFilm(
     deps,
     shots,
@@ -590,12 +609,14 @@ export async function renderPanelCutVideo(
       const pg = shot.page;
       const pn = shot.panel!;
       const n = String(i + 1).padStart(5, "0");
-      const aspect = panelAspect(pn, pg);
-      const box = panelShotBox(aspect, frameW, frameH);
+      const { art, focus } = shot;
+      // Vertical and square frames crop the art to their own shape around its focal point; landscape keeps the panel.
+      const fill = Boolean(art) && cropsToFrame(opts.aspect ?? "16:9");
+      const aspect = fill ? frameW / frameH : panelAspect(pn, pg);
+      const box = fill ? { full: true, w: frameW, h: frameH } : panelShotBox(aspect, frameW, frameH);
       // Supersample 3x before zoompan: zooming at display size quantises the crop and visibly shakes.
       const superW = box.w * 3;
       const superH = Math.max(2, Math.round(superW / aspect / 2) * 2);
-      const { art, focus } = shot;
       let fgPng: Uint8Array;
       if (art) {
         fgPng = await renderPanelArt(await deps.assets.read(art), superW, superH, pn.imageTransform);
@@ -622,7 +643,7 @@ export async function renderPanelCutVideo(
       if (bgPath) await Bun.write(bgPath, await backdrop(fgPng, frameW, frameH));
       await Bun.write(fgPath, fgPng);
       const motion = shot.motion ?? "static";
-      Object.assign(shot.report, { motion, fullFrame: box.full, focus });
+      Object.assign(shot.report, { motion, fullFrame: box.full, cropped: fill, focus });
       const move = zoompanFor(motion, zoom, focus, frames, box.w, box.h, opts.fps);
       const filter = bgPath ? `[1:v]${move}[fg];[0:v][fg]overlay=(W-w)/2:(H-h)/2` : `[0:v]${move}`;
       const fade = fadeFilter(shot.fade, frames, opts.fps);
