@@ -7,6 +7,8 @@ export type S3StorageOptions = {
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
+  /** Temporary credentials (STS, IAM roles) come with a session token. */
+  sessionToken?: string;
   /** Empty for AWS. */
   endpoint?: string;
   /** The endpoint browsers reach, when it differs from the one the server uses (e.g. `http://minio:9000`). */
@@ -19,6 +21,8 @@ export type S3StorageOptions = {
 /** Files above this go up in parts streamed from disk; smaller ones in one request. */
 const MULTIPART_THRESHOLD = 64 * 1024 * 1024;
 const PART_SIZE = 16 * 1024 * 1024;
+/** Parts in flight at once, so at most PART_CONCURRENCY × PART_SIZE (64 MiB) of a file is held in memory. */
+const PART_CONCURRENCY = 4;
 
 const isMissing = (e: unknown) => (e as { code?: string }).code === "NoSuchKey";
 
@@ -39,6 +43,7 @@ export class S3AssetStorage implements AssetStorage {
         region: o.region,
         accessKeyId: o.accessKeyId,
         secretAccessKey: o.secretAccessKey,
+        ...(o.sessionToken ? { sessionToken: o.sessionToken } : {}),
         ...(endpoint ? virtualHosted(endpoint, o) : {}),
       });
     this.client = client(o.endpoint);
@@ -104,7 +109,7 @@ export class S3AssetStorage implements AssetStorage {
   }
 
   /**
-   * Multipart upload read straight from disk, one part in memory at a time. Bun's own writer accepts a large file
+   * Multipart upload read straight from disk, PART_CONCURRENCY parts at a time. Bun's own writer accepts a large file
    * too, but queues all of it in memory first (an 800 MB video peaked at 1.6 GB RSS), so the parts are sent with
    * SigV4-signed URLs instead. The bucket URL comes from Bun's own presign, so both agree on path or host style.
    */
@@ -122,13 +127,20 @@ export class S3AssetStorage implements AssetStorage {
     const uploadId = /<UploadId>([^<]+)<\/UploadId>/.exec(created)?.[1];
     if (!uploadId) throw new Error(`S3 did not start a multipart upload for ${objectKey}`);
     try {
-      const parts: string[] = [];
-      // ponytail: parts go up one at a time; a small pool would be faster on high-latency links.
-      for (let n = 1, start = 0; start < size; n++, start += PART_SIZE) {
-        const body = Bun.file(srcPath).slice(start, Math.min(size, start + PART_SIZE));
-        const res = await call("PUT", { partNumber: String(n), uploadId }, body);
-        parts.push(`<Part><PartNumber>${n}</PartNumber><ETag>${res.headers.get("etag")}</ETag></Part>`);
-      }
+      const count = Math.ceil(size / PART_SIZE);
+      const parts: string[] = new Array(count);
+      let next = 0;
+      // A few lanes each take the next part number until none are left; a failed part fails the whole upload.
+      const lane = async () => {
+        while (next < count) {
+          const n = ++next;
+          const start = (n - 1) * PART_SIZE;
+          const body = Bun.file(srcPath).slice(start, Math.min(size, start + PART_SIZE));
+          const res = await call("PUT", { partNumber: String(n), uploadId }, body);
+          parts[n - 1] = `<Part><PartNumber>${n}</PartNumber><ETag>${res.headers.get("etag")}</ETag></Part>`;
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, count) }, lane));
       const done = await call(
         "POST",
         { uploadId },
@@ -157,7 +169,7 @@ export function presignV4(
   base: string,
   method: string,
   query: Record<string, string>,
-  creds: { region: string; accessKeyId: string; secretAccessKey: string },
+  creds: { region: string; accessKeyId: string; secretAccessKey: string; sessionToken?: string },
   now: Date,
   expiresIn = 3600,
 ) {
@@ -175,6 +187,7 @@ export function presignV4(
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": String(expiresIn),
     "X-Amz-SignedHeaders": "host",
+    ...(creds.sessionToken ? { "X-Amz-Security-Token": creds.sessionToken } : {}),
   };
   const canonicalQuery = Object.keys(params)
     .sort()

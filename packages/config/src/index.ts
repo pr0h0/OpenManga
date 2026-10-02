@@ -70,6 +70,8 @@ const EnvSchema = z.object({
   S3_REGION: z.string().default("us-east-1"),
   S3_ACCESS_KEY_ID: z.string().default(""),
   S3_SECRET_ACCESS_KEY: z.string().default(""),
+  /** Only for temporary credentials (STS, an assumed IAM role); they stop working when the token expires. */
+  S3_SESSION_TOKEN: z.string().default(""),
   /** `https://endpoint/bucket/key` instead of `https://bucket.endpoint/key`. MinIO usually needs true. */
   S3_FORCE_PATH_STYLE: bool.default(false),
   /** Prepended to every object key, e.g. `openmanga/`, to share a bucket. */

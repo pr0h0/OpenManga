@@ -128,6 +128,7 @@ export function createAssetStorage(c: {
   S3_REGION: string;
   S3_ACCESS_KEY_ID: string;
   S3_SECRET_ACCESS_KEY: string;
+  S3_SESSION_TOKEN: string;
   S3_FORCE_PATH_STYLE: boolean;
   S3_PREFIX: string;
 }): AssetStorage {
@@ -137,6 +138,7 @@ export function createAssetStorage(c: {
     region: c.S3_REGION,
     accessKeyId: c.S3_ACCESS_KEY_ID,
     secretAccessKey: c.S3_SECRET_ACCESS_KEY,
+    sessionToken: c.S3_SESSION_TOKEN || undefined,
     endpoint: c.S3_ENDPOINT,
     publicEndpoint: c.S3_PUBLIC_ENDPOINT,
     forcePathStyle: c.S3_FORCE_PATH_STYLE,

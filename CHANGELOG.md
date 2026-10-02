@@ -73,7 +73,10 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
   model (`BATCH_MAX_IN_FLIGHT_IMAGE`, `BATCH_MAX_IN_FLIGHT_TEXT`; 0 = no limit). The rest of a big run waits as
   "waiting for room in the provider's batch queue" and is submitted as earlier batches finish, instead of being sent
   and refused over the provider's enqueued limit.
-
+- **S3 storage: temporary credentials, faster large uploads, CI coverage.** `S3_SESSION_TOKEN` passes an STS or
+  assumed-role session token to the client and the multipart signer. Multipart uploads send four 16 MiB parts at
+  once (at most 64 MiB of the file in memory). CI runs the integration suite a second time with `STORAGE_DRIVER=s3`
+  against MinIO.
 - `scripts/bunx.sh` joins a Docker network only when `OM_NETWORK` names one; it used to join `openmanga_internal`
   whenever that existed, putting every lint and typecheck on a running stack's internal network.
 - **A declined scope is not asked for again.** When you untick a scope on an agent's consent screen, or deny a step-up,

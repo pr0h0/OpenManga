@@ -32,9 +32,10 @@ missing file.
 server (AWS S3, Cloudflare R2, MinIO, Backblaze B2, …). The object key is `S3_PREFIX` + the storage key, so a local
 file `ASSET_ROOT/<key>` and its object `<prefix><key>` correspond one to one and no database row changes between
 drivers. A single PUT is atomic, so readers never see half an object either. `putFile` sends files up to 64 MiB in
-one request and larger ones (video renders, export ZIPs) as a multipart upload read from disk 16 MiB at a time: Bun's
-own streaming writer buffers the whole file in memory before sending it (an 800 MB file peaked at 1.6 GB), so those
-parts are sent with SigV4 URLs signed in `s3.ts`; a failed upload is aborted. `delete` of a missing object succeeds.
+one request and larger ones (video renders, export ZIPs) as a multipart upload of 16 MiB parts read from disk, four
+in flight at once, so at most 64 MiB of the file is in memory (an 800 MB upload to MinIO peaked at 41 MB RSS). Bun's
+own streaming writer buffers the whole file in memory before sending it (the same file peaked at 1.6 GB), so those
+parts are sent with SigV4 URLs signed in `s3.ts`; a failed part aborts the whole upload. `delete` of a missing object succeeds.
 
 | Setting | Meaning |
 | --- | --- |
@@ -42,6 +43,7 @@ parts are sent with SigV4 URLs signed in `s3.ts`; a failed upload is aborted. `d
 | `S3_ENDPOINT` | the service URL without the bucket; empty for AWS |
 | `S3_PUBLIC_ENDPOINT` | the URL browsers reach the service at, when the server uses another name (e.g. `http://minio:9000` inside Docker). Signing is local, so it may be a host the server cannot reach. Default: `S3_ENDPOINT` |
 | `S3_BUCKET`, `S3_REGION` (`us-east-1`), `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | the bucket and credentials; startup refuses `s3` without bucket and keys |
+| `S3_SESSION_TOKEN` | only with temporary credentials (STS, an assumed role); used by Bun's client and the multipart signer. The credentials are read once at startup, so restart with fresh ones before they expire |
 | `S3_FORCE_PATH_STYLE` | `true`: `https://endpoint/bucket/key` (MinIO and most self-hosted servers); `false` (default): `https://bucket.endpoint/key` |
 | `S3_PREFIX` | prepended to every object key, to share a bucket |
 | `S3_PRESIGN_EXPIRES_SECONDS` | lifetime of signed download URLs, 60 to 604800 (default 900) |
