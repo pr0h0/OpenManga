@@ -189,7 +189,7 @@ Assets can live in a bucket instead of the `assets-data` volume: set `STORAGE_DR
 large files are uploaded in parts, and nothing else changes. The settings, the copy recipe for an existing install
 and what backups cover are in [STORAGE.md](STORAGE.md#assetstorage). A MinIO next to the stack works: put it on the
 `internal` network, set `S3_ENDPOINT=http://minio:9000`, `S3_FORCE_PATH_STYLE=true` and `S3_PUBLIC_ENDPOINT` to the
-address browsers reach it at.
+address browsers reach it at. MinIO no longer publishes images; CI uses the `pgsty/minio` community build.
 
 ## Rotating the provider-key encryption key
 

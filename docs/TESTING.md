@@ -26,7 +26,7 @@ One `*.test.ts` next to the code it covers. What each package asserts:
 | `packages/config` | only three env vars are required, no provider keys; production boots with zero keys; mock mode refused in production; `PublicUrlService` same-domain and subdomain URLs |
 | `packages/auth` | Argon2id hash/verify/reject, opaque token generation and hashing, registration input normalisation |
 | `packages/logger` | secrets redacted by key and by value |
-| `packages/storage` | put/read/exists/metadata/delete, `putFile` sha256, path-traversal rejection, key opacity, temp cleanup on failure; S3: SigV4 multipart signing matches Bun's own presign, path vs virtual-hosted addressing, public endpoint and response overrides; with `TEST_S3_ENDPOINT` (e.g. a MinIO with an `openmanga-test` bucket) a real round trip and a 70 MB multipart upload |
+| `packages/storage` | put/read/exists/metadata/delete, `putFile` sha256, path-traversal rejection, key opacity, temp cleanup on failure; S3: SigV4 multipart signing matches Bun's own presign (with and without a session token), path vs virtual-hosted addressing, public endpoint and response overrides; with `TEST_S3_ENDPOINT` (e.g. a MinIO with an `openmanga-test` bucket) a real round trip and a 70 MB multipart upload |
 | `packages/image-utils` | derivative sizing and aspect preservation, upscale disabled, deterministic cache key and byte-identical output, MIME sniffing, metadata stripping, crop selection, edit-mask transparency, size-menu selection |
 | `packages/schemas` | story/plan/panel-spec/editor validation, graceful enum degradation, narration v2 coverage rules, partial patches, every paste-mode answer schema documented with a valid example and `docs/ANSWER_FORMATS.md` up to date |
 | `packages/domain` | layout geometry (≥10 templates, no overlaps, RTL mirroring, split/swap/reading order), bubble geometry and tails, text wrap and bubble placement avoiding faces, narration segmentation and timeline, cost estimation and rate selection by date, permissions and approval transitions, retry classification and the concurrency limiter, content lint and distress grammar, video holds and Ken Burns direction, the continuous scroll framing (whole-page travel, sized like `width`), YouTube chapter timestamps (`0:00` first, hours only when needed, none for a single chapter), target-runtime budgets per chapter and words per panel within the shot bounds, webtoon strip seams (butt, gap, bleed, dissolve, fade), faces mapped through the panel crop and tails ending at the face, the build label |
@@ -60,7 +60,9 @@ The suite runs against a bucket instead when the environment sets `STORAGE_DRIVE
 MinIO: `S3_ENDPOINT=http://<minio>:9000`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
 `S3_FORCE_PATH_STYLE=true`); each run uses its database name as `S3_PREFIX`. The test client follows `/cdn`'s redirect
 to the signed URL as a browser does, and `flow.test.ts` checks the redirect itself (expiry, content type, cache
-lifetime).
+lifetime). CI runs the whole suite this way too, in the `integration-s3` job of `.github/workflows/ci.yml`, in
+parallel with the local-storage run and after the storage unit tests, against a MinIO container (`pgsty/minio`, a
+community build: MinIO itself no longer publishes images).
 
 | Spec | Covers |
 | --- | --- |

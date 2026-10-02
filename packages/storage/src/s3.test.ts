@@ -26,6 +26,20 @@ describe("presignV4", () => {
     expect(part.searchParams.get("X-Amz-Signature")).not.toBe(bun.searchParams.get("X-Amz-Signature"));
   });
 
+  test("temporary credentials: the session token is signed as Bun signs it", () => {
+    const temp = { ...creds, sessionToken: "FwoGZXIvYXdzEJr//token+with/odd=chars" };
+    const client = new Bun.S3Client({ ...temp, bucket: "media", endpoint: "http://minio:9000" });
+    const bun = new URL(client.presign("a/b.png", { expiresIn: 600 }));
+    expect(bun.searchParams.get("X-Amz-Security-Token")).toBe(temp.sessionToken);
+    const date = bun.searchParams.get("X-Amz-Date")!;
+    const now = new Date(
+      `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T${date.slice(9, 11)}:${date.slice(11, 13)}:${date.slice(13, 15)}Z`,
+    );
+    const ours = new URL(presignV4(bun.href, "GET", {}, temp, now, 600));
+    expect(ours.searchParams.get("X-Amz-Security-Token")).toBe(temp.sessionToken);
+    expect(ours.searchParams.get("X-Amz-Signature")).toBe(bun.searchParams.get("X-Amz-Signature"));
+  });
+
   test("virtual-hosted addressing puts the bucket in the host; path style keeps it in the path", () => {
     const o = { ...creds, bucket: "media", endpoint: "https://s3.example.com" };
     const vhost = new URL(new S3AssetStorage({ ...o, forcePathStyle: false }).presign("a/b.png", presignOpts));
