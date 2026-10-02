@@ -141,7 +141,9 @@ of normal membership, never instead of it: an agent can only touch projects you 
 admin in the browser it gets no admin bypass. Entity ids are resolved to their project first (a panel id from a
 project the connection was not granted is refused with `project_not_granted`, and one from a project you cannot see
 at all is `not_found`). A selected-projects connection that may create projects is granted each project it creates or
-duplicates.
+duplicates. Projects shared with you count as yours here: *all* includes them, they can be *selected*, and the agent
+acts with your role in each, so a viewer's agent reads and an editor's agent edits and spends on your keys. Leaving a
+project or being removed ends the agent's access at once and drops the project from the connection's selection.
 
 **Approval modes.**
 

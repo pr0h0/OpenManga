@@ -7,9 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project).
+Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project, `0024_project_invites` a table for invitations).
 
 ### Added
+
+- **Project members.** An owner invites people by username or email as editors or viewers (**Members** on the
+  project overview); an invited account accepts or declines on the dashboard, and an emailed link (one-time, 7 days)
+  accepts it or creates the account for that address, even with registration closed. Owners change roles, remove
+  members and revoke invitations; members can leave. Projects shared with you show on the dashboard marked *Shared*.
+  Membership changes are audited and update open project pages live; a removed member is sent back to the dashboard.
+  Agent connections reach shared projects with the member's role.
 
 - **Incremental rendering and Update production.** Every rendered shot and card is kept as a cached section, keyed by
   a hash of everything that decides its pixels and length; the next render copies unchanged sections in and encodes
@@ -114,6 +121,12 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 - Wrong guesses are capped like failed logins: reader-link tokens (30 per 15 minutes per address), unknown MCP tokens
   (20), password-reset tokens (10 an hour) and the current password when changing it (5 per 15 minutes per user).
+- Role checks tightened for shared projects: listing reader links needs `manage` (the token is the link); queueing or
+  cancelling an export and duplicating a project need `write`; linking an expert chat to a project, and every message
+  in one, need `generate`; the budget cap, the consistency-check key and the content-policy fallback are the owner's
+  to change, and only the owner can confirm going over the cap. Nobody retries another member's keyed job, resumes
+  their paused batch or continues their production run (each would spend that member's key). A project's files are
+  served by project access alone, so whoever leaves a project stops seeing the files they made there.
 
 ## [0.12.0] — 2026-09-30
 

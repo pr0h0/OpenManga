@@ -145,7 +145,8 @@ doc({
 });
 expertRoutes.post("/expert-chats", async (c) => {
   const input = await body(c, NewChat);
-  if (input.projectId) await projectAccess(c, input.projectId, "read");
+  // A chat about a project counts its spend there and can store drawn images in it: that is generating.
+  if (input.projectId) await projectAccess(c, input.projectId, "generate");
   const builtin = findBuiltinExpert(input.expert);
   const custom =
     builtin || !z.string().uuid().safeParse(input.expert).success ? null : await ownExpert(c, input.expert);
@@ -211,7 +212,7 @@ doc({
 expertRoutes.patch("/expert-chats/:id", async (c) => {
   const chat = await ownChat(c, uuidParam(c, "id"));
   const input = await body(c, PatchChat);
-  if (input.projectId) await projectAccess(c, input.projectId, "read");
+  if (input.projectId) await projectAccess(c, input.projectId, "generate");
   const [row] = await c
     .get("deps")
     .db.update(expertChats)
@@ -286,6 +287,8 @@ doc({
 });
 expertRoutes.post("/expert-chats/:id/messages", async (c) => {
   const chat = await ownChat(c, uuidParam(c, "id"));
+  // Checked on every message, not only when the chat was linked: a member whose role changed or who left stops here.
+  if (chat.projectId) await projectAccess(c, chat.projectId, "generate");
   const input = await body(c, Send);
   if (!input.text.trim() && !input.attachments.length) throw badRequest("Write a message or attach an image");
   const deps = c.get("deps");
@@ -413,6 +416,7 @@ doc({
 });
 expertRoutes.post("/expert-chats/:id/retry", async (c) => {
   const chat = await ownChat(c, uuidParam(c, "id"));
+  if (chat.projectId) await projectAccess(c, chat.projectId, "generate");
   const input = await body(c, Retry);
   const deps = c.get("deps");
   const [last] = await deps.db

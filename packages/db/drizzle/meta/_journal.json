@@ -169,6 +169,13 @@
       "when": 1790897389745,
       "tag": "0023_expert_extract_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790954336658,
+      "tag": "0024_project_invites",
+      "breakpoints": true
     }
   ]
 }

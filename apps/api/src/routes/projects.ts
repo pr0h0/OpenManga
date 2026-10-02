@@ -98,13 +98,8 @@ projectRoutes.get("/", async (c) => {
   const u = user(c);
   const { db } = c.get("deps");
   const { status } = query(c, ListQuery);
-  const memberOf = db
-    .select({ id: projectMembers.projectId })
-    .from(projectMembers)
-    .where(eq(projectMembers.userId, u.id));
   const service = c.get("service");
   const where = and(
-    inArray(projects.id, memberOf),
     // A connection limited to selected projects sees only those.
     service?.projectAccess === "selected"
       ? service.projectIds.size
@@ -117,7 +112,19 @@ projectRoutes.get("/", async (c) => {
         ? undefined
         : and(isNull(projects.deletedAt), eq(projects.status, status)),
   );
-  const rows = await db.select().from(projects).where(where).orderBy(desc(projects.updatedAt)).limit(200);
+  // Every project the caller is a member of: their own and the ones shared with them, with their role in each.
+  const memberRows = await db
+    .select({
+      project: projects,
+      role: projectMembers.role,
+      ownerUsername: sql<string>`(select u.username from users u where u.id = ${projects.ownerUserId})`,
+    })
+    .from(projects)
+    .innerJoin(projectMembers, and(eq(projectMembers.projectId, projects.id), eq(projectMembers.userId, u.id)))
+    .where(where)
+    .orderBy(desc(projects.updatedAt))
+    .limit(200);
+  const rows = memberRows.map((r) => ({ ...r.project, role: r.role, ownerUsername: r.ownerUsername }));
   const ids = rows.map((r) => r.id);
   if (!ids.length) return c.json({ projects: [] });
   const stats = await db.execute<{
@@ -323,9 +330,17 @@ projectRoutes.patch("/:projectId", async (c) =>
   c.json({ project: await updateProject(c, uuidParam(c, "projectId"), await body(c, UpdateProject)) }),
 );
 
+const OWNER_SETTINGS = ["budgetUsd", "consistencyCheck", "contentPolicyFallback"] as const;
+
 /** Updates a project's fields and settings: the PATCH route, and an expert's premise or YouTube text once applied. */
 export async function updateProject(c: Context<AppEnv>, projectId: string, input: z.infer<typeof UpdateProject>) {
   const p = await projectAccess(c, projectId, "write");
+  // The budget cap and the project's own keys (the check's, the content policy fallback's) are the owner's:
+  // the cap limits what members spend, and a key is one member's. Editors change everything else.
+  // Compared by value: a settings form that sends these back unchanged is not changing them.
+  const changes = (k: (typeof OWNER_SETTINGS)[number]) =>
+    input.settings?.[k] !== undefined && JSON.stringify(input.settings[k]) !== JSON.stringify(p.settings[k] ?? null);
+  if (OWNER_SETTINGS.some(changes)) await projectAccess(c, projectId, "manage");
   const settings = input.settings ? ProjectSettings.parse({ ...p.settings, ...input.settings }) : p.settings;
   if (settings.format !== p.settings.format) {
     const [page] = await c
@@ -379,7 +394,8 @@ doc({
   tag: "projects",
 });
 projectRoutes.post("/:projectId/duplicate", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  // A full copy, files included, owned by the caller: more than viewing, so not for viewers.
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const deps = c.get("deps");
   const copy = await duplicateProject(deps.db, deps.assets, p.id, user(c).id);
   await recordAudit(deps.db, {
@@ -418,6 +434,10 @@ projectRoutes.post("/:projectId/template", async (c) => {
     : [];
   const settings: Record<string, unknown> = { ...p.settings };
   for (const k of NOT_TEMPLATED) delete settings[k];
+  // Keys named in the settings are the owner's; a member's template would carry ids that are of no use to them.
+  if (p.ownerUserId !== u.id)
+    for (const k of ["consistencyCheck", "contentPolicyFallback"] as const)
+      if (p.settings[k]) settings[k] = { ...p.settings[k], credentialId: null };
   const template = {
     id: crypto.randomUUID(),
     name,

@@ -143,6 +143,12 @@ function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
     case "production.updated":
       inv(["project", projectId, "production-runs"]);
       break;
+    case "members.updated":
+      inv(["project", projectId, "members"]);
+      // Exact, as above: the overview carries the caller's own role.
+      inv(qk.project(projectId), true);
+      inv(["projects"]);
+      break;
   }
 }
 
@@ -178,6 +184,15 @@ export function useProjectEvents(projectId: string | undefined) {
               { label: "Open it in Generation", to: `/projects/${projectId}/generation/${e.jobId}` },
             );
           if (e.type === "export.updated" && e.status === "completed") toast.success("Export ready");
+          // Removed from the project (or left it in another tab): nothing here is ours to see any more.
+          if (
+            e.type === "members.updated" &&
+            e.removedUserId &&
+            e.removedUserId === qc.getQueryData<SessionUser | null>(qk.me)?.id
+          ) {
+            toast.error("You no longer have access to this project.");
+            window.location.assign("/app/");
+          }
         } catch {}
       });
       es.onerror = () => {

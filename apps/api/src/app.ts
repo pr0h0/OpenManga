@@ -16,6 +16,7 @@ import { expertRoutes } from "./routes/experts.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
 import { importRoutes } from "./routes/imports.ts";
+import { memberRoutes, publicInviteRoutes } from "./routes/members.ts";
 import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
 import { projectRoutes } from "./routes/projects.ts";
@@ -58,6 +59,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     aiRoutes,
     expertRoutes,
     shareRoutes,
+    memberRoutes,
     productionRoutes,
   ])
     api.route("/", r);
@@ -103,6 +105,7 @@ export function createApp(deps: Deps) {
   });
   mountApiRoutes(api);
   api.route("/public", publicShareRoutes);
+  api.route("/public", publicInviteRoutes);
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
   app.route("/api", api);

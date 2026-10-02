@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, Circle, Download, ImagePlus, MonitorPlay, Share2 } from "lucide-react";
+import { CheckCircle2, Circle, Download, ImagePlus, MonitorPlay, Share2, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { qk } from "../../api/hooks.ts";
@@ -18,6 +18,7 @@ import {
   toast,
 } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
+import { MembersDialog } from "./MembersDialog.tsx";
 import { ProductionRunCard } from "./ProductionRun.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
 import { ShareDialog } from "./ShareDialog.tsx";
@@ -36,6 +37,7 @@ export function OverviewPage() {
   const [coverOpen, setCoverOpen] = useState(false);
   const [thumbOpen, setThumbOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
   if (!data) return null;
   const { project: p, counts, style } = data;
   const c = counts as Record<string, number>;
@@ -93,9 +95,14 @@ export function OverviewPage() {
         subtitle={p.description || "No description"}
         actions={
           <>
-            <button type="button" className="btn-secondary" onClick={() => setShareOpen(true)}>
-              <Share2 className="size-4" /> Share
+            <button type="button" className="btn-secondary" onClick={() => setMembersOpen(true)}>
+              <Users className="size-4" /> Members
             </button>
+            {(data.role === "owner" || data.role === "admin") && (
+              <button type="button" className="btn-secondary" onClick={() => setShareOpen(true)}>
+                <Share2 className="size-4" /> Share
+              </button>
+            )}
             <button type="button" className="btn-secondary" onClick={() => setThumbOpen(true)}>
               <MonitorPlay className="size-4" /> Generate thumbnail
             </button>
@@ -227,6 +234,7 @@ export function OverviewPage() {
         cast={cast.data?.characters ?? []}
       />
       <ShareDialog projectId={projectId} open={shareOpen} onClose={() => setShareOpen(false)} />
+      <MembersDialog projectId={projectId} open={membersOpen} onClose={() => setMembersOpen(false)} />
       <CoverModal
         thumbnail
         open={thumbOpen}

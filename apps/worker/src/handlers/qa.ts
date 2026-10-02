@@ -13,7 +13,7 @@ import {
 } from "@openmanga/db";
 import { panelCheckV1 } from "@openmanga/prompts";
 import { CharacterBible, PanelCheck } from "@openmanga/schemas";
-import { resolveOutfits, wardrobeText } from "@openmanga/services";
+import { credentialOwnedBy, resolveOutfits, wardrobeText } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { formatPrompt, isManual, manualProvider } from "../lib/manual-provider.ts";
 import { InputError, type ProjectJob, recordTextCalls } from "../lib/runner.ts";
@@ -32,6 +32,8 @@ export async function maybeQueuePanelCheck(deps: WorkerDeps, job: ProjectJob, pa
     deps.logger.warn("consistency check skipped: no credential configured", { projectId: job.projectId });
     return null;
   }
+  // The project's check key is one member's: another member's panels are not checked on it (they would fail anyway).
+  if (cc.credentialId && !(await credentialOwnedBy(deps.db, cc.credentialId, job.userId))) return null;
   // A panel generated through a provider batch has its check batched too: a chapter of batched panels would
   // otherwise generate hundreds of interactive vision calls at full price behind the scenes.
   const batched = job.parameters.batchMode === true;

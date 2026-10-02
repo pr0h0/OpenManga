@@ -52,6 +52,7 @@ describe("PublicUrlService", () => {
     expect(u.apiUrl("/auth/me")).toBe("https://manga.example.com/api/auth/me");
     expect(u.assetUrl("abc", "thumb")).toBe("https://manga.example.com/cdn/a/abc?v=thumb");
     expect(u.passwordResetUrl("t o")).toBe("https://manga.example.com/app/reset-password?token=t+o");
+    expect(u.inviteUrl("abc")).toBe("https://manga.example.com/app/invite?token=abc");
   });
   test("subdomains", () => {
     const u = new PublicUrlService({

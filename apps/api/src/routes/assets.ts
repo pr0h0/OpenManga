@@ -175,10 +175,11 @@ cdnRoutes.get("/a/:id", async (c) => {
   if (a.visibility !== "public") {
     const me = c.get("user");
     if (!me) throw new ApiError(401, "unauthenticated", "Please sign in");
-    // An image with no project (one attached to or drawn in an expert chat) is its owner's alone.
+    // An image with no project (one attached to or drawn in an expert chat) is its owner's alone. A project's file
+    // is the project's, whoever made it: someone who has left the project no longer sees it.
     if (!a.projectId) {
       if (a.ownerUserId !== me.id) throw notFound("Asset");
-    } else if (a.ownerUserId !== me.id) await projectAccess(c, a.projectId, "read");
+    } else await projectAccess(c, a.projectId, "read");
   }
   return sendAsset(c, a);
 });

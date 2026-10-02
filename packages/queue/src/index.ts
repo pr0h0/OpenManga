@@ -230,7 +230,9 @@ export type AppEvent =
   | { type: "audio.updated"; segmentId: string; status: string; audioJobId: string; failureReason?: string | null }
   | { type: "export.updated"; exportJobId: string; status: string; progress: number; failureReason?: string | null }
   | { type: "narration.updated"; chapterId: string }
-  | { type: "production.updated"; runId: string; status: string };
+  | { type: "production.updated"; runId: string; status: string }
+  /** Membership changed: an invite, an accept, a role change or a removal. `removedUserId` loses access now. */
+  | { type: "members.updated"; removedUserId?: string };
 
 const channel = (projectId: string) => `om:events:project:${projectId}`;
 

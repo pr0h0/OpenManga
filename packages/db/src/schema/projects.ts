@@ -62,6 +62,39 @@ export const projectMembers = pgTable(
   (t) => [primaryKey({ columns: [t.projectId, t.userId] }), index("project_members_user_idx").on(t.userId)],
 );
 
+/**
+ * An owner's invitation to join a project as an editor or viewer. An invite to an account (`userId`) is answered in
+ * the app; an invite by email also carries a one-time token, mailed as a link, stored only as its HMAC, that can
+ * accept it or create the account for that address even while registration is closed. Pending means none of
+ * accepted/declined/revoked is set and it has not expired.
+ */
+export const projectInvites = pgTable(
+  "project_invites",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    role: memberRole("role").notNull(),
+    /** The account invited: by username, or the account that already held the invited email. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /** Lower-cased; set for an invite by email. */
+    email: text("email"),
+    tokenHash: text("token_hash"),
+    invitedByUserId: uuid("invited_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: ts("expires_at").notNull(),
+    acceptedAt: ts("accepted_at"),
+    declinedAt: ts("declined_at"),
+    revokedAt: ts("revoked_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("project_invites_token_hash_uq").on(t.tokenHash),
+    index("project_invites_project_idx").on(t.projectId),
+    index("project_invites_user_idx").on(t.userId),
+  ],
+);
+
 export const storyRevisions = pgTable(
   "story_revisions",
   {
