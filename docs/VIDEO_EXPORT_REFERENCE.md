@@ -1,7 +1,7 @@
 # Video export — how the exporter works
 
 Three export kinds render a narrated MP4 from a project: `video_pages` (page cut, one shot per page),
-`video_panels` (panel cut, one shot per panel, Ken Burns move) and `video_shorts` (a 30–60 s trailer of picked panels,
+`video_panels` (panel cut, one shot per panel, Ken Burns move) and `video_shorts` (a trailer of picked panels, 3 minutes by default,
 vertical by default; see Shorts cut). All are deterministic ffmpeg compositions with no
 AI anywhere in them, consistent with the invariant that exports are deterministic compositions. `ffmpeg` is already
 a dependency of `packages/audio` (`ffmpegConvert`) for audio transcode and loudness normalisation, and `ffprobe` is
@@ -44,6 +44,7 @@ Defaults from the export request schema; every value is overridable per export.
 | `maxScrollPxPerSec` | `60` | Scroll-rate cap for the page cut |
 | `zoom` | `0.06` | Panel cut: camera travel over the hold (6% zoom, or the slack a pan crosses) |
 | `concurrency` | `VIDEO_ENCODE_CONCURRENCY` (4) | Clips rendered and encoded at once |
+| `shortsSeconds` | `180` | `video_shorts` only: the cut's length, 30–600 s; see Shorts cut |
 | `maxDurationMs` | unset | Partial render: stop after the shot that reaches this length (10 s to 24 h); see below |
 
 Outside the `video` bucket, the request's `pageIds` (up to 500) narrows the film to those pages; see the shot list.
@@ -68,19 +69,24 @@ The preview has the same Shape setting and plays the same crops (`fill` on each 
 
 `video_shorts` renders picked panels as a trailer: `panelIds` (1–100, panels of the project) played in story order
 whatever order they are given in, each shot with its own narration (a line attached only to a page plays over that
-page's first panel when that panel is picked; spans are ignored), at most `SHORTS_MAX_MS` (60 s): the film ends before
-the shot that would pass it. It has no intro or outro card (the watermark stays) and its readiness check is empty,
+page's first panel when that panel is picked; spans are ignored), up to its length: `video.shortsSeconds`, 180 by
+default (`SHORTS_DEFAULT_MS`, YouTube's Shorts limit) and 30–600. The film ends before the shot that would pass it,
+whatever the length. A length past 180 s is allowed, but YouTube uploads anything over 3 minutes as a regular video,
+so when the picked shots run longer than that `POST /api/projects/:projectId/exports` answers with `warnings: ["YouTube
+doesn't accept Shorts over 3 minutes; this will upload as a regular video."]` (`shortsLengthWarning`), and the
+Exports page shows the same warning above the pick. It has no intro or outro card (the watermark stays) and its readiness check is empty,
 since the picker only offers panels with artwork. Files are named `…_shorts_9x16_1080p.mp4`.
 
-`GET /api/projects/:projectId/shorts?chapterId=&minHoldMs=&targetSeconds=` (MCP `suggest_shorts`) lists every panel of
+`GET /api/projects/:projectId/shorts?chapterId=&minHoldMs=&lengthSeconds=` (MCP `suggest_shorts`) lists every panel of
 the chapter or project as a candidate with its hold (its own narration through `timeGroup`, at least `minHoldMs`), its
-narration text, a drama score and the automatic pick. `pickShorts` (`packages/domain/src/video.ts`) scores a shot by
+narration text, a drama score and the automatic pick, with `pickedMs` and the same `warning` when the pick runs past
+3 minutes. `pickShorts` (`packages/domain/src/video.ts`) scores a shot by
 its type (extreme close-ups, close-ups and inserts first) plus its line (`lineDrama`: exclamations, questions, short
-punchy lines, words of sudden action), splits the story into as many stretches as shots fit the target (45 s) and takes
+punchy lines, words of sudden action), splits the story into as many stretches as shots fill the length and takes
 the best of each, so the trailer spans the whole story rather than its opening; then drops the weakest until it fits
-60 s and adds the strongest left over until it reaches 30 s. On the Exports page (*Shorts*) the pick is a checklist with
-the running length; change it, preview it (`/api/video-preview?panelIds=…&aspect=9:16`, which applies the same 60 s
-limit) and render it.
+the length and adds the strongest left over until it reaches 30 s. On the Exports page (*Shorts*) the length is a
+setting above the pick, which is a checklist with the running length; change either, preview it
+(`/api/video-preview?panelIds=…&aspect=9:16`, played with the same length limit) and render it.
 
 Encoding: H.264 `-preset veryfast -crf 20` per clip (`-tune stillimage` for the page cut, which is a still image
 under a crop; not for the panel cut, where `zoompan` moves every frame), AAC 192 kbit/s 48 kHz stereo on the mux,

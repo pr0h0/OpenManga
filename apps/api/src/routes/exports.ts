@@ -13,7 +13,7 @@ import {
   panels,
   sql,
 } from "@openmanga/db";
-import { providerSupports } from "@openmanga/domain";
+import { providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
 import {
   exportQueuesFor,
   issuesForExport,
@@ -28,6 +28,7 @@ import type { AppEnv } from "../context.ts";
 import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
 import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
+import { shortsCandidates } from "./video.ts";
 
 export const exportRoutes = new Hono<AppEnv>();
 
@@ -111,6 +112,11 @@ export const ExportOptions = z.object({
       maxDurationMs: z.number().int().min(10_000).max(86_400_000).optional(),
       /** Frame shape: landscape, vertical (Shorts, Reels) or square. Default 16:9, and 9:16 for video_shorts. */
       aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
+      /**
+       * video_shorts: the cut's length in seconds (default 180, YouTube's Shorts limit; up to 600). The film ends before
+       * the shot that would pass it. Over 180 the response carries a warning: YouTube uploads it as a regular video.
+       */
+      shortsSeconds: z.number().int().min(30).max(600).optional(),
     })
     .default({
       height: 1080,
@@ -196,7 +202,22 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
     metadata: { kind: input.kind },
     requestId: c.get("requestId"),
   });
-  return c.json({ job }, 202);
+  // A long Shorts cut is allowed, but YouTube will not take it as a Short: say so where the request was made. The film
+  // is the picked shots up to the chosen length.
+  let warning: string | null = null;
+  if (input.kind === "video_shorts") {
+    const picked = new Set(input.panelIds);
+    const shots = await shortsCandidates(
+      deps.db,
+      p,
+      { panelIds: input.panelIds },
+      input.language || p.language,
+      input.video.minHoldMs,
+    );
+    const pickMs = shots.filter((s) => picked.has(s.id)).reduce((n, s) => n + s.holdMs, 0);
+    warning = shortsLengthWarning(Math.min(pickMs, (input.video.shortsSeconds ?? SHORTS_DEFAULT_MS / 1000) * 1000));
+  }
+  return c.json({ job, ...(warning ? { warnings: [warning] } : {}) }, 202);
 });
 
 doc({

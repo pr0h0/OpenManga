@@ -59,6 +59,8 @@ export type VideoOptions = {
   aspect?: VideoAspect;
   /** A hard length limit (a Shorts cut): the film ends before the shot that would pass it. */
   capMs?: number;
+  /** video_shorts: the requested length in seconds, which becomes `capMs`. */
+  shortsSeconds?: number;
   /** Intro and outro cards, when the project has them (default true; a Shorts cut has none). */
   cards?: boolean;
 };

@@ -1,4 +1,4 @@
-import { NARRATION_LANGUAGES, type VideoAspect } from "@openmanga/domain/browser";
+import { NARRATION_LANGUAGES, SHORTS_DEFAULT_MS, type VideoAspect } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileDown, Trash2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -112,6 +112,7 @@ export function ExportsPage() {
   // Frame shape: landscape unless chosen; a Short opens vertical.
   const [chosenAspect, setAspect] = useState<VideoAspect>();
   const [shortsPick, setShortsPick] = useState<string[]>([]);
+  const [shortsSeconds, setShortsSeconds] = useState(SHORTS_DEFAULT_MS / 1000);
   // Partial renders: the first N minutes, and/or a range of pages within the chosen chapter.
   const [maxMinutes, setMaxMinutes] = useState("");
   const [pageRange, setPageRange] = useState({ from: "", to: "" });
@@ -165,6 +166,7 @@ export function ExportsPage() {
           // A narrow frame shows a page at its full width unless chosen otherwise.
           pageWidthRatio: aspect === "16:9" ? video.pageWidthRatio : 1,
           aspect,
+          ...(shorts ? { shortsSeconds } : {}),
           ...(isVideo(kind) && !shorts && Number(maxMinutes) > 0
             ? { maxDurationMs: Math.round(Number(maxMinutes) * 60_000) }
             : {}),
@@ -512,6 +514,8 @@ export function ExportsPage() {
                     language={lang}
                     minHoldMs={video.minHoldMs}
                     aspect={aspect}
+                    lengthSeconds={shortsSeconds}
+                    onLength={setShortsSeconds}
                     value={shortsPick}
                     onChange={setShortsPick}
                   />
@@ -627,7 +631,7 @@ export function ExportsPage() {
               )}
               <p className="muted col-span-2 text-xs">
                 {shorts
-                  ? "The picked shots in story order, each with its own narration, at most a minute and without the intro and outro cards. Vertical and square frames crop each panel's art around its focal point; nothing is generated again. The logo watermark still applies."
+                  ? "The picked shots in story order, each with its own narration, up to the chosen length and without the intro and outro cards. Vertical and square frames crop each panel's art around its focal point; nothing is generated again. The logo watermark still applies."
                   : kind === "video_panels"
                     ? "Each panel's clean artwork (cropped as on the page, no bubbles) fills the frame for its own narration over a blurred copy of itself. Wide shots slowly push in, close-ups pull out. Panels without art use their lettered page crop."
                     : video.framing === "scroll"

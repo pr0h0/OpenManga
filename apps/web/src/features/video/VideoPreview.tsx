@@ -7,7 +7,6 @@ import {
   motionPath,
   pageShotBox,
   panelShotBox,
-  SHORTS_MAX_MS,
   scrollPlan,
   shotGroups,
   timeGroup,
@@ -387,6 +386,7 @@ export function VideoPreview({
   defaultCut,
   defaultAspect,
   defaultMinHoldMs,
+  capMs,
   title,
   shareToken,
 }: {
@@ -399,6 +399,8 @@ export function VideoPreview({
   defaultAspect?: VideoAspect;
   /** Minimum hold to open with. */
   defaultMinHoldMs?: number;
+  /** A length limit (a Shorts cut): the timeline ends before the shot that would pass it, as the render does. */
+  capMs?: number;
   title: string;
   /** Played from a reader link: public, read-only routes, and nothing to render. */
   shareToken?: string;
@@ -431,14 +433,8 @@ export function VideoPreview({
     enabled: open,
   });
   const timeline = useMemo(
-    () =>
-      buildTimeline(
-        preview.data?.shots ?? [],
-        o.minHoldMs,
-        preview.data?.branding,
-        scope.panelIds ? SHORTS_MAX_MS : undefined,
-      ),
-    [preview.data, o.minHoldMs, scope.panelIds],
+    () => buildTimeline(preview.data?.shots ?? [], o.minHoldMs, preview.data?.branding, capMs),
+    [preview.data, o.minHoldMs, capMs],
   );
 
   const [clock, setClock] = useState(0);
@@ -965,6 +961,7 @@ export function PreviewVideoButton({
   className = "btn-secondary",
   defaultAspect,
   defaultMinHoldMs,
+  capMs,
 }: {
   projectId: string;
   scope: PreviewScope;
@@ -973,6 +970,7 @@ export function PreviewVideoButton({
   className?: string;
   defaultAspect?: VideoAspect;
   defaultMinHoldMs?: number;
+  capMs?: number;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -989,6 +987,7 @@ export function PreviewVideoButton({
           defaultCut="panel"
           defaultAspect={defaultAspect}
           defaultMinHoldMs={defaultMinHoldMs}
+          capMs={capMs}
           title={title}
         />
       )}

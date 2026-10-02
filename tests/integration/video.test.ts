@@ -21,6 +21,8 @@ let u: TestClient;
 beforeAll(async () => {
   h = await startHarness();
   u = h.client();
+  // Signed in for every test, so any one of them runs on its own (bun test -t).
+  await u.post("/api/auth/register", { username: "vid", email: "vid@example.com", password: "video password 1" }, 201);
 }, 60_000);
 afterAll(async () => {
   await h?.stop();
@@ -157,11 +159,6 @@ async function probe(assetId: string) {
 
 describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
   test("renders an MP4 whose length matches the narration, holding silent pages for the minimum", async () => {
-    await u.post(
-      "/api/auth/register",
-      { username: "vid", email: "vid@example.com", password: "video password 1" },
-      201,
-    );
     const p = await u.post<{ project: { id: string } }>(
       "/api/projects",
       { title: "Video", story: { content: STORY, inputKind: "story" } },
@@ -708,16 +705,21 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
   }, 600_000);
   test("Shorts: an automatic pick, adjusted, rendered vertical from the existing art; a square panel cut", async () => {
     const { projectId, chapterId } = await narratedChapter("Shorts");
-    const pick = await u.get<{
+    type Pick = {
       minMs: number;
       maxMs: number;
+      pickedMs: number;
+      warning: string | null;
       shots: { id: string; holdMs: number; hasArt: boolean; picked: boolean; score: number }[];
-    }>(`/api/projects/${projectId}/shorts?chapterId=${chapterId}&minHoldMs=1500`);
-    expect(pick.maxMs).toBe(60_000);
+    };
+    const pick = await u.get<Pick>(`/api/projects/${projectId}/shorts?chapterId=${chapterId}&minHoldMs=1500`);
+    // Three minutes by default: YouTube's Shorts limit.
+    expect(pick.maxMs).toBe(180_000);
+    expect(pick.warning).toBeNull();
     const auto = pick.shots.filter((s) => s.picked);
     expect(auto.length).toBeGreaterThan(0);
     expect(auto.every((s) => s.hasArt)).toBe(true);
-    expect(auto.reduce((n, s) => n + s.holdMs, 0)).toBeLessThanOrEqual(60_000);
+    expect(auto.reduce((n, s) => n + s.holdMs, 0)).toBeLessThanOrEqual(180_000);
     // The user drops the first pick; the render follows story order whatever order the ids come in.
     const chosen = (auto.length > 1 ? auto.slice(1) : auto).map((s) => s.id).reverse();
     await u.post(`/api/projects/${projectId}/exports`, { kind: "video_shorts", chapterId }, 400);
@@ -746,9 +748,41 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     expect(mp4.fileName).toContain("_shorts_9x16_720p.mp4");
     const short = await probe(mp4.assetId);
     expect({ width: short.width, height: short.height }).toEqual({ width: 720, height: 1280 });
-    expect(short.ms).toBeLessThanOrEqual(60_000 + 200);
+    expect(short.ms).toBeLessThanOrEqual(180_000 + 200);
     const frames = previewFrames(preview.shots, fps, minHoldMs);
     expect(Math.abs(short.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * preview.shots.length);
+
+    // A longer cut than YouTube takes as a Short: allowed, with the warning, and the render keeps the chosen length.
+    const art = pick.shots.filter((s) => s.hasArt).map((s) => s.id);
+    const long = await u.get<Pick>(
+      `/api/projects/${projectId}/shorts?chapterId=${chapterId}&minHoldMs=30000&lengthSeconds=600`,
+    );
+    expect(long.maxMs).toBe(600_000);
+    expect(long.pickedMs).toBeGreaterThan(180_000);
+    expect(long.warning).toContain("YouTube doesn't accept Shorts over 3 minutes");
+    const queued = await u.post<{ job: { id: string }; warnings?: string[] }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 600 } },
+      202,
+    );
+    expect(queued.warnings?.[0]).toContain("this will upload as a regular video");
+    await u.post(`/api/exports/${queued.job.id}/cancel`);
+    // Within the limit there is no warning.
+    const ok = await u.post<{ job: { id: string }; warnings?: string[] }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 90 } },
+      202,
+    );
+    expect(ok.warnings).toBeUndefined();
+    await u.post(`/api/exports/${ok.job.id}/cancel`);
+    // The render honours the chosen length, whatever it is: 95 s of 30 s shots ends before the fourth, at 90 s.
+    const capped = await runExport(projectId, {
+      kind: "video_shorts",
+      panelIds: art,
+      video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 95 },
+    });
+    const cappedMs = (await probe(capped.files.find((f) => f.mimeType === "video/mp4")!.assetId)).ms;
+    expect(Math.abs(cappedMs - Math.min(3, art.length) * 30_000)).toBeLessThan(200);
 
     // Any video can be square or vertical: a square panel cut of the chapter.
     const sq = await runExport(projectId, {
