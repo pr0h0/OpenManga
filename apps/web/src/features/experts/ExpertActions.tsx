@@ -1,9 +1,7 @@
 import {
-  outlineText,
   type ProjectConcept,
   ProjectConcept as ProjectConceptSchema,
   ProjectPremise,
-  premiseDescription,
   StoryOutline,
   YoutubePackage,
 } from "@openmanga/schemas";
@@ -12,9 +10,9 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Check, ExternalLink, Plus, Trash2, Wand2 } from "lucide-react";
 import { useState } from "react";
 import type { z } from "zod";
-import { get, patch, post } from "../../api/client.ts";
+import { get, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
-import { Field, Modal, Spinner, toast } from "../../components/ui.tsx";
+import { ConfirmDialog, Field, Modal, Spinner, toast } from "../../components/ui.tsx";
 import { useAiBody } from "../ai/AiPicker.tsx";
 import { ManualAnswer } from "../generation/JobDetailPage.tsx";
 import { CopyButton } from "../generation/shared.tsx";
@@ -28,6 +26,8 @@ export type Extraction = {
   status: string;
   manual: boolean;
   result: Record<string, unknown> | null;
+  /** Set once it has been applied: when, how many times, and what it created or changed. */
+  applied: { at: string; count: number; pending?: boolean; projectId?: string; revisionId?: string } | null;
   failureReason: string | null;
   createdAt: string;
 };
@@ -109,7 +109,9 @@ function ExtractionCard({
   onRetry: () => void;
 }) {
   const qc = useQueryClient();
-  const [reviewing, setReviewing] = useState(false);
+  const [reviewing, setReviewing] = useState<false | "first" | "again">(false);
+  const [confirmAgain, setConfirmAgain] = useState(false);
+  const applied = e.applied && !e.applied.pending ? e.applied : null;
   const refresh = () => qc.invalidateQueries({ queryKey: ["expert-chat", chatId] });
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--panel-2)] p-2 text-xs">
@@ -120,10 +122,34 @@ function ExtractionCard({
             <Spinner /> Reading the reply…
           </span>
         )}
-        {e.status === "completed" && (
-          <button type="button" className="btn-primary px-2 py-0.5 text-xs" onClick={() => setReviewing(true)}>
+        {e.status === "completed" && !e.applied && (
+          <button type="button" className="btn-primary px-2 py-0.5 text-xs" onClick={() => setReviewing("first")}>
             <Check className="size-3.5" /> Review and apply
           </button>
+        )}
+        {e.applied?.pending && (
+          <span className="muted inline-flex items-center gap-1">
+            <Spinner /> Applying…
+          </span>
+        )}
+        {applied && (
+          <>
+            <span className="inline-flex items-center gap-1 text-emerald-600">
+              <Check className="size-3.5" /> Applied{applied.count > 1 ? ` ${applied.count} times` : ""}
+            </span>
+            {applied.projectId && (
+              <Link
+                to={applied.revisionId ? "/projects/$projectId/story" : "/projects/$projectId"}
+                params={{ projectId: applied.projectId }}
+                className="inline-flex items-center gap-1 hover:underline"
+              >
+                {applied.revisionId ? "Open the revision" : "Open the project"} <ExternalLink className="size-3" />
+              </Link>
+            )}
+            <button type="button" className="btn-ghost px-1 py-0 text-xs" onClick={() => setConfirmAgain(true)}>
+              Apply again
+            </button>
+          </>
         )}
         {(e.status === "failed" || e.status === "cancelled") && (
           <>
@@ -145,8 +171,33 @@ function ExtractionCard({
       </div>
       {e.status === "awaiting_input" && <PasteStep jobId={e.id} onSubmitted={refresh} />}
       {reviewing && e.result && (
-        <Review chatId={chatId} extraction={e} result={e.result} onClose={() => setReviewing(false)} />
+        <Review
+          chatId={chatId}
+          extraction={e}
+          result={e.result}
+          again={reviewing === "again"}
+          onClose={() => setReviewing(false)}
+        />
       )}
+      <ConfirmDialog
+        open={confirmAgain}
+        title="Apply this again?"
+        confirmLabel="Review and apply again"
+        onConfirm={() => {
+          setConfirmAgain(false);
+          setReviewing("again");
+        }}
+        onClose={() => setConfirmAgain(false)}
+      >
+        It was already applied
+        {applied ? ` on ${new Date(applied.at).toLocaleString()}` : ""}. Applying it again{" "}
+        {e.action === "concept"
+          ? "creates another project"
+          : e.action === "outline"
+            ? "saves another outline revision"
+            : "replaces the current text with this one again"}
+        .
+      </ConfirmDialog>
     </div>
   );
 }
@@ -193,17 +244,53 @@ function checked<T>(schema: z.ZodType<T>, value: unknown): T | null {
   return null;
 }
 
+/** Applies an extraction through the server, which records it so it is never applied twice by accident. */
+type Apply = (data: unknown, opts?: { attachChat?: boolean }) => void;
+
 function Review({
   chatId,
   extraction: e,
   result,
+  again,
   onClose,
 }: {
   chatId: string;
   extraction: Extraction;
   result: Record<string, unknown>;
+  again: boolean;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
+  const run = useAction(
+    (v: { data: unknown; attachChat?: boolean }) =>
+      post<{ applied: { projectId?: string; revisionId?: string } }>(`/expert-extractions/${e.id}/apply`, {
+        ...v,
+        again,
+      }),
+    {
+      invalidate: [
+        ["expert-chat", chatId],
+        ["expert-chats"],
+        ["projects"],
+        ...(e.projectId ? [qk.project(e.projectId)] : []),
+      ],
+      onSuccess: (r) => {
+        toast.success(
+          {
+            concept: "Project created",
+            premise: "Project description replaced",
+            outline: "Outline saved as a new story revision",
+            youtube: "YouTube package text replaced",
+          }[e.action],
+        );
+        onClose();
+        if (e.action === "concept" && r.applied.projectId)
+          navigate({ to: "/projects/$projectId", params: { projectId: r.applied.projectId } });
+      },
+    },
+  );
+  const apply: Apply = (data, opts) => run.mutate({ data, ...opts });
+  const busy = run.isPending;
   const title = {
     concept: "New project from this concept",
     premise: "Replace the project's premise",
@@ -215,49 +302,33 @@ function Review({
       <p className="muted mb-3 text-xs">
         Read through what was taken from the reply and change anything you like. Nothing is changed until you apply it.
       </p>
-      {e.action === "concept" && <ConceptForm chatId={chatId} value={result as ProjectConcept} onDone={onClose} />}
+      {e.action === "concept" && <ConceptForm value={result as ProjectConcept} apply={apply} busy={busy} />}
       {e.action === "premise" && e.projectId && (
-        <PremiseForm projectId={e.projectId} value={result as { logline: string; premise: string }} onDone={onClose} />
+        <PremiseForm
+          projectId={e.projectId}
+          value={result as { logline: string; premise: string }}
+          apply={apply}
+          busy={busy}
+        />
       )}
-      {e.action === "outline" && e.projectId && (
-        <OutlineForm projectId={e.projectId} value={result as z.infer<typeof StoryOutline>} onDone={onClose} />
+      {e.action === "outline" && (
+        <OutlineForm value={result as z.infer<typeof StoryOutline>} apply={apply} busy={busy} />
       )}
-      {e.action === "youtube" && e.projectId && (
-        <YoutubeForm projectId={e.projectId} value={result as z.infer<typeof YoutubePackage>} onDone={onClose} />
+      {e.action === "youtube" && (
+        <YoutubeForm value={result as z.infer<typeof YoutubePackage>} apply={apply} busy={busy} />
       )}
     </Modal>
   );
 }
 
-function ConceptForm({ chatId, value, onDone }: { chatId: string; value: ProjectConcept; onDone: () => void }) {
-  const navigate = useNavigate();
+function ConceptForm({ value, apply, busy }: { value: ProjectConcept; apply: Apply; busy: boolean }) {
   const [v, setV] = useState(value);
   const [attach, setAttach] = useState(true);
   const set = (k: keyof ProjectConcept) => (x: { target: { value: string } }) => setV({ ...v, [k]: x.target.value });
-  const create = useAction(
-    async () => {
-      const c = checked(ProjectConceptSchema, v);
-      if (!c) return null;
-      const { project } = await post<{ project: { id: string } }>("/projects", {
-        title: c.title,
-        description: premiseDescription(c),
-        projectType: c.projectType,
-        format: c.format,
-        story: { content: c.storyIdea, inputKind: "idea", title: c.title },
-      });
-      if (attach) await patch(`/expert-chats/${chatId}`, { projectId: project.id });
-      return project;
-    },
-    {
-      invalidate: [["projects"], ["expert-chats"], ["expert-chat", chatId]],
-      onSuccess: (project) => {
-        if (!project) return;
-        toast.success("Project created");
-        onDone();
-        navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
-      },
-    },
-  );
+  const submit = () => {
+    const c = checked(ProjectConceptSchema, v);
+    if (c) apply(c, { attachChat: attach });
+  };
   return (
     <div className="space-y-3">
       <Field label="Title">
@@ -295,8 +366,8 @@ function ConceptForm({ chatId, value, onDone }: { chatId: string; value: Project
         Continue this chat about the new project
       </label>
       <div className="flex justify-end">
-        <button type="button" className="btn-primary" disabled={create.isPending} onClick={() => create.mutate()}>
-          {create.isPending ? <Spinner /> : <Plus className="size-4" />} Create project
+        <button type="button" className="btn-primary" disabled={busy} onClick={submit}>
+          {busy ? <Spinner /> : <Plus className="size-4" />} Create project
         </button>
       </div>
     </div>
@@ -306,32 +377,23 @@ function ConceptForm({ chatId, value, onDone }: { chatId: string; value: Project
 function PremiseForm({
   projectId,
   value,
-  onDone,
+  apply,
+  busy,
 }: {
   projectId: string;
   value: { logline: string; premise: string };
-  onDone: () => void;
+  apply: Apply;
+  busy: boolean;
 }) {
   const [v, setV] = useState(value);
   const current = useQuery({
     queryKey: qk.project(projectId),
     queryFn: () => get<{ project: { description: string } }>(`/projects/${projectId}`),
   });
-  const save = useAction(
-    async () => {
-      const p = checked(ProjectPremise, v);
-      if (p) await patch(`/projects/${projectId}`, { description: premiseDescription(p) });
-      return Boolean(p);
-    },
-    {
-      invalidate: [qk.project(projectId)],
-      onSuccess: (ok) => {
-        if (!ok) return;
-        toast.success("Project description replaced");
-        onDone();
-      },
-    },
-  );
+  const submit = () => {
+    const p = checked(ProjectPremise, v);
+    if (p) apply(p);
+  };
   return (
     <div className="space-y-3">
       <Field label="Logline">
@@ -351,46 +413,22 @@ function PremiseForm({
         </details>
       )}
       <div className="flex justify-end">
-        <button type="button" className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? <Spinner /> : <Check className="size-4" />} Replace description
+        <button type="button" className="btn-primary" disabled={busy} onClick={submit}>
+          {busy ? <Spinner /> : <Check className="size-4" />} Replace description
         </button>
       </div>
     </div>
   );
 }
 
-function OutlineForm({
-  projectId,
-  value,
-  onDone,
-}: {
-  projectId: string;
-  value: z.infer<typeof StoryOutline>;
-  onDone: () => void;
-}) {
+function OutlineForm({ value, apply, busy }: { value: z.infer<typeof StoryOutline>; apply: Apply; busy: boolean }) {
   const [v, setV] = useState(value);
   const setChapter = (i: number, k: "title" | "summary", x: string) =>
     setV({ ...v, chapters: v.chapters.map((c, n) => (n === i ? { ...c, [k]: x } : c)) });
-  const save = useAction(
-    async () => {
-      const o = checked(StoryOutline, v);
-      if (o)
-        await post(`/projects/${projectId}/story/revisions`, {
-          content: outlineText(o),
-          title: o.title,
-          inputKind: "outline",
-        });
-      return Boolean(o);
-    },
-    {
-      invalidate: [qk.project(projectId)],
-      onSuccess: (ok) => {
-        if (!ok) return;
-        toast.success("Outline saved as a new story revision");
-        onDone();
-      },
-    },
-  );
+  const submit = () => {
+    const o = checked(StoryOutline, v);
+    if (o) apply(o);
+  };
   return (
     <div className="space-y-3">
       <Field label="Revision title">
@@ -434,52 +472,33 @@ function OutlineForm({
         >
           <Plus className="size-4" /> Chapter
         </button>
-        <button type="button" className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? <Spinner /> : <Check className="size-4" />} Save outline
+        <button type="button" className="btn-primary" disabled={busy} onClick={submit}>
+          {busy ? <Spinner /> : <Check className="size-4" />} Save outline
         </button>
       </div>
     </div>
   );
 }
 
-function YoutubeForm({
-  projectId,
-  value,
-  onDone,
-}: {
-  projectId: string;
-  value: z.infer<typeof YoutubePackage>;
-  onDone: () => void;
-}) {
+function YoutubeForm({ value, apply, busy }: { value: z.infer<typeof YoutubePackage>; apply: Apply; busy: boolean }) {
   const [titles, setTitles] = useState(value.titles.join("\n"));
   const [description, setDescription] = useState(value.description);
   const [tags, setTags] = useState(value.tags.join(", "));
   const [pinnedComment, setPinnedComment] = useState(value.pinnedComment);
   const [headlines, setHeadlines] = useState(value.thumbnailHeadlines.join("\n"));
-  const save = useAction(
-    async () => {
-      const y = checked(YoutubePackage, {
-        titles: lines(titles),
-        description,
-        tags: tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
-        pinnedComment,
-        thumbnailHeadlines: lines(headlines),
-      });
-      if (y) await patch(`/projects/${projectId}`, { settings: { youtubePackage: y } });
-      return Boolean(y);
-    },
-    {
-      invalidate: [qk.project(projectId)],
-      onSuccess: (ok) => {
-        if (!ok) return;
-        toast.success("YouTube package text replaced");
-        onDone();
-      },
-    },
-  );
+  const submit = () => {
+    const y = checked(YoutubePackage, {
+      titles: lines(titles),
+      description,
+      tags: tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+      pinnedComment,
+      thumbnailHeadlines: lines(headlines),
+    });
+    if (y) apply(y);
+  };
   return (
     <div className="space-y-3">
       <Field label="Titles" hint="One per line, strongest first.">
@@ -502,8 +521,8 @@ function YoutubeForm({
         <textarea className="input min-h-16 text-sm" value={headlines} onChange={(x) => setHeadlines(x.target.value)} />
       </Field>
       <div className="flex justify-end">
-        <button type="button" className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? <Spinner /> : <Check className="size-4" />} Replace YouTube text
+        <button type="button" className="btn-primary" disabled={busy} onClick={submit}>
+          {busy ? <Spinner /> : <Check className="size-4" />} Replace YouTube text
         </button>
       </div>
     </div>

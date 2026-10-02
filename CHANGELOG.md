@@ -30,8 +30,9 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 - **Expert output actions.** Under an expert's reply, *Use as* turns it into a new project (title, premise, type,
   format and story idea), the project's premise, an outline story revision, or the project's YouTube text. Each runs
   a structured extraction as a text job (provider key or paste mode, shown in Generation); you review and edit the
-  result, and nothing changes until you apply it through the usual routes. Agents get the same through
-  `use_expert_reply`.
+  result, and nothing changes until you apply it. Each extraction is applied once: the chat then shows *Applied* with
+  a link to what it made, and a second apply is refused (409 `already_applied`) unless asked for on purpose (*Apply
+  again*, or `again: true`). Agents get the same through `use_expert_reply`.
 - **Agents can clean up.** Three MCP tools, each a delete-class action that waits for approval on an "Ask me first"
   connection: `delete_exports` (one export, or every finished export of a project), `delete_narration_audio` (a
   chapter's, one track of it, or the whole project's; the text stays) and `manage_assets` (list a project's assets or

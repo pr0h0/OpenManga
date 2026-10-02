@@ -1,6 +1,5 @@
 import { eq, expertChats, expertMessages, generationJobs } from "@openmanga/db";
-import { EXPERT_ACTION_KINDS, EXPERT_ACTIONS, type ExpertAction } from "@openmanga/prompts";
-import { outlineText, type ProjectConcept, premiseDescription, type StoryOutline } from "@openmanga/schemas";
+import { EXPERT_ACTION_KINDS, type ExpertAction } from "@openmanga/prompts";
 import { z } from "zod";
 import { NewChat } from "../../routes/experts.ts";
 import { defineMcpTool, Passthrough, type ToolContext } from "../registry.ts";
@@ -230,7 +229,7 @@ export const expertTools = [
     name: "use_expert_reply",
     title: "Use an expert reply",
     description:
-      "Turn an expert's reply into something applied, in two steps. extract: queue a text job that reads the reply (messageId, from manage_expert_chat get) as action concept (a new project: title, logline, premise, type, format, story idea), premise (a new logline and premise for the chat's project), outline (chapters, for a new outline story revision) or youtube (the project's YouTube package text). premise, outline and youtube need a chat about a project. Asynchronous: poll get_job; with ai.manual=true answer it via get_manual_prompt / submit_manual_answer (no spending); a provider run spends credits (may need approval). The completed job's result.data is the extracted object: show it to the user. apply: after the user agrees, apply the job's result (jobId and the same action; pass data to apply an edited version) through the normal routes: concept creates the project with the story idea as its first revision (needs permission to create projects), premise replaces the project description, outline adds a story revision, youtube replaces settings.youtubePackage. apply is sensitive (may need approval).",
+      "Turn an expert's reply into something applied, in two steps. extract: queue a text job that reads the reply (messageId, from manage_expert_chat get) as action concept (a new project: title, logline, premise, type, format, story idea), premise (a new logline and premise for the chat's project), outline (chapters, for a new outline story revision) or youtube (the project's YouTube package text). premise, outline and youtube need a chat about a project. Asynchronous: poll get_job; with ai.manual=true answer it via get_manual_prompt / submit_manual_answer (no spending); a provider run spends credits (may need approval). The completed job's result.data is the extracted object: show it to the user. apply: after the user agrees, apply the job's result (jobId and the same action; pass data to apply an edited version) through the normal routes: concept creates the project with the story idea as its first revision (needs permission to create projects), premise replaces the project description, outline adds a story revision, youtube replaces settings.youtubePackage. apply is sensitive (may need approval). Each extraction is applied once: applying it again is refused with already_applied (409, details.applied says when and what it created) unless again=true, which you pass only when the user explicitly asks to apply it a second time.",
     input: z.object({
       mode: z.enum(["extract", "apply"]),
       action: z.enum(EXPERT_ACTION_KINDS),
@@ -240,6 +239,12 @@ export const expertTools = [
         .record(z.string(), z.unknown())
         .optional()
         .describe("apply: an edited version of the job's result.data, checked against the same schema."),
+      again: z
+        .boolean()
+        .default(false)
+        .describe(
+          "apply: apply an extraction that was already applied, once more. Only when the user explicitly asks for it.",
+        ),
       ai: AiInput,
     }),
     output: Passthrough,
@@ -247,12 +252,7 @@ export const expertTools = [
     scopesFor: (a) => (a.mode === "extract" ? ["experts:use"] : ["experts:use", APPLY_SCOPES[a.action]]),
     sensitivity: "spend",
     idempotent: false,
-    routes: [
-      "POST /api/expert-messages/:id/extract",
-      "POST /api/projects",
-      "PATCH /api/projects/:projectId",
-      "POST /api/projects/:projectId/story/revisions",
-    ],
+    routes: ["POST /api/expert-messages/:id/extract", "POST /api/expert-extractions/:id/apply"],
     actionKeys: [
       "expert.extract",
       "expert.apply_concept",
@@ -275,9 +275,15 @@ export const expertTools = [
         );
       }
       const j = await extraction(ctx, a.jobId ?? "");
-      return cls("sensitive-write", `expert.apply_${a.action}`, j.projectId, APPLY_SUMMARY[a.action], {
-        target: { status: j.status },
-      });
+      const applied = (j.result as { applied?: { count?: number } } | null)?.applied;
+      return cls(
+        "sensitive-write",
+        `expert.apply_${a.action}`,
+        j.projectId,
+        `${APPLY_SUMMARY[a.action]}${a.again ? " (again: it was already applied)" : ""}`,
+        // Applied by someone else while this waited makes the request stale instead of applying it twice.
+        { target: { status: j.status, applied: applied?.count ?? 0 } },
+      );
     },
     handler: async (a, ctx) => {
       if (a.mode === "extract") {
@@ -294,44 +300,15 @@ export const expertTools = [
       const j = await extraction(ctx, a.jobId ?? "");
       if (String(j.input.action) !== a.action)
         throw toolError(400, "bad_request", `This job extracted a ${String(j.input.action)}, not a ${a.action}`);
-      if (j.status !== "completed") throw toolError(409, "conflict", `The extraction is ${j.status}, not completed`);
-      const parsed = EXPERT_ACTIONS[a.action].schema.safeParse(a.data ?? (j.result as { data?: unknown } | null)?.data);
-      if (!parsed.success)
-        throw toolError(422, "validation_error", "Invalid data for this action", parsed.error.issues);
-      if (a.action === "concept") {
-        requireCreate(ctx);
-        const c = parsed.data as ProjectConcept;
-        const { project } = await ctx.invoke<{ project: { id: string } }>("POST", "/api/projects", {
-          body: {
-            title: c.title,
-            description: premiseDescription(c),
-            projectType: c.projectType,
-            format: c.format,
-            story: { content: c.storyIdea, inputKind: "idea", title: c.title },
-          },
-        });
-        await grantProject(ctx, project.id);
-        return { data: { project }, links: { project: links(ctx).project(project.id) } };
-      }
-      const projectId = j.projectId;
-      if (!projectId) throw toolError(409, "conflict", "This extraction belongs to no project");
-      if (a.action === "outline") {
-        const o = parsed.data as StoryOutline;
-        return {
-          data: await ctx.invoke("POST", `/api/projects/${projectId}/story/revisions`, {
-            body: { content: outlineText(o), title: o.title, inputKind: "outline" },
-          }),
-          links: { project: links(ctx).project(projectId) },
-        };
-      }
-      const body =
-        a.action === "premise"
-          ? { description: premiseDescription(parsed.data as { logline: string; premise: string }) }
-          : { settings: { youtubePackage: parsed.data } };
-      return {
-        data: await ctx.invoke("PATCH", `/api/projects/${projectId}`, { body }),
-        links: { project: links(ctx).project(projectId) },
-      };
+      if (a.action === "concept") requireCreate(ctx);
+      const r = await ctx.invoke<{ applied: { projectId?: string; revisionId?: string } }>(
+        "POST",
+        `/api/expert-extractions/${j.id}/apply`,
+        { body: { data: a.data, again: a.again } },
+      );
+      const projectId = r.applied.projectId;
+      if (a.action === "concept" && projectId) await grantProject(ctx, projectId);
+      return { data: r, links: projectId ? { project: links(ctx).project(projectId) } : undefined };
     },
   }),
 ];

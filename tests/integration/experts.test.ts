@@ -298,8 +298,10 @@ type Extraction = {
   status: string;
   manual: boolean;
   result: Record<string, unknown> | null;
+  applied: { at: string; count: number; projectId?: string; revisionId?: string } | null;
   failureReason: string | null;
 };
+type Applied = { applied: { count: number; projectId?: string; revisionId?: string }; extraction: Extraction };
 const extract = (messageId: string, action: string, ai?: Record<string, unknown>) =>
   alice.post<{ extraction: Extraction }>(`/api/expert-messages/${messageId}/extract`, { action, ai }, 202);
 /** The extraction once it has finished, or is waiting for a pasted answer. */
@@ -343,24 +345,45 @@ test("a concept in a reply becomes a new project, and only once it is applied", 
   expect(usage.length).toBeGreaterThan(0);
   expect(usage.every((u) => u.projectId === null)).toBe(true);
 
-  // Applying is the normal create route, with what the user reviewed.
-  const { project } = await alice.post<{ project: { id: string; description: string } }>(
-    "/api/projects",
-    {
-      title: concept.title,
-      description: `${concept.logline}\n\n${concept.premise}`,
-      projectType: "manhwa",
-      format: "comic",
-      story: { content: concept.storyIdea, inputKind: "idea", title: concept.title },
-    },
-    201,
+  // Applying creates the project from what the user reviewed (edited here), and moves the chat to it.
+  const first = await alice.post<Applied>(`/api/expert-extractions/${done.id}/apply`, {
+    data: { ...concept, title: "The Lamp That Keeps Time" },
+    attachChat: true,
+  });
+  expect(first.applied.count).toBe(1);
+  const projectId2 = first.applied.projectId!;
+  const { project } = await alice.get<{ project: { title: string; description: string } }>(
+    `/api/projects/${projectId2}`,
   );
+  expect(project.title).toBe("The Lamp That Keeps Time");
   expect(project.description).toContain(concept.logline);
   const story = await alice.get<{ latest: { content: string; inputKind: string } }>(
-    `/api/projects/${project.id}/story`,
+    `/api/projects/${projectId2}/story`,
   );
   expect(story.latest.inputKind).toBe("idea");
   expect(story.latest.content).toBe(concept.storyIdea);
+  const after = await alice.get<{ chat: Chat; extractions: Extraction[] }>(`/api/expert-chats/${chat.id}`);
+  expect(after.chat.projectId).toBe(projectId2);
+  // Recorded on the extraction: a reload shows it applied, with the project it made.
+  expect(after.extractions.find((x) => x.id === done.id)!.applied).toMatchObject({ count: 1, projectId: projectId2 });
+
+  // A second apply is refused, so a double click or a retry never makes a second project...
+  const again = await alice.raw("POST", `/api/expert-extractions/${done.id}/apply`, {});
+  expect(again.status).toBe(409);
+  const err = (await again.json()) as { error: { code: string; message: string } };
+  expect(err.error.code).toBe("already_applied");
+  expect(err.error.message).toContain("again=true");
+  const count = (await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length;
+  expect(count).toBe(before + 1);
+  // ...unless it is asked for on purpose.
+  const second = await alice.post<Applied>(`/api/expert-extractions/${done.id}/apply`, { again: true });
+  expect(second.applied.count).toBe(2);
+  expect(second.applied.projectId).not.toBe(projectId2);
+  expect((await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length).toBe(before + 2);
+  // Nobody else can apply it, and an invalid edit is refused before anything changes.
+  await bob.post(`/api/expert-extractions/${done.id}/apply`, { again: true }, 404);
+  await alice.post(`/api/expert-extractions/${done.id}/apply`, { again: true, data: { title: "" } }, 422);
+  expect((await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length).toBe(before + 2);
 });
 
 test("premise, outline and YouTube text from a reply about a project, each in the project's Generation", async () => {
@@ -386,28 +409,27 @@ test("premise, outline and YouTube text from a reply about a project, each in th
   const gen = await alice.get<{ jobs: { id: string; kind: string }[] }>(`/api/projects/${projectId}/generations`);
   for (const id of ids) expect(gen.jobs.find((j) => j.id === id)?.kind).toBe("expert_extract");
 
-  // Applying uses the routes the rest of the app does.
-  await alice.patch(`/api/projects/${projectId}`, { description: `${premise!.logline}\n\n${premise!.premise}` });
-  const o = outline as { title: string; chapters: { title: string; summary: string }[] };
+  // Applying goes through the same code as the project and story routes, and is recorded on each extraction.
+  const applied = async (id: string) => (await alice.post<Applied>(`/api/expert-extractions/${id}/apply`, {})).applied;
+  expect(await applied(ids[0]!)).toMatchObject({ count: 1, projectId });
+  const o = outline as { chapters: unknown[] };
   expect(o.chapters.length).toBeGreaterThan(0);
-  await alice.post(
-    `/api/projects/${projectId}/story/revisions`,
-    {
-      content: o.chapters.map((c, i) => `Chapter ${i + 1}: ${c.title}\n${c.summary}`).join("\n\n"),
-      title: o.title,
-      inputKind: "outline",
-    },
-    201,
-  );
-  await alice.patch(`/api/projects/${projectId}`, { settings: { youtubePackage: youtube } });
+  const rev = await applied(ids[1]!);
+  expect(rev.revisionId).toBeTruthy();
+  await applied(ids[2]!);
   const p = await alice.get<{ project: { description: string; settings: { youtubePackage: { titles: string[] } } } }>(
     `/api/projects/${projectId}`,
   );
   expect(p.project.description).toContain(String(premise!.logline));
   expect(p.project.settings.youtubePackage.titles).toEqual((youtube as { titles: string[] }).titles);
-  const story = await alice.get<{ latest: { inputKind: string; content: string } }>(`/api/projects/${projectId}/story`);
+  const story = await alice.get<{ latest: { id: string; inputKind: string; content: string } }>(
+    `/api/projects/${projectId}/story`,
+  );
+  expect(story.latest.id).toBe(rev.revisionId!);
   expect(story.latest.inputKind).toBe("outline");
   expect(story.latest.content).toStartWith("Chapter 1: ");
+  // Each is applied once unless asked again.
+  for (const id of ids) await alice.post(`/api/expert-extractions/${id}/apply`, {}, 409);
 });
 
 test("with no key, an extraction asks for its answer and holds it to the schema", async () => {

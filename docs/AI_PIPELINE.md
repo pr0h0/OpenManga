@@ -127,11 +127,15 @@ it recommends (or the first), and write in the project's language. Their schemas
 (`experts.ts`): `ProjectConcept` (title, logline, premise, project type, format, story idea), `ProjectPremise`
 (logline and premise), `StoryOutline` (chapters with title and summary) and the existing `YoutubePackage`.
 
-Nothing is applied by the job. The chat shows the result under the reply for review and editing, and applying calls
-the ordinary routes: `POST /api/projects` with the story idea as an `idea` revision (and, optionally, the chat moved
-to the new project), `PATCH /api/projects/:id` for the description (logline, a blank line, the premise) or
-`settings.youtubePackage`, and `POST /api/projects/:id/story/revisions` for an `outline` revision (one
-`Chapter N: title` paragraph per chapter). Premise, outline and YouTube text need a chat about a project; the job runs
+Nothing is applied by the job. The chat shows the result under the reply for review and editing, and
+`POST /api/expert-extractions/:id/apply` (the reviewed `data`, `again`, and for a concept `attachChat`) applies it
+with the same code as the ordinary routes: creating the project with the story idea as an `idea` revision (and,
+optionally, moving the chat to it), replacing the description (logline, a blank line, the premise) or
+`settings.youtubePackage`, or adding an `outline` story revision (one `Chapter N: title` paragraph per chapter).
+Applying is recorded on the job (`result.applied`: when, how many times, and the project or revision it made), so
+the chat shows "Applied" with a link after a reload. The job is claimed in one statement before anything changes,
+so a double click or a retry cannot apply it twice; a second apply is refused with 409 `already_applied` unless
+`again: true` (the chat's *Apply again*, behind a confirmation). A failed apply puts the record back as it was. Premise, outline and YouTube text need a chat about a project; the job runs
 in that project (its budget, its Generation page). A concept from a chat about no project is the one job without a
 project: `generation_jobs.project_id` is null, only its owner can read or answer it, its usage is recorded against no
 project (only the server's monthly ceiling applies to it), and it is followed from the chat itself.
