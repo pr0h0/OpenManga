@@ -5,9 +5,11 @@ import {
   and,
   approvalStatus,
   audioAssets,
+  bibleFacts,
   chapters,
   characterAliases,
   characterOutfits,
+  characterStates,
   characters,
   characterVersions,
   colorMode,
@@ -783,6 +785,37 @@ async function restore(
         .set({ guide: { assetId: a.id, strength: g.strength, pose: g.pose } })
         .where(eq(panels.id, g.panelId));
   }
+
+  const refOrNull = (r: string | null) => (r ? (refs.get(r) ?? null) : null);
+  if (doc.bible.facts.length)
+    await tx.insert(bibleFacts).values(
+      doc.bible.facts.map((f) => ({
+        projectId,
+        kind: f.kind,
+        subject: f.subject,
+        text: f.text,
+        fixed: f.fixed,
+        visual: f.visual,
+        fromChapterId: refOrNull(f.fromChapter),
+        untilChapterId: refOrNull(f.untilChapter),
+      })),
+    );
+  const states = doc.bible.states.filter((s) => refs.has(s.character));
+  if (states.length < doc.bible.states.length)
+    warn(`${doc.bible.states.length - states.length} story bible state(s) name a character not in the package`);
+  if (states.length)
+    await tx.insert(characterStates).values(
+      states.map((s) => ({
+        projectId,
+        characterId: refs.get(s.character)!,
+        kind: s.kind,
+        text: s.text,
+        chapterId: refOrNull(s.chapter),
+        sceneNumber: s.sceneNumber,
+        untilChapterId: refOrNull(s.untilChapter),
+        outfitId: refOrNull(s.outfit),
+      })),
+    );
 
   const unreferenced = Object.keys(doc.assets).length - counts.assets!;
   if (unreferenced > 0)

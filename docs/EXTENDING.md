@@ -214,7 +214,7 @@ compiled sections; this section is only about editing the registry.
    | | Text | Image |
    | --- | --- | --- |
    | How to bump | Add a **new export** (`chapterPlanningV7`) and append it to `TEXT_TEMPLATES`, leaving the old exports registered | Increment `version` **in place** on the existing export and edit its body |
-   | Old versions in code | Kept and still registered (`narration` has v1–v5 live) | Not kept — only the current body exists |
+   | Old versions in code | Kept and still registered (`narration` has v1–v6 live) | Not kept — only the current body exists |
 
    So `characterReferenceV1` is at `version: 5` and `panelGenerationV1` at `version: 8`: the `V1` in those export names
    is historical and means nothing. Old image `prompt_versions` rows survive in the database, but the previous body is
@@ -223,8 +223,8 @@ compiled sections; this section is only about editing the registry.
 4. **Point the caller at the new version.** The registry holds every version; the *live* one is whichever the caller
    imports. Nothing selects it automatically. Update both sides or the job will record the wrong template:
    - `apps/worker/src/handlers/text.ts` builds the messages (`storyAnalysisV3.build(…)`, the one-call plan
-     `shotPlanningV3` / `stripPlanningV2` / `chapterPlanningV6` by format, the scene-by-scene passes
-     `chapterOutlineV2` + `scenePagesV2` and their strip/shot twins, `panelPromptsV4`, `narrationV5`).
+     `shotPlanningV4` / `stripPlanningV3` / `chapterPlanningV7` by format, the scene-by-scene passes
+     `chapterOutlineV3` + `scenePagesV3` and their strip/shot twins, `panelPromptsV5`, `narrationV6`).
    - The API route that *creates* the job stamps `templateName` / `templateVersion` on the row —
      `apps/api/src/routes/stories.ts`, `chapters.ts`, `pages.ts`, `audio.ts` (narration text), `vision.ts`,
      `generations.ts` (the YouTube package text).
@@ -266,7 +266,7 @@ compiled sections; this section is only about editing the registry.
 
 7. **Tests.** `packages/prompts/src/prompts.test.ts` asserts that `name@version` pairs are unique across
    `allTemplateRecords()`, that story content stays inside its delimiters, and that old versions remain registered
-   (`narration` v1–v5). A new template name or version should get the same treatment.
+   (`narration` v1–v6). A new template name or version should get the same treatment.
 
 ---
 
@@ -381,7 +381,7 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
 ## 4. Add a queued job type
 
 Long AI work always goes through the queue, and a job row is always written with its outbox row in the same
-transaction (invariant 8). Three job families exist: **generation jobs** (`generation_jobs`, 17 kinds, one shared
+transaction (invariant 8). Three job families exist: **generation jobs** (`generation_jobs`, 20 kinds, one shared
 runner), **audio jobs** (`audio_jobs`), and **export jobs** (`export_jobs`, §3).
 
 ### The outbox rule

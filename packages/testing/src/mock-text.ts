@@ -384,6 +384,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "expert-premise": "expert-premise-v1",
     "expert-outline": "expert-outline-v1",
     "expert-youtube": "expert-youtube-v1",
+    "bible-extract": "bible-extract-v1",
   };
   const route = tpl === "narration-v1" ? tpl : name === "narration" ? "narration-v2" : (byName[name] ?? tpl);
   switch (route) {
@@ -502,6 +503,29 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         tags: [title.toLowerCase().slice(0, 60)],
         pinnedComment: "What would you have done?",
         thumbnailHeadlines: ["THE EXPERT WAS RIGHT"],
+      };
+    }
+    case "bible-extract-v1": {
+      // One fixed visual rule and one injury for the first character, a world rule, and an item from the last
+      // chapter on: enough for a test to see facts, states and chapter numbers come back.
+      const d = (data[0] ?? {}) as { characters?: { name: string }[] };
+      const numbers = [...story.matchAll(/^=== Chapter (\d+):/gm)].map((m) => Number(m[1]));
+      const first = numbers[0] ?? 1;
+      const last = numbers.at(-1) ?? first;
+      const who = d.characters?.[0]?.name;
+      return {
+        facts: [
+          { kind: "rule", subject: "", text: "No guns exist in this world.", fixed: true, visual: true },
+          ...(who
+            ? [{ kind: "character", subject: who, text: "Scar on the LEFT jaw.", fixed: true, visual: true }]
+            : []),
+        ],
+        states: who
+          ? [
+              { character: who, kind: "injury", text: "Bandaged right hand.", fromChapter: first },
+              { character: who, kind: "item", text: "Carries the brass key.", fromChapter: last },
+            ]
+          : [],
       };
     }
     case "story-rewrite-v1":

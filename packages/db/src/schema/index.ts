@@ -1,4 +1,5 @@
 export * from "./auth.ts";
+export * from "./bible.ts";
 export * from "./comments.ts";
 export * from "./common.ts";
 export * from "./experts.ts";

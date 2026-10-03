@@ -19,6 +19,8 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   ProjectConcept: "**New project** from an expert's reply — the concept as a title, premise and story idea.",
   ProjectPremise: "**Use as premise** from an expert's reply — a logline and premise for the project description.",
   StoryOutline: "**Save as outline** from an expert's reply — the chapters, saved as an outline story revision.",
+  BibleExtraction:
+    "**Extract bible from story** — proposes story bible facts and character states from the chapters, for review.",
 };
 
 /**

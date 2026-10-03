@@ -7,7 +7,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: one migration, `0028_production_run_warnings`, adds a nullable JSON column.
+Upgrading: two migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
+story bible's two tables.
+
+### Added
+
+- **Story bible.** A Bible page in each project holds facts (character, relationship, power, organisation, place,
+  object, term or rule; a subject; an optional chapter range; *fixed* for rules that must hold, *visual* for what
+  can be seen) and a per-character state timeline (injury, look, outfit in force, item, location, rank, knowledge,
+  from a chapter and scene on). **Extract from story** is a text job (`bible-extract` v1, paste mode works) that
+  proposes facts and states from the chapters and their memory for review; nothing is saved until you apply what you
+  keep. Chapter planning (`page-planning` v7 and its shot, strip and split-pass versions), panel prompts
+  (`panel-prompts` v5) and narration (`narration` v6) now receive the entries in effect at that chapter or scene,
+  about who and what they concern; panel images (`panel-generation` v12) get the visible ones in a `STORY CANON`
+  section, and an outfit state that names an outfit dresses the character in it wherever no panel sets another. The
+  bible is copied with a duplicated project and kept in project exports and imports. MCP: `get_story_bible`,
+  `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`.
 
 ### Added
 

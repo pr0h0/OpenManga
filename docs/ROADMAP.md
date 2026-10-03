@@ -26,12 +26,8 @@ Grouped by area, roughly most useful first within each.
 
 ### Canon and continuity
 
-- **Story bible.** Structured facts about characters, relationships, powers, organisations, places, objects and
-  terms, with rules marked as fixed ("scar on the LEFT jaw", "doesn't learn X until chapter 12") that planning,
-  narration and art prompts must respect.
-- **Story timeline.** Events in order with dates, ages and elapsed time, and per-character state over it: injuries,
-  look, outfit in force, what they carry, where they are, rank and stats (for system and cultivation stories), who
-  they know and what they know.
+- **Story timeline.** Events in order with dates, ages and elapsed time, so the bible's per-character states can be
+  placed by story time as well as by chapter and scene.
 - **Location states.** Versions of a place by story time (normal, destroyed, snowed in, at night), picked by when the
   scene happens.
 - **Continuity check.** Compare each new scene, line and panel with the bible and its neighbours, and list

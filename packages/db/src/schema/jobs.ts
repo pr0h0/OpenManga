@@ -29,7 +29,9 @@ export type GenerationKind =
   /** The same for text jobs: harvests each job's request and submits them together. */
   | "text_batch_submit"
   /** Turns an expert's reply into something to apply (a project concept, premise, outline or YouTube text). */
-  | "expert_extract";
+  | "expert_extract"
+  /** Proposes story bible facts and character states from the chapters, for the user to review and apply. */
+  | "bible_extract";
 
 export const generationJobs = pgTable(
   "generation_jobs",

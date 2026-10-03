@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { FieldDocs } from "./answer-format.ts";
+import { BibleExtraction } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
@@ -30,6 +31,7 @@ export const ANSWER_SCHEMAS = {
   ProjectConcept,
   ProjectPremise,
   StoryOutline,
+  BibleExtraction,
 } satisfies Record<string, z.ZodType>;
 
 /** Prefixes every key of a shared group, so a sub-object that appears in several answers is explained once. */
@@ -781,6 +783,42 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "chapters[].summary": [
       "What happens in the chapter.",
       "Ines reaches Vell and meets Tomas, who refuses to leave; she agrees to stay until the storm passes.",
+    ],
+  },
+
+  BibleExtraction: {
+    "": "A proposed story bible: facts and character states for the user to review. Nothing is saved until applied.",
+    facts: "Statements of canon, one per item. Empty when there is nothing to add.",
+    "facts[].kind": [
+      "What the fact is about: character, relationship, power, organisation, place, object, term or rule.",
+      "character",
+    ],
+    "facts[].subject": [
+      "Who or what it is about, by name as in the project; empty for a rule of the whole story.",
+      "Tomas",
+    ],
+    "facts[].text": ["The fact, short and specific.", "Has kept the light for forty years and never left the island."],
+    "facts[].fromChapter": ["First chapter it holds in (a number); null or left out for from the start.", 1],
+    "facts[].untilChapter": ["Last chapter it holds in; null or left out for to the end.", null],
+    "facts[].fixed": ["True only for a hard rule that later steps must never break.", true],
+    "facts[].visual": ["True when it can be seen in a picture, so it reaches image prompts too.", false],
+    states: "How each character stands from a point of the story on, one item per change.",
+    "states[].character": ["The character's name exactly as in the project.", "Ines"],
+    "states[].kind": [
+      "injury, look, outfit, item, location, rank, knowledge or other. A later look, outfit, location or rank " +
+        "replaces the earlier one; the others hold until untilChapter.",
+      "item",
+    ],
+    "states[].text": ["The state.", "Carries her weather notebook everywhere."],
+    "states[].fromChapter": ["Chapter number it starts in; null or left out for from the start.", 1],
+    "states[].fromScene": [
+      "Scene number within that chapter (from 1) when it starts part-way through; null or left out otherwise.",
+      null,
+    ],
+    "states[].untilChapter": ["Last chapter it holds in; null or left out for to the end.", null],
+    "states[].outfit": [
+      "For an outfit: the name of one of the character's outfits, when one matches. Null or left out otherwise.",
+      null,
     ],
   },
 };

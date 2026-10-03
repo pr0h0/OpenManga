@@ -1,6 +1,7 @@
 export * from "./apply.ts";
 export * from "./assets.ts";
 export * from "./audit.ts";
+export * from "./bible.ts";
 export * from "./bootstrap.ts";
 export * from "./budget.ts";
 export * from "./compose.ts";

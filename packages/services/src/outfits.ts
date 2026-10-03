@@ -4,24 +4,29 @@ import {
   assets,
   chapters,
   characterOutfits,
+  characterStates,
   type DbOrTx,
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   outfitAssignments,
   pages,
   panels,
   referenceAssets,
+  scenes,
 } from "@openmanga/db";
+import { statesInEffect } from "@openmanga/domain";
 
 export type OutfitRow = typeof characterOutfits.$inferSelect;
 
 /**
  * Where a panel's outfit came from: set on this panel ("panel" for this one only, "onward" from here to the next
- * change, carried across pages and chapters), named in the panel's own outfit text, or the character's default.
+ * change, carried across pages and chapters), named in the panel's own outfit text, an outfit state of the story bible
+ * in force at the panel's chapter and scene, or the character's default.
  */
-export type OutfitSource = "panel" | "onward" | "text" | "default";
+export type OutfitSource = "panel" | "onward" | "text" | "bible" | "default";
 
 export type TimelineEntry = {
   id: string;
@@ -100,10 +105,16 @@ export async function resolveOutfits(
   const ids = characters.map((c) => c.id);
   if (!ids.length) return out;
   const [here] = await db
-    .select({ chapterOrder: chapters.order, pageOrder: pages.order, panelOrder: panels.order })
+    .select({
+      chapterOrder: chapters.order,
+      pageOrder: pages.order,
+      panelOrder: panels.order,
+      sceneOrder: scenes.order,
+    })
     .from(panels)
     .innerJoin(pages, eq(pages.id, panels.pageId))
     .innerJoin(chapters, eq(chapters.id, pages.chapterId))
+    .leftJoin(scenes, eq(scenes.id, panels.sceneId))
     .where(eq(panels.id, panelId));
   if (!here) return out;
   const outfits = await db
@@ -112,6 +123,7 @@ export async function resolveOutfits(
     .where(inArray(characterOutfits.characterId, ids))
     .orderBy(asc(characterOutfits.createdAt));
   const timeline = await outfitTimeline(db, ids);
+  const bible = await bibleOutfits(db, ids);
   for (const c of characters) {
     const mine = outfits.filter((o) => o.characterId === c.id);
     const changes = timeline.filter((t) => t.characterId === c.id);
@@ -125,6 +137,16 @@ export async function resolveOutfits(
     if (set && setOutfit) out.set(c.id, { outfit: setOutfit, source: set.scope, assignment: set });
     else if (named) out.set(c.id, { outfit: named, source: "text" });
     else if (!c.text?.trim()) {
+      // What the story bible says they wear from this point of the story, when no panel says otherwise.
+      const state = statesInEffect(
+        bible.filter((b) => b.characterId === c.id),
+        { chapter: here.chapterOrder, scene: here.sceneOrder },
+      ).at(-1);
+      const fromBible = state && mine.find((o) => o.id === state.outfitId);
+      if (fromBible) {
+        out.set(c.id, { outfit: fromBible, source: "bible" });
+        continue;
+      }
       // The default outfit mirrors the wardrobe of the version it was made for. A panel on another version falls
       // back to that version's own wardrobe instead, so a new look is not dressed in the old one's clothes.
       const d = mine.find(
@@ -134,6 +156,38 @@ export async function resolveOutfits(
     }
   }
   return out;
+}
+
+/** The story bible's outfit states that name one of the character's outfits, placed by chapter order. */
+async function bibleOutfits(db: DbOrTx, characterIds: string[]) {
+  const rows = await db
+    .select({ s: characterStates, chapterOrder: chapters.order })
+    .from(characterStates)
+    .leftJoin(chapters, eq(chapters.id, characterStates.chapterId))
+    .where(
+      and(
+        inArray(characterStates.characterId, characterIds),
+        eq(characterStates.kind, "outfit"),
+        isNotNull(characterStates.outfitId),
+      ),
+    )
+    .orderBy(asc(characterStates.createdAt));
+  const untilIds = [...new Set(rows.map((r) => r.s.untilChapterId).filter((x): x is string => Boolean(x)))];
+  const until = untilIds.length
+    ? await db.select({ id: chapters.id, order: chapters.order }).from(chapters).where(inArray(chapters.id, untilIds))
+    : [];
+  return rows.map(({ s, chapterOrder }, seq) => ({
+    id: s.id,
+    characterId: s.characterId,
+    outfitId: s.outfitId!,
+    character: s.characterId,
+    kind: "outfit",
+    text: "",
+    chapter: chapterOrder,
+    scene: s.sceneNumber,
+    until: until.find((u) => u.id === s.untilChapterId)?.order ?? null,
+    seq,
+  }));
 }
 
 /** The wardrobe line for a resolved outfit: its description, plus the panel's own outfit text as a detail. */

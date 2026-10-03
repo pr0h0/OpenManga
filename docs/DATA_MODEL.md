@@ -1,9 +1,10 @@
 # Data model
 
-PostgreSQL via Drizzle. 66 tables in six schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
-`media.ts`, `jobs.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every `pgEnum` in `common.ts`). UUID
+PostgreSQL via Drizzle. 72 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+`bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
+`pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0028_production_run_warnings.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0029_story_bible.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -132,6 +133,21 @@ slot).
   prompt-visible description when the reference was made, which is how staleness is detected
   (`docs/AI_PIPELINE.md`).
 
+## Story bible (`bible.ts`)
+
+Migration `0029_story_bible`. Chapter references are by chapter id and read in the chapters' current order, so a
+range moves with its chapters; deleting a chapter leaves the range open on that side. `source` is `user`,
+`extracted` (saved from a reviewed `bible_extract` job) or `continuity`.
+
+- `bible_facts` — project, `kind` (`character|relationship|power|organisation|place|object|term|rule`), `subject`
+  (who or what by name; empty for the whole story), `text`, `fixed` (a rule that must hold), `visual` (can be seen,
+  so it reaches image prompts), `from_chapter_id` and `until_chapter_id` (inclusive; null = open), `source`, author.
+- `character_states` — one entry of a character's state timeline: project, character (cascade), `kind`
+  (`injury|look|outfit|item|location|rank|knowledge|other`), `text`, `chapter_id` (null = from the start),
+  `scene_number` (1-based within that chapter; null = its start), `until_chapter_id`, `outfit_id` (one of the
+  character's outfits, for an outfit state), `source`, author. A later look, outfit, location or rank replaces the
+  earlier one; the other kinds hold until `until_chapter_id`.
+
 ## Assets (`media.ts`)
 
 - `assets` — one abstraction for every file: owner, project, `type`, visibility, opaque `storage_key` (unique), MIME,
@@ -148,7 +164,7 @@ slot).
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
   `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `expert_extract`, `bible_extract`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry
@@ -219,5 +235,6 @@ unique provider-batch idempotency key; every `*_versions` table unique on `(subj
 ## Interchange format
 
 `ProjectInterchange` (`packages/schemas/src/interchange.ts`, `schemaVersion: 1`) is the stable export and import
-format: references and a manifest of assets by id, never raw database rows. It backs the `zip_package`,
+format: references and a manifest of assets by id, never raw database rows. The story bible travels in `bible`
+(facts and states with chapters, characters and outfits by ref); a package written before it imports with none. It backs the `zip_package`,
 `project_json` and `project_import` kinds.

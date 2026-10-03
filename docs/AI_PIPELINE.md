@@ -4,16 +4,17 @@
 | --- | --- | --- | --- |
 | Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters; on a project that already has them it is additive (existing chapters keep their pages, new ones are inserted, nothing is removed; `GET /api/story-analyses/:id/diff` shows the changes first) |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
-| Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v2 then `scene-pages` v2 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v6, `shot-planning` v3 or `strip-planning` v2 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
-| Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
-| Narration text | `narration_text` / text-ai | `narration` v5 | narration lines → TTS segments |
+| Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v3 then `scene-pages` v3 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v7, `shot-planning` v4 or `strip-planning` v3 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
+| Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v5 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
+| Narration text | `narration_text` / text-ai | `narration` v6 | narration lines → TTS segments |
 | References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v11 | a new `panel_art` asset, activated on the panel |
+| Panels | `panel_generation` / image-generation | `panel-generation` v12 | a new `panel_art` asset, activated on the panel |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
+| Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
 | Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
@@ -168,10 +169,48 @@ Each step's instructions are fixed per template version; what varies is the proj
 - **Panel images** (`GenerationPlanner.panelContext`): continuity is the scene's notes and starting state, what
   earlier scenes of the chapter changed for good (`continuityDeltas`), the previous scene's end state when this scene
   sets none, and earlier panels' requirements, each kept only when it concerns someone in the panel (or no one).
+- **The story bible** (since `page-planning` v7, `panel-prompts` v5, `narration` v6, `panel-generation` v12): see
+  [Story bible](#story-bible) below for what each step receives from it.
 
 Applying a story analysis writes its setting, rules, technology, magic, factions, uniforms, recurring scenery,
 vehicles, genre, tone, themes, motifs and notes into empty world notes, and its summary into an empty project
 description (which the cover is drawn from).
+
+## Story bible
+
+The project's canon, on the **Bible** page (`/projects/:id/bible`; `GET /api/projects/:projectId/bible`, data model
+in [DATA_MODEL](DATA_MODEL.md#story-bible-biblets)): **facts** (kind, subject, text, an optional inclusive chapter
+range, `fixed` for a rule that must hold, `visual` for what can be seen) and a **character state timeline** (injury,
+look, outfit, item, location, rank, knowledge or other, from a chapter and scene number on; a later look, outfit,
+location or rank replaces the earlier one, the rest hold until their end chapter).
+
+**What each step receives** (`bibleInEffect`, `packages/domain/src/bible.ts`, through `bibleFor` in
+`packages/services/src/bible.ts`). Facts whose range covers the chapter and whose subject is the whole story (empty,
+"world") or is someone or something the step is about; states in force there for the characters it is about; fixed
+rules first; at most 40 facts and 40 states. An empty bible sends nothing.
+
+| Step | Where it lands | About whom and what | At |
+| --- | --- | --- | --- |
+| Chapter planning | `project_data.bible` | characters and subjects the chapter's title, summary, text and beats mention | the chapter: states at its start plus changes during it, marked "from scene N" |
+| Narration | `project_data.bible` | the chapter's cast on its panels, and what its text mentions | the chapter, as for planning |
+| Panel prompt prep | `context.bible` | the page's characters, location and props, and what its beats mention | the page's scene |
+| Panel images | `STORY CANON (must hold)` | the panel's characters, location and props | the panel's scene; visual facts and injury, look and item states only, at most 12 of each |
+
+An outfit state that names one of the character's outfits also dresses them: outfit resolution
+(`resolveOutfits`) uses it, reference image included, where no panel assignment or panel outfit text says
+otherwise (source `bible`, before the default outfit). The image prompt leaves other outfit states out, since the
+`WARDROBE` line already carries the worn outfit. `GET /api/projects/:projectId/bible?chapterId=` returns `inEffect`,
+exactly what planning and narration of that chapter receive.
+
+**Extract from story** (`POST /api/projects/:projectId/bible/extract`, `chapterId` for one chapter, `ai` and `batch`
+as for any text step, paste mode included) queues a `bible_extract` job. `bible-extract` v1 reads the chapters'
+text (headed `=== Chapter N: title ===`), the cast with aliases and outfits, places, props, world notes,
+relationships, each chapter's memory (state changes and revealed facts) and the bible already there, and returns
+`BibleExtraction`: facts with chapter numbers and states naming characters by name. Nothing is saved by the job.
+The page shows the proposal to tick through; `POST /api/bible-extractions/:id/apply` saves the reviewed lists (or
+the whole proposal), matching characters by name or alias (any case) and chapters by number, and skipping (and
+listing) entries that match neither. It is claimed on the job in the same transaction, so a second apply is
+refused with 409 `already_applied` unless `again: true`. **Discard** applies an empty list.
 
 ## Colour mode, format and audio timing
 
@@ -203,7 +242,7 @@ itself is deterministic ffmpeg work in the worker: see `docs/DEPLOYMENT.md` for 
 ## Prompt quality rules
 
 Rules that came from production output, all versioned (old text versions stay registered for reproducibility) —
-`story-analysis` v3, `page-planning` v6, `shot-planning` v3, `panel-prompts` v4, `narration` v5 and the image
+`story-analysis` v3, `page-planning` v7, `shot-planning` v4, `panel-prompts` v5, `narration` v6 and the image
 templates:
 
 - **Bibles are drawable**: concrete descriptors, apparent age as a range, one default outfit with colours and
@@ -235,7 +274,7 @@ of the time. Five layers, all visible to the user:
   description when the image was made. When a draft description changes, its references report `stale: true` — the old
   image still shows the old look and is attached to every panel. Migrating panels onto a version with no fresh
   approved reference returns 409 `no_approved_reference` unless `force: true`.
-- **Art direction binds planning**: since `page-planning` v4 and `panel-prompts` v2 (live: v6 and v4) the planner
+- **Art direction binds planning**: since `page-planning` v4 and `panel-prompts` v2 (live: v7 and v5) the planner
   receives `artDirection` (preset, lighting, custom style) and must keep `lighting` and `emotion` inside it — no
   horror lighting or distressed moods in a warm comedy, and never lone figure + underlighting + distressed mood +
   high or tilted camera together.
@@ -387,7 +426,7 @@ your own.
 
 Bulk image generation (panels, or every character, location or prop reference) and the text steps (story
 analysis and rewrite, chapter planning, panel prompts, narration text, consistency check, image description,
-YouTube package) can be sent to a
+YouTube package, story bible extraction) can be sent to a
 provider's batch API instead of running now, at half the interactive price: `batch: true` on the request, or
 **Send as a provider batch** in the bulk dialog. OpenAI and Google only; a batch request on any other provider is
 refused with 400 (in `AI_MOCK_MODE` it simply runs normally). A consistency check queued after a batched panel is

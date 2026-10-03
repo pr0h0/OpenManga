@@ -23,6 +23,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [ProjectConcept](#projectconcept)
 - [ProjectPremise](#projectpremise)
 - [StoryOutline](#storyoutline)
+- [BibleExtraction](#bibleextraction)
 
 ## StoryAnalysis
 
@@ -2441,6 +2442,144 @@ interface StoryOutline {
     {
       "title": "Arrival at Vell",
       "summary": "Ines reaches Vell and meets Tomas, who refuses to leave; she agrees to stay until the storm passes."
+    }
+  ]
+}
+```
+
+</details>
+
+## BibleExtraction
+
+Asked by **Extract bible from story** — proposes story bible facts and character states from the chapters, for review.
+
+```ts
+/** A proposed story bible: facts and character states for the user to review. Nothing is saved until applied. */
+interface BibleExtraction {
+  /**
+   * Statements of canon, one per item. Empty when there is nothing to add.
+   * At most 300 items.
+   * Optional — defaults to [] when left out.
+   */
+  facts?: {
+    /**
+     * What the fact is about: character, relationship, power, organisation, place, object, term or rule.
+     * @example "character"
+     */
+    kind: "character" | "relationship" | "power" | "organisation" | "place" | "object" | "term" | "rule";
+    /**
+     * Who or what it is about, by name as in the project; empty for a rule of the whole story.
+     * At most 200 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Tomas"
+     */
+    subject?: string;
+    /**
+     * The fact, short and specific.
+     * Between 1 and 1000 characters.
+     * @example "Has kept the light for forty years and never left the island."
+     */
+    text: string;
+    /**
+     * First chapter it holds in (a number); null or left out for from the start.
+     * Optional — may be left out.
+     * @example 1
+     */
+    fromChapter?: number | null;
+    /**
+     * Last chapter it holds in; null or left out for to the end.
+     * Optional — may be left out.
+     * @example null
+     */
+    untilChapter?: number | null;
+    /**
+     * True only for a hard rule that later steps must never break.
+     * Optional — defaults to false when left out.
+     * @example true
+     */
+    fixed?: boolean;
+    /**
+     * True when it can be seen in a picture, so it reaches image prompts too.
+     * Optional — defaults to false when left out.
+     * @example false
+     */
+    visual?: boolean;
+  }[];
+  /**
+   * How each character stands from a point of the story on, one item per change.
+   * At most 300 items.
+   * Optional — defaults to [] when left out.
+   */
+  states?: {
+    /**
+     * The character's name exactly as in the project.
+     * Between 1 and 200 characters.
+     * @example "Ines"
+     */
+    character: string;
+    /**
+     * injury, look, outfit, item, location, rank, knowledge or other. A later look, outfit, location or rank replaces the earlier one; the others hold until untilChapter.
+     * @example "item"
+     */
+    kind: "injury" | "look" | "outfit" | "item" | "location" | "rank" | "knowledge" | "other";
+    /**
+     * The state.
+     * Between 1 and 1000 characters.
+     * @example "Carries her weather notebook everywhere."
+     */
+    text: string;
+    /**
+     * Chapter number it starts in; null or left out for from the start.
+     * Optional — may be left out.
+     * @example 1
+     */
+    fromChapter?: number | null;
+    /**
+     * Scene number within that chapter (from 1) when it starts part-way through; null or left out otherwise.
+     * Optional — may be left out.
+     * @example null
+     */
+    fromScene?: number | null;
+    /**
+     * Last chapter it holds in; null or left out for to the end.
+     * Optional — may be left out.
+     * @example null
+     */
+    untilChapter?: number | null;
+    /**
+     * For an outfit: the name of one of the character's outfits, when one matches. Null or left out otherwise.
+     * Optional — may be left out.
+     * @example null
+     */
+    outfit?: string | null;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "facts": [
+    {
+      "kind": "character",
+      "subject": "Tomas",
+      "text": "Has kept the light for forty years and never left the island.",
+      "fromChapter": 1,
+      "untilChapter": null,
+      "fixed": true,
+      "visual": false
+    }
+  ],
+  "states": [
+    {
+      "character": "Ines",
+      "kind": "item",
+      "text": "Carries her weather notebook everywhere.",
+      "fromChapter": 1,
+      "fromScene": null,
+      "untilChapter": null,
+      "outfit": null
     }
   ]
 }
