@@ -328,6 +328,49 @@ describe("manual pipeline over MCP", () => {
     expect(wrong.error?.code).toBe("estimate_changed");
   });
 
+  test("story bible: extract in paste mode, apply, edit, and read what a chapter receives", async () => {
+    const run = await allowAll.call<{ data: { job: { id: string } } }>("run_bible_extraction", {
+      projectId,
+      ai: { manual: true },
+    });
+    expect(run.isError).toBe(false);
+    const jobId = run.structured.data.job.id;
+    const status = () =>
+      allowAll
+        .call<{ data: { job: { status: string } } }>("get_job", { jobId })
+        .then((j) => j.structured.data.job.status);
+    await waitFor(async () => (await status()) === "awaiting_input", { label: "extraction parked" });
+    const p = await allowAll.call<{ data: { format: { name: string } } }>("get_manual_prompt", { jobId });
+    expect(p.structured.data.format.name).toBe("BibleExtraction");
+    await allowAll.call("submit_manual_answer", {
+      jobId,
+      answer: { facts: [{ kind: "rule", text: "The lamp never goes out.", fixed: true }], states: [] },
+    });
+    await waitFor(async () => (await status()) === "completed", { label: "extraction answered" });
+    const applied = await allowAll.call<{ data: { facts: number } }>("apply_bible_extraction", { jobId });
+    expect(applied.structured.data.facts).toBe(1);
+
+    const list = await allowAll.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    const chapterId = list.structured.data.chapters[0]!.id;
+    const added = await allowAll.call<{ data: { fact: { id: string } } }>("manage_story_bible", {
+      action: "add_fact",
+      projectId,
+      fact: { kind: "term", text: "The keeper's log is called the Book.", fromChapterId: chapterId },
+    });
+    expect(added.isError).toBe(false);
+    const read = await allowAll.call<{
+      data: { facts: unknown[]; inEffect: { fixedRules: string[]; facts: string[] } };
+    }>("get_story_bible", { projectId, chapterId });
+    expect(read.structured.data.facts).toHaveLength(2);
+    expect(read.structured.data.inEffect.fixedRules).toEqual(["(rule) The lamp never goes out."]);
+    expect(read.structured.data.inEffect.facts).toEqual(["(term) The keeper's log is called the Book."]);
+    const removed = await allowAll.call("manage_story_bible", {
+      action: "delete_fact",
+      id: added.structured.data.fact.id,
+    });
+    expect(removed.isError).toBe(false);
+  });
+
   test("MCP actions are audited as the connection acting for the user", async () => {
     const rows = await h.deps.db
       .select()

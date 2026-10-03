@@ -1,4 +1,5 @@
 import type { McpTool } from "../registry.ts";
+import { bibleTools } from "./bible.ts";
 import { chapterTools } from "./chapters.ts";
 import { commentTools } from "./comments.ts";
 import { expertTools } from "./experts.ts";
@@ -18,6 +19,7 @@ export const MCP_TOOLS = [
   ...systemTools,
   ...projectTools,
   ...storyTools,
+  ...bibleTools,
   ...libraryTools,
   ...chapterTools,
   ...panelTools,

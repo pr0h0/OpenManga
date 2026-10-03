@@ -70,7 +70,7 @@ Queues and what they carry:
 
 | Queue | Work | Concurrency env |
 | --- | --- | --- |
-| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check, image description, YouTube package text | `TEXT_WORKER_CONCURRENCY` (4) |
+| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check, image description, YouTube package text, story bible extraction | `TEXT_WORKER_CONCURRENCY` (4) |
 | `image-generation` | references, panels, covers, video thumbnails | `IMAGE_WORKER_CONCURRENCY` (24) |
 | `image-edit` | masked edits | `IMAGE_EDIT_WORKER_CONCURRENCY` (6) |
 | `tts` | narration synthesis | `TTS_WORKER_CONCURRENCY` (4) |

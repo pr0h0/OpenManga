@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BibleFactKind, CharacterStateKind } from "./bible.ts";
 import {
   Bubble,
   Frame,
@@ -213,6 +214,33 @@ export const ProjectInterchange = z.object({
       ),
     }),
   ),
+  /** The story bible; chapters, characters and outfits by ref. Packages written before it import with none. */
+  bible: z
+    .object({
+      facts: z.array(
+        z.object({
+          kind: BibleFactKind,
+          subject: z.string(),
+          text: z.string(),
+          fixed: z.boolean(),
+          visual: z.boolean(),
+          fromChapter: z.string().nullable(),
+          untilChapter: z.string().nullable(),
+        }),
+      ),
+      states: z.array(
+        z.object({
+          character: z.string(),
+          kind: CharacterStateKind,
+          text: z.string(),
+          chapter: z.string().nullable(),
+          sceneNumber: z.number().int().nullable(),
+          untilChapter: z.string().nullable(),
+          outfit: z.string().nullable(),
+        }),
+      ),
+    })
+    .default({ facts: [], states: [] }),
   assets: z.record(z.string(), InterchangeAsset),
 });
 export type ProjectInterchange = z.infer<typeof ProjectInterchange>;

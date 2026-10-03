@@ -8,6 +8,7 @@ import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts
 import { runMaintenance } from "./handlers/maintenance.ts";
 import { panelCheck } from "./handlers/qa.ts";
 import {
+  bibleExtract,
   chapterPlan,
   imageDescribe,
   narrationText,
@@ -40,6 +41,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   panel_check: panelCheck,
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
+  bible_extract: bibleExtract,
   cover: coverGeneration,
   thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,

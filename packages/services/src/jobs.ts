@@ -24,6 +24,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   page_prompts: "text-ai",
   narration_text: "text-ai",
   expert_extract: "text-ai",
+  bible_extract: "text-ai",
   character_reference: "image-generation",
   location_reference: "image-generation",
   prop_reference: "image-generation",

@@ -1,3 +1,4 @@
+export * from "./bible.ts";
 export * from "./bubbles.ts";
 export * from "./build.ts";
 export * from "./content-lint.ts";

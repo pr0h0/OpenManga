@@ -6,9 +6,11 @@ import {
   asc,
   assets,
   audioAssets,
+  bibleFacts,
   chapters,
   characterAliases,
   characterOutfits,
+  characterStates,
   characters,
   characterVersions,
   desc,
@@ -1133,6 +1135,18 @@ export async function buildInterchange(
   const styleRefs: string[] = [];
   if (style) for (const r of await refsFor("projectStyleId", style.s.id, "style")) styleRefs.push(r.asset);
 
+  const ref = (prefix: string, id: string | null) => (id ? `${prefix}-${id}` : null);
+  const facts = await db
+    .select()
+    .from(bibleFacts)
+    .where(eq(bibleFacts.projectId, project.id))
+    .orderBy(asc(bibleFacts.createdAt));
+  const states = await db
+    .select()
+    .from(characterStates)
+    .where(eq(characterStates.projectId, project.id))
+    .orderBy(asc(characterStates.createdAt));
+  const exportedCharacters = new Set(chars.map((c) => c.id));
   const doc: ProjectInterchange = {
     schemaVersion: 1,
     exportedAt: new Date().toISOString(),
@@ -1181,6 +1195,28 @@ export async function buildInterchange(
     locations: locationDocs,
     props: propDocs,
     chapters: chapterDocs,
+    bible: {
+      facts: facts.map((f) => ({
+        kind: f.kind,
+        subject: f.subject,
+        text: f.text,
+        fixed: f.fixed,
+        visual: f.visual,
+        fromChapter: ref("ch", f.fromChapterId),
+        untilChapter: ref("ch", f.untilChapterId),
+      })),
+      states: states
+        .filter((s) => exportedCharacters.has(s.characterId))
+        .map((s) => ({
+          character: `c-${s.characterId}`,
+          kind: s.kind,
+          text: s.text,
+          chapter: ref("ch", s.chapterId),
+          sceneNumber: s.sceneNumber,
+          untilChapter: ref("ch", s.untilChapterId),
+          outfit: ref("o", s.outfitId),
+        })),
+    },
     assets: manifest,
   };
   InterchangeSchema.parse(doc);

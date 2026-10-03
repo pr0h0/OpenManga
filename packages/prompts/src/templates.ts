@@ -1,4 +1,5 @@
 import {
+  BibleExtraction,
   ChapterOutline,
   ChapterPlan,
   ImageDescription,
@@ -797,6 +798,107 @@ export const narrationV5 = defineTextTemplate<Parameters<typeof narrationV3.buil
   },
 });
 
+/**
+ * The story bible reaches planning, panel prompts and narration as data (only the entries in effect at that point and
+ * about who and what is in it). These rules say how binding each part is.
+ */
+const BIBLE_RULE_PLAN =
+  "BIBLE: project_data.bible is the story bible in effect for this chapter. fixedRules are hard rules: never plan a scene, panel, line of dialogue or caption that breaks one. facts are established canon: do not contradict them. characterStates is how each character stands (injuries, look, outfit, what they carry, where they are, rank, what they know); a state marked 'from scene N' starts part-way through the chapter. Show injuries, looks and carried items as stated, dress characters in the outfit in force (name it in the panel's outfit where it changes), and never let a character know, have or use something before the bible gives it to them.";
+
+/** v7: the planner receives the story bible in effect for the chapter and must respect it. */
+export const chapterPlanningV7 = defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+  name: "page-planning",
+  version: 7,
+  description: `${chapterPlanningV5.description} Respects the story bible.`,
+  system: chapterPlanningV6.system
+    .replace(templateHeader("page-planning", 6), templateHeader("page-planning", 7))
+    .replace(DATA_RULE, `${BIBLE_RULE_PLAN}\n\n${DATA_RULE}`),
+  build(i) {
+    return chapterPlanningV1.build.call(this, i);
+  },
+});
+export const shotPlanningV4 = shotPlanning(chapterPlanningV7, 4);
+export const stripPlanningV3 = stripPlanning(chapterPlanningV7, 3);
+export const chapterOutlineV3 = outlinePass(chapterPlanningV7, "chapter-outline", 3);
+export const stripOutlineV3 = outlinePass(stripPlanningV3, "strip-outline", 3);
+export const shotOutlineV3 = outlinePass(shotPlanningV4, "shot-outline", 3);
+export const scenePagesV3 = pagePass(chapterPlanningV7, "scene-pages", 3);
+export const sceneStripV3 = pagePass(stripPlanningV3, "scene-strip", 3);
+export const sceneShotsV3 = pagePass(shotPlanningV4, "scene-shots", 3);
+
+/** v5: panel prompt sections respect the story bible in effect for the page's scene. */
+export const panelPromptsV5 = defineTextTemplate<Parameters<typeof panelPromptsV1.build>[0]>({
+  name: "panel-prompts",
+  version: 5,
+  description: `${panelPromptsV4.description} Respects the story bible.`,
+  system: panelPromptsV4.system
+    .replace(templateHeader("panel-prompts", 4), templateHeader("panel-prompts", 5))
+    .replace(
+      DATA_RULE,
+      [
+        "context.bible is the story bible in effect for this scene. Never write anything that breaks one of its fixedRules or contradicts one of its facts, and show each character's states (injuries, look, carried items) wherever they would be visible.",
+        DATA_RULE,
+      ].join("\n\n"),
+    ),
+  build(i) {
+    return panelPromptsV1.build.call(this, i);
+  },
+});
+
+/** v6: narration respects the story bible in effect for the chapter. */
+export const narrationV6 = defineTextTemplate<Parameters<typeof narrationV3.build>[0]>({
+  name: "narration",
+  version: 6,
+  description: `${narrationV4.description} Respects the story bible.`,
+  system: narrationV5.system
+    .replace(templateHeader("narration", 5), templateHeader("narration", 6))
+    .replace(
+      DATA_RULE,
+      [
+        "Bible: project_data.bible is the story bible in effect for this chapter. Never write a line that breaks one of its fixedRules or contradicts one of its facts; never say a character knows, has or has done something before the bible gives it to them; keep each character's states (injuries, where they are, what they carry) as given, including changes marked 'from scene N'.",
+        DATA_RULE,
+      ].join("\n\n"),
+    ),
+  build(i) {
+    return narrationV3.build.call(this, i);
+  },
+});
+
+/** Proposes a story bible from the chapters, for the user to review; nothing is saved by the job. */
+export const bibleExtractV1 = defineTextTemplate<{
+  projectData: Record<string, unknown>;
+  chapters: { number: number; title: string; text: string }[];
+}>({
+  name: "bible-extract",
+  version: 1,
+  description: "Propose story bible facts and per-character state timelines from the chapters.",
+  system: [
+    templateHeader("bible-extract", 1),
+    "You are a continuity editor building the story bible of a comic or narrated video adaptation. Read the chapters and record the canon later steps must respect.",
+    "FACTS: one statement per fact, short and specific, about a character, a relationship, a power or stat, an organisation, a place, an object or a term, or a rule of the world (kind 'rule', subject empty for the whole story). subject names who or what it is about, using the names in project_data. Set fromChapter and untilChapter (chapter numbers, inclusive) when a fact only holds for part of the story, e.g. a secret a character keeps until chapter 11. Set fixed=true only for hard rules a later step must never break (a scar on the LEFT jaw, someone does not learn X before chapter 12, no guns exist). Set visual=true only when the fact can be seen in a picture.",
+    "STATES: for each named character, how they stand from a point of the story on, one entry per change: kind injury, look, outfit, item, location, rank, knowledge or other; fromChapter and, when it changes part-way through a chapter, fromScene (the scene's number in that chapter, counting from 1, only when the chapter is clearly split into scenes). Use untilChapter for injuries that heal, items that are lost and the like. For an outfit, put the name of one of the character's outfits from project_data in outfit when one matches.",
+    "Use project_data's chapter memory (character and location changes, revealed facts) as a starting point, but check it against the text. Record only what the text supports; do not invent. Leave out anything already in project_data.existingBible. Prefer fewer, sharper entries over many vague ones.",
+    "Write in the language of the chapters. Use character names exactly as in project_data.",
+    DATA_RULE,
+    schemaInstructions("BibleExtraction", BibleExtraction),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          untrusted("project_data", JSON.stringify(i.projectData)),
+          untrusted(
+            "story_content",
+            i.chapters.map((c) => `=== Chapter ${c.number}: ${c.title} ===\n${c.text}`).join("\n\n"),
+          ),
+        ].join("\n\n"),
+      },
+    ];
+  },
+});
+
 export const TEXT_TEMPLATES = [
   expertChatV1,
   expertChatV2,
@@ -844,4 +946,16 @@ export const TEXT_TEMPLATES = [
   sceneShotsV2,
   panelPromptsV4,
   narrationV5,
+  chapterPlanningV7,
+  shotPlanningV4,
+  stripPlanningV3,
+  chapterOutlineV3,
+  stripOutlineV3,
+  shotOutlineV3,
+  scenePagesV3,
+  sceneStripV3,
+  sceneShotsV3,
+  panelPromptsV5,
+  narrationV6,
+  bibleExtractV1,
 ];

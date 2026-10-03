@@ -90,7 +90,7 @@ Each is one image, in the kind picked on the location or prop page:
 | Prop | `prop_multi_angle` | Front, side, back and top views of the object in a row. |
 
 Panels send the primary (starred) approved reference, whatever its kind. When it is a panorama, a sheet or a
-multi-angle turnaround, the panel prompt (`panel-generation` v11) says so: use it for where things are and what they
+multi-angle turnaround, the panel prompt (`panel-generation` v12) says so: use it for where things are and what they
 look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
 
 **Generate all locations / props**, and **Generate all character references** on the Cast page, draw one reference

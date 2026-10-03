@@ -7,6 +7,7 @@ import type { WorkerDeps } from "../context.ts";
 import type { ProjectJob } from "../lib/runner.ts";
 import { panelCheck } from "./qa.ts";
 import {
+  bibleExtract,
   chapterPlan,
   imageDescribe,
   narrationText,
@@ -27,4 +28,5 @@ export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   panel_check: panelCheck,
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
+  bible_extract: bibleExtract,
 };

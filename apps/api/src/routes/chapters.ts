@@ -1,6 +1,6 @@
 import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes, sql, storyBeats } from "@openmanga/db";
 import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
-import { chapterPlanningV6, shotPlanningV3, stripPlanningV2 } from "@openmanga/prompts";
+import { chapterPlanningV7, shotPlanningV4, stripPlanningV3 } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
@@ -364,16 +364,16 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
         batchId,
         templateName:
           p.settings.format === "film"
-            ? shotPlanningV3.name
+            ? shotPlanningV4.name
             : p.settings.format === "vertical"
-              ? stripPlanningV2.name
-              : chapterPlanningV6.name,
+              ? stripPlanningV3.name
+              : chapterPlanningV7.name,
         templateVersion:
           p.settings.format === "film"
-            ? shotPlanningV3.version
+            ? shotPlanningV4.version
             : p.settings.format === "vertical"
-              ? stripPlanningV2.version
-              : chapterPlanningV6.version,
+              ? stripPlanningV3.version
+              : chapterPlanningV7.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(input.batch) },

@@ -13,7 +13,7 @@ Two kinds, defined in two files:
 `defineTextTemplate()` and the shared helpers (`templateHeader`, `schemaInstructions`, `untrusted`, `DATA_RULE`) are in
 `packages/prompts/src/text-templates.ts`. `packages/prompts/src/index.ts` exposes `allTemplateRecords()`, which flattens
 both arrays into `{ name, version, kind, description, body, sha256 }` — the single list the database sync reads. Every
-`system` string starts with `templateHeader(name, version)` (`[template:page-planning-v6]`), so a compiled prompt names
+`system` string starts with `templateHeader(name, version)` (`[template:page-planning-v7]`), so a compiled prompt names
 its own template.
 
 ## Registered templates
@@ -24,30 +24,31 @@ versions stay in the array so old jobs remain reproducible.
 | Template | Versions registered | Live version | Imported by |
 | --- | --- | --- | --- |
 | `story-analysis` | 1, 2, 3 | 3 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
-| `page-planning` | 1–6 | 6 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` (the single call a batched plan makes) |
-| `shot-planning` | 1–3 | 3 | same two files, for `format: "film"` projects |
-| `strip-planning` | 1, 2 | 2 | same two files, for `format: "vertical"` projects |
-| `chapter-outline`, `shot-outline`, `strip-outline` | 1, 2 | 2 | `apps/worker/src/handlers/text.ts` (split planning, pass 1) |
-| `scene-pages`, `scene-shots`, `scene-strip` | 1, 2 | 2 | `apps/worker/src/handlers/text.ts` (split planning, pass 2) |
-| `panel-prompts` | 1–4 | 4 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/text.ts` |
-| `narration` | 1–5 | 5 | `apps/api/src/routes/audio.ts`, `apps/worker/src/handlers/text.ts` |
+| `page-planning` | 1–7 | 7 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` (the single call a batched plan makes) |
+| `shot-planning` | 1–4 | 4 | same two files, for `format: "film"` projects |
+| `strip-planning` | 1–3 | 3 | same two files, for `format: "vertical"` projects |
+| `chapter-outline`, `shot-outline`, `strip-outline` | 1–3 | 3 | `apps/worker/src/handlers/text.ts` (split planning, pass 1) |
+| `scene-pages`, `scene-shots`, `scene-strip` | 1–3 | 3 | `apps/worker/src/handlers/text.ts` (split planning, pass 2) |
+| `panel-prompts` | 1–5 | 5 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/text.ts` |
+| `narration` | 1–6 | 6 | `apps/api/src/routes/audio.ts`, `apps/worker/src/handlers/text.ts` |
 | `panel-check` | 2 | 2 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/qa.ts` (vision QA; v2 also asks for face boxes) |
 | `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
 | `youtube-package` | 1 | 1 | `apps/api/src/routes/generations.ts`, `apps/worker/src/handlers/text.ts` (video publishing text: titles, description, tags, pinned comment, thumbnail headlines) |
 | `image-describe` | 1, 2 | 2 | `apps/api/src/routes/vision.ts`, `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` | 1 | 1 | `apps/api/src/routes/experts.ts`, `apps/worker/src/handlers/expert-extract.ts` (expert output actions, defined in `packages/prompts/src/expert-actions.ts`) |
+| `bible-extract` | 1 | 1 | `apps/api/src/routes/bible.ts`, `apps/worker/src/handlers/text.ts` (proposes story bible facts and character states, schema `BibleExtraction`) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v11**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+v5, `style-reference` v5, `panel-generation` **v12**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
 records the version that drew it.
 
 `shot-planning` and `strip-planning` are derived from `page-planning` by string replacement (`shot-planning` v1 from
-`page-planning` v3, v2 from v5, v3 from v6; `strip-planning` v1 from v5, v2 from v6): same schema and rules, re-framed
+`page-planning` v3, v2 from v5, v3 from v6, v4 from v7; `strip-planning` v1 from v5, v2 from v6, v3 from v7): same schema and rules, re-framed
 as a film director's shot list (one shot per page, no dialogue or negative space) or a vertical strip (one full-width
 panel per page, with height and seams). The outline and page passes of split planning are derived from each of those
 in turn, so a change to `page-planning` reaches all nine.
@@ -62,6 +63,22 @@ is only how to use data those steps now receive; nothing else in them changed:
   action and expression by name, in that location.
 - **Narration**: use the chapter's cast for names and pronouns, do not re-introduce what the previous chapter
   established, and carry each panel's dialogue and emotion into its line.
+
+The story bible versions (`page-planning` v7 and everything derived from it, `panel-prompts` v5, `narration` v6,
+`panel-generation` v12) add only the rule for the bible data they now receive (`project_data.bible`,
+`context.bible`, or the `STORY CANON` section):
+
+- **Planning and narration**: `fixedRules` are hard rules that no scene, panel, line or caption may break; `facts`
+  are canon not to contradict; `characterStates` say how each character stands, with changes part-way through the
+  chapter marked "from scene N"; no one may know, have or use something before the bible gives it to them.
+- **Panel prompts**: never break a rule or contradict a fact, and show each character's states where visible.
+- **Panel images**: a `STORY CANON (must hold)` section after the appearance requirements lists the visual facts
+  and the injuries, looks and carried items in force for who and what is in the panel.
+
+What goes in is chosen by `bibleInEffect` (`packages/domain/src/bible.ts`): facts whose chapter range covers the
+chapter and whose subject the step is about (named, or mentioned in its text) or is the whole story, fixed rules
+first, at most 40 facts and 40 states (12 each for an image); the states in force there for the characters
+present. An empty bible adds nothing, so a project without one compiles the same data as before.
 
 ## Versioning and the database
 
@@ -97,7 +114,7 @@ system-message line telling the model that anything inside those tags is end-use
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v11)
+## Panel prompt sections (`panel-generation` v12)
 
 `compile()` emits these in order, dropping any section with no content:
 
@@ -121,7 +138,9 @@ extract → validate → one repair → fail sequence.
    (loosely or strictly, never its drawing style or text; new in v9); the previous panel is for continuity of setting
    and lighting only.
 6. `CHARACTERS` — the exact count and who is visible where in the frame.
-7. `CANONICAL APPEARANCE REQUIREMENTS` — per character version, including its immutable traits.
+7. `CANONICAL APPEARANCE REQUIREMENTS` — per character version, including its immutable traits. Then
+   `STORY CANON (must hold)` (v12) when the story bible has visible entries in effect for who and what is in the
+   panel.
 8. `WARDROBE`, then `ACTION`, `EXPRESSION`, `CAMERA`, `COMPOSITION`.
 9. `LOCATION`, `PROPS`, `LIGHTING`, `CONTINUITY`.
 10. `DIALOGUE NEGATIVE SPACE` — "leave visual space for dialogue but do not draw dialogue or speech bubbles"; skipped

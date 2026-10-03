@@ -10,6 +10,7 @@ import { aiRoutes } from "./routes/ai.ts";
 import { assetRoutes, cdnRoutes } from "./routes/assets.ts";
 import { audioRoutes } from "./routes/audio.ts";
 import { authRoutes, devMailRoutes } from "./routes/auth.ts";
+import { bibleRoutes } from "./routes/bible.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
 import { commentRoutes } from "./routes/comments.ts";
@@ -63,6 +64,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     memberRoutes,
     commentRoutes,
     productionRoutes,
+    bibleRoutes,
   ])
     api.route("/", r);
 }

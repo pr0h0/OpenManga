@@ -233,6 +233,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/bible",
+    staticData: { title: "Story bible" },
+    component: lazyRouteComponent(() => import("./features/bible/BiblePage.tsx"), "BiblePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/chapters",
     staticData: { title: "Chapters" },
     component: lazyRouteComponent(() => import("./features/chapters/ChaptersPage.tsx"), "ChaptersPage"),

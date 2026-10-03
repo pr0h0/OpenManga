@@ -28,7 +28,11 @@ export type PanelOutfits = {
     name: string;
     text: string;
     outfits: (CharacterOutfitRow & { referenceAssetId: string | null })[];
-    worn: { outfitId: string; source: "panel" | "onward" | "text" | "default"; since: OutfitChange | null } | null;
+    worn: {
+      outfitId: string;
+      source: "panel" | "onward" | "text" | "bible" | "default";
+      since: OutfitChange | null;
+    } | null;
     here: { id: string; scope: "onward" | "panel"; outfitId: string }[];
   }[];
 };
@@ -150,6 +154,8 @@ export function OutfitPicker({
             </>
           ) : w.source === "text" ? (
             <>Wearing {wornName}, named in the outfit text</>
+          ) : w.source === "bible" ? (
+            <>Wearing {wornName}, from the story bible</>
           ) : (
             <>Wearing {wornName}, the default outfit</>
           )}
