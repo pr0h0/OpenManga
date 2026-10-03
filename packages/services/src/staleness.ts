@@ -7,7 +7,7 @@ import {
   propVersions,
   sql,
 } from "@openmanga/db";
-import { hashOf, promptVisibleCharacter } from "@openmanga/domain";
+import { hashOf, type Pronunciation, promptVisibleCharacter, segmentTextSha } from "@openmanga/domain";
 
 export type ReferenceSubject = "character" | "location" | "prop" | "style";
 
@@ -79,6 +79,34 @@ export const staleAudioFrom = (project: {
     and (a.asset_id is null or a.text_sha256 <> s.text_sha256
       or a.voice <> coalesce(s.voice, ${project.settings.narrationVoice})
       or abs(a.speed - coalesce(s.speed, ${project.settings.narrationSpeed})) > 0.001)`;
+
+/**
+ * Re-hashes the project's narration segments after its pronunciation dictionary changed. A segment's hash is of what
+ * the voice says, so only segments whose spoken text changed get a new hash: their audio reads as stale (the audio
+ * stage, the narration page, "synthesize missing"), and every other segment keeps its audio. Returns how many changed.
+ */
+export async function rehashNarrationSegments(
+  db: Database | DbOrTx,
+  projectId: string,
+  dictionary: readonly Pronunciation[],
+) {
+  const rows = await db.execute<{ id: string; text: string; text_sha256: string }>(
+    sql`select id, text, text_sha256 from narration_segments where project_id = ${projectId}`,
+  );
+  const changed = [...rows]
+    .map((r) => ({ id: r.id, sha: segmentTextSha(r.text, dictionary), was: r.text_sha256 }))
+    .filter((r) => r.sha !== r.was);
+  // Chunked so a project with thousands of segments stays within a statement's parameter limit.
+  for (let i = 0; i < changed.length; i += 1000) {
+    const chunk = changed.slice(i, i + 1000);
+    await db.execute(sql`update narration_segments s set text_sha256 = v.sha, updated_at = now()
+      from (values ${sql.join(
+        chunk.map((r) => sql`(${r.id}::uuid, ${r.sha})`),
+        sql`, `,
+      )}) as v(id, sha) where s.id = v.id`);
+  }
+  return changed.length;
+}
 
 /** The production pipeline's stages, in order: each one is made from the ones before it. */
 export const PIPELINE_STAGES = ["story", "plan", "prompts", "art", "narration", "audio", "render"] as const;

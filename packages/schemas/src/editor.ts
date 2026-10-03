@@ -289,6 +289,19 @@ export const UserSettings = z.object({
 });
 export type UserSettings = z.infer<typeof UserSettings>;
 
+/**
+ * How the narrator says a name or term ("Qi" → "chee"). Applied only to the text sent to speech synthesis; what is
+ * shown (narration, subtitles, lettering) keeps the written form.
+ */
+export const PronunciationEntry = z.object({
+  term: z.string().trim().min(1).max(100),
+  spoken: z.string().trim().min(1).max(200),
+  caseSensitive: z.boolean().default(false),
+  /** Match only the whole word ("Qi" but not "Qing"). */
+  wholeWord: z.boolean().default(true),
+});
+export type PronunciationEntry = z.infer<typeof PronunciationEntry>;
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
   pageWidth: z.number().int().min(256).max(8000).default(1600),
@@ -369,6 +382,8 @@ export const ProjectSettings = z.object({
   sceneBreakPauseMs: z.number().int().min(0).max(10000).default(700),
   /** Style instruction for narration writing, kept so every chapter is written in the same voice. */
   narrationStyle: z.string().max(500).default(""),
+  /** Pronunciation dictionary for every narration voice; a template or channel profile copies it like any setting. */
+  pronunciation: z.array(PronunciationEntry).max(500).default([]),
   /**
    * Video exports, applied to every render and shown in the preview: fade to black where the scene changes (each
    * shot can override it), a logo watermark, and intro and outro cards.

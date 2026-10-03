@@ -40,6 +40,7 @@ import {
   type ResolvedLettering,
   resolveLettering,
   segmentNarration,
+  segmentTextSha,
   templateFrames,
 } from "@openmanga/domain";
 import {
@@ -52,7 +53,6 @@ import {
   type StoryAnalysis,
   stripPageHeight,
 } from "@openmanga/schemas";
-import { sha256Hex } from "@openmanga/storage";
 import { outfitNamedIn, outfitTimeline } from "./outfits.ts";
 
 const slug = (s: string) =>
@@ -766,7 +766,7 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
                 narrationLineId: nl!.id,
                 order: k,
                 text: seg.text,
-                textSha256: sha256Hex(seg.text),
+                textSha256: segmentTextSha(seg.text, s.pronunciation),
                 pauseAfterMs: seg.pauseAfterMs,
               });
             }

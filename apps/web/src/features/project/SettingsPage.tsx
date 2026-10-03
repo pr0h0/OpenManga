@@ -9,6 +9,7 @@ import type { TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
+import { PronunciationSection } from "./PronunciationSection.tsx";
 import { VideoSection } from "./VideoSettings.tsx";
 
 type Form = {
@@ -256,6 +257,13 @@ export function SettingsPage() {
           <Field label="Webtoon panel gap (px)">{num("webtoonGap", 0, 1000)}</Field>
           <Field label="Webtoon max chunk height (px)">{num("webtoonChunkHeight", 1000, 40000)}</Field>
         </section>
+
+        <PronunciationSection
+          value={s.pronunciation ?? []}
+          voice={s.narrationVoice}
+          speed={s.narrationSpeed}
+          onChange={(v) => setS("pronunciation", v)}
+        />
 
         <RuntimeSection
           projectId={projectId}

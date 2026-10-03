@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Upgrading: one migration, `0028_production_run_warnings`, adds a nullable JSON column.
 
+### Added
+
+- **Pronunciation dictionary.** Project settings → Pronunciation maps names and terms to how the narrator says them
+  ("Qi" → "chee", "Seo Jinhyeok" → "suh jin-hyuk"), with match-case and whole-word options and a preview in the
+  project's voice. It applies only to the text sent to the voice, for every TTS provider: narration, subtitles and
+  lettering keep the written form. Changing it marks the audio of the affected segments stale, so the next synthesis
+  re-voices only those. Saved in `settings.pronunciation` (also through `update_project` over MCP) and carried by
+  project templates.
+
 ### Changed
 
 - **Stopping a production run cancels its queued jobs.** Stop used to end only the orchestration while the jobs the

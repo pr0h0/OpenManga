@@ -35,7 +35,7 @@ import {
   VERTICAL_LETTERING,
   VERTICAL_PAGE,
 } from "@openmanga/schemas";
-import { recordAudit, UNPRICED_USAGE } from "@openmanga/services";
+import { recordAudit, rehashNarrationSegments, UNPRICED_USAGE } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -378,12 +378,17 @@ export async function updateProject(c: Context<AppEnv>, projectId: string, input
       );
     if (!logo) throw badRequest("The watermark must be an image of this project (upload one with POST video-logo)");
   }
-  const [row] = await c
-    .get("deps")
-    .db.update(projects)
-    .set({ ...input, settings })
-    .where(eq(projects.id, p.id))
-    .returning();
+  const db = c.get("deps").db;
+  const [row] = await db.transaction(async (tx) => {
+    // A new dictionary changes what some segments say: their audio becomes stale, the rest keeps theirs.
+    if (JSON.stringify(settings.pronunciation) !== JSON.stringify(p.settings.pronunciation ?? []))
+      await rehashNarrationSegments(tx, p.id, settings.pronunciation);
+    return tx
+      .update(projects)
+      .set({ ...input, settings })
+      .where(eq(projects.id, p.id))
+      .returning();
+  });
   return row!;
 }
 
