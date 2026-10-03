@@ -145,7 +145,8 @@ productionRoutes.post("/production-runs/:id/continue", async (c) => {
   // may still cancel it.
   if (run.userId !== user(c).id)
     throw new ApiError(403, "not_your_run", "Another member started this run; only they can continue it.");
-  if (run.status === "completed" || run.status === "cancelled") throw conflict(`The run is ${run.status}`);
+  if (run.status === "completed" || run.status === "completed_with_warnings" || run.status === "cancelled")
+    throw conflict(`The run is ${run.status.replaceAll("_", " ")}`);
   const steps = run.steps.map((s) => {
     if (s.status === "review") return { ...s, status: "done" as const, finishedAt: new Date().toISOString() };
     // A failed step starts over; whatever it had already made is found and reused.

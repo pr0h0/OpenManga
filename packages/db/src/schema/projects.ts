@@ -407,6 +407,21 @@ export type ProductionStep = {
 };
 
 /**
+ * What a run left unresolved when it reached the end (`completed_with_warnings`): failed jobs it queued that were
+ * not retried, and the project's panels without artwork, narration segments without current audio, panels flagged
+ * for review and the run's failed exports.
+ */
+export type ProductionWarnings = {
+  /** At most 500 listed; `failedJobCount` is the full number. */
+  failedJobs: { id: string; kind: string; step: string; reason: string | null }[];
+  failedJobCount: number;
+  panelsWithoutArt: number;
+  segmentsWithoutAudio: number;
+  panelsNeedingReview: number;
+  failedExports: { id: string; kind: string; reason: string | null }[];
+};
+
+/**
  * A production run: the whole pipeline for a project, advanced step by step by the API, each step calling the same
  * routes a person would. Resumable: it only ever looks at what exists, so a restart picks up where it stood.
  */
@@ -421,7 +436,7 @@ export const productionRuns = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status")
-      .$type<"running" | "waiting" | "paused" | "completed" | "failed" | "cancelled">()
+      .$type<"running" | "waiting" | "paused" | "completed" | "completed_with_warnings" | "failed" | "cancelled">()
       .notNull()
       .default("running"),
     steps: jsonb("steps").$type<ProductionStep[]>().notNull().default([]),
@@ -430,6 +445,8 @@ export const productionRuns = pgTable(
       .notNull(),
     /** Why the run is paused or failed, in words for the person. */
     reason: text("reason"),
+    /** Set when the run finished `completed_with_warnings`. */
+    warnings: jsonb("warnings").$type<ProductionWarnings>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

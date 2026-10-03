@@ -8815,7 +8815,7 @@ Run only what is out of date (see get_staleness), from the first stale stage on:
 
 ### get_production_run
 
-A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, every step with its status and note, and pendingJobs (how many queued jobs stopping it would cancel). Read-only.
+A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, completed_with_warnings, failed, cancelled), the reason, every step with its status and note, warnings when it finished with unresolved items (failedJobs the run queued and nobody retried — retry them with control_job —, failedExports, and the project's panelsWithoutArt, segmentsWithoutAudio and panelsNeedingReview), and pendingJobs (how many queued jobs stopping it would cancel). Read-only.
 
 - **Scopes:** `generations:read`
 - **Sensitivity:** read

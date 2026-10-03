@@ -113,7 +113,7 @@ export const productionTools = [
     name: "get_production_run",
     title: "Production runs",
     description:
-      "A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, every step with its status and note, and pendingJobs (how many queued jobs stopping it would cancel). Read-only.",
+      "A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, completed_with_warnings, failed, cancelled), the reason, every step with its status and note, warnings when it finished with unresolved items (failedJobs the run queued and nobody retried — retry them with control_job —, failedExports, and the project's panelsWithoutArt, segmentsWithoutAudio and panelsNeedingReview), and pendingJobs (how many queued jobs stopping it would cancel). Read-only.",
     input: z.object({ projectId: Uuid.optional(), runId: Uuid.optional() }),
     output: Passthrough,
     scopes: ["generations:read"],

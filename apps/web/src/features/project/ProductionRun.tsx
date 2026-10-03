@@ -16,6 +16,15 @@ type Run = {
   createdAt: string;
   /** Jobs it queued that have not started: what Stop cancels by default. */
   pendingJobs: number;
+  warnings: Warnings | null;
+};
+type Warnings = {
+  failedJobs: { id: string; kind: string; step: string; reason: string | null }[];
+  failedJobCount: number;
+  panelsWithoutArt: number;
+  segmentsWithoutAudio: number;
+  panelsNeedingReview: number;
+  failedExports: { id: string; kind: string; reason: string | null }[];
 };
 type Stage = { key: string; count: number; note: string };
 
@@ -144,7 +153,7 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
       {run && (
         <>
           <p className="text-xs">
-            <span className="font-medium capitalize">{run.status}</span>
+            <span className="inline-block font-medium first-letter:uppercase">{run.status.replaceAll("_", " ")}</span>
             <span className="muted"> · started {fmt.ago(run.createdAt)}</span>
             {run.reason && <span className="muted"> · {run.reason}</span>}
           </p>
@@ -187,6 +196,14 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
                 Review it on the Story page, where you can also choose what to remove →
               </Link>
             </div>
+          )}
+          {run.status === "completed_with_warnings" && run.warnings && (
+            <RunWarnings
+              projectId={projectId}
+              format={format}
+              warnings={run.warnings}
+              onChanged={() => qc.invalidateQueries({ queryKey: key })}
+            />
           )}
           {active && (
             <div className="flex flex-wrap gap-2">
@@ -311,6 +328,124 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
           ))}
         </div>
       </ConfirmDialog>
+    </div>
+  );
+}
+
+/**
+ * What a finished run left unresolved, each with where to deal with it: failed jobs are retried as new jobs through
+ * the usual retry route, panels and narration open where they are fixed, and a failed video can be rendered anyway.
+ */
+function RunWarnings({
+  projectId,
+  format,
+  warnings: w,
+  onChanged,
+}: {
+  projectId: string;
+  format: string;
+  warnings: Warnings;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const failedVideo = w.failedExports.some((e) => e.kind === "video_pages" || e.kind === "video_panels");
+  const total =
+    w.failedJobCount + w.panelsWithoutArt + w.segmentsWithoutAudio + w.panelsNeedingReview + w.failedExports.length;
+  const retry = async () => {
+    setBusy(true);
+    let ok = 0;
+    let firstError: unknown = null;
+    for (const j of w.failedJobs) {
+      try {
+        await post(`/generations/${j.id}/retry`);
+        ok++;
+      } catch (e) {
+        firstError ??= e;
+      }
+    }
+    setBusy(false);
+    if (ok) toast.success(`${ok} job${ok === 1 ? "" : "s"} queued again`);
+    if (firstError) toast.error(firstError);
+    onChanged();
+  };
+  const render = async () => {
+    setBusy(true);
+    try {
+      await post(`/projects/${projectId}/exports`, {
+        kind: format === "film" ? "video_panels" : "video_pages",
+        acknowledgeIssues: true,
+      });
+      toast.success("Render queued");
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const items: { n: number; text: string; to: string; search?: Record<string, string> }[] = [
+    { n: w.failedJobCount, text: "failed generation job(s)", to: "/projects/$projectId/generation" },
+    {
+      n: w.panelsWithoutArt,
+      text: "panel(s) without artwork",
+      to: "/projects/$projectId/storyboard",
+      search: { filter: "noArt" },
+    },
+    {
+      n: w.panelsNeedingReview,
+      text: "panel(s) needing review",
+      to: "/projects/$projectId/storyboard",
+      search: { filter: "review" },
+    },
+    {
+      n: w.segmentsWithoutAudio,
+      text: "narration segment(s) without current audio",
+      to: "/projects/$projectId/narration",
+    },
+    { n: w.failedExports.length, text: "failed export(s)", to: "/projects/$projectId/exports" },
+  ];
+  return (
+    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+      <p className="font-medium text-amber-800 dark:text-amber-200">
+        Finished with {total} unresolved item{total === 1 ? "" : "s"}
+      </p>
+      <ul className="space-y-1">
+        {items
+          .filter((i) => i.n > 0)
+          .map((i) => (
+            <li key={i.text}>
+              <Link to={i.to} params={{ projectId }} search={i.search} className="text-accent-500 hover:underline">
+                {i.n} {i.text} →
+              </Link>
+            </li>
+          ))}
+        {w.failedExports.map((e) => (
+          <li key={e.id} className="muted">
+            {e.kind}: {e.reason ?? "failed"}
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-2">
+        {w.failedJobs.length > 0 && (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={retry}>
+            Retry failed ({w.failedJobs.length})
+          </button>
+        )}
+        {(w.panelsWithoutArt > 0 || w.panelsNeedingReview > 0) && (
+          <Link
+            to="/projects/$projectId/storyboard"
+            params={{ projectId }}
+            search={{ filter: w.panelsNeedingReview > 0 ? "review" : "noArt" }}
+            className="btn-secondary"
+          >
+            Review
+          </Link>
+        )}
+        {failedVideo && (
+          <button type="button" className="btn-secondary" disabled={busy} onClick={render}>
+            Render anyway
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -64,6 +64,22 @@ export async function revisedStory(db: Database, projectId: string) {
   return row?.id ?? null;
 }
 
+/**
+ * `from … where …` over the project's narration segments (alias `s`) in its own language that have no audio, or audio
+ * made from other text, voice or speed: what the audio stage counts and a production run's audio step waits for.
+ */
+export const staleAudioFrom = (project: {
+  id: string;
+  language: string;
+  settings: { narrationVoice: string; narrationSpeed: number };
+}) => sql`from narration_segments s
+  join narration_lines nl on nl.id = s.narration_line_id
+  left join audio_assets a on a.asset_id = s.active_audio_asset_id
+  where nl.project_id = ${project.id} and nl.language = ${project.language}
+    and (a.asset_id is null or a.text_sha256 <> s.text_sha256
+      or a.voice <> coalesce(s.voice, ${project.settings.narrationVoice})
+      or abs(a.speed - coalesce(s.speed, ${project.settings.narrationSpeed})) > 0.001)`;
+
 /** The production pipeline's stages, in order: each one is made from the ones before it. */
 export const PIPELINE_STAGES = ["story", "plan", "prompts", "art", "narration", "audio", "render"] as const;
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
@@ -105,13 +121,7 @@ export async function pipelineStaleness(
         and exists (select 1 from panels pn join pages p on p.id = pn.page_id where p.chapter_id = c.id)
         and not exists (select 1 from narration_lines nl where nl.chapter_id = c.id and nl.language = ${project.language}))
         as narration,
-      (select count(*)::int from narration_segments s
-        join narration_lines nl on nl.id = s.narration_line_id
-        left join audio_assets a on a.asset_id = s.active_audio_asset_id
-        where nl.project_id = ${project.id} and nl.language = ${project.language}
-          and (a.asset_id is null or a.text_sha256 <> s.text_sha256
-            or a.voice <> coalesce(s.voice, ${project.settings.narrationVoice})
-            or abs(a.speed - coalesce(s.speed, ${project.settings.narrationSpeed})) > 0.001)) as audio`);
+      (select count(*)::int ${staleAudioFrom(project)}) as audio`);
   const staleArt = (
     await db.execute<{ id: string }>(sql`
       select pn.id from panels pn join assets a on a.id = pn.active_artwork_asset_id

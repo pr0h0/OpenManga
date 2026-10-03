@@ -9,6 +9,7 @@ import {
   inArray,
   isNull,
   type ProductionStep,
+  type ProductionWarnings,
   pages,
   panels,
   productionRuns,
@@ -18,7 +19,13 @@ import {
   users,
 } from "@openmanga/db";
 import { BATCH_CAPABLE_PROVIDERS } from "@openmanga/domain";
-import { PIPELINE_STAGES, type PipelineStage, pipelineStaleness, revisedStory } from "@openmanga/services";
+import {
+  PIPELINE_STAGES,
+  type PipelineStage,
+  pipelineStaleness,
+  revisedStory,
+  staleAudioFrom,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { handleError, notFound } from "./http.ts";
@@ -393,6 +400,14 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     return { status: "running", exportJobId: r.job.id };
   },
   async youtube_package(x) {
+    const render = prev(x, "render");
+    if (render?.exportJobId) {
+      const [e] = await x.deps.db
+        .select({ status: exportJobs.status })
+        .from(exportJobs)
+        .where(eq(exportJobs.id, render.exportJobId));
+      if (e?.status !== "completed") return { status: "skipped", note: "The video did not render" };
+    }
     const r = await x.call<{ job: { id: string } }>("POST", `/api/projects/${x.project.id}/exports`, {
       kind: "youtube_package",
       acknowledgeIssues: true,
@@ -432,7 +447,10 @@ async function check(x: Ctx): Promise<"running" | "done" | { failed: string }> {
       .from(exportJobs)
       .where(eq(exportJobs.id, s.exportJobId));
     if (!e || !FINAL.includes(e.status)) return "running";
-    return e.status === "completed" ? "done" : { failed: e.reason ?? `Export ${e.status}` };
+    // The exports come last and nothing else stands on them: a failure is noted, listed in the run's warnings, and
+    // can be rendered again from the run card.
+    if (e.status !== "completed") s.note = `Export ${e.status}: ${e.reason ?? "no reason given"}`;
+    return "done";
   }
   if (!s.jobIds?.length) return "done";
   const jobs = await x.deps.db
@@ -462,6 +480,52 @@ async function approveDrafts(x: Ctx) {
             = coalesce(r.character_version_id, r.location_version_id, r.prop_version_id))
     order by coalesce(r.character_version_id, r.location_version_id, r.prop_version_id), r.created_at desc`);
   for (const r of rows) await x.call("POST", `/api/references/${r.id}/status`, { status: "approved" }).catch(() => {});
+}
+
+/**
+ * What a run that reached the end left unresolved, or null when nothing is: its failed jobs nobody retried, its failed
+ * exports, and the project's panels without artwork, segments without current audio and panels flagged for review.
+ */
+export async function runWarnings(deps: Deps, run: Run): Promise<ProductionWarnings | null> {
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, run.projectId));
+  if (!project) return null;
+  const stepOf = new Map(run.steps.flatMap((s) => (s.jobIds ?? []).map((id) => [id, s.key] as const)));
+  const failed = stepOf.size
+    ? await deps.db
+        .select({ id: generationJobs.id, kind: generationJobs.kind, reason: generationJobs.failureReason })
+        .from(generationJobs)
+        .where(
+          and(
+            inArray(generationJobs.id, [...stepOf.keys()]),
+            eq(generationJobs.status, "failed"),
+            isNull(generationJobs.retriedByJobId),
+          ),
+        )
+    : [];
+  const exportIds = run.steps.flatMap((s) => (s.exportJobId ? [s.exportJobId] : []));
+  const failedExports = exportIds.length
+    ? await deps.db
+        .select({ id: exportJobs.id, kind: exportJobs.kind, reason: exportJobs.failureReason })
+        .from(exportJobs)
+        .where(and(inArray(exportJobs.id, exportIds), inArray(exportJobs.status, ["failed", "cancelled"])))
+    : [];
+  const [counts] = await deps.db.execute<{ no_art: number; review: number; audio: number }>(sql`
+    select
+      (select count(*)::int from panels pn where pn.project_id = ${project.id} and pn.active_artwork_asset_id is null)
+        as no_art,
+      (select count(*)::int from panels pn where pn.project_id = ${project.id} and pn.review is not null) as review,
+      (select count(*)::int ${staleAudioFrom(project)}) as audio`);
+  const w: ProductionWarnings = {
+    failedJobs: failed.slice(0, 500).map((j) => ({ ...j, step: stepOf.get(j.id)! })),
+    failedJobCount: failed.length,
+    panelsWithoutArt: counts?.no_art ?? 0,
+    segmentsWithoutAudio: counts?.audio ?? 0,
+    panelsNeedingReview: counts?.review ?? 0,
+    failedExports,
+  };
+  const any =
+    w.failedJobCount + w.panelsWithoutArt + w.segmentsWithoutAudio + w.panelsNeedingReview + w.failedExports.length;
+  return any ? w : null;
 }
 
 // ---------------------------------------------------------------- advancing
@@ -495,7 +559,12 @@ export async function advanceRun(deps: Deps, runId: string) {
     for (let guard = 0; guard < STEPS.length * 2; guard++) {
       const step = run.steps.find((s) => s.status !== "done" && s.status !== "skipped");
       if (!step) {
-        await save({ status: "completed", reason: null });
+        const warnings = await runWarnings(deps, run);
+        await save(
+          warnings
+            ? { status: "completed_with_warnings", reason: null, warnings }
+            : { status: "completed", reason: null, warnings: null },
+        );
         return;
       }
       const [project] = await deps.db.select().from(projects).where(eq(projects.id, run.projectId));

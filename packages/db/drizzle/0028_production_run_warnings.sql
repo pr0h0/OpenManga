@@ -1,0 +1,1 @@
+ALTER TABLE "production_runs" ADD COLUMN "warnings" jsonb;
