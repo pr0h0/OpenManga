@@ -44,7 +44,7 @@ Defaults from the export request schema; every value is overridable per export.
 | `maxScrollPxPerSec` | `60` | Scroll-rate cap for the page cut |
 | `zoom` | `0.06` | Panel cut: camera travel over the hold (6% zoom, or the slack a pan crosses) |
 | `concurrency` | `VIDEO_ENCODE_CONCURRENCY` (4) | Clips rendered and encoded at once |
-| `shortsSeconds` | `180` | `video_shorts` only: the cut's length, 30–600 s; see Shorts cut |
+| `shortsSeconds` | `180` | `video_shorts` only: the cut's length, 15–600 s; see Shorts cut |
 | `maxDurationMs` | unset | Partial render: stop after the shot that reaches this length (10 s to 24 h); see below |
 
 Outside the `video` bucket, the request's `pageIds` (up to 500) narrows the film to those pages; see the shot list.
@@ -70,7 +70,7 @@ The preview has the same Shape setting and plays the same crops (`fill` on each 
 `video_shorts` renders picked panels as a trailer: `panelIds` (1–100, panels of the project) played in story order
 whatever order they are given in, each shot with its own narration (a line attached only to a page plays over that
 page's first panel when that panel is picked; spans are ignored), up to its length: `video.shortsSeconds`, 180 by
-default (`SHORTS_DEFAULT_MS`, YouTube's Shorts limit) and 30–600. The film ends before the shot that would pass it,
+default (`SHORTS_DEFAULT_MS`, YouTube's Shorts limit) and 15–600. The film ends before the shot that would pass it,
 whatever the length. A length past 180 s is allowed, but YouTube uploads anything over 3 minutes as a regular video,
 so when the picked shots run longer than that `POST /api/projects/:projectId/exports` answers with `warnings: ["YouTube
 doesn't accept Shorts over 3 minutes; this will upload as a regular video."]` (`shortsLengthWarning`), and the
@@ -378,6 +378,34 @@ anything is applied:
 
 Spread and holds are applied with `POST /api/chapters/:id/timing/apply` (MCP `apply_timing_fix`), the rewrite with MCP
 `retime_narration`. No fix generates an image.
+
+## Repurposing
+
+The *Repurpose* page (`GET /api/projects/:projectId/repurpose?shorts=3`, MCP `suggest_repurpose`) plans what one
+finished project is cut into, from its own panels with artwork (`packages/domain/src/repurpose.ts`):
+
+- **Shorts**: `pickShortsSet` cuts the story into `shorts` contiguous parts and runs `pickShorts` inside each, so the
+  Shorts never share a shot and show different moments (30–60 s each, 9:16).
+- **Trailer** (60–90 s, 16:9) and **teaser** (15–30 s, 9:16): `pickShorts` over the whole story.
+- **Carousel**: `pickCarousel`, the strongest panel of each of 10 stretches (every slide weighs the same).
+- **Quote images**: `pickQuotes`, per third of the story the panel whose narration or dialogue has the most quotable
+  sentence (`bestSentence`: 12–160 characters, scored by `lineDrama`).
+
+The response has the saved plan (`items`, from `settings.repurpose`; panels that no longer exist are dropped), the
+fresh `suggestion` and every `candidate` panel with its hold, narration and quotable lines. Nothing is rendered until
+reviewed: the page edits each item's picks, length, frame, quote, title and caption and saves the plan with
+`PATCH /api/projects/:projectId`. *Write titles and captions* (`POST /api/projects/:projectId/repurpose/copy`, MCP
+`write_social_copy`) queues a `social_copy` text job (`social-copy` v1, answer `SocialCopy`) that writes a title and
+caption into each saved item from its narration.
+
+Each item renders as an export: Shorts, trailer and teaser as `video_shorts` with the item's `label` in the file name
+(`…_trailer_1080p.mp4`) and its length and frame; `carousel` as a ZIP of 1080×1080 or 1080×1350 PNGs (`still.aspect`),
+one per picked panel, cropped from its art around the panel's focal point (`renderPanelArt` with its image transform,
+as the vertical video crop); `quote_image` as one PNG of the first panel with `still.text` set at the bottom over a
+gradient in the narration lettering font and the project title under it (`renderQuoteImage`). An export's `social`
+`{title, caption}` ships next to it (inside the ZIP for a carousel) as `…_caption.txt`. Their readiness check is
+empty: only the picked panels' art is used. Hook lines (a short narration line written and voiced per Short) are not
+part of this yet.
 
 ## Partial renders
 

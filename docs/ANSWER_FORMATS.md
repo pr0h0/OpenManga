@@ -21,6 +21,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [NarrationFix](#narrationfix)
 - [StoryCoverageMap](#storycoveragemap)
 - [NarrationRetime](#narrationretime)
+- [SocialCopy](#socialcopy)
 - [ImageDescription](#imagedescription)
 - [PanelCheck](#panelcheck)
 - [YoutubePackage](#youtubepackage)
@@ -1703,6 +1704,56 @@ interface NarrationRetime {
     {
       "lineId": "line-1",
       "text": "The lamp turned at three in the morning, and Ines wrote the hour down."
+    }
+  ]
+}
+```
+
+</details>
+
+## SocialCopy
+
+Asked by **Repurpose → Write titles and captions** — a social title and caption for each Short, trailer, teaser, carousel and quote image of the plan.
+
+```ts
+/** A social title and caption for each piece of the repurposing plan you were given, matched by id. */
+interface SocialCopy {
+  /**
+   * One entry per item you were given.
+   * Between 1 and 40 items.
+   */
+  items: {
+    /**
+     * The item's id, exactly as given.
+     * Between 1 and 40 characters.
+     * @example "short-1"
+     */
+    id: string;
+    /**
+     * A short, curious title for the post (under 100 characters).
+     * Between 1 and 150 characters.
+     * @example "She came to switch off the last lamp"
+     */
+    title: string;
+    /**
+     * The post caption: a hook line, one or two lines about this moment without spoiling the ending, and a few hashtags.
+     * Between 1 and 2200 characters.
+     * @example "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
+     */
+    caption: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "items": [
+    {
+      "id": "short-1",
+      "title": "She came to switch off the last lamp",
+      "caption": "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
     }
   ]
 }

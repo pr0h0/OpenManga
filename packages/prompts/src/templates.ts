@@ -13,6 +13,7 @@ import {
   PanelPromptDraft,
   type SceneOutline,
   ScenePages,
+  SocialCopy,
   StoryAnalysis,
   StoryCoverageMap,
   StoryRewrite,
@@ -524,6 +525,27 @@ export const narrationRetimeV1 = defineTextTemplate<{
         role: "user",
         content: untrusted("project_data", JSON.stringify({ language: i.language, style: i.style, lines: i.lines })),
       },
+    ];
+  },
+});
+
+export const socialCopyV1 = defineTextTemplate<{
+  project: { title: string; description: string; language: string };
+  items: { id: string; kind: string; label: string; quote?: string; narration: string }[];
+}>({
+  name: "social-copy",
+  version: 1,
+  description: "A social title and caption for each Short, trailer, teaser, carousel and quote image of a project.",
+  system: [
+    templateHeader("social-copy", 1),
+    "You write social media posts for pieces cut from a narrated comic: Shorts, a trailer, a teaser, an image carousel and quote images. For each item write a short, curious title and a caption: a hook line, one or two lines about the moment it shows without spoiling the ending, and three to five relevant hashtags. A trailer or teaser invites people to the whole story; a quote image's caption builds on its quote. Write in the project's language, never invent events, names or facts beyond what you are given. Return every item you were given, with its id unchanged, and nothing else.",
+    DATA_RULE,
+    schemaInstructions("SocialCopy", SocialCopy),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      { role: "user", content: untrusted("project_data", JSON.stringify(i)) },
     ];
   },
 });
@@ -1119,6 +1141,7 @@ export const TEXT_TEMPLATES = [
   youtubePackageV1,
   youtubePackageV2,
   narrationRetimeV1,
+  socialCopyV1,
   jsonRepairV1,
   imageDescribeV1,
   stripPlanningV1,

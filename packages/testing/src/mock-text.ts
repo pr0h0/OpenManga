@@ -377,6 +377,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "panel-prompts": "panel-prompts-v1",
     "story-rewrite": "story-rewrite-v1",
     "narration-retime": "narration-retime-v1",
+    "social-copy": "social-copy-v1",
     "json-repair": "json-repair-v1",
     "panel-check": "panel-check-v1",
     "image-describe": "image-describe-v1",
@@ -628,6 +629,16 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
           while (w.length < l.budget) w.push(pad[w.length % pad.length]!);
           return { lineId: l.lineId, text: `${w.slice(0, l.budget).join(" ")}.` };
         }),
+      };
+    }
+    case "social-copy-v1": {
+      const d = (data[0] ?? {}) as { items?: { id: string; label: string }[] };
+      return {
+        items: (d.items ?? []).map((it) => ({
+          id: it.id,
+          title: `Mock title: ${it.label}`,
+          caption: `Mock caption for ${it.label}. #mock`,
+        })),
       };
     }
     case "story-rewrite-v1":

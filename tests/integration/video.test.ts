@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
 import { cardFrames, shotGroups, timeGroup, watermarkBox } from "@openmanga/domain";
 import { sharp } from "@openmanga/image-utils";
+import { unzipSync } from "fflate";
 import { advanceRun } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -958,5 +959,112 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     // Every other segment kept its audio: only the rewritten line was voiced again.
     const kept = new Map(after.lines.flatMap((l) => l.segments).map((s) => [s.id, s.activeAudioAssetId]));
     for (const s of others) expect(kept.get(s.id)).toBe(s.activeAudioAssetId);
+  }, 600_000);
+  test("repurposing: a reviewed plan, social copy, a trailer, a carousel and a quote image", async () => {
+    const { projectId } = await narratedChapter("Repurpose");
+    type Item = {
+      id: string;
+      kind: string;
+      label: string;
+      panelIds: string[];
+      lengthSeconds?: number;
+      aspect?: string;
+      text: string;
+      title: string;
+      caption: string;
+    };
+    type Plan = {
+      items: Item[];
+      suggestion: Item[];
+      candidates: { id: string; hasArt: boolean; holdMs: number; quotes: string[] }[];
+    };
+    const plan = await u.get<Plan>(`/api/projects/${projectId}/repurpose?shorts=2&minHoldMs=1500`);
+    expect(plan.items).toEqual([]);
+    const art = new Set(plan.candidates.filter((c) => c.hasArt).map((c) => c.id));
+    expect(art.size).toBeGreaterThan(0);
+    const shorts = plan.suggestion.filter((i) => i.kind === "short");
+    expect(shorts.length).toBeGreaterThan(0);
+    // Shorts of one plan never share a shot, and everything is picked from panels with art.
+    const shortIds = shorts.flatMap((s) => s.panelIds);
+    expect(new Set(shortIds).size).toBe(shortIds.length);
+    expect(plan.suggestion.every((i) => i.panelIds.every((id) => art.has(id)))).toBe(true);
+    const trailer = plan.suggestion.find((i) => i.kind === "trailer")!;
+    expect(trailer.lengthSeconds).toBe(90);
+    expect(trailer.aspect).toBe("16:9");
+    expect(plan.suggestion.find((i) => i.kind === "teaser")!.lengthSeconds).toBe(30);
+    const carousel = plan.suggestion.find((i) => i.kind === "carousel")!;
+    expect(carousel.panelIds.length).toBe(Math.min(10, art.size));
+
+    // The review step: the plan is edited (a quote written by hand, the carousel square) and saved.
+    const first = [...art][0]!;
+    const items: Item[] = [
+      ...plan.suggestion.filter((i) => i.kind !== "quote"),
+      {
+        id: "quote-1",
+        kind: "quote",
+        label: "Quote",
+        panelIds: [first],
+        aspect: "4:5",
+        text: "Who's there?",
+        title: "",
+        caption: "",
+      },
+    ].map((i) => (i.kind === "carousel" ? { ...i, aspect: "1:1" } : i));
+    await u.patch(`/api/projects/${projectId}`, { settings: { repurpose: { items } } });
+    // Social copy: a text job writes a title and caption into each saved item.
+    const copy = await u.post<{ job: { id: string } }>(`/api/projects/${projectId}/repurpose/copy`, {}, 202);
+    expect((await waitJob(copy.job.id)).status).toBe("completed");
+    const saved = (await u.get<Plan>(`/api/projects/${projectId}/repurpose`)).items;
+    expect(saved.map((i) => i.id)).toEqual(items.map((i) => i.id));
+    expect(saved.every((i) => i.title.startsWith("Mock title:") && i.caption.length > 0)).toBe(true);
+    expect(saved.find((i) => i.id === "quote-1")!.text).toBe("Who's there?");
+
+    // The trailer renders as a Shorts cut named after it, landscape, within its length, with its caption.
+    const t = saved.find((i) => i.kind === "trailer")!;
+    const film = await runExport(projectId, {
+      kind: "video_shorts",
+      panelIds: t.panelIds,
+      label: t.label,
+      social: { title: t.title, caption: t.caption },
+      video: { height: 720, fps: 12, shortsSeconds: t.lengthSeconds, aspect: t.aspect },
+    });
+    const mp4 = film.files.find((f) => f.mimeType === "video/mp4")!;
+    expect(mp4.fileName).toContain("_trailer_720p.mp4");
+    const m = await probe(mp4.assetId);
+    expect({ width: m.width, height: m.height }).toEqual({ width: 1280, height: 720 });
+    expect(m.ms).toBeLessThanOrEqual(90_000 + 200);
+    const txt = film.files.find((f) => f.fileName.endsWith("_caption.txt"))!;
+    expect(await (await u.raw("GET", `/cdn/a/${txt.assetId}`)).text()).toContain(t.title);
+
+    // The carousel: one square image per picked panel, cropped from its art, and the caption, zipped.
+    const c = saved.find((i) => i.kind === "carousel")!;
+    const zip = await runExport(projectId, {
+      kind: "carousel",
+      panelIds: c.panelIds,
+      label: c.label,
+      social: { title: c.title, caption: c.caption },
+      still: { aspect: "1:1" },
+    });
+    const entries = unzipSync(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${zip.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    const pngs = Object.keys(entries).filter((n) => n.endsWith(".png"));
+    expect(pngs.length).toBe(c.panelIds.length);
+    expect(Object.keys(entries).some((n) => n.endsWith("_caption.txt"))).toBe(true);
+    const slide = await sharp(entries[pngs[0]!]!).metadata();
+    expect({ width: slide.width, height: slide.height }).toEqual({ width: 1080, height: 1080 });
+
+    // The quote image: 4:5, the panel with its line set on it.
+    await u.post(`/api/projects/${projectId}/exports`, { kind: "quote_image", panelIds: [first] }, 400);
+    const q = await runExport(projectId, {
+      kind: "quote_image",
+      panelIds: [first],
+      still: { aspect: "4:5", text: "Who's there?" },
+    });
+    const png = q.files.find((f) => f.mimeType === "image/png")!;
+    const meta = await sharp(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${png.assetId}`)).arrayBuffer()),
+    ).metadata();
+    expect({ width: meta.width, height: meta.height }).toEqual({ width: 1080, height: 1350 });
   }, 600_000);
 });

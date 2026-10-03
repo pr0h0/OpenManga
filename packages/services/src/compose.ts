@@ -606,6 +606,45 @@ ${sub ? `<text x="${width / 2}" y="${(top + lines.length * size * 1.1 + subSize 
   );
 }
 
+/**
+ * A quote image: `art` already cropped to `width`×`height` (the panel's own framing), darkened towards the bottom, with
+ * the line set there in the lettering font and the project title under it.
+ */
+export async function renderQuoteImage(
+  art: Uint8Array,
+  width: number,
+  height: number,
+  quote: string,
+  credit: string,
+  font: string,
+) {
+  const text = `“${quote.trim().replace(/^["“]|["”]$/g, "")}”`;
+  const lines = wrapWords(text, Math.max(14, Math.round(Math.sqrt(text.length * 3.2))), 6);
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  const size = Math.round(Math.min(width / 11, (width * 0.86) / (longest * 0.55)));
+  const creditSize = Math.round(width / 34);
+  const bottom = height * 0.93 - (credit ? creditSize * 1.8 : 0);
+  const top = bottom - (lines.length - 1) * size * 1.15;
+  const family = esc(FONT_STACK(font));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+<defs><linearGradient id="q" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#000" stop-opacity="0.85"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+<rect y="${(top - size * 2.2).toFixed(1)}" width="${width}" height="${(height - top + size * 2.2).toFixed(1)}" fill="url(#q)"/>
+${lines
+  .map(
+    (l, i) =>
+      `<text x="${width / 2}" y="${(top + i * size * 1.15).toFixed(1)}" text-anchor="middle" font-family="${family}" font-weight="700" font-size="${size}" fill="#fff" stroke="#000" stroke-width="${(size / 18).toFixed(1)}" paint-order="stroke">${esc(l)}</text>`,
+  )
+  .join("\n")}
+${credit ? `<text x="${width / 2}" y="${(height * 0.93).toFixed(1)}" text-anchor="middle" font-family="${family}" font-size="${creditSize}" fill="#ddd">${esc(credit)}</text>` : ""}
+</svg>`;
+  return new Uint8Array(
+    await sharp(art)
+      .composite([{ input: Buffer.from(svg) }])
+      .png()
+      .toBuffer(),
+  );
+}
+
 /** Cover: artwork from the model + app-composited title/subtitle/author (never model-rendered text). */
 export async function renderCover(art: Uint8Array, title: string, subtitle: string, author: string, width = 1200) {
   const height = Math.round(width * 1.5);

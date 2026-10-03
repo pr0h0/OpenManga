@@ -455,7 +455,14 @@ projectRoutes.post("/:projectId/duplicate", async (c) => {
 
 export const StatusInput = z.object({ action: z.enum(["archive", "unarchive", "trash", "restore"]) });
 /** Settings a template never carries: this project's own outputs, not its setup. */
-const NOT_TEMPLATED = ["thumbnail", "youtubePackage", "publishingSources", "pageWidth", "pageHeight"] as const;
+const NOT_TEMPLATED = [
+  "thumbnail",
+  "youtubePackage",
+  "repurpose",
+  "publishingSources",
+  "pageWidth",
+  "pageHeight",
+] as const;
 const SaveTemplate = z.object({ name: z.string().trim().min(1).max(80) });
 doc({
   method: "POST",

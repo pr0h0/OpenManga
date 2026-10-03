@@ -17,6 +17,8 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   StoryCoverageMap:
     "**Story → Check coverage**, one question per part of the source — which scenes tell each paragraph, and its weight.",
   NarrationFix: "**Narration QA → Fix flagged** — rewrites of the flagged lines only, shown as a diff before applying.",
+  SocialCopy:
+    "**Repurpose → Write titles and captions** — a social title and caption for each Short, trailer, teaser, carousel and quote image of the plan.",
   NarrationRetime:
     "**Timing: trim or expand narration** — the lines you picked in a chapter's Timing view, rewritten to their word budgets.",
   ImageDescription:

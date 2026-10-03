@@ -12,6 +12,7 @@ export const KIND_LABELS: Record<string, string> = {
   narration_fix: "Narration fixes",
   story_coverage: "Story coverage",
   narration_retime: "Narration timing",
+  social_copy: "Social copy",
   character_reference: "Character ref",
   location_reference: "Location ref",
   prop_reference: "Prop ref",

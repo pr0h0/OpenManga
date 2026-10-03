@@ -246,6 +246,21 @@ export function narrationDraftFor(panels: { id: string; beat?: string }[], words
 
 export const StoryRewrite = z.object({ content: str.min(1), notes: optStr });
 
+/** A social title and caption for each item of a repurposing plan, by the item's id. */
+export const SocialCopy = z.object({
+  items: z
+    .array(
+      z.object({
+        id: str.min(1).max(40),
+        title: str.min(1).max(150),
+        caption: str.min(1).max(2200),
+      }),
+    )
+    .min(1)
+    .max(40),
+});
+export type SocialCopy = z.infer<typeof SocialCopy>;
+
 /** Chosen narration lines rewritten to a word budget each (the timing pass's trim or expand). */
 export const NarrationRetime = z.object({
   lines: z

@@ -41,7 +41,9 @@ export type GenerationKind =
   /** Compares one chapter with the story bible and its neighbours; findings go to continuity_findings. */
   | "continuity_check"
   /** The timing pass: chosen narration lines rewritten to a word budget, kept on the job until the user applies them. */
-  | "narration_retime";
+  | "narration_retime"
+  /** A social title and caption for each item of the repurposing plan, written into settings.repurpose. */
+  | "social_copy";
 
 export const generationJobs = pgTable(
   "generation_jobs",
@@ -214,6 +216,10 @@ export type ExportKind =
   | "video_shorts"
   /** The newest video of the scope, its thumbnail, subtitles, chapter timestamps and publishing text, zipped. */
   | "youtube_package"
+  /** Repurposing: picked panels as 1:1 or 4:5 images for an Instagram carousel, zipped with the caption. */
+  | "carousel"
+  /** Repurposing: one panel crop with a line of narration or dialogue set in the lettering font. */
+  | "quote_image"
   | "project_import";
 
 export const exportJobs = pgTable(

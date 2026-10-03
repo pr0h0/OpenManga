@@ -3,14 +3,14 @@ import { z } from "zod";
 import { ExportOptions } from "../../routes/exports.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
 import { toolError } from "../runtime.ts";
-import { cls, jobView, links, projectOf, Uuid } from "./common.ts";
+import { AiInput, aiLabel, cls, jobView, links, projectOf, restAi, textSpend, Uuid } from "./common.ts";
 
 export const exportTools = [
   defineMcpTool({
     name: "create_export",
     title: "Create export",
     description:
-      "Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts: 30–60 s, vertical by default). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.",
+      "Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.",
     input: ExportOptions.extend({ projectId: Uuid, idempotencyKey: IdempotencyKey }),
     output: z.object({ job: Passthrough }).passthrough(),
     scopes: ["exports:create"],
@@ -56,6 +56,64 @@ export const exportTools = [
         query,
       }),
     }),
+  }),
+
+  defineMcpTool({
+    name: "suggest_repurpose",
+    title: "Suggest a repurposing plan",
+    description:
+      "Repurposing a finished project: `items` is the saved plan (settings.repurpose), `suggestion` a fresh one (`shorts` non-overlapping Shorts of 30–60 s from distinct parts of the story, a 60–90 s trailer, a 15–30 s teaser, a 10-panel carousel and 3 quote images with their lines), `candidates` every panel with its hold, narration, art and quotable lines. Save an edited plan with update_project settings.repurpose.items, write titles and captions with write_social_copy, then render each item with create_export (short/trailer/teaser: video_shorts with panelIds, label, video.shortsSeconds and video.aspect; carousel; quote_image), passing its title and caption as `social`. Read-only.",
+    input: z.object({
+      projectId: Uuid,
+      shorts: z.number().int().min(1).max(10).optional().describe("How many Shorts to suggest (default 3)."),
+      language: z.string().max(16).optional(),
+      minHoldMs: z.number().int().min(500).max(30_000).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["exports:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/repurpose"],
+    actionKeys: [],
+    handler: async ({ projectId, ...query }, ctx) => ({
+      data: await ctx.invoke("GET", `/api/projects/${projectId}/repurpose`, { query }),
+    }),
+  }),
+
+  defineMcpTool({
+    name: "write_social_copy",
+    title: "Write social titles and captions",
+    description:
+      "A text job that writes a social title and caption for each saved repurposing item (itemIds, default all), from its narration; they replace the items' current title and caption in settings.repurpose when the job completes (poll get_job). Spends text-provider credits unless ai.manual; may need approval.",
+    input: z.object({
+      projectId: Uuid,
+      itemIds: z.array(z.string().max(40)).max(40).optional(),
+      ai: AiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: z.object({ job: Passthrough }).passthrough(),
+    scopes: ["generations:run", "projects:write"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/projects/:projectId/repurpose/copy"],
+    actionKeys: ["repurpose.copy"],
+    classify: async ({ projectId, itemIds, ai }) =>
+      cls(
+        textSpend(ai, "write"),
+        "repurpose.copy",
+        projectId,
+        `Write social titles and captions for ${itemIds?.length ?? "all"} repurposing item(s) ${aiLabel(ai)}`,
+      ),
+    handler: async ({ projectId, itemIds, ai }, ctx) => {
+      const r = await ctx.invoke<{ job: Record<string, unknown> }>(
+        "POST",
+        `/api/projects/${projectId}/repurpose/copy`,
+        {
+          body: { itemIds, ai: await restAi(ctx, ai) },
+        },
+      );
+      return { data: { job: jobView(r.job) } };
+    },
   }),
 
   defineMcpTool({
