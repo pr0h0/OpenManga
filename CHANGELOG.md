@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-10-03
+
+Upgrading: pull the new images and restart. Seven migrations (`0021`–`0027`) run on start through the migrate service;
+`0027` is data only and fills in the panel id on artwork drawn through provider batches, so it shows in Versions.
+Reload open tabs to get the new web app. Also worth knowing:
+
+- The default rate limits rise to 2000 requests a minute for a signed-in user and 750 per MCP connection; requests
+  without a session get their own `RATE_LIMIT_ANON_PER_MINUTE` (300). Set them in `.env` to keep other values.
+- The nginx image now renders its config from a template (only `ASSET_CSP_ORIGIN`, needed with `STORAGE_DRIVER=s3`),
+  and the worker's health heartbeat moved to the container's own `/tmp`: use the new `docker-compose.yml`.
+- New optional settings: `WORKER_QUEUES`, `RENDER_WORKER_CONCURRENCY`, `BATCH_MAX_IN_FLIGHT_IMAGE` /
+  `BATCH_MAX_IN_FLIGHT_TEXT`, `INSTANCE_BUDGET_USD_MONTHLY`, and the `STORAGE_DRIVER` / `S3_*` storage settings
+  (local disk stays the default). See `.env.example`.
+
 Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project, `0024_project_invites` a table for invitations, `0025_panel_comments` tables for comments and notifications, `0026_panel_guide` a nullable JSON column for layout guides).
 
 ### Added
