@@ -188,6 +188,8 @@ export type ShotVideo = z.infer<typeof ShotVideo>;
 export const PanelGuide = z.object({
   assetId: z.string().uuid(),
   strength: z.enum(["loose", "strict"]).default("loose"),
+  /** The pose in words, typed or from Describe pose: sent with the sketch, so a model that skims the image still gets it. */
+  pose: z.string().trim().max(800).default(""),
 });
 export type PanelGuide = z.infer<typeof PanelGuide>;
 

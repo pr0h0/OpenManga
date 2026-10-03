@@ -561,7 +561,7 @@ async function restore(
       ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string"))
       : {};
   /** Panel guides, set once every panel's artwork is in: a guide may be another panel's art in the package. */
-  const guides: { panelId: string; asset: string; strength: "loose" | "strict" }[] = [];
+  const guides: { panelId: string; asset: string; strength: "loose" | "strict"; pose: string }[] = [];
 
   for (const ch of doc.chapters) {
     const m = ch.memory;
@@ -779,7 +779,7 @@ async function restore(
     if (a)
       await tx
         .update(panels)
-        .set({ guide: { assetId: a.id, strength: g.strength } })
+        .set({ guide: { assetId: a.id, strength: g.strength, pose: g.pose } })
         .where(eq(panels.id, g.panelId));
   }
 

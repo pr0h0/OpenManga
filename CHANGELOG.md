@@ -11,9 +11,13 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Added
 
+- **Type a pose for a layout guide.** *Pose, in words* under a panel's guide takes the pose as text (e.g. "standing
+  centred, hands on hips"), no AI needed. `panel-generation` v11 puts it in the `POSE / LAYOUT` section beside the
+  sketch, so it outranks the written composition like a strict sketch does. *Describe pose* now fills this text
+  instead of the composition. Agents set it as `guide.pose` with `update_panel`.
 - **Describe pose from a sketch.** *Describe pose* beside a panel's layout guide runs a vision job (the new `pose`
   aspect of `image-describe` v2, also on the Describe page) that puts the sketch's poses, placement and framing into
-  one sentence. You review and edit it, then it is added after the panel's composition or replaces it; nothing is
+  one sentence. You review and edit it, then it is added to the guide's pose text or replaces it; nothing is
   written before you confirm. It is a normal queued text job: in Generation, priced, budget-gated, paste mode
   included. `POST /api/panels/:id/guide/describe`; agents use `run_panel_check` with `action: "describe_guide"`.
 - **Pose and sketch guides.** A panel can carry a layout guide: upload a rough sketch, stick-figure pose or

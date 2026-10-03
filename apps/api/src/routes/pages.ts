@@ -1174,7 +1174,8 @@ pageRoutes.post("/panels/:id/guide", async (c) => {
   });
   const [row] = await deps.db
     .update(panels)
-    .set({ guide: { assetId: asset.id, strength: strength.data } })
+    // A new or redrawn sketch keeps the pose already typed for it.
+    .set({ guide: { assetId: asset.id, strength: strength.data, pose: panel.guide?.pose ?? "" } })
     .where(eq(panels.id, panel.id))
     .returning();
   await recordAudit(deps.db, {

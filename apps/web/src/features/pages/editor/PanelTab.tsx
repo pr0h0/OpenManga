@@ -168,11 +168,6 @@ export function PanelTab({
     invalidate: inv,
     success: "Panel spec saved",
   });
-  // The pose line from the layout guide: saved with the spec as it now stands, once the user confirmed it.
-  const saveSpecAs = useAction((s: PanelSpec) => put(`/panels/${panel.id}/spec`, { spec: s }), {
-    invalidate: [...inv, ["prompt-preview", panel.id]],
-    success: "Composition updated from the sketch",
-  });
   const patchPanel = useAction((body: Record<string, unknown>) => patch(`/panels/${panel.id}`, body), {
     invalidate: inv,
   });
@@ -600,12 +595,6 @@ export function PanelTab({
         locked={locked}
         aspect={(panel.frame.width * data.page.width) / (panel.frame.height * data.page.height)}
         invalidate={[...inv, ["prompt-preview", panel.id]]}
-        composition={spec.composition ?? ""}
-        onComposition={(composition) => {
-          const next = { ...spec, composition };
-          setSpec(next);
-          saveSpecAs.mutate(next);
-        }}
       />
 
       <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
@@ -669,15 +658,11 @@ function LayoutGuide({
   locked,
   aspect,
   invalidate,
-  composition,
-  onComposition,
 }: {
   panel: EditorPanel;
   locked: boolean;
   aspect: number;
   invalidate: readonly (readonly unknown[])[];
-  composition: string;
-  onComposition: (composition: string) => void;
 }) {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
@@ -772,7 +757,30 @@ function LayoutGuide({
           </select>
         </Field>
       )}
-      {g && <DescribePose panelId={panel.id} composition={composition} disabled={locked} onApply={onComposition} />}
+      {g && (
+        <Field label="Pose, in words (optional)">
+          <textarea
+            key={`${panel.id}-${g.pose ?? ""}`}
+            className="input text-xs"
+            rows={2}
+            maxLength={800}
+            placeholder="e.g. one figure standing centred, full body, facing the viewer, hands on hips"
+            defaultValue={g.pose ?? ""}
+            onBlur={(e) => {
+              const pose = e.target.value.trim();
+              if (pose !== (g.pose ?? "")) setGuide.mutate({ ...g, pose });
+            }}
+          />
+        </Field>
+      )}
+      {g && (
+        <DescribePose
+          panelId={panel.id}
+          current={g.pose ?? ""}
+          disabled={locked}
+          onApply={(pose) => setGuide.mutate({ ...g, pose })}
+        />
+      )}
       {drawing && (
         <GuideDrawer
           panelId={panel.id}

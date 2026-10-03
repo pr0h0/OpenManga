@@ -90,7 +90,7 @@ Each is one image, in the kind picked on the location or prop page:
 | Prop | `prop_multi_angle` | Front, side, back and top views of the object in a row. |
 
 Panels send the primary (starred) approved reference, whatever its kind. When it is a panorama, a sheet or a
-multi-angle turnaround, the panel prompt (`panel-generation` v10) says so: use it for where things are and what they
+multi-angle turnaround, the panel prompt (`panel-generation` v11) says so: use it for where things are and what they
 look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
 
 **Generate all locations / props**, and **Generate all character references** on the Cast page, draw one reference
@@ -169,7 +169,9 @@ the instruction to ignore its drawing style, line quality and any text in it.
 MCP) runs an `image_describe` job with the `pose` aspect on the guide: a vision model writes one plain sentence of
 poses, placement and framing (`description.pose.summary`). It is an ordinary queued text job (Generation lists it,
 it is priced and budget-gated, and paste mode works); the inspector shows the sentence for review and writes it into
-the panel's composition only when the user confirms, appended or replacing. Generate and every Regenerate send it; masked edits do not (they keep the existing
+the guide's **pose text** only when the user confirms, appended or replacing. The pose text can also simply be typed
+(*Pose, in words* under the guide, `guide.pose` through `PATCH /api/panels/:id` or `update_panel`); the panel prompt
+puts it in `POSE / LAYOUT` next to the sketch, so it outranks the written composition the way a strict sketch does. Generate and every Regenerate send it; masked edits do not (they keep the existing
 composition). With a prompt override the image is still attached, but only the override's own text describes it.
 Every supported image provider accepts reference images, so no provider ignores it. Duplicating a panel or a project
 keeps it, and the interchange export and import carry it.

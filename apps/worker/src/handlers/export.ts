@@ -1039,7 +1039,10 @@ export async function buildInterchange(
           },
           outfits: worn.map((w) => ({ character: `c-${w.characterId}`, outfit: `o-${w.outfitId}`, scope: w.scope })),
           video: pn.video ?? null,
-          guide: guideAsset && pn.guide ? { asset: guideAsset, strength: pn.guide.strength } : null,
+          guide:
+            guideAsset && pn.guide
+              ? { asset: guideAsset, strength: pn.guide.strength, pose: pn.guide.pose ?? "" }
+              : null,
         });
       }
       pageDocs.push({

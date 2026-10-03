@@ -40,7 +40,7 @@ versions stay in the array so old jobs remain reproducible.
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v10**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+v5, `style-reference` v5, `panel-generation` **v11**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
@@ -97,7 +97,7 @@ system-message line telling the model that anything inside those tags is end-use
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v10)
+## Panel prompt sections (`panel-generation` v11)
 
 `compile()` emits these in order, dropping any section with no content:
 
@@ -106,7 +106,9 @@ extract → validate → one repair → fail sequence.
    frame) instead of an illustrated panel.
    With a layout guide, `POSE / LAYOUT` follows at once (new in v10): strict says to copy each figure's pose,
    placement and the framing from the sketch and that it wins where the written composition or beat disagrees on
-   those (identity and look still from the references); loose only says to start from it.
+   those (identity and look still from the references); loose only says to start from it. A guide's typed pose
+   (`guide.pose`, written by hand or by *Describe pose*) adds a `Pose, in words:` line there (v11), so it ranks with the
+   sketch rather than with the composition below.
 2. `PROJECT ART DIRECTION` — from `styleSection()`: preset summary, lines, colour, shading, detail, faces, backgrounds,
    motion effects, contrast, screentones, lighting style, an `Avoid:` line from the style's exclusions, the
    project-type format directive (a live-action cinematography line instead when the style is `photoreal`), custom

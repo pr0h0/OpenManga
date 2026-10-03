@@ -5492,6 +5492,11 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
                 "loose",
                 "strict"
               ]
+            },
+            "pose": {
+              "default": "",
+              "type": "string",
+              "maxLength": 800
             }
           },
           "required": [
