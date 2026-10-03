@@ -121,20 +121,72 @@ any failure.
 
 ## E2E (Playwright)
 
-`./scripts/e2e.sh <baseUrl>` builds `openmanga-e2e:1` from `deploy/docker/e2e.Dockerfile` and runs
-`tests/e2e/studio.spec.ts` against a running stack (it joins `openmanga_edge` automatically for
-`http://nginx`; `E2E_NETWORK`, `E2E_OUTPUT_DIR`, `E2E_MOUNT` and `E2E_EXTRA_ENV` override the details). One test walks
-register → logout → login by username → wizard (analysis, review, apply) → reference generation and approval →
-chapter planning → page editor generation and a lettering bubble → every screen renders → generation inspector →
-page export completes, and asserts no page or console errors were collected (resource-load, EventSource and CSP noise
-is ignored). `E2E_HTML_REPORT=<dir>` (passed through `E2E_EXTRA_ENV`) also writes Playwright's HTML report.
+`./scripts/e2e.sh <baseUrl> [playwright args]` builds `openmanga-e2e:1` from `deploy/docker/e2e.Dockerfile` and runs
+every spec in `tests/e2e` against a running stack (it joins `openmanga_edge` automatically for `http://nginx`;
+`E2E_NETWORK`, `E2E_OUTPUT_DIR`, `E2E_MOUNT` and `E2E_EXTRA_ENV` override the details). Extra arguments go to
+Playwright: `./scripts/e2e.sh http://nginx story.spec.ts -g "story bible"` runs one test. `E2E_HTML_REPORT=<dir>`
+(passed through `E2E_EXTRA_ENV`) also writes Playwright's HTML report. Every test fails on page or console errors
+(resource-load, EventSource and CSP noise is ignored).
+
+| Spec | Covers |
+| --- | --- |
+| `studio.spec.ts` | register → logout → login by username → wizard (analysis, review, apply) → reference generation and approval → chapter planning → page editor generation and a lettering bubble → every screen renders → generation inspector → page export completes |
+| `story.spec.ts` | story bible (a fixed rule and a character state added, filters, *Extract from story* with one proposed entry applied, a continuity check finding a contradiction, the rule checks listing each rule's verdict); story coverage run from the Story page; narration QA (rule checks, the AI check, *Fix selected* shown as a diff and applied, the Density tab); the Timing page's shots and lengths with a hold fix applied; a pronunciation entry marking the affected narration audio outdated |
+| `video.spec.ts` | Repurpose (suggested plan, a carousel pick adjusted, titles and captions written, the carousel ZIP rendered and complete on Exports); the 9:16 Shorts suggestion; a shot's camera move and *leave out*; a layout guide drawn, saved and its pose typed; a video intro card; a reader link's chapter played as a video preview |
+| `production.spec.ts` | *Produce* with review gates and the render off, finishing completed or completed with warnings (with the unresolved list), the Health verdict; *Update production* after a revised story pausing at the analysis review, then at the changed chapters, where *Keep current* clears it; *Stop* with "cancel its queued jobs" cancelling the run's waiting job |
+| `collab.spec.ts` | a member invited by username who accepts in a second browser context and sees the project marked Shared; a panel comment mentioning them that reaches their notification bell; a channel profile (voice, pronunciation, intro card) picked by the new-project wizard, shown as "From profile", and *Re-apply profile* showing the changed voice; an expert reply turned into a new project |
+
+`tests/e2e/helpers.ts` holds the shared pieces: `watchErrors`, an `api(page)` client that calls the REST API with the
+page's session and CSRF cookie, `signUp`, and the seeds. Each spec file signs up its own user(s) in `beforeAll` and
+shares one project across its tests: `seedProducedProject` runs a production run through the API (analysed, drawn,
+narrated and voiced; about a minute, as the API advances runs on a 10 s timer) and `seedPlannedProject` analyses and
+plans a chapter (seconds). Setup goes through the API; what a test is about goes through the UI. A failing test
+restarts the worker, which seeds again for the rest of its file. Registration is limited to 10 per hour per address,
+and a clean run signs up seven users: repeated local runs against one stack need that counter cleared (a fresh stack,
+or `redis-cli --scan --pattern 'om:rl:register:*' | xargs redis-cli del` in its Redis). The whole suite takes about
+five minutes once the stack is up.
 
 The stack it runs against needs mock AI and plain-HTTP cookies: `AI_MOCK_MODE=true`, `AI_MOCK_ALLOW_IN_PRODUCTION=true`
 (compose runs `NODE_ENV=production`), `TTS_PROVIDER=fake`, `REGISTRATION_ENABLED=true` and `COOKIE_SECURE=false`.
 `docker-compose.yml` pins its network names (`openmanga_internal`, `openmanga_edge`), so do not start a second copy
 next to a running install: its `postgres`, `redis` and `worker` would share the install's networks and DNS names,
-and its worker could take the install's queued jobs. On such a host, use a compose override that renames both
-networks and the image tags, and point `E2E_NETWORK` at the renamed edge network.
+and its worker could take the install's queued jobs.
+
+### E2E locally without compose
+
+On a host that runs an install, start a throwaway stack with plain `docker run` on a private network instead, with
+each container's compose service name as its network alias so the app finds `postgres`, `redis` and `nginx`:
+
+```bash
+ID=$(date +%s); NET=om-e2e-$ID
+docker build -t openmanga-app:e2e-$ID -f deploy/docker/app.Dockerfile .
+docker build -t openmanga-nginx:e2e-$ID -f deploy/docker/nginx.Dockerfile .
+docker network create $NET
+ENV="-e NODE_ENV=production -e DATABASE_URL=postgres://openmanga:pw@postgres:5432/openmanga -e REDIS_URL=redis://redis:6379
+ -e SESSION_SECRET=e2e-session-secret-for-a-throwaway-stack-0123 -e COOKIE_SECURE=false -e AI_MOCK_MODE=true
+ -e AI_MOCK_ALLOW_IN_PRODUCTION=true -e TTS_PROVIDER=fake -e REGISTRATION_ENABLED=true -e ASSET_ROOT=/data/assets
+ -e TEMP_ROOT=/data/tmp -e APP_PUBLIC_URL=http://nginx/app -e API_PUBLIC_URL=http://nginx/api -e CDN_PUBLIC_URL=http://nginx/cdn"
+VOLS="-v om-e2e-$ID-assets:/data/assets -v om-e2e-$ID-tmp:/data/tmp"
+docker run -d --name om-e2e-$ID-postgres --network $NET --network-alias postgres \
+  -e POSTGRES_USER=openmanga -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=openmanga postgres:17-alpine
+docker run -d --name om-e2e-$ID-redis --network $NET --network-alias redis redis:7-alpine
+until docker exec om-e2e-$ID-postgres pg_isready -U openmanga -d openmanga; do sleep 1; done
+docker run --rm --network $NET $ENV $VOLS openmanga-app:e2e-$ID bun apps/api/src/cli/bootstrap.ts
+docker run -d --name om-e2e-$ID-api --network $NET --network-alias api $ENV $VOLS openmanga-app:e2e-$ID bun apps/api/src/server.ts
+docker run -d --name om-e2e-$ID-worker --network $NET --network-alias worker $ENV $VOLS openmanga-app:e2e-$ID bun apps/worker/src/main.ts
+docker run -d --name om-e2e-$ID-nginx --network $NET --network-alias nginx -e ASSET_CSP_ORIGIN= \
+  -v om-e2e-$ID-assets:/data/assets:ro openmanga-nginx:e2e-$ID
+until docker exec om-e2e-$ID-nginx wget -qO- http://127.0.0.1/readyz >/dev/null; do sleep 2; done
+
+E2E_NETWORK=$NET ./scripts/e2e.sh http://nginx
+
+docker rm -f om-e2e-$ID-postgres om-e2e-$ID-redis om-e2e-$ID-api om-e2e-$ID-worker om-e2e-$ID-nginx
+docker volume rm om-e2e-$ID-assets om-e2e-$ID-tmp; docker network rm $NET
+docker rmi openmanga-app:e2e-$ID openmanga-nginx:e2e-$ID
+```
+
+The spec files import `@playwright/test` from the repo's `node_modules`, which the Playwright container mounts: run
+`bun install` first.
 
 ### E2E in CI
 
@@ -145,7 +197,8 @@ once the workflow is on the default branch (`master`). It builds the images, sta
 above (`docker compose up -d --build --wait`), runs `./scripts/e2e.sh http://nginx`, and always tears the stack
 down. When it fails it uploads `playwright-<run id>`, which holds the HTML
 report, the trace and screenshots (`npx playwright show-trace trace.zip`), and `compose.log` with every service's
-log. A run takes a few minutes, about half of it building the images, so other pull requests skip it.
+log. A run takes about seven minutes, a little over one building and starting the stack and about five of tests, so
+other pull requests skip it.
 
 ## CI
 

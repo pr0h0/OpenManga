@@ -76,6 +76,14 @@ nothing becomes out of date on upgrade.
   on the overview lists what would change before applying. A profile's logo belongs to the account and each project
   gets its own copy. MCP: `list_channel_profiles`, and `profileId` on `create_project`.
 
+- **Browser tests for the recent features.** Four new Playwright specs next to the studio flow, each with its own
+  users and one seeded project: `story.spec.ts` (story bible, story coverage, narration QA, timing, pronunciation),
+  `video.spec.ts` (repurposing, the Shorts suggestion, shot settings, layout guide, video branding, the reader
+  link's video preview), `production.spec.ts` (a production run to the final-output gate and Health, Update
+  production with *Keep current*, stopping a run and its jobs) and `collab.spec.ts` (members in a second browser,
+  comment mentions and the notification bell, channel profiles, expert output actions). `docs/TESTING.md` lists what
+  each covers and how to run them on a host with an install, without compose.
+
 ### Changed
 
 - **The YouTube package follows the channel's rules** (`youtube-package` v2): title rules and the description template
