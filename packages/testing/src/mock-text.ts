@@ -389,6 +389,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "bible-extract": "bible-extract-v1",
     "continuity-check": "continuity-check-v1",
     "youtube-package": "youtube-package-v1",
+    "story-coverage": "story-coverage-v1",
   };
   const route = tpl === "narration-v1" ? tpl : name === "narration" ? "narration-v2" : (byName[name] ?? tpl);
   switch (route) {
@@ -590,6 +591,27 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         lines: (d.lines ?? [])
           .filter((l) => flagged.has(l.key))
           .map((l) => ({ line: l.key, text: `${l.text.replace("[[mock:lint]]", "").trim()} (revised)` })),
+      };
+    }
+    case "story-coverage-v1": {
+      // Every paragraph is told by the first scene listed, except [[mock:skip]] (told nowhere, weight 5) and
+      // [[mock:twice]] (told in the first two chapters).
+      const d = (data[0] ?? {}) as { chapters?: { key: string; scenes?: { key: string }[] }[] };
+      const chapters = d.chapters ?? [];
+      const first = chapters.find((c) => c.scenes?.length)?.scenes?.[0]?.key ?? chapters[0]?.key;
+      const twice = chapters.slice(0, 2).map((c) => c.scenes?.[0]?.key ?? c.key);
+      return {
+        paragraphs: [...story.matchAll(/^\[(P\d+)\] (.*)$/gm)].map(([, key, text]) => ({
+          paragraph: key,
+          weight: text!.includes("[[mock:skip]]") ? 5 : 3,
+          coveredBy: text!.includes("[[mock:skip]]")
+            ? []
+            : text!.includes("[[mock:twice]]")
+              ? twice
+              : first
+                ? [first]
+                : [],
+        })),
       };
     }
     case "story-rewrite-v1":

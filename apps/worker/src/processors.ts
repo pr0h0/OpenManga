@@ -9,6 +9,7 @@ import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts
 import { runMaintenance } from "./handlers/maintenance.ts";
 import { narrationFix, narrationLint } from "./handlers/narration-qa.ts";
 import { panelCheck } from "./handlers/qa.ts";
+import { storyCoverage } from "./handlers/story-coverage.ts";
 import {
   bibleExtract,
   chapterPlan,
@@ -47,6 +48,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   continuity_check: continuityCheck,
   narration_lint: narrationLint,
   narration_fix: narrationFix,
+  story_coverage: storyCoverage,
   cover: coverGeneration,
   thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,

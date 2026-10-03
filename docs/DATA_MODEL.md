@@ -178,7 +178,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `image_batch_submit`, `text_batch_submit`,
+  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
   `expert_extract`, `bible_extract`, `continuity_check`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including

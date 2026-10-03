@@ -305,3 +305,31 @@ export const NarrationFix = z.object({
   lines: z.array(z.object({ line: str.min(1), text: str.min(1).max(4000) })).max(200),
 });
 export type NarrationFix = z.infer<typeof NarrationFix>;
+
+/**
+ * Story coverage, one chunk of the source: each paragraph (by the key the prompt gives it, "P12") weighed and mapped
+ * to the scenes ("C2.S3") or chapters ("C2") of the plan that tell it.
+ */
+export const StoryCoverageMap = z.object({
+  paragraphs: z.array(
+    z.object({
+      paragraph: str.min(1),
+      weight: z.number().int().min(1).max(5),
+      coveredBy: z.array(str.min(1)).max(12).default([]),
+    }),
+  ),
+});
+export type StoryCoverageMap = z.infer<typeof StoryCoverageMap>;
+
+/** StoryCoverageMap for one chunk: every paragraph of it answered, so nothing reads as left out by omission. */
+export const storyCoverageFor = (keys: string[]) =>
+  StoryCoverageMap.superRefine((d, ctx) => {
+    const answered = new Set(d.paragraphs.map((p) => p.paragraph.trim().toUpperCase()));
+    const missing = keys.filter((k) => !answered.has(k));
+    if (missing.length)
+      ctx.addIssue({
+        code: "custom",
+        path: ["paragraphs"],
+        message: `every paragraph needs an entry; missing: ${missing.slice(0, 80).join(", ")}`,
+      });
+  });

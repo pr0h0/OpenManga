@@ -15,6 +15,7 @@
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
 | Narration QA | `narration_lint` / text-ai | `narration-lint` v1 | `NarrationLintReport` stored as `narration_findings` (source `ai`) for the chapter |
 | Narration fixes | `narration_fix` / text-ai | `narration-fix` v1 | `NarrationFix` checked against the flagged lines, returned as before/after proposals in the job result; applied only when the user confirms |
+| Story coverage | `story_coverage` / text-ai | `story-coverage` v1 | one `StoryCoverageMap` per part of the source; the findings and shares are computed from them and kept in the job result |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v2 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
 | Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
 | Continuity check | `continuity_check` / text-ai | `continuity-check` v1 | `ContinuityReport` → `continuity_findings` (the chapter's open findings replaced) and each fixed rule's verdict on the job result |
@@ -394,6 +395,33 @@ fixed, re-segments the lines (sentences that did not change keep their audio), q
 segments of lines that were voiced, re-runs the deterministic checks on the chapter and returns the comparison, and
 with `recheck: true` queues the AI check again on the model the fix used. Silent stretches and pace need lines added or
 the voice changed and are not offered for a rewrite.
+
+## Story coverage
+
+`POST /api/projects/:projectId/story/coverage` queues a `story_coverage` job against the applied story revision (the
+one the newest applied analysis read; `storyRevisionId` picks another). The worker (`handlers/story-coverage.ts`)
+splits the revision into paragraphs with their character offsets (`splitParagraphs` in
+`packages/domain/src/coverage.ts`: blank lines, else line breaks, and anything over 2,400 characters cut at sentence
+ends) and groups them into parts of at most 12,000 characters. Each part is one `story-coverage` request: the
+paragraphs as `[P12] …` in `<story_content>`, and the plan as every chapter's key (`C3`), title and summary plus,
+for the chapters around that part, their scenes (`C3.S2`) with summary and panel beats, within a 24,000-character
+budget. Where a part falls is found from each chapter's source excerpt in the text, or by proportion when the
+excerpts cannot be found. The answer weighs every paragraph 1–5 and names the scenes or chapters that tell it; an
+answer missing a paragraph is sent back for repair (or, pasted, rejected with the missing keys).
+
+From the map, `coverageFindings` reports:
+
+- **left out** — paragraphs of weight 3 or more that nothing tells, consecutive ones joined into one span;
+- **told twice** — a paragraph told in two or more chapters;
+- **more or less room than its weight** — a chapter (and, when it points the other way, one of its scenes) whose
+  share of the panels is 2.5 times its share of the story or less than 1/2.5 of it, the story share being each
+  paragraph's weight × length split across what tells it. Shares under 2% of both are not judged.
+
+The result keeps every finding with its source spans (offsets in the revision) and chapter and scene ids, each
+chapter's share of the story, the panels and the narration words, and the paragraph map.
+`GET /api/projects/:projectId/story/coverage` returns the newest report with an excerpt of each span, whether the
+applied story or the plan (chapters, scenes, pages, panels) changed since, and any check still running. Paste mode asks
+one question per part.
 
 ## Narration languages
 

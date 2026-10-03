@@ -39,6 +39,12 @@ findings.
   lettering keep the written form. Changing it marks the audio of the affected segments stale, so the next synthesis
   re-voices only those. Saved in `settings.pronunciation` (also through `update_project` over MCP) and carried by
   project templates.
+- **Story coverage check.** Story → *Check coverage* maps the applied story revision to the plan with a text job,
+  part by part so long stories stay within context, and lists source paragraphs left out, told in more than one
+  chapter, or given far more or less room (share of panels) than their weight, each linked to its span in the story
+  (*Show in story* selects it) and to its chapter and scene, beside every chapter's share of the story, the panels
+  and the narration. Says when the story or the plan changed since. Works in paste mode (one question per part);
+  over MCP as `get_story_coverage` and `run_story_coverage`.
 - **Narration QA.** Narration → Narration QA checks a chapter or the whole project. Deterministic checks run at once
   and spend nothing: repeated sentence openings, a flat rhythm, a name used too often, near-duplicate lines, narration that restates
   its panel's dialogue, chapters that open or end alike, and density (crowded shots, stretches of silent shots, and
