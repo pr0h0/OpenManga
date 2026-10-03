@@ -12,11 +12,12 @@ import {
   isNull,
 } from "@openmanga/db";
 import {
-  type BibleContext,
   type BibleFactEntry,
+  type BibleSelection,
   bibleInEffect,
   type CharacterStateEntry,
   mentions,
+  selectBible,
 } from "@openmanga/domain";
 
 /** The whole bible of a project with chapters resolved to their current order and characters to names. */
@@ -85,28 +86,31 @@ export async function loadBible(db: DbOrTx, projectId: string) {
 
 export type LoadedBible = Awaited<ReturnType<typeof loadBible>>;
 
+type ForOptions = Omit<BibleSelection, "names" | "characters"> & { names?: string[] };
+
 /**
- * The bible one prompt receives at a chapter (and scene): the cast it is about are those named in `names`, or whose
- * name or alias the `text` mentions; other subjects (places, objects, terms) are relevant when `names` or `text`
- * mention them.
+ * Who and what a prompt is about: the cast named in `names`, or whose name or alias the `text` mentions (with their
+ * aliases), plus the other names given; other subjects (places, objects, terms) count when `names` or `text` mention
+ * them.
  */
-export function bibleFor(
-  bible: LoadedBible,
-  at: { chapter: number; scene?: number | null },
-  opts: { names?: string[]; text?: string; visualOnly?: boolean; maxFacts?: number; maxStates?: number },
-): BibleContext {
+function selection(bible: LoadedBible, opts: ForOptions): BibleSelection {
   const named = new Set((opts.names ?? []).map((n) => n.toLowerCase()));
   const present = bible.cast.filter(
     (c) =>
       [c.name, ...c.aliases].some((n) => named.has(n.toLowerCase())) ||
       (opts.text ? [c.name, ...c.aliases].some((n) => mentions(opts.text!, n)) : false),
   );
-  return bibleInEffect(bible, at, {
+  return {
+    ...opts,
     names: [...(opts.names ?? []), ...present.flatMap((c) => [c.name, ...c.aliases])],
-    text: opts.text,
     characters: present.map((c) => c.name),
-    visualOnly: opts.visualOnly,
-    maxFacts: opts.maxFacts,
-    maxStates: opts.maxStates,
-  });
+  };
 }
+
+/** The bible one prompt receives at a chapter (and scene), as short lines. */
+export const bibleFor = (bible: LoadedBible, at: { chapter: number; scene?: number | null }, opts: ForOptions) =>
+  bibleInEffect(bible, at, selection(bible, opts));
+
+/** The same choice as `bibleFor`, as the entries themselves (with their ids). */
+export const bibleEntriesFor = (bible: LoadedBible, at: { chapter: number; scene?: number | null }, opts: ForOptions) =>
+  selectBible(bible, at, selection(bible, opts));

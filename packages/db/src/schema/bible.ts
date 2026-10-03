@@ -1,7 +1,7 @@
 import type { BibleFactKind, CharacterStateKind } from "@openmanga/schemas";
-import { boolean, index, integer, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
-import { createdAt, id, updatedAt } from "./common.ts";
+import { createdAt, id, ts, updatedAt } from "./common.ts";
 import { chapters, characterOutfits, characters, projects } from "./projects.ts";
 
 /** Who wrote an entry: a person, the "Extract bible" job (after review), or an explained continuity finding. */
@@ -66,5 +66,56 @@ export const characterStates = pgTable(
   (t) => [
     index("character_states_project_idx").on(t.projectId),
     index("character_states_character_idx").on(t.characterId),
+  ],
+);
+
+export type FindingSeverity = "high" | "medium" | "low";
+export type FindingStatus = "open" | "fixed" | "ignored" | "explained";
+/** Where a contradiction is: the panel or narration line it names, else the scene or the whole chapter. */
+export type FindingPlace = {
+  /** The ref the check used ("p3.2", "n5", "scene 2", "chapter"), as a person can read it. */
+  ref: string;
+  panelId?: string | null;
+  pageId?: string | null;
+  narrationLineId?: string | null;
+  sceneNumber?: number | null;
+};
+
+/**
+ * A contradiction a continuity check found in a chapter, between its plan, scenes, narration or panels and the story
+ * bible or a neighbouring chapter. A new check of the chapter replaces its open findings; fixed, ignored and explained
+ * ones stay as a record, and one ignored or explained is not raised again.
+ */
+export const continuityFindings = pgTable(
+  "continuity_findings",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    chapterId: uuid("chapter_id")
+      .notNull()
+      .references(() => chapters.id, { onDelete: "cascade" }),
+    /** The continuity_check job that found it. */
+    jobId: uuid("job_id"),
+    severity: text("severity").$type<FindingSeverity>().notNull(),
+    message: text("message").notNull(),
+    /** The offending line, beat or caption, quoted. */
+    quote: text("quote").notNull().default(""),
+    /** What it contradicts: the bible entry or the neighbouring chapter's text. */
+    evidence: text("evidence").notNull().default(""),
+    place: jsonb("place").$type<FindingPlace>().notNull(),
+    /** The bible fact it breaks, when it is one. */
+    factId: uuid("fact_id").references(() => bibleFacts.id, { onDelete: "set null" }),
+    status: text("status").$type<FindingStatus>().notNull().default("open"),
+    /** Why it was ignored, or what explained it. */
+    resolution: text("resolution").notNull().default(""),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: ts("resolved_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("continuity_findings_project_idx").on(t.projectId, t.status),
+    index("continuity_findings_chapter_idx").on(t.chapterId),
   ],
 );

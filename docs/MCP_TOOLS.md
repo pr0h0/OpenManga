@@ -16,7 +16,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
-| `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_bible` |
+| `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
@@ -25,7 +25,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_bible_extraction`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
 | `exports:read` | Read export status and files. | `suggest_shorts`, `list_exports` |
@@ -66,6 +66,8 @@ requests) need no scope.
 | [`manage_story_bible`](#manage_story_bible) | delete | `story:write` |
 | [`run_bible_extraction`](#run_bible_extraction) | spend | `story:write` `generations:run` |
 | [`apply_bible_extraction`](#apply_bible_extraction) | write | `story:write` |
+| [`run_continuity_check`](#run_continuity_check) | spend | `story:read` `generations:run` |
+| [`get_continuity_report`](#get_continuity_report) | read | `story:read` |
 | [`list_library`](#list_library) | read | `library:read` |
 | [`get_library_item`](#get_library_item) | read | `library:read` |
 | [`create_library_item`](#create_library_item) | write | `library:write` |
@@ -196,7 +198,8 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "ProjectConcept",
         "ProjectPremise",
         "StoryOutline",
-        "BibleExtraction"
+        "BibleExtraction",
+        "ContinuityReport"
       ]
     }
   },
@@ -3022,6 +3025,154 @@ Save a completed extraction's facts and states into the story bible: all of them
   },
   "required": [
     "jobId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### run_continuity_check
+
+Compare one chapter (chapterId) or every chapter with panels or narration against the story bible (facts, character states, fixed rules) and the neighbouring chapters: one text job per chapter. Without confirm=true returns only the chapter count and estimated cost; with it, queues the jobs (asynchronous; poll get_job, then get_continuity_report). Findings replace the chapter's open ones; each fixed rule gets pass/warn/fail. ai.manual=true (no provider, no spending) asks you for a ContinuityReport per chapter via get_manual_prompt / submit_manual_answer; a provider run spends the user's credits (may need approval).
+
+- **Scopes:** `story:read`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `continuity.check`
+- **Wraps:** `POST /api/projects/:projectId/continuity-checks`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "confirm": {
+      "default": false,
+      "type": "boolean"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "batch": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_continuity_report
+
+A project's continuity findings (severity, message, the quoted line or beat, the bible entry or neighbouring chapter it contradicts, where: a panel ref with panelId/pageId, a narration line, a scene or the chapter; status open, fixed, ignored or explained) and every fixed rule's pass/warn/fail per chapter from its latest check. Filter by chapterId and status (open, resolved, all). Read-only.
+
+- **Scopes:** `story:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/continuity`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "status": {
+      "default": "open",
+      "type": "string",
+      "enum": [
+        "open",
+        "resolved",
+        "all"
+      ]
+    }
+  },
+  "required": [
+    "projectId"
   ]
 }
 ```

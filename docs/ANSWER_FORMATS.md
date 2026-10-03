@@ -24,6 +24,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [ProjectPremise](#projectpremise)
 - [StoryOutline](#storyoutline)
 - [BibleExtraction](#bibleextraction)
+- [ContinuityReport](#continuityreport)
 
 ## StoryAnalysis
 
@@ -2580,6 +2581,112 @@ interface BibleExtraction {
       "fromScene": null,
       "untilChapter": null,
       "outfit": null
+    }
+  ]
+}
+```
+
+</details>
+
+## ContinuityReport
+
+Asked by **Check continuity** — contradictions in one chapter against the story bible and its neighbours, and a verdict per fixed rule.
+
+```ts
+/** Contradictions found in one chapter, and a verdict for each fixed rule of the story bible. */
+interface ContinuityReport {
+  /**
+   * Each contradiction with the bible or a neighbouring chapter. Empty when there is none.
+   * At most 200 items.
+   * Optional — defaults to [] when left out.
+   */
+  findings?: {
+    /**
+     * high (breaks a fixed rule, or plainly wrong), medium (likely wrong) or low (doubtful or minor).
+     * @example "high"
+     */
+    severity: "high" | "medium" | "low";
+    /**
+     * One sentence naming who and what is wrong.
+     * Between 1 and 1000 characters.
+     * @example "Tomas lights the lamp with a match, but the bible says the lamp is electric."
+     */
+    message: string;
+    /**
+     * The panel (p<page>.<panel>) or narration line (n<number>) ref from the prompt, 'scene N', or 'chapter'.
+     * At most 40 characters.
+     * Optional — defaults to "chapter" when left out.
+     * @example "p2.3"
+     */
+    where?: string;
+    /**
+     * The offending beat, line or dialogue, short and verbatim.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Tomas strikes a match."
+     */
+    quote?: string;
+    /**
+     * The bible ref it contradicts (R1, F2, S4), or null for a neighbouring chapter.
+     * Optional — defaults to null when left out.
+     * @example "R1"
+     */
+    against?: string | null;
+    /**
+     * That bible entry's text, or what the neighbouring chapter says.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "(rule) The lamp is electric."
+     */
+    evidence?: string;
+  }[];
+  /**
+   * One verdict per fixed rule (R<n>) of the prompt.
+   * At most 200 items.
+   * Optional — defaults to [] when left out.
+   */
+  rules?: {
+    /**
+     * The fixed rule's ref.
+     * Between 1 and 40 characters.
+     * @example "R1"
+     */
+    rule: string;
+    /**
+     * fail (broken here), warn (may be broken) or pass (holds, or does not come up).
+     * @example "fail"
+     */
+    verdict: "pass" | "warn" | "fail";
+    /**
+     * Why, in one short sentence, for warn and fail.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Panel p2.3 shows a match."
+     */
+    note?: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "findings": [
+    {
+      "severity": "high",
+      "message": "Tomas lights the lamp with a match, but the bible says the lamp is electric.",
+      "where": "p2.3",
+      "quote": "Tomas strikes a match.",
+      "against": "R1",
+      "evidence": "(rule) The lamp is electric."
+    }
+  ],
+  "rules": [
+    {
+      "rule": "R1",
+      "verdict": "fail",
+      "note": "Panel p2.3 shows a match."
     }
   ]
 }

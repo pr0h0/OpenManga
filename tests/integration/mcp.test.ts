@@ -371,6 +371,42 @@ describe("manual pipeline over MCP", () => {
     expect(removed.isError).toBe(false);
   });
 
+  test("continuity: estimate a check, run it in paste mode, read the report", async () => {
+    const est = await allowAll.call<{ data: { confirmRequired: boolean; count: number } }>("run_continuity_check", {
+      projectId,
+      ai: { manual: true },
+    });
+    expect(est.structured.data.confirmRequired).toBe(true);
+    expect(est.structured.data.count).toBeGreaterThan(0);
+    const list = await allowAll.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    const chapterId = list.structured.data.chapters[0]!.id;
+    const run = await allowAll.call<{ data: { jobs: { id: string }[] } }>("run_continuity_check", {
+      projectId,
+      chapterId,
+      confirm: true,
+      ai: { manual: true },
+    });
+    const jobId = run.structured.data.jobs[0]!.id;
+    const status = () =>
+      allowAll
+        .call<{ data: { job: { status: string } } }>("get_job", { jobId })
+        .then((j) => j.structured.data.job.status);
+    await waitFor(async () => (await status()) === "awaiting_input", { label: "check parked" });
+    await allowAll.call("submit_manual_answer", {
+      jobId,
+      answer: {
+        findings: [{ severity: "medium", message: "The lamp is out in this scene.", where: "scene 1" }],
+        rules: [{ rule: "R1", verdict: "fail", note: "the lamp goes out" }],
+      },
+    });
+    await waitFor(async () => (await status()) === "completed", { label: "check answered" });
+    const r = await allowAll.call<{
+      data: { findings: { place: { ref: string } }[]; rules: { verdict: string | null }[] };
+    }>("get_continuity_report", { projectId });
+    expect(r.structured.data.findings.map((f) => f.place.ref)).toEqual(["scene 1"]);
+    expect(r.structured.data.rules[0]!.verdict).toBe("fail");
+  });
+
   test("MCP actions are audited as the connection acting for the user", async () => {
     const rows = await h.deps.db
       .select()

@@ -24,6 +24,7 @@ const OPERATION_LABELS: Record<string, string> = {
   expert_image: "Expert chat image",
   expert_extract: "Expert actions",
   bible_extract: "Story bible",
+  continuity_check: "Continuity checks",
 };
 
 /**

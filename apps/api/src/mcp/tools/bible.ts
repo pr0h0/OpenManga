@@ -5,6 +5,65 @@ import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
 import { toolError } from "../runtime.ts";
 import { AiInput, aiLabel, cls, jobView, links, projectOf, restAi, textSpend, Uuid } from "./common.ts";
 
+const continuityTools = [
+  defineMcpTool({
+    name: "run_continuity_check",
+    title: "Check continuity",
+    description:
+      "Compare one chapter (chapterId) or every chapter with panels or narration against the story bible (facts, character states, fixed rules) and the neighbouring chapters: one text job per chapter. Without confirm=true returns only the chapter count and estimated cost; with it, queues the jobs (asynchronous; poll get_job, then get_continuity_report). Findings replace the chapter's open ones; each fixed rule gets pass/warn/fail. ai.manual=true (no provider, no spending) asks you for a ContinuityReport per chapter via get_manual_prompt / submit_manual_answer; a provider run spends the user's credits (may need approval).",
+    input: z.object({
+      projectId: Uuid,
+      chapterId: Uuid.optional(),
+      confirm: z.boolean().default(false),
+      ai: AiInput,
+      batch: z.boolean().optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["story:read", "generations:run"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/projects/:projectId/continuity-checks"],
+    actionKeys: ["continuity.check"],
+    classify: async ({ projectId, ai, confirm }) =>
+      cls(
+        confirm ? textSpend(ai, "write") : "read",
+        "continuity.check",
+        projectId,
+        confirm ? `Check continuity ${aiLabel(ai)}` : "Estimate a continuity check",
+      ),
+    handler: async ({ projectId, chapterId, confirm, ai, batch }, ctx) => ({
+      data: await ctx.invoke("POST", `/api/projects/${projectId}/continuity-checks`, {
+        body: { chapterId, confirm, ai: await restAi(ctx, ai), batch },
+      }),
+      links: { bible: ctx.deps.urls.appUrl(`projects/${projectId}/bible`) },
+    }),
+  }),
+
+  defineMcpTool({
+    name: "get_continuity_report",
+    title: "Get continuity report",
+    description:
+      "A project's continuity findings (severity, message, the quoted line or beat, the bible entry or neighbouring chapter it contradicts, where: a panel ref with panelId/pageId, a narration line, a scene or the chapter; status open, fixed, ignored or explained) and every fixed rule's pass/warn/fail per chapter from its latest check. Filter by chapterId and status (open, resolved, all). Read-only.",
+    input: z.object({
+      projectId: Uuid,
+      chapterId: Uuid.optional(),
+      status: z.enum(["open", "resolved", "all"]).default("open"),
+    }),
+    output: Passthrough,
+    scopes: ["story:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/continuity"],
+    actionKeys: [],
+    handler: async ({ projectId, chapterId, status }, ctx) => ({
+      data: await ctx.invoke("GET", `/api/projects/${projectId}/continuity`, {
+        query: { status, ...(chapterId ? { chapterId } : {}) },
+      }),
+    }),
+  }),
+];
+
 export const bibleTools = [
   defineMcpTool({
     name: "get_story_bible",
@@ -163,4 +222,5 @@ export const bibleTools = [
       data: await ctx.invoke("POST", `/api/bible-extractions/${jobId}/apply`, { body: { facts, states, again } }),
     }),
   }),
+  ...continuityTools,
 ];

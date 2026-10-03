@@ -385,6 +385,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "expert-outline": "expert-outline-v1",
     "expert-youtube": "expert-youtube-v1",
     "bible-extract": "bible-extract-v1",
+    "continuity-check": "continuity-check-v1",
   };
   const route = tpl === "narration-v1" ? tpl : name === "narration" ? "narration-v2" : (byName[name] ?? tpl);
   switch (route) {
@@ -526,6 +527,34 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
               { character: who, kind: "item", text: "Carries the brass key.", fromChapter: last },
             ]
           : [],
+      };
+    }
+    case "continuity-check-v1": {
+      // A panel beat or narration line carrying [[mock:contradiction]] breaks the first fixed rule.
+      const d = (data[0] ?? {}) as {
+        bible?: { fixedRules?: { ref: string; rule: string }[] };
+        panels?: { ref: string; beat: string }[];
+        narration?: { ref: string; text: string }[];
+      };
+      const rules = d.bible?.fixedRules ?? [];
+      const bad = [
+        ...(d.panels ?? []).map((p) => ({ ref: p.ref, text: p.beat })),
+        ...(d.narration ?? []).map((n) => ({ ref: n.ref, text: n.text })),
+      ].filter((x) => x.text.includes("[[mock:contradiction]]"));
+      return {
+        findings: bad.map((b) => ({
+          severity: "high",
+          message: `${b.ref} contradicts the bible`,
+          where: b.ref,
+          quote: b.text,
+          against: rules[0]?.ref ?? null,
+          evidence: rules[0]?.rule ?? "",
+        })),
+        rules: rules.map((r, i) => ({
+          rule: r.ref,
+          verdict: i === 0 && bad.length ? "fail" : "pass",
+          note: i === 0 && bad.length ? "broken in this chapter" : "",
+        })),
       };
     }
     case "story-rewrite-v1":

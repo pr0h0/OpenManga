@@ -38,6 +38,7 @@ versions stay in the array so old jobs remain reproducible.
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` | 1 | 1 | `apps/api/src/routes/experts.ts`, `apps/worker/src/handlers/expert-extract.ts` (expert output actions, defined in `packages/prompts/src/expert-actions.ts`) |
 | `bible-extract` | 1 | 1 | `apps/api/src/routes/bible.ts`, `apps/worker/src/handlers/text.ts` (proposes story bible facts and character states, schema `BibleExtraction`) |
+| `continuity-check` | 1 | 1 | `apps/api/src/routes/continuity.ts`, `apps/worker/src/handlers/continuity.ts` (contradictions in one chapter and a verdict per fixed rule, schema `ContinuityReport`) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`

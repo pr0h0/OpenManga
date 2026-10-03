@@ -24,6 +24,7 @@ import {
 } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
+import { ContinuityQueue, RuleChecks } from "./Continuity.tsx";
 
 type Chapter = { id: string; order: number; title: string };
 type Character = { id: string; name: string; role: string; outfits: { id: string; name: string }[] };
@@ -65,7 +66,7 @@ function rangeText(chs: Chapter[], from: string | null, until: string | null) {
 export function BiblePage() {
   const projectId = useProjectId();
   const q = useBible(projectId);
-  const [tab, setTab] = useState<"facts" | "timeline">("facts");
+  const [tab, setTab] = useState<"facts" | "timeline" | "continuity" | "rules">("facts");
   const [editFact, setEditFact] = useState<BibleFactRow | "new" | null>(null);
   const [editState, setEditState] = useState<CharacterStateRow | "new" | null>(null);
   const [extracting, setExtracting] = useState(false);
@@ -83,9 +84,9 @@ export function BiblePage() {
             <button
               type="button"
               className="btn-primary"
-              onClick={() => (tab === "facts" ? setEditFact("new") : setEditState("new"))}
+              onClick={() => (tab === "timeline" ? setEditState("new") : setEditFact("new"))}
             >
-              <Plus className="size-4" /> {tab === "facts" ? "Add fact" : "Add state"}
+              <Plus className="size-4" /> {tab === "timeline" ? "Add state" : "Add fact"}
             </button>
           </>
         }
@@ -101,9 +102,14 @@ export function BiblePage() {
             tabs={[
               { value: "facts", label: `Facts (${d.facts.length})` },
               { value: "timeline", label: `Character timeline (${d.states.length})` },
+              { value: "continuity", label: "Continuity" },
+              { value: "rules", label: "Rule checks" },
             ]}
           />
-          {tab === "facts" ? <FactList data={d} onEdit={setEditFact} /> : <Timeline data={d} onEdit={setEditState} />}
+          {tab === "facts" && <FactList data={d} onEdit={setEditFact} />}
+          {tab === "timeline" && <Timeline data={d} onEdit={setEditState} />}
+          {tab === "continuity" && <ContinuityQueue data={d} />}
+          {tab === "rules" && <RuleChecks data={d} />}
           {editFact && (
             <FactForm data={d} fact={editFact === "new" ? null : editFact} onClose={() => setEditFact(null)} />
           )}
@@ -366,23 +372,44 @@ function ChapterSelect({
   );
 }
 
-function FactForm({ data, fact, onClose }: { data: BibleData; fact: BibleFactRow | null; onClose: () => void }) {
+export type FactDraft = Pick<
+  BibleFactRow,
+  "kind" | "subject" | "text" | "fixed" | "visual" | "fromChapterId" | "untilChapterId"
+>;
+
+/** Add or edit a fact; `onSubmit` replaces the save (explaining a continuity finding saves through its own route). */
+export function FactForm({
+  data,
+  fact,
+  onClose,
+  title,
+  initial,
+  onSubmit,
+}: {
+  data: BibleData;
+  fact: BibleFactRow | null;
+  onClose: () => void;
+  title?: string;
+  initial?: Partial<FactDraft>;
+  onSubmit?: (f: FactDraft) => Promise<unknown>;
+}) {
   const projectId = useProjectId();
   const qc = useQueryClient();
-  const [f, setF] = useState({
-    kind: fact?.kind ?? "character",
-    subject: fact?.subject ?? "",
-    text: fact?.text ?? "",
+  const [f, setF] = useState<FactDraft>({
+    kind: fact?.kind ?? initial?.kind ?? "character",
+    subject: fact?.subject ?? initial?.subject ?? "",
+    text: fact?.text ?? initial?.text ?? "",
     fixed: fact?.fixed ?? false,
     visual: fact?.visual ?? false,
-    fromChapterId: fact?.fromChapterId ?? null,
+    fromChapterId: fact?.fromChapterId ?? initial?.fromChapterId ?? null,
     untilChapterId: fact?.untilChapterId ?? null,
   });
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);
     try {
-      if (fact) await patch(`/bible-facts/${fact.id}`, f);
+      if (onSubmit) await onSubmit(f);
+      else if (fact) await patch(`/bible-facts/${fact.id}`, f);
       else await post(`/projects/${projectId}/bible/facts`, f);
       await qc.invalidateQueries({ queryKey: bibleKey(projectId) });
       onClose();
@@ -396,7 +423,7 @@ function FactForm({ data, fact, onClose }: { data: BibleData; fact: BibleFactRow
     <Modal
       open
       onClose={onClose}
-      title={fact ? "Edit fact" : "Add fact"}
+      title={title ?? (fact ? "Edit fact" : "Add fact")}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>

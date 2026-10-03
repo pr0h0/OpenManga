@@ -2,6 +2,7 @@ import {
   BibleExtraction,
   ChapterOutline,
   ChapterPlan,
+  ContinuityReport,
   ImageDescription,
   NarrationDraft,
   NarrationDraftV2,
@@ -899,6 +900,30 @@ export const bibleExtractV1 = defineTextTemplate<{
   },
 });
 
+/** Finds contradictions between one chapter's production and the story bible or its neighbours; changes nothing. */
+export const continuityCheckV1 = defineTextTemplate<{ projectData: Record<string, unknown> }>({
+  name: "continuity-check",
+  version: 1,
+  description:
+    "List contradictions between a chapter's plan, panels and narration and the story bible or its neighbours, and give each fixed rule a verdict.",
+  system: [
+    templateHeader("continuity-check", 1),
+    "You are a continuity editor checking one chapter of a comic or narrated video adaptation before it is published. project_data holds the chapter's scenes, panels (ref p<page>.<panel>, with beat, cast, outfits, action, continuity requirements and dialogue) and narration lines (ref n<number>), the story bible in effect for the chapter (fixed rules R<n>, facts F<n>, character states S<n>), and what the neighbouring chapters established.",
+    "FINDINGS: list every place where the chapter contradicts a bible entry or a neighbouring chapter: something shown, said or narrated too early or too late (a title, an item or knowledge before the chapter that gives it), a character meeting someone 'for the first time' they already met, a wrong injury, look, outfit, place, rank or relationship, a broken rule of the world. For each: severity (high when it breaks a fixed rule or is plainly wrong to a reader; medium when it is likely wrong; low when it is doubtful or minor), a one-sentence message naming who and what, where (the panel or narration ref, 'scene N', or 'chapter'), quote (the offending beat, line or dialogue, verbatim and short), against (the R/F/S ref it contradicts, or null for a neighbouring chapter) and evidence (that entry's text, or what the neighbouring chapter says).",
+    "Report only real contradictions with the data given; do not invent facts, do not judge style, pacing or quality, and do not report something the bible allows. An empty list is a good answer.",
+    "RULES: give every fixed rule (R<n>) exactly one verdict for this chapter: fail when the chapter breaks it, warn when it may (unclear or partly), pass when it holds or does not come up. Note in one short sentence why, for warn and fail.",
+    "Write messages in the language of the chapter.",
+    DATA_RULE,
+    schemaInstructions("ContinuityReport", ContinuityReport),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      { role: "user", content: untrusted("project_data", JSON.stringify(i.projectData)) },
+    ];
+  },
+});
+
 export const TEXT_TEMPLATES = [
   expertChatV1,
   expertChatV2,
@@ -958,4 +983,5 @@ export const TEXT_TEMPLATES = [
   panelPromptsV5,
   narrationV6,
   bibleExtractV1,
+  continuityCheckV1,
 ];
