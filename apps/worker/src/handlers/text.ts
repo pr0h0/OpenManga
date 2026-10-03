@@ -57,7 +57,7 @@ import {
   storyRewriteV1,
   stripOutlineV3,
   stripPlanningV3,
-  youtubePackageV1,
+  youtubePackageV2,
 } from "@openmanga/prompts";
 import {
   BibleExtraction,
@@ -219,26 +219,36 @@ export async function youtubePackage(deps: WorkerDeps, job: ProjectJob) {
     .select({ name: characters.name, role: characters.role })
     .from(characters)
     .where(and(eq(characters.projectId, p.id), isNull(characters.deletedAt)));
+  const rules = p.settings.youtubeRules ?? null;
+  // The template's {title} and {author} are known here, so they are filled exactly rather than left to the model.
+  const descriptionTemplate = (rules?.descriptionTemplate ?? "")
+    .replaceAll("{title}", p.title)
+    .replaceAll("{author}", p.settings.author ?? "");
   const r = await structured(
     deps,
     job,
-    youtubePackageV1.build({
+    youtubePackageV2.build({
       project: { title: p.title, description: p.description, type: p.projectType, language: p.language },
       chapters: chs,
       cast,
       headline: p.settings.thumbnail?.title || p.title,
+      rules: rules && { ...rules, descriptionTemplate },
     }),
     YoutubePackage,
     "YoutubePackage",
     8000,
   );
+  // The channel's own tags are on every package, first and exactly as written; the model's follow, without repeats.
+  const own = rules?.tags ?? [];
+  const seen = new Set(own.map((t) => t.toLowerCase()));
+  const pkg = { ...r.data, tags: [...own, ...r.data.tags.filter((t) => !seen.has(t.toLowerCase()))].slice(0, 30) };
   await deps.db
     .update(projects)
     .set({
-      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(r.data)}::jsonb)`,
+      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(pkg)}::jsonb)`,
     })
     .where(eq(projects.id, p.id));
-  return { titles: r.data.titles.length, tags: r.data.tags.length };
+  return { titles: pkg.titles.length, tags: pkg.tags.length };
 }
 
 /** With a target runtime, the words per panel that land this chapter on its share of it; otherwise null. */

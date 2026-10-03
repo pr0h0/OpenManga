@@ -23,7 +23,11 @@ slot).
 - `users` — username and email (lower-cased, each uniquely indexed), display name, role, status, and `settings`
   (JSON `UserSettings`: per-account preferences that seed new projects, and `projectTemplates` — up to 50 saved
   project setups `{id, name, projectType, format, colorMode, language, readingDirection, stylePresetKey, customStyle,
-  settings, createdAt}`, never a story, cast or files).
+  settings, createdAt}`, never a story, cast or files; and `channelProfiles` — up to 50 channel profiles `{id, name,
+  description, preset, settings, createdAt, updatedAt}`, whose `settings` are the `PROFILE_SETTING_KEYS` subset of
+  `ProjectSettings` and whose logo (`settings.video.watermark.assetId`) is an asset with no project, owned by the
+  user). A project made from a profile records it in `projects.settings.channelProfile`; see
+  [AI_PIPELINE](AI_PIPELINE.md#production-presets-templates-and-policies).
 - `auth_identities` — `(provider, provider_subject)` unique; only `local` rows are written today (`docs/AUTH.md`).
 - `password_credentials` — Argon2id hash, one row per user. `sessions` — HMAC-SHA256 of an opaque token (unique),
   expiry, last use, IP, user agent, revoked.

@@ -4,13 +4,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
-import { qk, useMeta } from "../../api/hooks.ts";
+import { qk, useAction, useMeta } from "../../api/hooks.ts";
 import type { TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
 import { PronunciationSection } from "./PronunciationSection.tsx";
-import { VideoSection } from "./VideoSettings.tsx";
+import { PublishingSection, VideoSection } from "./VideoSettings.tsx";
 
 type Form = {
   title: string;
@@ -273,11 +273,13 @@ export function SettingsPage() {
         />
 
         <VideoSection
-          projectId={projectId}
+          logoUpload={`/projects/${projectId}/video-logo`}
           projectTitle={form.title}
           value={s.video}
           onChange={(v) => setS("video", v)}
         />
+
+        <PublishingSection value={s} onChange={(v) => setForm({ ...form, settings: { ...form.settings, ...v } })} />
 
         <section className="card space-y-3 p-4">
           <h2 className="font-medium">Production</h2>
@@ -312,6 +314,7 @@ export function SettingsPage() {
             </Field>
           </div>
           <SaveTemplate projectId={projectId} defaultName={data.project.title} />
+          <SaveProfile projectId={projectId} defaultName={data.project.title} />
         </section>
 
         <LetteringSection value={s.lettering} onChange={(v) => setS("lettering", v)} />
@@ -372,7 +375,7 @@ const TYPE_LABEL: Record<BubbleType, string> = {
   system: "System box",
 };
 
-function LetteringSection({
+export function LetteringSection({
   value,
   onChange,
 }: {
@@ -834,6 +837,29 @@ function SaveTemplate({ projectId, defaultName }: { projectId: string; defaultNa
         }}
       >
         Save template
+      </button>
+    </div>
+  );
+}
+
+/** Save this project's channel settings as a channel profile: its voice, look, branding and rules, not its setup. */
+function SaveProfile({ projectId, defaultName }: { projectId: string; defaultName: string }) {
+  const [name, setName] = useState("");
+  const save = useAction(() => post(`/projects/${projectId}/channel-profile`, { name: name.trim() || defaultName }), {
+    invalidate: [["channel-profiles"]],
+    success: "Profile saved: edit it under Profiles, or start a new project from it",
+    onSuccess: () => setName(""),
+  });
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <Field
+        label="Save as channel profile"
+        hint="Voice, quality, runtime, video branding and logo, thumbnail and YouTube rules, export shape."
+      >
+        <input className="input" placeholder={defaultName} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <button type="button" className="btn-secondary" disabled={save.isPending} onClick={() => save.mutate()}>
+        Save profile
       </button>
     </div>
   );

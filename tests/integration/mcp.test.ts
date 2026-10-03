@@ -500,6 +500,31 @@ describe("manual questions about images", () => {
   });
 });
 
+describe("channel profiles over MCP", () => {
+  test("list the user's profiles and create a project from one", async () => {
+    const made = await alice.post<{ profile: { id: string } }>(
+      "/api/channel-profiles",
+      { name: "Lighthouse Tales", preset: "youtube-recap-30", settings: { narrationVoice: "am_adam" } },
+      201,
+    );
+    const list = await allowAll.call<{ data: { profiles: { id: string; name: string }[] } }>("list_channel_profiles");
+    expect(list.structured.data.profiles.map((p) => p.name)).toContain("Lighthouse Tales");
+    const created = await allowAll.call<{ data: { project: { id: string } } }>("create_project", {
+      title: "From a profile",
+      profileId: made.profile.id,
+    });
+    expect(created.isError).toBe(false);
+    const p = await allowAll.call<{
+      data: { project: { settings: { format: string; narrationVoice: string; channelProfile: { id: string } } } };
+    }>("get_project", { projectId: created.structured.data.project.id });
+    const s = p.structured.data.project.settings;
+    expect([s.format, s.narrationVoice, s.channelProfile.id]).toEqual(["film", "am_adam", made.profile.id]);
+    // An id that is not one of the user's profiles is refused.
+    const bad = await allowAll.call("create_project", { title: "Nope", profileId: crypto.randomUUID() });
+    expect(bad.error?.code).toBe("not_found");
+  });
+});
+
 describe("idempotency", () => {
   test("same key + same args replays; same key + different args conflicts", async () => {
     const a = await allowAll.call<{ data: { project: { id: string } } }>("create_project", {

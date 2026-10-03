@@ -31,6 +31,7 @@ import {
   FILM_PAGE,
   ProjectFormat,
   ProjectSettings,
+  type ProjectTemplate,
   UserSettings,
   VERTICAL_LETTERING,
   VERTICAL_PAGE,
@@ -45,6 +46,7 @@ import { projectAccess } from "../lib/access.ts";
 import { duplicateProject } from "../lib/duplicate.ts";
 import { badRequest, body, conflict, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
+import { applyProfile, ownProfile } from "./channel-profiles.ts";
 import { usageSummary } from "./usage.ts";
 
 export const projectRoutes = new Hono<AppEnv>();
@@ -56,16 +58,25 @@ const ColorMode = z.enum(["full_color", "grayscale", "bw_manga"]);
 export const CreateProject = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().max(5000).default(""),
-  projectType: ProjectType.default("manhwa"),
-  language: z.string().trim().min(2).max(16).default("en"),
+  /**
+   * Type, language, colour mode, style and format default to the preset's or template's when one is chosen, else to
+   * manhwa, en, full colour, the type's style and comic. Values given here win over the preset's.
+   */
+  projectType: ProjectType.optional(),
+  language: z.string().trim().min(2).max(16).optional(),
   readingDirection: ReadingDirection.optional(),
-  colorMode: ColorMode.default("full_color"),
+  colorMode: ColorMode.optional(),
   stylePresetKey: z.string().max(64).optional(),
-  customStyle: z.string().max(4000).default(""),
+  customStyle: z.string().max(4000).optional(),
   /** "film": one full-frame 16:9 shot per page, planned as a shot list and exported as a Ken Burns video. */
-  format: ProjectFormat.default("comic"),
+  format: ProjectFormat.optional(),
   /** A production preset key, or "template:<id>" for one of the caller's saved templates: its settings seed the project. */
   preset: z.string().max(80).optional(),
+  /**
+   * One of the caller's channel profiles (GET /api/channel-profiles): its preset is used when `preset` is not given,
+   * and its settings, branding and logo are copied in. The project records which profile it came from.
+   */
+  profileId: z.string().uuid().optional(),
   story: z
     .object({
       content: z.string().min(1).max(500_000),
@@ -174,17 +185,33 @@ doc({
 projectRoutes.post("/", async (c) => c.json({ project: await createProject(c, await body(c, CreateProject)) }, 201));
 
 /** Creates a project for the caller: the create route, and an expert's concept once the user applies it. */
-export async function createProject(c: Context<AppEnv>, input: z.infer<typeof CreateProject>) {
+export async function createProject(c: Context<AppEnv>, raw: z.infer<typeof CreateProject>) {
   const u = user(c);
-  const { db } = c.get("deps");
-  // Only settings come from the preset or template: the wizard fills type, format and style from it itself.
-  const presetSettings: Record<string, unknown> = input.preset?.startsWith("template:")
-    ? (u.settings.projectTemplates?.find((t) => t.id === input.preset!.slice(9))?.settings ?? {})
-    : (PRODUCTION_PRESETS.find((p) => p.key === input.preset)?.settings ?? {});
-  if (input.preset && !Object.keys(presetSettings).length) throw badRequest("Unknown preset or template");
+  const deps = c.get("deps");
+  const { db } = deps;
+  const profile = raw.profileId ? ownProfile(c, raw.profileId) : null;
+  const presetKey = raw.preset ?? profile?.preset ?? undefined;
+  // The preset or template seeds the settings and, where the caller left them out, the type, format and style.
+  const setup: Partial<ProjectTemplate> & { settings?: Record<string, unknown> } =
+    (presetKey?.startsWith("template:")
+      ? u.settings.projectTemplates?.find((t) => t.id === presetKey.slice(9))
+      : PRODUCTION_PRESETS.find((p) => p.key === presetKey)) ?? {};
+  if (presetKey && !setup.settings) throw badRequest("Unknown preset or template");
+  const presetSettings = setup.settings ?? {};
+  const projectType = raw.projectType ?? (setup.projectType as typeof raw.projectType) ?? "manhwa";
+  const input = {
+    ...raw,
+    projectType,
+    format: raw.format ?? setup.format ?? "comic",
+    colorMode: raw.colorMode ?? (setup.colorMode as typeof raw.colorMode) ?? "full_color",
+    language: raw.language ?? setup.language ?? "en",
+    stylePresetKey: raw.stylePresetKey ?? setup.stylePresetKey ?? undefined,
+    customStyle: raw.customStyle ?? setup.customStyle ?? "",
+  };
   const readingDirection =
-    input.readingDirection ??
-    (input.projectType === "manga" ? "rtl" : input.projectType === "webtoon" ? "vertical" : "ltr");
+    raw.readingDirection ??
+    (setup.readingDirection as typeof raw.readingDirection) ??
+    (projectType === "manga" ? "rtl" : projectType === "webtoon" ? "vertical" : "ltr");
   const project = await db.transaction(async (tx) => {
     const settings = ProjectSettings.parse({
       // A cap new projects start with so a runaway batch asks first; owners can raise or clear it in settings.
@@ -198,7 +225,10 @@ export async function createProject(c: Context<AppEnv>, input: z.infer<typeof Cr
       ...presetSettings,
       format: input.format,
       ...(input.format === "film" ? FILM_PAGE : input.format === "vertical" ? VERTICAL_PAGE : {}),
-      ...(input.format === "vertical" ? { lettering: VERTICAL_LETTERING } : {}),
+      // A template's own lettering is kept; a strip only adds auto-placement where it says nothing.
+      ...(input.format === "vertical"
+        ? { lettering: { ...VERTICAL_LETTERING, ...(presetSettings.lettering as object | undefined) } }
+        : {}),
     });
     const [p] = await tx
       .insert(projects)
@@ -240,12 +270,17 @@ export async function createProject(c: Context<AppEnv>, input: z.infer<typeof Cr
         createdByUserId: u.id,
       });
     }
-    return { ...p!, currentStyleId: style!.id };
+    // The profile goes on top of the preset: the channel's voice, look and rules, with its own copy of the logo.
+    const applied = profile
+      ? (await applyProfile(deps, tx, p!, profile, { userId: u.id, dryRun: false })).settings
+      : p!.settings;
+    return { ...p!, settings: applied, currentStyleId: style!.id };
   });
   await recordAudit(db, {
     userId: u.id,
     projectId: project.id,
     action: "project.create",
+    metadata: profile ? { profileId: profile.id } : undefined,
     requestId: c.get("requestId"),
   });
   return project;

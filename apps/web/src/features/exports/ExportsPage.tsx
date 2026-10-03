@@ -122,10 +122,15 @@ export function ExportsPage() {
   useEffect(() => {
     if (minShot) setVideo((v) => ({ ...v, minHoldMs: Math.round(minShot * 1000) }));
   }, [minShot]);
+  // The project's export defaults (Settings → Video, or its channel profile) pick the starting shape and resolution.
+  const output = overview?.project.settings.video?.output;
+  useEffect(() => {
+    if (output?.height) setVideo((v) => ({ ...v, height: output.height }));
+  }, [output?.height]);
 
   const needsChapter = KINDS.find((k) => k.value === kind)!.chapter;
   const shorts = kind === "video_shorts";
-  const aspect: VideoAspect = chosenAspect ?? (shorts ? "9:16" : "16:9");
+  const aspect: VideoAspect = chosenAspect ?? (shorts ? "9:16" : (output?.aspect ?? "16:9"));
   const [agentChapter, setAgentChapter] = useState("");
   const wholeProject = WHOLE_PROJECT.has(kind) && chapterId === "all";
   const selectedChapter = (chapterId !== "all" && chapterId) || chapters.data?.chapters[0]?.id || "";

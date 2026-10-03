@@ -262,10 +262,6 @@ export const STRIP_SEAM_RATIOS = {
 export const stripPageHeight = (width: number, height: StripPanelHeight = "normal") =>
   Math.round(width * STRIP_HEIGHT_RATIOS[height]);
 
-/**
- * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
- * server default still applies and a project created before the preference existed is untouched.
- */
 /** A project's setup saved for reuse: its type, format, style and settings, never its story, cast or files. */
 export const ProjectTemplate = z.object({
   id: z.string().uuid(),
@@ -281,13 +277,6 @@ export const ProjectTemplate = z.object({
   createdAt: z.string(),
 });
 export type ProjectTemplate = z.infer<typeof ProjectTemplate>;
-
-export const UserSettings = z.object({
-  /** Kokoro voice id used for new projects' narration. */
-  narrationVoice: z.string().trim().max(64).optional(),
-  projectTemplates: z.array(ProjectTemplate).max(50).optional(),
-});
-export type UserSettings = z.infer<typeof UserSettings>;
 
 /**
  * How the narrator says a name or term ("Qi" → "chee"). Applied only to the text sent to speech synthesis; what is
@@ -361,6 +350,24 @@ export const ProjectSettings = z.object({
       side: z.enum(["left", "right"]).default("left"),
     })
     .optional(),
+  /** How the next thumbnail is laid out: the side its headline sits on, which the art keeps clear. */
+  thumbnailStyle: z.object({ side: z.enum(["left", "right"]).default("left") }).optional(),
+  /**
+   * The channel's rules for the YouTube package text job, sent to the model as the owner's own instructions: how
+   * titles are written, a description template whose {placeholders} it fills, and tags every package carries.
+   */
+  youtubeRules: z
+    .object({
+      titleRules: z.string().max(1000).default(""),
+      descriptionTemplate: z.string().max(4000).default(""),
+      tags: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
+    })
+    .optional(),
+  /** The channel profile these settings were copied from. A record only: the profile is not linked live. */
+  channelProfile: z
+    .object({ id: z.string().uuid(), name: z.string().max(80), appliedAt: z.string() })
+    .nullable()
+    .optional(),
   lettering: LetteringDefaults.optional(),
   /** Hard spending ceiling for AI generation in USD (estimated from recorded usage). Unset = no cap. */
   budgetUsd: z.number().min(0).max(1_000_000).nullable().optional(),
@@ -394,6 +401,13 @@ export const ProjectSettings = z.object({
       watermark: VideoWatermark.nullable().optional(),
       intro: VideoCard.nullable().optional(),
       outro: VideoCard.nullable().optional(),
+      /** What a video export renders at when its request does not say: frame shape, and the short side in pixels. */
+      output: z
+        .object({
+          aspect: z.enum(["16:9", "9:16", "1:1"]).default("16:9"),
+          height: z.union([z.literal(720), z.literal(1080), z.literal(1440)]).default(1080),
+        })
+        .optional(),
     })
     .optional(),
   /** Opt-in vision check of generated panels (expected cast and headcount). Needs one of your vision-capable keys. */
@@ -406,6 +420,61 @@ export const ProjectSettings = z.object({
     .optional(),
 });
 export type ProjectSettings = z.infer<typeof ProjectSettings>;
+
+/**
+ * The project settings a channel profile carries: the channel's identity (voice, look, branding, publishing rules,
+ * output), not one project's outputs. Applying a profile copies each key it sets; keys it leaves out stay as the
+ * project has them, and `video` and `lettering` are merged one level deep.
+ */
+export const PROFILE_SETTING_KEYS = [
+  "imageQuality",
+  "referencePolicy",
+  "batchPolicy",
+  "targetRuntime",
+  "narrationVoice",
+  "narrationSpeed",
+  "pronunciation",
+  "lettering",
+  "video",
+  "thumbnailStyle",
+  "youtubeRules",
+] as const;
+export type ProfileSettingKey = (typeof PROFILE_SETTING_KEYS)[number];
+export const ChannelProfileSettings = asPatch(
+  ProjectSettings.pick(
+    Object.fromEntries(PROFILE_SETTING_KEYS.map((k) => [k, true])) as { [K in ProfileSettingKey]: true },
+  ),
+);
+export type ChannelProfileSettings = z.infer<typeof ChannelProfileSettings>;
+
+/**
+ * A publication identity, one level above a template: what every project of one channel shares. `preset` is the
+ * project setup a new project starts from (a production preset key or "template:<id>"). The logo in
+ * `settings.video.watermark` is the profile's own: an image of its owner's that belongs to no project, copied into
+ * each project the profile is applied to.
+ */
+export const ChannelProfile = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  description: z.string().max(500).default(""),
+  preset: z.string().max(80).nullable().default(null),
+  settings: ChannelProfileSettings.default({}),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ChannelProfile = z.infer<typeof ChannelProfile>;
+
+/**
+ * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
+ * server default still applies and a project created before the preference existed is untouched.
+ */
+export const UserSettings = z.object({
+  /** Kokoro voice id used for new projects' narration. */
+  narrationVoice: z.string().trim().max(64).optional(),
+  projectTemplates: z.array(ProjectTemplate).max(50).optional(),
+  channelProfiles: z.array(ChannelProfile).max(50).optional(),
+});
+export type UserSettings = z.infer<typeof UserSettings>;
 
 export const StyleDefinition = z.object({
   summary: z.string().default(""),

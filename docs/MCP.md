@@ -238,11 +238,11 @@ Some production features reach agents only through the schemas of existing tools
 export body as is, so it accepts the `youtube_package` kind, a `pageIds` page selection, `video.framing: "scroll"`
 and a partial render's `video.maxDurationMs` (its description names the YouTube package; the others are in its
 schema). `create_project` takes a
-production `preset` key, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
+production `preset` key or a `profileId` from `list_channel_profiles`, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
 the saved `youtubePackage` text. No tool calls these newer routes directly: writing the YouTube
 package text (`POST /api/projects/:projectId/youtube-package`), checking every panel at once
-(`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list and saving or deleting
-project templates are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
+(`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list, saving or deleting
+project templates, and editing or re-applying channel profiles are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
 characters. A YouTube package text job started in paste mode from the app can still be answered with
 `get_manual_prompt` / `submit_manual_answer`, like any parked job.
 
