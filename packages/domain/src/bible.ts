@@ -89,29 +89,31 @@ export function statesInEffect<T extends CharacterStateEntry>(
   return out;
 }
 
+export type BibleSelection = {
+  /** Names (with aliases) of who and what the prompt is about. */
+  names: string[];
+  /** Text the prompt is about (the chapter's source, a panel's beat): a subject mentioned in it is relevant too. */
+  text?: string;
+  /** Whose states to include; defaults to `names`. */
+  characters?: string[];
+  /** Image prompts: only what can be seen. */
+  visualOnly?: boolean;
+  /** Every fixed rule in effect, whoever it is about (the continuity check gives each one a verdict). */
+  allFixed?: boolean;
+  maxFacts?: number;
+  maxStates?: number;
+};
+
 /**
- * The bible for one prompt: facts in effect at the chapter, about a subject the prompt is about (named in `names`, or
- * mentioned in `text`) or about the whole story; and the states in effect of the characters in `characters`.
+ * The entries one prompt gets: facts in effect at the chapter, about a subject the prompt is about (named in `names`,
+ * or mentioned in `text`) or about the whole story; and the states in effect of the characters in `characters`.
  * Fixed rules come first and are kept before other facts when the list is cut to `maxFacts`.
  */
-export function bibleInEffect(
+export function selectBible(
   bible: { facts: BibleFactEntry[]; states: CharacterStateEntry[] },
   at: { chapter: number; scene?: number | null },
-  opts: {
-    /** Names (with aliases) of who and what the prompt is about. */
-    names: string[];
-    /** Text the prompt is about (the chapter's source, a panel's beat): a subject mentioned in it is relevant too. */
-    text?: string;
-    /** Whose states to include; defaults to `names`. */
-    characters?: string[];
-    /** Image prompts: only what can be seen. */
-    visualOnly?: boolean;
-    maxFacts?: number;
-    maxStates?: number;
-  },
-): BibleContext {
-  const maxFacts = opts.maxFacts ?? 40;
-  const maxStates = opts.maxStates ?? 40;
+  opts: BibleSelection,
+) {
   const names = opts.names.filter((n) => n.trim().length >= 2);
   const relevant = (subject: string) => {
     const s = subject.trim();
@@ -119,28 +121,46 @@ export function bibleInEffect(
     return names.some((n) => mentions(s, n)) || (opts.text ? mentions(opts.text, s) : false);
   };
   const facts = bible.facts
-    .filter((f) => factInEffect(f, at.chapter) && (!opts.visualOnly || f.visual) && relevant(f.subject))
-    .sort((a, b) => Number(b.fixed) - Number(a.fixed));
-  const kept = facts.slice(0, maxFacts);
-  const line = (f: BibleFactEntry) => {
-    const subject = f.subject.trim();
-    return `${subject && !GLOBAL_SUBJECTS.has(subject.toLowerCase()) ? `${subject} (${f.kind}): ` : `(${f.kind}) `}${f.text.trim()}`;
-  };
+    .filter(
+      (f) =>
+        factInEffect(f, at.chapter) &&
+        (!opts.visualOnly || f.visual) &&
+        ((opts.allFixed && f.fixed) || relevant(f.subject)),
+    )
+    .sort((a, b) => Number(b.fixed) - Number(a.fixed))
+    .slice(0, opts.maxFacts ?? 40);
   const who = new Set((opts.characters ?? names).map((n) => n.trim().toLowerCase()));
-  const characterStates: Record<string, string[]> = {};
-  let n = 0;
-  for (const s of statesInEffect(
+  const states = statesInEffect(
     bible.states.filter((s) => who.has(s.character.trim().toLowerCase())),
     at,
-  )) {
-    if (opts.visualOnly && !VISIBLE_STATE_KINDS.includes(s.kind)) continue;
-    if (n++ >= maxStates) break;
-    const from = at.scene == null && s.chapter === at.chapter && s.scene !== null ? ` (from scene ${s.scene})` : "";
-    characterStates[s.character] = [...(characterStates[s.character] ?? []), `${s.kind}: ${s.text.trim()}${from}`];
-  }
+  )
+    .filter((s) => !opts.visualOnly || VISIBLE_STATE_KINDS.includes(s.kind))
+    .slice(0, opts.maxStates ?? 40);
+  return { facts, states };
+}
+
+/** "Jin (character): scar on the LEFT jaw", or "(rule) no guns exist" for the whole story. */
+export const factLine = (f: Pick<BibleFactEntry, "subject" | "kind" | "text">) => {
+  const subject = f.subject.trim();
+  return `${subject && !GLOBAL_SUBJECTS.has(subject.toLowerCase()) ? `${subject} (${f.kind}): ` : `(${f.kind}) `}${f.text.trim()}`;
+};
+
+/** "injury: arm in a sling", marked with its scene when it starts part-way through the chapter `at` names. */
+export const stateLine = (s: CharacterStateEntry, at: { chapter: number; scene?: number | null }) =>
+  `${s.kind}: ${s.text.trim()}${at.scene == null && s.chapter === at.chapter && s.scene !== null ? ` (from scene ${s.scene})` : ""}`;
+
+/** The bible for one prompt, as short lines (see `selectBible`). */
+export function bibleInEffect(
+  bible: { facts: BibleFactEntry[]; states: CharacterStateEntry[] },
+  at: { chapter: number; scene?: number | null },
+  opts: BibleSelection,
+): BibleContext {
+  const { facts, states } = selectBible(bible, at, opts);
+  const characterStates: Record<string, string[]> = {};
+  for (const s of states) characterStates[s.character] = [...(characterStates[s.character] ?? []), stateLine(s, at)];
   return {
-    fixedRules: kept.filter((f) => f.fixed).map(line),
-    facts: kept.filter((f) => !f.fixed).map(line),
+    fixedRules: facts.filter((f) => f.fixed).map(factLine),
+    facts: facts.filter((f) => !f.fixed).map(factLine),
     characterStates,
   };
 }

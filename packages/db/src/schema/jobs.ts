@@ -31,7 +31,9 @@ export type GenerationKind =
   /** Turns an expert's reply into something to apply (a project concept, premise, outline or YouTube text). */
   | "expert_extract"
   /** Proposes story bible facts and character states from the chapters, for the user to review and apply. */
-  | "bible_extract";
+  | "bible_extract"
+  /** Compares one chapter with the story bible and its neighbours; findings go to continuity_findings. */
+  | "continuity_check";
 
 export const generationJobs = pgTable(
   "generation_jobs",

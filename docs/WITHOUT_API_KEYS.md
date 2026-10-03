@@ -6,7 +6,7 @@ is synthesised locally. Nothing in this mode contacts a provider, and nothing is
 
 | Step | With a key | Without one |
 | --- | --- | --- |
-| Story analysis, rewrite, planning, panel prompts, narration text, consistency check, describe, YouTube package text, story bible extraction, expert output actions | the provider answers | **you paste the answer** |
+| Story analysis, rewrite, planning, panel prompts, narration text, consistency check, describe, YouTube package text, story bible extraction, continuity check, expert output actions | the provider answers | **you paste the answer** |
 | Panel artwork, references | the provider draws | **you upload the image** |
 | Covers, video thumbnails, masked edits | the provider draws | not available without an image key |
 | Narration audio | a TTS key, or local Kokoro | local Kokoro, unchanged |
@@ -182,7 +182,7 @@ many as the story needs):
 ```
 
 Every other operation works the same way with its own schema: `ChapterOutline` then one `ScenePages` per scene,
-`PanelPromptDraft`, `NarrationDraft`, `StoryRewrite`, `PanelCheck`, `ImageDescription`, `YoutubePackage`, `BibleExtraction`. You never have to write one from memory — the prompt you
+`PanelPromptDraft`, `NarrationDraft`, `StoryRewrite`, `PanelCheck`, `ImageDescription`, `YoutubePackage`, `BibleExtraction`, `ContinuityReport`. You never have to write one from memory — the prompt you
 copied contains it.
 
 ## Artwork

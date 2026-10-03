@@ -5,6 +5,7 @@
  */
 import type { WorkerDeps } from "../context.ts";
 import type { ProjectJob } from "../lib/runner.ts";
+import { continuityCheck } from "./continuity.ts";
 import { panelCheck } from "./qa.ts";
 import {
   bibleExtract,
@@ -29,4 +30,5 @@ export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
   bible_extract: bibleExtract,
+  continuity_check: continuityCheck,
 };

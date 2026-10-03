@@ -30,10 +30,8 @@ Grouped by area, roughly most useful first within each.
   placed by story time as well as by chapter and scene.
 - **Location states.** Versions of a place by story time (normal, destroyed, snowed in, at night), picked by when the
   scene happens.
-- **Continuity check.** Compare each new scene, line and panel with the bible and its neighbours, and list
-  contradictions ("Panel 611 gives him the belt four chapters early") to fix, ignore or explain.
-- **Creative rules as tests.** Rules written in plain words ("no guns exist in this world", "system windows are
-  blue"), scoped to characters or chapter ranges, checked by text or vision and reported as pass, warn or fail.
+- **Rules checked in the artwork.** The continuity check tests fixed rules against what the plan, dialogue and
+  narration say; checking them in the finished panels by vision ("system windows are blue") is still to do.
 
 ### Narration quality
 

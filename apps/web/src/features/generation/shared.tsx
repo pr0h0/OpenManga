@@ -19,6 +19,7 @@ export const KIND_LABELS: Record<string, string> = {
   youtube_package: "YouTube package",
   expert_extract: "Expert action",
   bible_extract: "Bible extraction",
+  continuity_check: "Continuity check",
 };
 
 export const JOB_STATUSES = [

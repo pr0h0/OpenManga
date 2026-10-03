@@ -62,3 +62,34 @@ export const BibleExtraction = z.object({
   states: z.array(ProposedState).max(300).default([]),
 });
 export type BibleExtraction = z.infer<typeof BibleExtraction>;
+
+/**
+ * What a continuity check of one chapter returns. Places and bible entries are named by the short refs its prompt
+ * gives them ("p3.2" for page 3 panel 2, "n5" for narration line 5, "R1" a fixed rule, "F2" a fact, "S4" a state).
+ */
+export const ContinuityReport = z.object({
+  findings: z
+    .array(
+      z.object({
+        severity: z.enum(["high", "medium", "low"]),
+        message: str.min(1).max(1000),
+        where: str.max(40).default("chapter"),
+        quote: str.max(1000).default(""),
+        against: str.max(40).nullable().default(null),
+        evidence: str.max(1000).default(""),
+      }),
+    )
+    .max(200)
+    .default([]),
+  rules: z
+    .array(
+      z.object({
+        rule: str.min(1).max(40),
+        verdict: z.enum(["pass", "warn", "fail"]),
+        note: str.max(1000).default(""),
+      }),
+    )
+    .max(200)
+    .default([]),
+});
+export type ContinuityReport = z.infer<typeof ContinuityReport>;

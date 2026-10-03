@@ -1,10 +1,10 @@
 # Data model
 
-PostgreSQL via Drizzle. 72 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+PostgreSQL via Drizzle. 73 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
 `bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
 `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0030_production_run_lease.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0031_continuity_findings.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -148,6 +148,13 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
   `scene_number` (1-based within that chapter; null = its start), `until_chapter_id`, `outfit_id` (one of the
   character's outfits, for an outfit state), `source`, author. A later look, outfit, location or rank replaces the
   earlier one; the other kinds hold until `until_chapter_id`.
+- `continuity_findings` — a contradiction a `continuity_check` job found (migration `0031_continuity_findings`):
+  project, chapter (cascade), the job, `severity` (`high|medium|low`), `message`, `quote` (the offending line or
+  beat), `evidence` (what it contradicts), `place` (JSON `{ref, panelId, pageId, narrationLineId, sceneNumber}`:
+  where to fix it), `fact_id` (the bible fact it breaks), `status` (`open|fixed|ignored|explained`), `resolution`
+  (why ignored, or the explaining fact's text), resolver and time. A new check of a chapter replaces its open
+  findings and skips any it finds again that was ignored or explained (same place and quote). Each fixed rule's
+  verdict is kept on the job's result (`rules: [{factId, verdict, note}]`).
 
 ## Assets (`media.ts`)
 
@@ -165,7 +172,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
   `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`, `bible_extract`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `expert_extract`, `bible_extract`, `continuity_check`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry

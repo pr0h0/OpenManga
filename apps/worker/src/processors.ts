@@ -1,6 +1,7 @@
 import type { GenerationKind } from "@openmanga/db";
 import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
+import { continuityCheck } from "./handlers/continuity.ts";
 import { expertExtract } from "./handlers/expert-extract.ts";
 import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
@@ -42,6 +43,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
   bible_extract: bibleExtract,
+  continuity_check: continuityCheck,
   cover: coverGeneration,
   thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,

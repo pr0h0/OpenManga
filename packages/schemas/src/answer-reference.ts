@@ -21,6 +21,8 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   StoryOutline: "**Save as outline** from an expert's reply — the chapters, saved as an outline story revision.",
   BibleExtraction:
     "**Extract bible from story** — proposes story bible facts and character states from the chapters, for review.",
+  ContinuityReport:
+    "**Check continuity** — contradictions in one chapter against the story bible and its neighbours, and a verdict per fixed rule.",
 };
 
 /**

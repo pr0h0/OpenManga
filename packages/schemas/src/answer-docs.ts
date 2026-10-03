@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { FieldDocs } from "./answer-format.ts";
-import { BibleExtraction } from "./bible.ts";
+import { BibleExtraction, ContinuityReport } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
@@ -32,6 +32,7 @@ export const ANSWER_SCHEMAS = {
   ProjectPremise,
   StoryOutline,
   BibleExtraction,
+  ContinuityReport,
 } satisfies Record<string, z.ZodType>;
 
 /** Prefixes every key of a shared group, so a sub-object that appears in several answers is explained once. */
@@ -820,5 +821,32 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "For an outfit: the name of one of the character's outfits, when one matches. Null or left out otherwise.",
       null,
     ],
+  },
+
+  ContinuityReport: {
+    "": "Contradictions found in one chapter, and a verdict for each fixed rule of the story bible.",
+    findings: "Each contradiction with the bible or a neighbouring chapter. Empty when there is none.",
+    "findings[].severity": [
+      "high (breaks a fixed rule, or plainly wrong), medium (likely wrong) or low (doubtful or minor).",
+      "high",
+    ],
+    "findings[].message": [
+      "One sentence naming who and what is wrong.",
+      "Tomas lights the lamp with a match, but the bible says the lamp is electric.",
+    ],
+    "findings[].where": [
+      "The panel (p<page>.<panel>) or narration line (n<number>) ref from the prompt, 'scene N', or 'chapter'.",
+      "p2.3",
+    ],
+    "findings[].quote": ["The offending beat, line or dialogue, short and verbatim.", "Tomas strikes a match."],
+    "findings[].against": ["The bible ref it contradicts (R1, F2, S4), or null for a neighbouring chapter.", "R1"],
+    "findings[].evidence": [
+      "That bible entry's text, or what the neighbouring chapter says.",
+      "(rule) The lamp is electric.",
+    ],
+    rules: "One verdict per fixed rule (R<n>) of the prompt.",
+    "rules[].rule": ["The fixed rule's ref.", "R1"],
+    "rules[].verdict": ["fail (broken here), warn (may be broken) or pass (holds, or does not come up).", "fail"],
+    "rules[].note": ["Why, in one short sentence, for warn and fail.", "Panel p2.3 shows a match."],
   },
 };

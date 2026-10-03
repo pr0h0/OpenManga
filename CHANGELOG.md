@@ -7,8 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: three migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
-story bible's two tables and `0030_production_run_lease` two nullable columns to `production_runs`.
+Upgrading: four migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
+story bible's two tables, `0030_production_run_lease` two nullable columns to `production_runs` and
+`0031_continuity_findings` the continuity findings.
 
 ### Added
 
@@ -23,6 +24,14 @@ story bible's two tables and `0030_production_run_lease` two nullable columns to
   section, and an outfit state that names an outfit dresses the character in it wherever no panel sets another. The
   bible is copied with a duplicated project and kept in project exports and imports. MCP: `get_story_bible`,
   `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`.
+- **Continuity check.** The Bible page's *Continuity* tab checks one chapter or all of them (a `continuity_check`
+  text job per chapter, `continuity-check` v1, priced before it runs, budget-gated, batches and paste mode work):
+  each chapter's scenes, panel specs, dialogue and narration are compared with the bible in effect there and with the
+  chapters around it. Contradictions land in a queue with severity, the quoted line or beat, the entry it breaks and a
+  link to the panel, narration or chapter: mark them fixed, ignore them with a reason (a later check does not raise
+  them again) or explain them with a new bible fact. *Rule checks* lists every fixed rule as pass, warn or fail per
+  chapter from the latest check. Checked by text only; the artwork is not looked at. MCP: `run_continuity_check`,
+  `get_continuity_report`.
 
 - **Pronunciation dictionary.** Project settings → Pronunciation maps names and terms to how the narrator says them
   ("Qi" → "chee", "Seo Jinhyeok" → "suh jin-hyuk"), with match-case and whole-word options and a preview in the

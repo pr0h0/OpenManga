@@ -381,7 +381,7 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
 ## 4. Add a queued job type
 
 Long AI work always goes through the queue, and a job row is always written with its outbox row in the same
-transaction (invariant 8). Three job families exist: **generation jobs** (`generation_jobs`, 20 kinds, one shared
+transaction (invariant 8). Three job families exist: **generation jobs** (`generation_jobs`, 21 kinds, one shared
 runner), **audio jobs** (`audio_jobs`), and **export jobs** (`export_jobs`, §3).
 
 ### The outbox rule

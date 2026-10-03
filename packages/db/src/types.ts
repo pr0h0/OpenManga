@@ -39,6 +39,7 @@ export type ExportRow = Ser<typeof s.exportsTable.$inferSelect>;
 export type AiUsageRow = Ser<typeof s.aiUsage.$inferSelect>;
 export type BibleFactRow = Ser<typeof s.bibleFacts.$inferSelect>;
 export type CharacterStateRow = Ser<typeof s.characterStates.$inferSelect>;
+export type ContinuityFindingRow = Ser<typeof s.continuityFindings.$inferSelect>;
 export type DevEmailRow = Ser<typeof s.devEmails.$inferSelect>;
 export type AuditEventRow = Ser<typeof s.auditEvents.$inferSelect>;
 export type { ExportKind, GenerationKind } from "./schema/jobs.ts";

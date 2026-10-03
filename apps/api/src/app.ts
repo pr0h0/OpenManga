@@ -14,6 +14,7 @@ import { bibleRoutes } from "./routes/bible.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
 import { commentRoutes } from "./routes/comments.ts";
+import { continuityRoutes } from "./routes/continuity.ts";
 import { expertRoutes } from "./routes/experts.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
@@ -65,6 +66,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     commentRoutes,
     productionRoutes,
     bibleRoutes,
+    continuityRoutes,
   ])
     api.route("/", r);
 }

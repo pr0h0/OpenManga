@@ -15,6 +15,7 @@
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
 | Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
+| Continuity check | `continuity_check` / text-ai | `continuity-check` v1 | `ContinuityReport` → `continuity_findings` (the chapter's open findings replaced) and each fixed rule's verdict on the job result |
 | Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
@@ -211,6 +212,31 @@ The page shows the proposal to tick through; `POST /api/bible-extractions/:id/ap
 the whole proposal), matching characters by name or alias (any case) and chapters by number, and skipping (and
 listing) entries that match neither. It is claimed on the job in the same transaction, so a second apply is
 refused with 409 `already_applied` unless `again: true`. **Discard** applies an empty list.
+
+## Continuity check
+
+`POST /api/projects/:projectId/continuity-checks` (`chapterId` for one chapter, else every chapter with panels or
+narration; `ai` and `batch` as for any text step) answers with the chapter count and an estimate (about 2,500 tokens
+plus some per panel, narration line and bible entry, priced at the chosen model's rate) until it is sent with
+`confirm: true`; then it checks the budget against that estimate and queues one `continuity_check` job per chapter.
+On the Bible page this is the *Continuity* and *Rule checks* tabs; MCP `run_continuity_check`.
+
+`continuity-check` v1 receives, as data, the chapter's scenes (states and changes), its panels (ref `p<page>.<panel>`,
+beat, cast with outfits and actions, continuity requirements, up to six lines of dialogue), its narration lines in the
+project language (ref `n<number>`), at most 400 of each; the bible in effect at the chapter with refs (every fixed
+rule in effect as `R<n>`, whoever it is about; facts `F<n>` and states `S<n>` about who and what the chapter
+mentions); the previous chapter's summary, closing state, changes and revealed facts, earlier revealed facts, and the
+next chapter's summary. It returns `ContinuityReport`: findings (severity, message, where, the quoted line, the ref it
+contradicts and that entry's text) and a pass, warn or fail for every `R<n>` (one it leaves out counts as pass). It is
+told to report only real contradictions with the data, not style or quality.
+
+The handler resolves refs to the panel (and its page), the narration line, the scene or the chapter and to the
+bible fact, replaces the chapter's open findings and skips any that matches (place and quote) one already ignored or
+explained. The queue (`GET /api/projects/:projectId/continuity`, MCP `get_continuity_report`) links each finding to
+where it is fixed; `PATCH /api/continuity-findings/:id` marks it `fixed`, `ignored` (with a reason) or `open` again,
+and `POST /api/continuity-findings/:id/explain` saves a new bible fact (source `continuity`) and marks it `explained`.
+The same report lists every fixed rule with its verdict per chapter from that chapter's latest finished check, and
+the worst of them. Rules are checked against the text of the production only: no vision model looks at the artwork.
 
 ## Colour mode, format and audio timing
 
@@ -426,7 +452,7 @@ your own.
 
 Bulk image generation (panels, or every character, location or prop reference) and the text steps (story
 analysis and rewrite, chapter planning, panel prompts, narration text, consistency check, image description,
-YouTube package, story bible extraction) can be sent to a
+YouTube package, story bible extraction, continuity check) can be sent to a
 provider's batch API instead of running now, at half the interactive price: `batch: true` on the request, or
 **Send as a provider batch** in the bulk dialog. OpenAI and Google only; a batch request on any other provider is
 refused with 400 (in `AI_MOCK_MODE` it simply runs normally). A consistency check queued after a batched panel is
