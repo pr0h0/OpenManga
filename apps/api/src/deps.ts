@@ -14,7 +14,7 @@ import {
   providerInfo,
   UsageService,
 } from "@openmanga/services";
-import { LocalAssetStorage } from "@openmanga/storage";
+import { createAssetStorage } from "@openmanga/storage";
 import type { Deps } from "./context.ts";
 
 export function buildDeps(config: AppConfig): Deps & { close(): Promise<void> } {
@@ -24,7 +24,7 @@ export function buildDeps(config: AppConfig): Deps & { close(): Promise<void> } 
   const queue = new BullJobQueue(createRedis(config.REDIS_URL, true));
   const events = new EventBus(redis);
   const dispatcher = new OutboxDispatcher(db, queue, logger);
-  const storage = new LocalAssetStorage(config.ASSET_ROOT);
+  const storage = createAssetStorage(config);
   const assets = new AssetService(db, storage, config);
   const jobs = new JobService(db, { queue, dispatcher, events });
   const providers = providerInfo(config);

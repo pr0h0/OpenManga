@@ -79,6 +79,7 @@ import {
   InputError,
   isCancelRequested,
   JobCancelledError,
+  type ProjectJob,
   recordTextCalls,
 } from "../lib/runner.ts";
 import { batchAware, ParkedForBatch } from "../lib/text-batch-provider.ts";
@@ -86,7 +87,7 @@ import { batchAware, ParkedForBatch } from "../lib/text-batch-provider.ts";
 const repairBuilder = (schemaName: string) => (a: { raw: string; error: string; schemaText: string }) =>
   jsonRepairV1.build({ schemaName, error: a.error, raw: a.raw, schemaText: a.schemaText });
 
-async function structured<T>(
+export async function structured<T>(
   deps: WorkerDeps,
   job: GenerationJob,
   messages: ChatMessage[],
@@ -127,7 +128,7 @@ async function structured<T>(
   return r;
 }
 
-export async function storyAnalysis(deps: WorkerDeps, job: GenerationJob) {
+export async function storyAnalysis(deps: WorkerDeps, job: ProjectJob) {
   const analysisId = String(job.input.analysisId);
   const [rev] = await deps.db
     .select()
@@ -164,7 +165,7 @@ export async function storyAnalysis(deps: WorkerDeps, job: GenerationJob) {
   }
 }
 
-export async function storyRewrite(deps: WorkerDeps, job: GenerationJob) {
+export async function storyRewrite(deps: WorkerDeps, job: ProjectJob) {
   const [rev] = await deps.db
     .select()
     .from(storyRevisions)
@@ -202,7 +203,7 @@ export async function storyRewrite(deps: WorkerDeps, job: GenerationJob) {
 }
 
 /** Publishing text for the project's video, saved on the project (and editable there) rather than on the job. */
-export async function youtubePackage(deps: WorkerDeps, job: GenerationJob) {
+export async function youtubePackage(deps: WorkerDeps, job: ProjectJob) {
   const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
   if (!p) throw new InputError("Project no longer exists");
   const chs = await deps.db
@@ -404,7 +405,7 @@ async function projectArtDirection(deps: WorkerDeps, projectId: string) {
 /** Outline first, then one response per scene, assembled into the plan `applyChapterPlan` already takes. */
 async function planByScene(
   deps: WorkerDeps,
-  job: GenerationJob,
+  job: ProjectJob,
   i: { format: ProjectFormat; data: Record<string, unknown>; chapterText: string },
 ): Promise<ChapterPlan> {
   // Film shots and vertical strip panels are one frame per page, so only the full-page template applies.
@@ -456,7 +457,7 @@ async function planByScene(
   return { ...outline.data, scenes };
 }
 
-export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
+export async function chapterPlan(deps: WorkerDeps, job: ProjectJob) {
   const chapterId = String(job.input.chapterId);
   const { chapter, data } = await projectPlanningData(deps, job.projectId, chapterId);
   if (!chapter) throw new InputError("Chapter no longer exists");
@@ -504,7 +505,7 @@ export async function chapterPlan(deps: WorkerDeps, job: GenerationJob) {
   return { chapterId, ...applied, scenes: plan.scenes.length, ...density };
 }
 
-export async function pagePrompts(deps: WorkerDeps, job: GenerationJob) {
+export async function pagePrompts(deps: WorkerDeps, job: ProjectJob) {
   const pageId = String(job.input.pageId);
   const [page] = await deps.db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new InputError("Page no longer exists");
@@ -643,7 +644,7 @@ export async function pagePrompts(deps: WorkerDeps, job: GenerationJob) {
   return { pageId, updated, repaired: r.repaired };
 }
 
-export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
+export async function narrationText(deps: WorkerDeps, job: ProjectJob) {
   const chapterId = String(job.input.chapterId);
   const [chapter] = await deps.db.select().from(chapters).where(eq(chapters.id, chapterId));
   if (!chapter) throw new InputError("Chapter no longer exists");
@@ -816,7 +817,7 @@ export async function narrationText(deps: WorkerDeps, job: GenerationJob) {
  * shapes the style, character and location endpoints already accept, so "use this as the project style" is a
  * plain POST of the object rather than a translation step.
  */
-export async function imageDescribe(deps: WorkerDeps, job: GenerationJob) {
+export async function imageDescribe(deps: WorkerDeps, job: ProjectJob) {
   const assetId = String(job.input.assetId);
   const asset = await deps.assets.get(assetId);
   if (!asset) throw new InputError("The image no longer exists");

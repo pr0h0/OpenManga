@@ -7,6 +7,190 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-10-03
+
+Upgrading: pull the new images and restart. Seven migrations (`0021`–`0027`) run on start through the migrate service;
+`0027` is data only and fills in the panel id on artwork drawn through provider batches, so it shows in Versions.
+Reload open tabs to get the new web app. Also worth knowing:
+
+- The default rate limits rise to 2000 requests a minute for a signed-in user and 750 per MCP connection; requests
+  without a session get their own `RATE_LIMIT_ANON_PER_MINUTE` (300). Set them in `.env` to keep other values.
+- The nginx image now renders its config from a template (only `ASSET_CSP_ORIGIN`, needed with `STORAGE_DRIVER=s3`),
+  and the worker's health heartbeat moved to the container's own `/tmp`: use the new `docker-compose.yml`.
+- New optional settings: `WORKER_QUEUES`, `RENDER_WORKER_CONCURRENCY`, `BATCH_MAX_IN_FLIGHT_IMAGE` /
+  `BATCH_MAX_IN_FLIGHT_TEXT`, `INSTANCE_BUDGET_USD_MONTHLY`, and the `STORAGE_DRIVER` / `S3_*` storage settings
+  (local disk stays the default). See `.env.example`.
+
+Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0022_instance_settings` a table for the server budget ceiling, `0023_expert_extract_jobs` lets a generation job have no project, `0024_project_invites` a table for invitations, `0025_panel_comments` tables for comments and notifications, `0026_panel_guide` a nullable JSON column for layout guides).
+
+### Added
+
+- **Type a pose for a layout guide.** *Pose, in words* under a panel's guide takes the pose as text (e.g. "standing
+  centred, hands on hips"), no AI needed. `panel-generation` v11 puts it in the `POSE / LAYOUT` section beside the
+  sketch, so it outranks the written composition like a strict sketch does. *Describe pose* now fills this text
+  instead of the composition. Agents set it as `guide.pose` with `update_panel`.
+- **Describe pose from a sketch.** *Describe pose* beside a panel's layout guide runs a vision job (the new `pose`
+  aspect of `image-describe` v2, also on the Describe page) that puts the sketch's poses, placement and framing into
+  one sentence. You review and edit it, then it is added to the guide's pose text or replaces it; nothing is
+  written before you confirm. It is a normal queued text job: in Generation, priced, budget-gated, paste mode
+  included. `POST /api/panels/:id/guide/describe`; agents use `run_panel_check` with `action: "describe_guide"`.
+- **Pose and sketch guides.** A panel can carry a layout guide: upload a rough sketch, stick-figure pose or
+  composition thumbnail in the panel inspector, or draw one there (pen in three widths, straight lines, eraser,
+  undo/redo, posable stick figures, the panel's art faintly underneath for tracing; mouse, pen or touch). Generate
+  and Regenerate attach it as a reference after the identity, location, prop and style references and before
+  the previous panel, and the prompt (`panel-generation` v9) tells the model to take its composition, framing and
+  poses only, loosely or strictly, never its drawing style or any text. Masked edits leave it out. Duplicating a
+  panel or project keeps it, the interchange export and import carry it, and agents set or clear it with
+  `update_panel` (`guide`, pointing at any image of the project). New routes: `POST /api/panels/:id/guide`, and
+  `guide` on `PATCH /api/panels/:id`.
+- **A revised story is re-analysed safely.** When the story was revised after its analysis, *Update production* (and
+  a plain production run) analyses the new revision and then always stops for review, even with review gates off. The
+  review, on the run card and the Story page, shows what would change: chapters added, renamed, no longer in the story
+  or whose text changed, with their pages and artwork, and characters, places and props added or no longer mentioned.
+  Applying keeps every existing chapter with its pages (matched by title, else by position), inserts new chapters in
+  place and removes nothing; anything the story dropped can be ticked for removal, which a confirmation lists before
+  it happens. The run then plans and produces the new chapters. Agents read the same changes with
+  `get_story_analysis` `diff: true`.
+- **Project members.** An owner invites people by username or email as editors or viewers (**Members** on the
+  project overview); an invited account accepts or declines on the dashboard, and an emailed link (one-time, 7 days)
+  accepts it or creates the account for that address, even with registration closed. Owners change roles, remove
+  members and revoke invitations; members can leave. Projects shared with you show on the dashboard marked *Shared*.
+  Membership changes are audited and update open project pages live; a removed member is sent back to the dashboard.
+  Agent connections reach shared projects with the member's role.
+- **Production runs for agents.** MCP tools to read what is out of date (`get_staleness`), start a production run
+  or *Update production*, read a run, continue it past a review and stop it. Starting, updating and continuing spend
+  the user's credits, so they wait for approval on "Ask me first" connections. `GET /api/production-runs/:id` reads
+  one run.
+- **Panel comments.** Every member of a project, viewers included, can start a comment thread on a panel, reply,
+  edit or delete their own comments, resolve and reopen threads, and @mention a member. Comments are in the page
+  editor's new **Comments** tab (and under the canvas on a phone), with open-thread badges on panels and pages, and a
+  project's **Comments** page lists open (or resolved) threads per project or chapter. A bell in the header counts
+  unread mentions and replies. Comments update live over the project's events. Agents get `list_comments` and
+  `post_comment`.
+- **Incremental rendering and Update production.** Every rendered shot and card is kept as a cached section, keyed by
+  a hash of everything that decides its pixels and length; the next render copies unchanged sections in and encodes
+  only what changed, then re-mixes and normalises the audio over the whole film as before. Sections go with the
+  exports that used them, when they expire, or when a newer render of the same video no longer uses them, and they
+  count toward the project's disk use (*Video render cache*). The production run card shows what is out of date from
+  story to video, and **Update production** runs only those steps, redrawing artwork whose panel was edited after it
+  was drawn.
+- **Vertical and square video, and a Shorts cut.** Every video export (and the preview) takes a shape: 16:9, 9:16
+  or 1:1. Vertical and square frames crop each panel's existing art around its focal point; nothing is generated at
+  the new shape. A new *Shorts* export renders a trailer: it picks dramatic shots spread across a chapter or the
+  whole project, lets you change the pick and preview it, and renders those shots with their own narration, vertical
+  by default. Its length is a setting, 3 minutes by default (YouTube's Shorts limit) and up to 10: the pick fills up
+  to it and the render stops before the shot that would pass it. Past 3 minutes the Exports page, `suggest_shorts` and
+  the export response warn that YouTube will upload it as a regular video. Agents get the pick through
+  `suggest_shorts`.
+- **End-to-end tests in CI.** `.github/workflows/e2e.yml` builds the full stack with mock AI, waits for it to be
+  healthy and runs the Playwright test: nightly against `staging`, by hand, and on pull requests that change the
+  test or how it runs. A failed run uploads the HTML report, traces and every service's log. The test now clicks
+  **Plan chapter**, the button's current name.
+- **Streaming PDF and webtoon exports, and ZIP64.** PDFs are written to disk page by page and webtoon strips are
+  stitched one chunk at a time from panel blocks kept on disk, so memory no longer grows with length. Both can now
+  export the whole project (every chapter in order) as well as one chapter. ZIP exports switch to ZIP64 past 4 GiB or
+  65,535 entries instead of failing with "Archive is larger than 4 GB".
+- **Streaming CBZ and EPUB, and whole-project books and page images.** CBZ and EPUB exports add each page to the
+  archive as it is composed instead of collecting every image first; the EPUB's manifest and spine are written from
+  page sizes at the end. Page images, CBZ and EPUB can now cover the whole project too; page images spanning chapters
+  are named with their chapter (`..._ch02_p003.png`), since page numbers restart in every chapter.
+- **Server budget ceiling.** An admin can cap the whole server's AI spend per calendar month (UTC) in Admin → Usage,
+  which also shows this month's spend against it. `INSTANCE_BUDGET_USD_MONTHLY` sets the default. Past the ceiling,
+  new AI work is refused with `402 instance_budget_exceeded`, which users cannot confirm past, and queued batches and
+  production runs pause the same way they do at a project's cap.
+- **Expert output actions.** Under an expert's reply, *Use as* turns it into a new project (title, premise, type,
+  format and story idea), the project's premise, an outline story revision, or the project's YouTube text. Each runs
+  a structured extraction as a text job (provider key or paste mode, shown in Generation); you review and edit the
+  result, and nothing changes until you apply it. Each extraction is applied once: the chat then shows *Applied* with
+  a link to what it made, and a second apply is refused (409 `already_applied`) unless asked for on purpose (*Apply
+  again*, or `again: true`). Agents get the same through `use_expert_reply`.
+- **Agents can clean up.** Three MCP tools, each a delete-class action that waits for approval on an "Ask me first"
+  connection: `delete_exports` (one export, or every finished export of a project), `delete_narration_audio` (a
+  chapter's, one track of it, or the whole project's; the text stays) and `manage_assets` (list a project's assets or
+  its trash, trash, restore, and permanently delete what is in trash).
+- **Dedicated render workers.** Video renders and project imports run on their own `render` queue
+  (`RENDER_WORKER_CONCURRENCY`, default 1), so a long render no longer holds up a PDF or a ZIP on the `export` queue.
+  `WORKER_QUEUES` (comma-separated, default all) picks the queues a worker consumes, and `docker-compose.yml` carries a
+  commented render-only worker service. Renders queued before the upgrade still finish on the `export` queue (see
+  `docs/DEPLOYMENT.md`). The worker's health-check heartbeat moved from the shared `/data/tmp` volume to `/tmp`
+  inside its own container, so one worker cannot keep another looking healthy.
+- **Shots as video units.** Each panel's *Video shot* settings in the editor: its camera move (auto, static, pan
+  left/right/up/down, push in, pull out), a fade through black into it or a hard cut, and leaving it out of videos
+  (with its narration) without deleting the panel. Auto moves no longer repeat on neighbouring shots: a repeat becomes
+  a pan towards the image focus. A project setting fades to black at scene breaks. A narration line can span several
+  shots (they share one hold) with silence before and after it. The browser preview plays all of it from the same
+  timing helpers as the render, and the settings are on the `update_panel` and `edit_narration` MCP tools.
+- **S3-compatible asset storage.** `STORAGE_DRIVER=s3` keeps assets in any S3-compatible bucket (AWS S3, R2, MinIO,
+  B2…) through Bun's built-in S3 client, configured with `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_BUCKET`,
+  `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` and `S3_PREFIX`. `/cdn` and reader
+  links redirect to a signed URL valid for `S3_PRESIGN_EXPIRES_SECONDS` (900) instead of nginx serving the file, and
+  video renders and export packages over 64 MiB upload in parts streamed from disk. nginx adds `ASSET_CSP_ORIGIN` to
+  the app's CSP. Local disk stays the default. `docs/STORAGE.md` has the copy recipe for moving an existing install;
+  with `s3`, `scripts/backup.sh` and `restore.sh` cover the database and configuration and leave the bucket to its
+  own backup tools.
+- **Video branding.** Project settings → Video takes a logo watermark (upload an image, pick the corner, opacity and
+  size) and optional intro and outro cards (title, subtitle and length, drawn over the project's own art in its
+  narration lettering font). Every video export composites them, the preview shows them, and subtitles and chapter
+  timestamps start after the intro. Reader-link previews show them too.
+
+### Changed
+
+- Only the project owner deletes panels. An editor turns a panel off (*leave out of videos*) instead; pages and
+  scenes, which have no off switch, editors may still delete.
+- **Provider batches go a few at a time.** A key now has at most 4 image batches and 16 text batches in flight per
+  model (`BATCH_MAX_IN_FLIGHT_IMAGE`, `BATCH_MAX_IN_FLIGHT_TEXT`; 0 = no limit). The rest of a big run waits as
+  "waiting for room in the provider's batch queue" and is submitted as earlier batches finish, instead of being sent
+  and refused over the provider's enqueued limit.
+- **S3 storage: temporary credentials, faster large uploads, CI coverage.** `S3_SESSION_TOKEN` passes an STS or
+  assumed-role session token to the client and the multipart signer. Multipart uploads send four 16 MiB parts at
+  once (at most 64 MiB of the file in memory). CI runs the integration suite a second time with `STORAGE_DRIVER=s3`
+  against MinIO.
+- `scripts/bunx.sh` joins a Docker network only when `OM_NETWORK` names one; it used to join `openmanga_internal`
+  whenever that existed, putting every lint and typecheck on a running stack's internal network.
+- **A declined scope is not asked for again.** When you untick a scope on an agent's consent screen, or deny a step-up,
+  that connection remembers it: later calls needing it get `scope_missing` saying it was declined (with
+  `details.declined`) and no new step-up challenge, so the agent stops sending you back to the same screen. Agent
+  access lists the declined scopes; granting one there, or on a later consent screen, clears it.
+- **Reader-link pages are rendered once.** A reader link's page PNG is stored after the first request and served from
+  storage until the page changes (artwork, frames, bubbles, narration boxes or SFX); an edit draws it again and removes
+  the old copy. Widths round up to 200 px steps. The stored renders count toward the project's disk use, and
+  maintenance sweeps the renders of deleted pages.
+- **Higher rate limits for real use, lower for guessing.** A signed-in user gets 2000 API requests a minute (was 600)
+  and an MCP connection 750 (was 240); requests with no session get their own lower ceiling per address,
+  `RATE_LIMIT_ANON_PER_MINUTE` (300). Registration is capped at 10 an hour and reset emails at 5 per 15 minutes per
+  address.
+
+### Fixed
+
+- **Batched artwork is in Versions.** A panel drawn by a batched *Generate all missing* stored its artwork without
+  the panel id, so the page editor's Versions tab listed only later regenerations, never the first draw. Batched
+  artwork now records the panel, page and references like a direct run, and migration `0027_batch_art_panel_ids`
+  fills them in for artwork already drawn.
+- **Layout guides are sent at a size that keeps the pose.** The guide went out as the usual 192 px reference
+  derivative, where a stick figure's hands on hips became an 806-byte smudge and the written composition won. It now
+  has its own cached variant, a lossless PNG fitting 1024 px (single and batched generation alike); every other
+  reference stays small.
+- **A strict guide outranks the written pose.** `panel-generation` v10 puts a `POSE / LAYOUT` section right after the
+  goal line; in strict mode it says the sketch wins over the written composition, action or story beat on pose,
+  figure placement and framing, while identity, outfits and look still come from the references. Loose mode only
+  starts from the sketch.
+- **A full provider batch queue no longer fails the run.** OpenAI refuses batches past its enqueued-token limit per
+  model (`token_limit_exceeded`), and a big run used to mark every panel in the refused batches failed. The
+  refused work now stays queued and is resubmitted as earlier batches finish: after 5, 10 and 20 minutes, then every
+  30, for up to 24 hours. The batch banner says "waiting for room in the provider's batch queue, next try at
+  HH:MM". Google's equivalent quota is handled the same way.
+
+### Security
+
+- Wrong guesses are capped like failed logins: reader-link tokens (30 per 15 minutes per address), unknown MCP tokens
+  (20), password-reset tokens (10 an hour) and the current password when changing it (5 per 15 minutes per user).
+- Role checks tightened for shared projects: listing reader links needs `manage` (the token is the link); queueing or
+  cancelling an export and duplicating a project need `write`; linking an expert chat to a project, and every message
+  in one, need `generate`; the budget cap, the consistency-check key and the content-policy fallback are the owner's
+  to change, and only the owner can confirm going over the cap. Nobody retries another member's keyed job, resumes
+  their paused batch or continues their production run (each would spend that member's key). A project's files are
+  served by project access alone, so whoever leaves a project stops seeing the files they made there.
+
 ## [0.12.0] — 2026-09-30
 
 Upgrading: pull the new images and restart. No migrations. Reload open tabs to get the new web app.

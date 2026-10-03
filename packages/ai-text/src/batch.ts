@@ -9,7 +9,13 @@
  *     so the same model is addressed by its native name here.
  * DeepSeek is absent: it discounts by time of day rather than exposing a batch endpoint.
  */
-import { classifyFetchError, classifyHttpStatus, ProviderError, refuseRedirect } from "@openmanga/domain/browser";
+import {
+  classifyFetchError,
+  classifyHttpStatus,
+  isBatchQueueFull,
+  ProviderError,
+  refuseRedirect,
+} from "@openmanga/domain/browser";
 import type { ChatMessage, TextCallRecord } from "./index.ts";
 
 /** One request inside a batch. `key` is the generation job id, echoed back so results map to jobs. */
@@ -41,6 +47,8 @@ export type TextBatchStatus = {
   counts: { total: number; completed: number; failed: number };
   items?: TextBatchItemResult[];
   error?: string;
+  /** Refused because the account's batch queue for this model is full; nothing ran and nothing was billed. */
+  queueFull?: boolean;
 };
 
 export interface TextBatchProvider {
@@ -181,7 +189,9 @@ export class OpenAITextBatchProvider implements TextBatchProvider {
       try {
         msg = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? msg;
       } catch {}
-      throw new ProviderError(this.provider, classifyHttpStatus(res.status), `Batch HTTP ${res.status}: ${msg}`, {
+      // A full batch queue is waited out, not failed: earlier batches finishing make room for this one.
+      const code = isBatchQueueFull(text) ? "batch_queue_full" : classifyHttpStatus(res.status);
+      throw new ProviderError(this.provider, code, `Batch HTTP ${res.status}: ${msg}`, {
         status: res.status,
       });
     }
@@ -279,6 +289,8 @@ export class OpenAITextBatchProvider implements TextBatchProvider {
       counts,
       items,
       error: state === "failed" ? JSON.stringify(b.errors ?? {}).slice(0, 300) : undefined,
+      // OpenAI accepts a batch over the enqueued-token limit, then fails it during validation without running it.
+      queueFull: state === "failed" && isBatchQueueFull(JSON.stringify(b.errors ?? {})),
     };
   }
 
@@ -416,7 +428,11 @@ export class GeminiTextBatchProvider implements TextBatchProvider {
       } catch {}
       throw new ProviderError(
         this.provider,
-        status === "RESOURCE_EXHAUSTED" || status === "FAILED_PRECONDITION" ? "quota" : classifyHttpStatus(res.status),
+        isBatchQueueFull(text)
+          ? "batch_queue_full"
+          : status === "RESOURCE_EXHAUSTED" || status === "FAILED_PRECONDITION"
+            ? "quota"
+            : classifyHttpStatus(res.status),
         `Gemini HTTP ${res.status}${status ? ` ${status}` : ""}: ${msg}`,
         { status: res.status },
       );
@@ -453,6 +469,8 @@ export class GeminiTextBatchProvider implements TextBatchProvider {
 
   async pollBatch(h: TextBatchHandle): Promise<TextBatchStatus> {
     const j = await this.api<{
+      /** The operation's own error, when the whole batch failed. */
+      error?: { message?: string; status?: string };
       metadata?: {
         state?: string;
         batchStats?: { requestCount?: string; successfulRequestCount?: string; failedRequestCount?: string };
@@ -482,7 +500,8 @@ export class GeminiTextBatchProvider implements TextBatchProvider {
             : counts.failed > 0
               ? "partial"
               : "succeeded";
-    return { state, counts, items };
+    const error = state === "failed" && j.error ? `${j.error.status ?? ""} ${j.error.message ?? ""}`.trim() : undefined;
+    return { state, counts, items, error, queueFull: Boolean(error && isBatchQueueFull(error)) };
   }
 
   private itemFrom(item: GeminiTextItem): TextBatchItemResult {

@@ -755,6 +755,310 @@ describe("approvals", () => {
   });
 });
 
+describe("delete tools", () => {
+  let gated: Awaited<ReturnType<typeof mcp>>;
+  let chapterId: string;
+  const approve = (id: string) =>
+    alice.post<{ approval: { status: string } }>(`/api/agents/approvals/${id}/decide`, { decision: "approve" });
+
+  beforeAll(async () => {
+    const t = await pat({ name: "Tidy agent", scopes: ALL, projectAccess: "all", approvalMode: "REQUIRE_APPROVAL" });
+    gated = await mcp(t.token);
+    const list = await allowAll.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    chapterId = list.structured.data.chapters[0]!.id;
+  });
+
+  const exportDone = async () => {
+    const r = await allowAll.call<{ data: { job: { id: string } } }>("create_export", {
+      projectId,
+      kind: "project_json",
+    });
+    const jobId = r.structured.data.job.id;
+    await waitFor(
+      async () =>
+        (await allowAll.call<{ data: { job: { status: string } } }>("get_job", { jobId })).structured.data.job
+          .status === "completed",
+      { label: "export" },
+    );
+    return jobId;
+  };
+
+  test("delete_exports: one export parks for approval, then every finished export goes", async () => {
+    const first = await exportDone();
+    const parked = await gated.call("delete_exports", { exportId: first });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("delete");
+    expect((await approve(parked.structured.approval!.approvalRequestId)).approval.status).toBe("executed");
+    const after = await allowAll.call<{ data: { jobs: { id: string }[] } }>("list_exports", { projectId });
+    expect(after.structured.data.jobs.map((j) => j.id)).not.toContain(first);
+
+    await exportDone();
+    expect((await allowAll.call("delete_exports", { projectId })).error?.code).toBe("bad_request");
+    const all = await allowAll.call<{ data: { exports: number; files: number } }>("delete_exports", {
+      projectId,
+      all: true,
+    });
+    expect(all.structured.data.exports).toBeGreaterThan(0);
+    const none = await allowAll.call<{ data: { jobs: { kind: string }[] } }>("list_exports", { projectId });
+    expect(none.structured.data.jobs.filter((j) => j.kind !== "project_import").length).toBe(0);
+  });
+
+  test("delete_narration_audio: a chapter's audio after approval, then the whole project's; the text stays", async () => {
+    await allowAll.call("edit_narration", {
+      action: "add_line",
+      chapterId,
+      line: { text: "The lamp turns at three in the morning." },
+    });
+    await allowAll.call("synthesize_narration", { chapterId });
+    type Lines = { data: { lines: { segments: { activeAudioAssetId: string | null }[] }[] } };
+    const segments = async () =>
+      (await allowAll.call<Lines>("get_chapter_narration", { chapterId })).structured.data.lines.flatMap(
+        (l) => l.segments,
+      );
+    await waitFor(async () => (await segments()).some((s) => s.activeAudioAssetId), { label: "tts" });
+
+    expect((await allowAll.call("delete_narration_audio", {})).error?.code).toBe("bad_request");
+    const parked = await gated.call("delete_narration_audio", { chapterId });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect((await approve(parked.structured.approval!.approvalRequestId)).approval.status).toBe("executed");
+    const after = await segments();
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((s) => s.activeAudioAssetId === null)).toBe(true);
+
+    const project = await allowAll.call<{ data: { files: number } }>("delete_narration_audio", { projectId });
+    expect(project.isError).toBe(false);
+    const left = await h.deps.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from assets where project_id = ${projectId} and type = 'audio'`,
+    );
+    expect(left[0]!.n).toBe(0);
+  });
+
+  test("manage_assets: trash, list the trash, restore, and a permanent delete after approval", async () => {
+    const { panels } = await alice.get<{ panels: { id: string; activeArtworkAssetId: string | null }[] }>(
+      `/api/chapters/${chapterId}/panels`,
+    );
+    const drawn = panels.find((p) => p.activeArtworkAssetId)!;
+    // A second version, so one of the two is not the panel's active artwork.
+    const gen = await allowAll.call<{ data: { job: { id: string } } }>("generate_panel", { panelId: drawn.id });
+    await waitFor(
+      async () =>
+        (
+          await allowAll.call<{ data: { job: { status: string } } }>("get_job", {
+            jobId: gen.structured.data.job.id,
+          })
+        ).structured.data.job.status === "completed",
+      { label: "second version" },
+    );
+    const { panel } = await alice.get<{ panel: { activeArtworkAssetId: string } }>(`/api/panels/${drawn.id}`);
+    type Listed = { data: { assets: { id: string }[] } };
+    const live = await allowAll.call<Listed>("manage_assets", { action: "list", projectId, type: "panel_art" });
+    const old = live.structured.data.assets.find((a) => a.id !== panel.activeArtworkAssetId)!;
+    expect(old).toBeTruthy();
+
+    // The active artwork cannot be trashed; an old version can.
+    const active = await allowAll.call("manage_assets", { action: "trash", assetId: panel.activeArtworkAssetId });
+    expect(active.error?.code).toBe("conflict");
+    expect((await allowAll.call("manage_assets", { action: "trash", assetId: old.id })).isError).toBe(false);
+    const trash = await allowAll.call<Listed>("manage_assets", { action: "list", projectId, trash: true });
+    expect(trash.structured.data.assets.map((a) => a.id)).toContain(old.id);
+    await allowAll.call("manage_assets", { action: "restore", assetId: old.id });
+    const back = await allowAll.call<Listed>("manage_assets", { action: "list", projectId, trash: true });
+    expect(back.structured.data.assets.map((a) => a.id)).not.toContain(old.id);
+
+    // Permanent deletion needs it in trash first, and waits for the user on a gated connection.
+    expect((await allowAll.call("manage_assets", { action: "delete", assetId: old.id })).error?.code).toBe("conflict");
+    await allowAll.call("manage_assets", { action: "trash", assetId: old.id });
+    const parked = await gated.call("manage_assets", { action: "delete", assetId: old.id });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("delete");
+    expect((await approve(parked.structured.approval!.approvalRequestId)).approval.status).toBe("executed");
+    const gone = await h.deps.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from assets where id = ${old.id}`,
+    );
+    expect(gone[0]!.n).toBe(0);
+  });
+});
+
+describe("production run tools", () => {
+  let gated: Awaited<ReturnType<typeof mcp>>;
+  const decide = (id: string, decision: "approve" | "deny") =>
+    alice.post<{ approval: { status: string } }>(`/api/agents/approvals/${id}/decide`, { decision });
+  type Run = { id: string; status: string; steps: { key: string; status: string }[] };
+
+  beforeAll(async () => {
+    const t = await pat({ name: "Producer", scopes: ALL, projectAccess: "all", approvalMode: "REQUIRE_APPROVAL" });
+    gated = await mcp(t.token);
+    await alice.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 50 } });
+  });
+
+  test("the staleness view is a plain read", async () => {
+    const r = await gated.call<{ data: { stages: { key: string; count: number }[] } }>("get_staleness", { projectId });
+    expect(r.isError).toBe(false);
+    expect(r.structured.data.stages.map((s) => s.key)).toEqual([
+      "story",
+      "plan",
+      "prompts",
+      "art",
+      "narration",
+      "audio",
+      "render",
+    ]);
+  });
+
+  test("starting a run spends, so it parks on an Ask-me-first connection; continuing parks too; stopping does not", async () => {
+    const parked = await gated.call("start_production_run", { projectId, reviewGates: true, render: false });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("spend");
+    expect((await decide(parked.structured.approval!.approvalRequestId, "approve")).approval.status).toBe("executed");
+
+    const list = await gated.call<{ data: { runs: Run[] } }>("get_production_run", { projectId });
+    const run = list.structured.data.runs[0]!;
+    expect(run.steps.length).toBeGreaterThan(0);
+    const one = await gated.call<{ data: { run: Run } }>("get_production_run", { runId: run.id });
+    expect(one.structured.data.run.id).toBe(run.id);
+    expect((await gated.call("get_production_run", {})).error?.code).toBe("invalid_input");
+
+    // One run at a time: a second start is refused by the route, whatever the approval mode.
+    expect((await allowAll.call("start_production_run", { projectId })).error?.code).toBe("conflict");
+
+    const cont = await gated.call("continue_production_run", { runId: run.id });
+    expect(cont.structured.status).toBe("pending_approval");
+    expect((await decide(cont.structured.approval!.approvalRequestId, "deny")).approval.status).toBe("denied");
+
+    const stop = await gated.call<{ data: { ok: boolean } }>("cancel_production_run", { runId: run.id });
+    expect(stop.structured.data.ok).toBe(true);
+    const after = await gated.call<{ data: { run: Run } }>("get_production_run", { runId: run.id });
+    expect(after.structured.data.run.status).toBe("cancelled");
+  });
+
+  test("update production runs the out-of-date steps only, or says nothing is out of date", async () => {
+    const stale = (
+      await allowAll.call<{ data: { stages: { key: string; count: number }[] } }>("get_staleness", { projectId })
+    ).structured.data.stages.filter((s) => s.key !== "story" && s.count > 0);
+    const r = await allowAll.call<{ data: { run: Run } }>("update_production", { projectId, reviewGates: false });
+    if (!stale.length) {
+      expect(r.error?.code).toBe("conflict");
+      return;
+    }
+    expect(r.isError).toBe(false);
+    const keys = r.structured.data.run.steps.map((s) => s.key);
+    expect(keys).not.toContain("analyze");
+    expect(keys).not.toContain("references");
+    await allowAll.call("cancel_production_run", { runId: r.structured.data.run.id });
+  });
+});
+
+describe("expert output actions", () => {
+  type Msg = { id: string; role: string; status: string };
+  /** A chat with one finished reply from the expert, as an agent would get it. */
+  async function replied(projectId: string | null) {
+    const chat = await allowAll.call<{ data: { chat: { id: string } } }>("manage_expert_chat", {
+      action: "create",
+      create: { expert: "story-developer", projectId },
+    });
+    const chatId = chat.structured.data.chat.id;
+    await allowAll.call("send_expert_message", { chatId, text: "Outline the lighthouse story in three parts" });
+    return waitFor(
+      async () => {
+        const r = await allowAll.call<{ data: { messages: Msg[] } }>("manage_expert_chat", { action: "get", chatId });
+        const last = r.structured.data.messages.at(-1);
+        return last?.role === "assistant" && last.status === "done" ? last.id : null;
+      },
+      { label: "expert reply" },
+    );
+  }
+  const finished = (jobId: string) =>
+    waitFor(
+      async () => {
+        const j = await allowAll.call<{
+          data: { job: { status: string; result: { data: Record<string, unknown> } } };
+          links?: Record<string, string>;
+        }>("get_job", { jobId });
+        const s = j.structured.data.job.status;
+        return s === "completed" || s === "awaiting_input" || s === "failed" ? j : null;
+      },
+      { label: "extraction" },
+    );
+
+  test("extract a concept in paste mode, then create the project from it", async () => {
+    const messageId = await replied(null);
+    const run = await allowAll.call<{ data: { job: { id: string } } }>("use_expert_reply", {
+      mode: "extract",
+      action: "concept",
+      messageId,
+      ai: { manual: true },
+    });
+    expect(run.isError).toBe(false);
+    const jobId = run.structured.data.job.id;
+    // A job of no project is pollable and answerable like any other, with no project page to link to.
+    const waiting = await finished(jobId);
+    expect(waiting.structured.data.job.status).toBe("awaiting_input");
+    expect(waiting.structured.links).toBeUndefined();
+    const prompt = await allowAll.call<{ data: { format: { name: string }; example: string } }>("get_manual_prompt", {
+      jobId,
+    });
+    expect(prompt.structured.data.format.name).toBe("ProjectConcept");
+    await allowAll.call("submit_manual_answer", { jobId, answer: prompt.structured.data.example });
+    const done = await finished(jobId);
+    expect(done.structured.data.job.status).toBe("completed");
+    const applied = await allowAll.call<{ data: { project: { id: string; title: string } } }>("use_expert_reply", {
+      mode: "apply",
+      action: "concept",
+      jobId,
+      data: { ...done.structured.data.job.result.data, title: "Edited before applying" },
+    });
+    const newId = (applied.structured.data as unknown as { applied: { projectId: string } }).applied.projectId;
+    const created = await alice.get<{ project: { title: string } }>(`/api/projects/${newId}`);
+    expect(created.project.title).toBe("Edited before applying");
+    const story = await alice.get<{ latest: { inputKind: string } }>(`/api/projects/${newId}/story`);
+    expect(story.latest.inputKind).toBe("idea");
+    // Applied once: a second apply is refused, and says how to apply it again on purpose.
+    const twice = await allowAll.call("use_expert_reply", { mode: "apply", action: "concept", jobId });
+    expect(twice.error?.code).toBe("already_applied");
+    const onPurpose = await allowAll.call<{ data: { applied: { count: number } } }>("use_expert_reply", {
+      mode: "apply",
+      action: "concept",
+      jobId,
+      again: true,
+    });
+    expect(onPurpose.structured.data.applied.count).toBe(2);
+    // The action has to match what the job extracted.
+    const wrong = await allowAll.call("use_expert_reply", { mode: "apply", action: "outline", jobId });
+    expect(wrong.error?.code).toBe("bad_request");
+  });
+
+  test("applying waits for approval on a gated connection, then saves the outline", async () => {
+    const messageId = await replied(projectId);
+    const run = await allowAll.call<{ data: { job: { id: string } } }>("use_expert_reply", {
+      mode: "extract",
+      action: "outline",
+      messageId,
+    });
+    const jobId = run.structured.data.job.id;
+    expect((await finished(jobId)).structured.data.job.status).toBe("completed");
+    const t = await pat({
+      name: "Careful writer",
+      scopes: ALL,
+      projectAccess: "all",
+      approvalMode: "REQUIRE_APPROVAL",
+    });
+    const gated = await mcp(t.token);
+    const parked = await gated.call("use_expert_reply", { mode: "apply", action: "outline", jobId });
+    expect(parked.structured.status).toBe("pending_approval");
+    expect(parked.structured.approval!.sensitivity).toBe("sensitive-write");
+    const d = await alice.post<{ approval: { status: string } }>(
+      `/api/agents/approvals/${parked.structured.approval!.approvalRequestId}/decide`,
+      { decision: "approve" },
+    );
+    expect(d.approval.status).toBe("executed");
+    const story = await alice.get<{ latest: { inputKind: string; content: string } }>(
+      `/api/projects/${projectId}/story`,
+    );
+    expect(story.latest.inputKind).toBe("outline");
+    expect(story.latest.content).toStartWith("Chapter 1: ");
+  });
+});
+
 describe("credential lifecycle", () => {
   test("revoked and expired tokens stop working at once", async () => {
     const t = await pat({ name: "Temp", scopes: ["projects:read"], projectAccess: "all" });
@@ -1034,6 +1338,58 @@ describe("OAuth 2.1", () => {
     });
     expect(disabled.status).toBe(401);
     await h.deps.db.update(users).set({ status: "active" }).where(eq(users.username, "agentowner"));
+  });
+
+  test("a declined scope is not asked for again until the user grants it in Agent access", async () => {
+    const exchange = async (code: string) =>
+      (
+        (await (
+          await token({
+            grant_type: "authorization_code",
+            code,
+            client_id: clientId,
+            redirect_uri: redirect,
+            code_verifier: verifier,
+            resource: "http://test.local/mcp",
+          })
+        ).json()) as { access_token: string }
+      ).access_token;
+    const challenged = (r: { meta?: Record<string, unknown> }) =>
+      String((r.meta?.["mcp/www_authenticate"] as string[] | undefined)?.[0] ?? "").includes("insufficient_scope");
+
+    // consent() asks for projects:read and story:read and grants only projects:read: story:read is declined.
+    const agent = await mcp(await exchange(await consent()));
+    const read = await agent.call("get_story", { projectId });
+    expect(read.error?.code).toBe("scope_missing");
+    expect((read.error?.details as { declined?: string[] } | undefined)?.declined).toEqual(["story:read"]);
+    expect(read.error?.message).toContain("Agent access");
+    expect(challenged(read)).toBe(false);
+    // A scope never asked for still steps up.
+    const write = await agent.call("save_story_revision", { projectId, content: "x" });
+    expect(challenged(write)).toBe(true);
+
+    // The user denies that step-up: story:write is declined as well, and the connection keeps what it had.
+    const res = await authorize({ scope: "projects:read story:write" });
+    const requestId = res.headers.get("location")!.split("/connect/")[1]!;
+    await alice.post(`/api/agents/consent/${requestId}`, { approve: false });
+    const again = await agent.call("save_story_revision", { projectId, content: "x" });
+    expect((again.error?.details as { declined?: string[] } | undefined)?.declined).toEqual(["story:write"]);
+    expect(challenged(again)).toBe(false);
+    expect((await agent.call("list_projects")).isError).toBe(false);
+
+    // Agent access lists the declines; granting story:read there clears that one.
+    type Conn = { id: string; clientId: string | null; scopes: string[]; metadata: { declinedScopes?: string[] } };
+    const conn = async () =>
+      (await alice.get<{ connections: Conn[] }>("/api/agents/connections")).connections.find(
+        (c) => c.clientId === clientId && c.scopes.length,
+      )!;
+    expect((await conn()).metadata.declinedScopes).toEqual(["story:read", "story:write"]);
+    await alice.patch(`/api/agents/connections/${(await conn()).id}`, { scopes: ["projects:read", "story:read"] });
+    expect((await conn()).metadata.declinedScopes).toEqual(["story:write"]);
+    // This token was issued for projects:read only, so it is asked to step up for story:read again, as normal.
+    const stepUp = await agent.call("get_story", { projectId });
+    expect(stepUp.error?.details).not.toHaveProperty("declined");
+    expect(challenged(stepUp)).toBe(true);
   });
 
   test("a CIMD client id pointing inside the network is refused", async () => {

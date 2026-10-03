@@ -1,16 +1,41 @@
-import { and, asc, assets, desc, eq, expertChats, expertMessages, experts, inArray, projects } from "@openmanga/db";
-import { BUILTIN_EXPERTS, findBuiltinExpert } from "@openmanga/prompts";
+import {
+  and,
+  asc,
+  assets,
+  desc,
+  eq,
+  expertChats,
+  expertMessages,
+  experts,
+  generationJobs,
+  inArray,
+  lt,
+  projects,
+  sql,
+} from "@openmanga/db";
+import { PRIORITY } from "@openmanga/domain";
+import { BUILTIN_EXPERTS, EXPERT_ACTION_KINDS, EXPERT_ACTIONS, findBuiltinExpert } from "@openmanga/prompts";
+import {
+  outlineText,
+  type ProjectConcept,
+  type ProjectPremise,
+  premiseDescription,
+  type StoryOutline,
+  type YoutubePackage,
+} from "@openmanga/schemas";
 import type { AiChoice } from "@openmanga/services";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, checkImageChoice, textRun } from "../lib/ai.ts";
+import { AiChoiceInput, assertBudget, assertServerBudget, checkImageChoice, textRun } from "../lib/ai.ts";
 import { chatChannel, finishReply, runExpertReply, STALE_REPLY_MS } from "../lib/experts.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
+import { createProject, updateProject } from "./projects.ts";
+import { createRevision } from "./stories.ts";
 
 export const expertRoutes = new Hono<AppEnv>();
 
@@ -120,7 +145,8 @@ doc({
 });
 expertRoutes.post("/expert-chats", async (c) => {
   const input = await body(c, NewChat);
-  if (input.projectId) await projectAccess(c, input.projectId, "read");
+  // A chat about a project counts its spend there and can store drawn images in it: that is generating.
+  if (input.projectId) await projectAccess(c, input.projectId, "generate");
   const builtin = findBuiltinExpert(input.expert);
   const custom =
     builtin || !z.string().uuid().safeParse(input.expert).success ? null : await ownExpert(c, input.expert);
@@ -168,7 +194,7 @@ expertRoutes.get("/expert-chats/:id", async (c) => {
   const [project] = chat.projectId
     ? await db.select({ id: projects.id, title: projects.title }).from(projects).where(eq(projects.id, chat.projectId))
     : [];
-  return c.json({ chat, project: project ?? null, messages });
+  return c.json({ chat, project: project ?? null, messages, extractions: await extractionsOf(c, messages) });
 });
 
 const PatchChat = z.object({
@@ -186,7 +212,7 @@ doc({
 expertRoutes.patch("/expert-chats/:id", async (c) => {
   const chat = await ownChat(c, uuidParam(c, "id"));
   const input = await body(c, PatchChat);
-  if (input.projectId) await projectAccess(c, input.projectId, "read");
+  if (input.projectId) await projectAccess(c, input.projectId, "generate");
   const [row] = await c
     .get("deps")
     .db.update(expertChats)
@@ -261,6 +287,8 @@ doc({
 });
 expertRoutes.post("/expert-chats/:id/messages", async (c) => {
   const chat = await ownChat(c, uuidParam(c, "id"));
+  // Checked on every message, not only when the chat was linked: a member whose role changed or who left stops here.
+  if (chat.projectId) await projectAccess(c, chat.projectId, "generate");
   const input = await body(c, Send);
   if (!input.text.trim() && !input.attachments.length) throw badRequest("Write a message or attach an image");
   const deps = c.get("deps");
@@ -388,6 +416,7 @@ doc({
 });
 expertRoutes.post("/expert-chats/:id/retry", async (c) => {
   const chat = await ownChat(c, uuidParam(c, "id"));
+  if (chat.projectId) await projectAccess(c, chat.projectId, "generate");
   const input = await body(c, Retry);
   const deps = c.get("deps");
   const [last] = await deps.db
@@ -456,4 +485,245 @@ expertRoutes.post("/expert-messages/:id/answer", async (c) => {
   });
   const [row] = await deps.db.select().from(expertMessages).where(eq(expertMessages.id, m.id));
   return c.json({ reply: row });
+});
+
+// ---------------------------------------------------------------- output actions
+
+/** The extraction jobs run on a chat's replies, newest first: what the chat shows under each reply. */
+async function extractionsOf(c: Parameters<typeof user>[0], messages: { id: string; role: string }[]) {
+  const ids = messages.filter((m) => m.role === "assistant").map((m) => m.id);
+  if (!ids.length) return [];
+  const rows = await c
+    .get("deps")
+    .db.select()
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.kind, "expert_extract"),
+        eq(generationJobs.userId, user(c).id),
+        inArray(generationJobs.targetId, ids),
+      ),
+    )
+    .orderBy(desc(generationJobs.createdAt))
+    .limit(200);
+  return rows.map(extractionView);
+}
+
+/** An extraction job as the chat shows it: the action, its state, and once done the object to review and apply. */
+export const extractionView = (j: typeof generationJobs.$inferSelect) => ({
+  id: j.id,
+  messageId: j.targetId,
+  projectId: j.projectId,
+  action: String(j.input.action),
+  status: j.status,
+  manual: j.parameters.manual === true,
+  result: (j.result as { data?: unknown } | null)?.data ?? null,
+  applied: (j.result as { applied?: Applied } | null)?.applied ?? null,
+  failureReason: j.failureReason,
+  createdAt: j.createdAt,
+});
+
+export const Extract = z.object({
+  /** concept: a new project; premise: the project's description; outline: an outline story revision; youtube: the YouTube package text. */
+  action: z.enum(EXPERT_ACTION_KINDS),
+  ai: AiChoiceInput,
+});
+doc({
+  method: "POST",
+  path: "/api/expert-messages/:id/extract",
+  summary:
+    "Turn an expert's reply into something to apply: a new project's concept, the project's premise, an outline or the YouTube package text. Queues a text job (provider key or paste mode) whose result you review; nothing is applied until you call the usual route with it.",
+  tag: "experts",
+  body: Extract,
+});
+expertRoutes.post("/expert-messages/:id/extract", async (c) => {
+  const id = uuidParam(c, "id");
+  const deps = c.get("deps");
+  const [m] = await deps.db.select().from(expertMessages).where(eq(expertMessages.id, id));
+  if (!m) throw notFound("Message");
+  const chat = await ownChat(c, m.chatId);
+  const input = await body(c, Extract);
+  if (m.role !== "assistant" || m.status !== "done" || !m.content.trim())
+    throw conflict("Only a finished reply from the expert can be turned into something");
+  const spec = EXPERT_ACTIONS[input.action];
+  if (spec.needsProject && !chat.projectId)
+    throw badRequest("This chat is not about a project. Choose the project it is about first.");
+  // Run inside the chat's project when it has one (its budget, its Generation page); a concept from a chat about
+  // no project is the user's own job.
+  if (chat.projectId) {
+    await projectAccess(c, chat.projectId, "generate");
+    await assertBudget(c, chat.projectId);
+  } else await assertServerBudget(c);
+  const run = await textRun(c, input.ai);
+  const [question] = await deps.db
+    .select({ content: expertMessages.content })
+    .from(expertMessages)
+    .where(
+      and(
+        eq(expertMessages.chatId, chat.id),
+        eq(expertMessages.role, "user"),
+        lt(expertMessages.createdAt, m.createdAt),
+      ),
+    )
+    .orderBy(desc(expertMessages.createdAt))
+    .limit(1);
+  const job = await deps.db.transaction((tx) =>
+    deps.jobs.createGenerationJob(tx, {
+      projectId: chat.projectId,
+      userId: user(c).id,
+      kind: "expert_extract",
+      priority: PRIORITY.single,
+      targetType: "expert_message",
+      targetId: m.id,
+      templateName: spec.template.name,
+      templateVersion: spec.template.version,
+      provider: run.provider,
+      model: run.model,
+      parameters: run.parameters,
+      // The reply is copied here: retrying it later rewrites the message, and this job extracts what was shown.
+      input: {
+        action: input.action,
+        chatId: chat.id,
+        messageId: m.id,
+        reply: m.content,
+        question: question?.content ?? "",
+      },
+    }),
+  );
+  await deps.jobs.kick();
+  return c.json({ job, extraction: extractionView(job) }, 202);
+});
+
+/** What applying an extraction did, kept on its job so it is never applied twice by accident. */
+type Applied = {
+  at: string;
+  /** How many times it has been applied (more than once only when asked to apply it again). */
+  count: number;
+  /** True while an apply is under way: a second one is refused rather than run beside it. */
+  pending?: boolean;
+  projectId?: string;
+  revisionId?: string;
+};
+
+export const ApplyExtraction = z.object({
+  /** The extracted object as the user edited it; omitted, the job's own result is applied. */
+  data: z.record(z.string(), z.unknown()).optional(),
+  /** Apply an extraction that was already applied, once more (a second project, a second revision…). */
+  again: z.boolean().default(false),
+  /** concept: move the chat to the new project. */
+  attachChat: z.boolean().default(false),
+});
+doc({
+  method: "POST",
+  path: "/api/expert-extractions/:id/apply",
+  summary:
+    "Apply a completed expert extraction (optionally edited): create the project, replace the description or YouTube text, or save the outline revision. Recorded on the job; applying it again is refused with 409 unless again=true.",
+  tag: "experts",
+  body: ApplyExtraction,
+});
+expertRoutes.post("/expert-extractions/:id/apply", async (c) => {
+  const id = uuidParam(c, "id");
+  const input = await body(c, ApplyExtraction);
+  const { db } = c.get("deps");
+  const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, id));
+  if (job?.kind !== "expert_extract" || job.userId !== user(c).id) throw notFound("Extraction");
+  if (job.status !== "completed")
+    throw conflict(`This extraction is ${job.status}; only a completed one can be applied`);
+  const action = String(job.input.action) as keyof typeof EXPERT_ACTIONS;
+  const parsed = EXPERT_ACTIONS[action].schema.safeParse(input.data ?? (job.result as { data?: unknown }).data);
+  if (!parsed.success) throw new ApiError(422, "validation_error", "Invalid data for this action", parsed.error.issues);
+  if (action !== "concept" && !job.projectId) throw conflict("This extraction belongs to no project");
+  const before = (job.result as { applied?: Applied }).applied ?? null;
+  // Claimed before anything changes, in one statement: two clicks (or an agent retrying) cannot both apply it.
+  const [claimed] = await db
+    .update(generationJobs)
+    .set({
+      result: sql`${generationJobs.result} || jsonb_build_object('applied', ${JSON.stringify({
+        at: new Date().toISOString(),
+        count: before?.count ?? 0,
+        pending: true,
+      })}::jsonb)`,
+    })
+    .where(
+      and(
+        eq(generationJobs.id, job.id),
+        input.again
+          ? sql`coalesce(${generationJobs.result}->'applied'->>'pending', 'false') <> 'true'`
+          : sql`${generationJobs.result}->'applied' is null`,
+      ),
+    )
+    .returning({ id: generationJobs.id });
+  if (!claimed) {
+    const [now] = await db
+      .select({ result: generationJobs.result })
+      .from(generationJobs)
+      .where(eq(generationJobs.id, id));
+    const was = (now?.result as { applied?: Applied } | null)?.applied;
+    throw new ApiError(
+      409,
+      "already_applied",
+      was?.pending
+        ? "This extraction is being applied right now."
+        : `This extraction was already applied (${was?.at ?? "earlier"}). Apply it again only on purpose: pass again=true.`,
+      { applied: was ?? null },
+    );
+  }
+  const created: Pick<Applied, "projectId" | "revisionId"> = {};
+  try {
+    if (action === "concept") {
+      const k = parsed.data as ProjectConcept;
+      const project = await createProject(c, {
+        title: k.title,
+        description: premiseDescription(k),
+        projectType: k.projectType,
+        format: k.format,
+        language: "en",
+        colorMode: "full_color",
+        customStyle: "",
+        story: { content: k.storyIdea, inputKind: "idea", title: k.title },
+      });
+      created.projectId = project.id;
+      const chatId = String(job.input.chatId ?? "");
+      if (input.attachChat && chatId)
+        await db
+          .update(expertChats)
+          .set({ projectId: project.id, updatedAt: new Date() })
+          .where(and(eq(expertChats.id, chatId), eq(expertChats.userId, user(c).id)));
+    } else if (action === "outline") {
+      const o = parsed.data as StoryOutline;
+      const rev = await createRevision(c, job.projectId!, {
+        content: outlineText(o),
+        title: o.title,
+        inputKind: "outline",
+      });
+      Object.assign(created, { projectId: job.projectId!, revisionId: rev.id });
+    } else {
+      await updateProject(
+        c,
+        job.projectId!,
+        action === "premise"
+          ? { description: premiseDescription(parsed.data as ProjectPremise) }
+          : { settings: { youtubePackage: parsed.data as YoutubePackage } },
+      );
+      created.projectId = job.projectId!;
+    }
+  } catch (e) {
+    // Nothing was applied: put back what was recorded before, so it can be applied (or applied again) once fixed.
+    await db
+      .update(generationJobs)
+      .set({
+        result: before
+          ? sql`${generationJobs.result} || jsonb_build_object('applied', ${JSON.stringify(before)}::jsonb)`
+          : sql`${generationJobs.result} - 'applied'`,
+      })
+      .where(eq(generationJobs.id, job.id));
+    throw e;
+  }
+  const applied: Applied = { at: new Date().toISOString(), count: (before?.count ?? 0) + 1, ...created };
+  const [row] = await db
+    .update(generationJobs)
+    .set({ result: sql`${generationJobs.result} || jsonb_build_object('applied', ${JSON.stringify(applied)}::jsonb)` })
+    .where(eq(generationJobs.id, job.id))
+    .returning();
+  return c.json({ extraction: extractionView(row!), applied });
 });

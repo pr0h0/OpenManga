@@ -54,7 +54,7 @@ URL is derived from `API_PUBLIC_URL`'s origin. The bundled nginx already routes 
 | `MCP_AUTH_CODE_TTL_SECONDS` | `300` | Authorization code lifetime (single use). |
 | `MCP_APPROVAL_TTL_MINUTES` | `1440` | How long a parked request waits for you before it expires. |
 | `MCP_BULK_APPROVAL_THRESHOLD` | `25` | A change touching more panels than this counts as sensitive. |
-| `MCP_RATE_LIMIT_PER_MINUTE` | `240` | Requests to `/mcp` per minute per connection; above it `/mcp` answers HTTP 429 with `Retry-After: 60`. |
+| `MCP_RATE_LIMIT_PER_MINUTE` | `750` | Requests to `/mcp` per minute per connection; above it `/mcp` answers HTTP 429 with `Retry-After: 60`. |
 | `MCP_CIMD_ALLOW_PRIVATE` | `false` | Development only: let an OAuth client-id document live on a private address. |
 
 ## Connecting ChatGPT (OAuth)
@@ -74,6 +74,12 @@ URL is derived from `API_PUBLIC_URL`'s origin. The bundled nginx already routes 
 
 Connecting the same client again updates the existing connection (and signs out its old tokens) instead of creating a
 duplicate. Revoke it any time in **Agent access**.
+
+When a call needs a scope the connection lacks, the error carries a step-up challenge and the client sends you back to
+the consent page for it. A scope you leave unticked there, or every scope of a step-up you deny, is remembered as
+**declined** for that connection: later calls needing it get `scope_missing` with `details.declined` and a message
+saying so, and no new challenge, so the agent stops asking. Agent access lists the declined scopes on the connection;
+granting one there (Edit), or ticking it on a later consent screen, clears the decline.
 
 The authorization request is frozen when it arrives: the consent page refers to it only by id, so client, redirect
 URI, PKCE challenge, resource and state cannot be changed in the browser. Redirect URIs must match a registered one
@@ -135,7 +141,9 @@ of normal membership, never instead of it: an agent can only touch projects you 
 admin in the browser it gets no admin bypass. Entity ids are resolved to their project first (a panel id from a
 project the connection was not granted is refused with `project_not_granted`, and one from a project you cannot see
 at all is `not_found`). A selected-projects connection that may create projects is granted each project it creates or
-duplicates.
+duplicates. Projects shared with you count as yours here: *all* includes them, they can be *selected*, and the agent
+acts with your role in each, so a viewer's agent reads and an editor's agent edits and spends on your keys. Leaving a
+project or being removed ends the agent's access at once and drops the project from the connection's selection.
 
 **Approval modes.**
 
@@ -144,8 +152,8 @@ duplicates.
 | read | list/get/search, schemas, prompt preview, job status, readiness, usage | runs | runs |
 | write | new story revision, draft version edits, scene/panel edits, manual answers, manual-mode text jobs | runs | runs |
 | sensitive-write | apply story analysis, duplicate, switch current version, approve/lock versions, references and panels, make a reference primary, set or switch the project style, migrate panels, activate artwork, re-plan a planned chapter, rewrite existing narration, page document replacement, clearing lettering on a chapter or project, restyling lettering or cancelling a batch over the bulk threshold, exports, budget changes | runs | **waits** |
-| spend | provider-backed text, image generation, reference generation, vision checks, expert replies, cloud TTS, retries of those, bulk generation, resuming a batch | runs | **waits** |
-| delete | trash, permanent delete, deleting chapters/pages/panels/lines/versions | runs | **waits** |
+| spend | provider-backed text, image generation, reference generation, vision checks, expert replies, cloud TTS, retries of those, bulk generation, resuming a batch, starting, updating or continuing a production run | runs | **waits** |
+| delete | trash, permanent delete, deleting chapters/pages/panels/lines/versions, exports and narration audio | runs | **waits** |
 
 Each call is classified by what it actually does (for example `run_chapter_plan` with `ai.manual` on a chapter without
 pages is a write; with a provider it is spend; with `replace` over existing pages it is a re-plan). ALLOW_ALL skips
@@ -198,7 +206,7 @@ request waits per identical call — retrying, even simultaneously, returns the 
 
 ## Tools
 
-Seventy-one task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
+Seventy-five task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
 There is deliberately no generic "call any endpoint" tool.
 
 What a connection is shown depends on it. A personal access token lists only the tools it can ever call (a
@@ -214,11 +222,12 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | Cast, world, style | `list_library`, `get_library_item`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | Chapters | `list_chapters`, `get_chapter`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `list_chapter_panels` |
 | Pages and panels | `get_page`, `manage_page`, `manage_lettering`, `get_panel`, `update_panel`, `manage_panel_outfits`, `get_panel_prompt`, `prepare_page_prompts`, `generate_panel`, `manage_panel_artwork`, `run_panel_check`, `manage_panel` |
-| Images | `get_image`: the picture itself (panel artwork, the lettered page, a reference, any project image) as MCP image content, `thumbnail` (384 px), `preview` (1024 px, default) or `large` (2048 px; a lettered page is capped at 1600 px). Images in the trash are refused |
+| Images | `get_image`: the picture itself (panel artwork, the lettered page, a reference, any project image) as MCP image content, `thumbnail` (384 px), `preview` (1024 px, default) or `large` (2048 px; a lettered page is capped at 1600 px). Images in the trash are refused. `manage_assets`: list the project's assets or its trash, trash, restore and permanently delete |
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
-| Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration` |
-| Exports | `create_export`, `list_exports` |
-| Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply` |
+| Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
+| Exports | `create_export`, `suggest_shorts`, `list_exports`, `delete_exports` |
+| Production runs | `get_staleness` (what is out of date, story to video), `start_production_run`, `update_production` (only the stale steps), `get_production_run`, `continue_production_run`, `cancel_production_run` |
+| Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` (extract a concept, premise, outline or YouTube text from a reply, then apply it; applying is sensitive) |
 
 Not exposed (UI/REST only): multipart uploads (project import, own artwork, masks, own references, expert image
 attachments), masked edits (they need an uploaded mask), accounts, admin, provider keys, and managing connections,
@@ -229,7 +238,7 @@ export body as is, so it accepts the `youtube_package` kind, a `pageIds` page se
 and a partial render's `video.maxDurationMs` (its description names the YouTube package; the others are in its
 schema). `create_project` takes a
 production `preset` key, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
-the saved `youtubePackage` text. No tool calls the newer routes directly: production runs, writing the YouTube
+the saved `youtubePackage` text. No tool calls these newer routes directly: writing the YouTube
 package text (`POST /api/projects/:projectId/youtube-package`), checking every panel at once
 (`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list and saving or deleting
 project templates are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
@@ -301,7 +310,7 @@ retryAfterSeconds? } }`, keeping OpenManga's own codes:
 | 400 | `bad_request` | Malformed request; `details` says what. |
 | 401 | — | Not a tool error: `/mcp` answers HTTP 401 with `WWW-Authenticate: Bearer resource_metadata="…"` (and `error="invalid_token"` for a bad or expired token), so the client signs in again. |
 | 402 | `budget_exceeded` | The project budget would be exceeded. |
-| 403 | `scope_missing` | The connection lacks a scope. For OAuth connections the result carries `_meta["mcp/www_authenticate"]` with an `insufficient_scope` challenge naming the scopes to ask for. |
+| 403 | `scope_missing` | The connection lacks a scope. For OAuth connections the result carries `_meta["mcp/www_authenticate"]` with an `insufficient_scope` challenge naming the scopes to ask for, unless the user already declined one of them: then `details.declined` names it and there is no challenge. |
 | 403 | `project_not_granted`, `forbidden`, `approval_denied_by_rule` | Project not granted to this connection; not allowed (e.g. creating projects); the user always denies this action here. |
 | 404 | `not_found` | Missing, or in a project you cannot see (never distinguished). |
 | 409 | `conflict`, `idempotency_conflict`, `estimate_changed`, `operation_in_progress`, `execution_unknown` | Locked/approved version, wrong lifecycle state, job not in the expected state, reused key, stale estimate, the same key still running, an interrupted call whose outcome is unknown. |
@@ -329,7 +338,7 @@ retryAfterSeconds? } }`, keeping OpenManga's own codes:
 - The OAuth endpoints are rate limited per IP: `/oauth/register` 20 an hour, `/oauth/authorize`, `/oauth/token` and
   `/oauth/revoke` 60 a minute each.
 - Audit: every mutation is recorded as usual with `service_id` set and `metadata.via` = the connection name
-  ("*connection* via *user*"). Security events: `oauth.authorize`, `oauth.reauthorize`, `oauth.refresh_reuse`,
+  ("*connection* via *user*"). Security events: `oauth.authorize`, `oauth.reauthorize`, `oauth.scopes_declined`, `oauth.refresh_reuse`,
   `oauth.code_reuse`, `mcp.pat_created`, `mcp.pat_revoked`, `mcp.connection_revoked`, `mcp.connection_updated`,
   `mcp.approval_requested/approved/denied/executed/stale`, `mcp.scope_denied`, `mcp.project_denied`,
   `mcp.rule_changed/deleted`, and `project.delete_permanent`.
@@ -350,7 +359,7 @@ get_job({ jobId: "j1" }) → { job: { status: "awaiting_input", next: "Call get_
 get_manual_prompt({ jobId: "j1" }) → { format: { name: "StoryAnalysis", interface: "interface StoryAnalysis { … }" }, example: "{…}", awaitingAnswer: true }
 submit_manual_answer({ jobId: "j1", answer: { title: "The Lamp at Vell", characters: [ … ], chapters: [ … ] } }) → { accepted: true }
 get_job({ jobId: "j1" }) → { job: { status: "completed" } }
-apply_story_analysis({ analysisId: "a1" }) → { created: { characters: 2, locations: 1, props: 1, chapters: 3 } }
+apply_story_analysis({ analysisId: "a1" }) → { created: { characters: 2, locations: 1, props: 1, chapters: 3, renamed: 0 } }
 list_chapters({ projectId: "p1" }) → { chapters: [ { id: "c1", title: "The Lamp", stats: { pages: 0 } }, … ] }
 run_chapter_plan({ chapterId: "c1", ai: { manual: true } }) → { job: { id: "j2" } }
 get_manual_prompt({ jobId: "j2" }) → { format: { name: "ChapterOutline" }, answered: 0 }
@@ -413,6 +422,7 @@ flows are exercised by `tests/integration/mcp.test.ts`.
 | `invalid_target` on authorize/token | The client's `resource` is not the canonical `MCP_PUBLIC_URL` (check scheme, host, and no trailing path). |
 | `invalid_grant` "Refresh token already used" | The refresh token was replayed (or two clients shared it); the grant was revoked for safety. Reconnect. |
 | Every write says `scope_missing` | The connection was granted read scopes only; widen it in Agent access (OAuth clients can also re-consent). |
+| `scope_missing` with `details.declined`, and the client no longer asks | You declined that scope on a consent screen; grant it in Agent access → Edit. |
 | `project_not_granted` | A selected-projects connection; add the project in Agent access → Edit. |
 | Nothing happens after `pending_approval` | Someone has to decide in Agent access → Waiting for you; requests expire after `MCP_APPROVAL_TTL_MINUTES`. |
 | `credentials_required` | No provider key named: use `ai: { manual: true }` for text, or add a key in Account → AI providers. |

@@ -5,50 +5,14 @@ Only unfinished work: what is being considered, and what will not be built. Ever
 
 ## Planned
 
-- **Shots as first-class video units.** Per-shot settings for motion (static, pan, push-in, pull-out, with an
-  override and variety across neighbouring shots instead of today's automatic push or pull by shot type), fade to
-  black at scene breaks, disabling a shot without deleting it, and one narration line spanning several shots with
-  start and end offsets (today a shot can carry several lines, but not the other way round). The renderer and the
-  browser preview share the timing helpers, so both change together.
 - **Music and ambience.** Background music per scene mood, ducked under narration before loudness normalisation,
   and ambience beds tagged from the scene's time, weather and mood. From a library the user supplies, so nothing
   with unclear licensing ships in the repository.
-- **Vertical video for Shorts.** A 9:16 (and 1:1) video profile for the renderer and preview, and a Shorts cut: a
-  30–60 s trailer built from key shots of a project. Framed from existing art rather than generated at 9:16, which
-  providers return squeezed.
-- **Incremental rendering.** Keep rendered sections between exports and re-render only what changed, driven by a
-  dependency graph of what is stale (story → plan → prompts → art → narration → audio → render) with one "update
-  production" action. Staleness already exists for narration audio, references and checks; loudness normalisation
-  runs over the whole film, so audio is always re-mixed.
-- **Dedicated render workers.** Video renders and imports on their own queue, so a long render never holds up other
-  exports, and a `WORKER_QUEUES` setting so a separate worker container can take only renders.
 - **Translated lettering.** Translate bubbles and captions per language and export each edition from the same art,
   as narration already is per language.
-- **Pose and sketch guides.** Upload a rough sketch or pose for a panel and send it with the prompt as a layout
-  reference, for fewer rerolls.
-- **Project members.** An invite flow and panel comments. `project_members` and its owner / editor / viewer roles
-  exist, but nothing adds a member yet.
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
   Burns shots. Costly per clip, so opt-in and budgeted.
-- **Expert output actions.** Turn an expert's reply into something applied: a new project from a concept, a
-  replacement premise, an outline, or the YouTube package fields, through a structured extraction step.
-- **Video branding.** A logo watermark and optional intro and outro cards on video exports.
-- **Agent (MCP) additions.** Tools to delete exports, narration audio and images, and not asking again for a scope a
-  user has already declined.
-- **End-to-end tests in CI.** The existing `scripts/e2e.sh` on a nightly or manual workflow against the full stack
-  with mock AI.
-- **Cached reader-link renders.** Reader pages render on every request; keep them as asset variants if a link ever
-  draws real traffic.
-- **Instance-wide budget ceiling.** The per-project cap exists; an instance-wide ceiling is the better control for
-  a shared install, but with registration off by default multi-user is the rare case.
-- **Streaming PDF and webtoon strips.** ZIP-based exports and video stream to disk. PDF and stitched webtoon strips
-  are still built in memory, but both are scoped to one chapter, so size is bounded. ZIPs use no ZIP64 (4 GiB cap,
-  with a clear error). Revisit when whole-project PDFs are requested or ZIP packages approach 4 GiB.
-- **S3-compatible asset storage.** Assets live on local disk behind one `AssetStorage` interface with a local
-  implementation. A remote backend would need presigned downloads (the current `X-Accel-Redirect` path is
-  nginx-only) and multipart uploads, and would turn local reads in page composition and video rendering into
-  network fetches.
 
 ## Deliberately not built
 

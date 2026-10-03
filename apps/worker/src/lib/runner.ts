@@ -2,7 +2,7 @@ import { StructuredOutputError, type TextCallRecord } from "@openmanga/ai-text";
 import { and, asc, eq, generationJobs, generationOutputs, panels, sql } from "@openmanga/db";
 import { ProviderError, policyCategories } from "@openmanga/domain";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
-import { projectBudget, recordError } from "@openmanga/services";
+import { instanceBudget, instanceBudgetReason, projectBudget, recordError } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import {
   answersBeforeFailure,
@@ -16,6 +16,8 @@ import {
 } from "./manual-provider.ts";
 
 export type GenerationJob = typeof generationJobs.$inferSelect;
+/** A job of a project: every kind except an expert extraction from a chat about no project. */
+export type ProjectJob = GenerationJob & { projectId: string };
 
 export class JobCancelledError extends Error {}
 
@@ -36,6 +38,15 @@ export function userFacingError(e: unknown): { code: string; message: string } {
 
 export class InputError extends Error {
   override name = "InputError";
+}
+
+/**
+ * The job as one of a project, for the handlers that only ever run inside one. The same object, not a copy: the
+ * runner reads back what a handler records on it (the prompt a manual run last asked).
+ */
+export function inProject(job: GenerationJob): ProjectJob {
+  if (!job.projectId) throw new InputError(`A ${job.kind} job needs a project`);
+  return job as ProjectJob;
 }
 
 export async function recordTextCalls(deps: WorkerDeps, job: GenerationJob, calls: TextCallRecord[]) {
@@ -138,20 +149,7 @@ export async function runGenerationJob(
     }
   }
 
-  if (job.batchId && !(job.parameters as { allowOverBudget?: boolean } | null)?.allowOverBudget) {
-    const budget = await projectBudget(deps.db, job.projectId);
-    if (budget.exceeded) {
-      const reason = `project budget of $${budget.limitUsd!.toFixed(2)} reached ($${budget.spentUsd.toFixed(2)} spent)`;
-      await deps.db
-        .update(generationJobs)
-        .set({ status: "paused", failureReason: `Paused: ${reason}` })
-        .where(eq(generationJobs.id, jobId));
-      await publishJob(deps, { ...job, status: "paused", failureReason: `Paused: ${reason}` });
-      await deps.jobs.pauseBatch(job.batchId, reason);
-      log.warn("batch paused by budget", { batchId: job.batchId, ...budget });
-      return;
-    }
-  }
+  if (await pausedByBudget(deps, job)) return;
 
   // Claim the job, rather than simply announcing that we are running it. Everything above this line was read
   // from a row that any other runner could also have read: a batch poller republishing a parked job, a stalled-job
@@ -361,6 +359,35 @@ export async function runGenerationJob(
       });
     throw new UnrecoverableError(message);
   }
+}
+
+/**
+ * The budget gate for batch work: a batch job pauses its whole batch instead of running once the server's monthly
+ * ceiling is reached, or its project's budget is, unless the person who started it confirmed going over the
+ * project's. Nobody confirms past the server's ceiling. Returns whether it paused.
+ */
+export async function pausedByBudget(deps: WorkerDeps, job: GenerationJob) {
+  if (!job.batchId) return false;
+  const server = await instanceBudget(deps.db, deps.config.INSTANCE_BUDGET_USD_MONTHLY);
+  let reason = server.exceeded ? instanceBudgetReason(server) : null;
+  let budget: Record<string, unknown> = server;
+  // A job of no project (an expert extraction) has only the server's ceiling to answer to.
+  if (!reason && job.projectId && !(job.parameters as { allowOverBudget?: boolean } | null)?.allowOverBudget) {
+    const project = await projectBudget(deps.db, job.projectId);
+    if (project.exceeded)
+      reason = `project budget of $${project.limitUsd!.toFixed(2)} reached ($${project.spentUsd.toFixed(2)} spent)`;
+    budget = project;
+  }
+  if (!reason) return false;
+  const [paused] = await deps.db
+    .update(generationJobs)
+    .set({ status: "paused", failureReason: `Paused: ${reason}` })
+    .where(eq(generationJobs.id, job.id))
+    .returning();
+  await publishJob(deps, paused);
+  await deps.jobs.pauseBatch(job.batchId, reason);
+  deps.logger.warn("batch paused by budget", { batchId: job.batchId, jobId: job.id, ...budget });
+  return true;
 }
 
 async function finishCancelled(deps: WorkerDeps, job: GenerationJob) {

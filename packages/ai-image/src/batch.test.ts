@@ -278,3 +278,44 @@ test("Gemini reports per-item failures even though the batch state is SUCCEEDED"
   expect(status.items![0]!.key).toBe("panel-a");
   expect(status.items![0]!.ok).toBe(false);
 });
+
+const ENQUEUED_LIMIT = {
+  code: "token_limit_exceeded",
+  message: "Enqueued token limit reached for gpt-image-2 in organization org-x. Limit: 1,000,000 enqueued tokens.",
+};
+
+test("an OpenAI batch failed over the enqueued-token limit is reported as a full queue", async () => {
+  const { fn } = fakeFetch([
+    ["/batches/batch_q", () => ({ status: "failed", errors: { object: "list", data: [ENQUEUED_LIMIT] } })],
+  ]);
+  const status = await openai(fn).pollBatch({ handle: "batch_q", keys: ["a"], idempotencyKey: "i" });
+  expect(status.state).toBe("failed");
+  expect(status.queueFull).toBe(true);
+
+  const other = fakeFetch([["/batches/batch_f", () => ({ status: "failed", errors: { data: [{ code: "x" }] } })]]);
+  const failed = await openai(other.fn).pollBatch({ handle: "batch_f", keys: [], idempotencyKey: "i" });
+  expect(failed.queueFull).toBe(false);
+});
+
+test("a create refused over the enqueued-token limit throws batch_queue_full", async () => {
+  const { fn } = fakeFetch([
+    ["/files", (init) => (init.method === "DELETE" ? {} : { id: "f" })],
+    ["/batches", () => new Response(JSON.stringify({ error: ENQUEUED_LIMIT }), { status: 400 })],
+  ]);
+  await expect(openai(fn).submitBatch([spec("a", 1)], "idem")).rejects.toMatchObject({ code: "batch_queue_full" });
+});
+
+test("a Gemini batch failed on its enqueued-tokens quota is reported as a full queue", async () => {
+  const { fn } = fakeFetch([
+    [
+      "batches/b1",
+      () => ({
+        metadata: { state: "BATCH_STATE_FAILED" },
+        error: { status: "RESOURCE_EXHAUSTED", message: "Quota exceeded for metric: batch enqueued tokens" },
+      }),
+    ],
+  ]);
+  const status = await gemini(fn).pollBatch({ handle: "batches/b1", keys: ["a"], idempotencyKey: "i" });
+  expect(status.state).toBe("failed");
+  expect(status.queueFull).toBe(true);
+});

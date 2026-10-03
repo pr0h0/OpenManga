@@ -1,4 +1,4 @@
-import { NARRATION_LANGUAGES } from "@openmanga/domain/browser";
+import { NARRATION_LANGUAGES, SHORTS_DEFAULT_MS, type VideoAspect } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileDown, Trash2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -18,6 +18,7 @@ import {
 import { ProgressBar } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { ShortsPicker } from "./ShortsPicker.tsx";
 import { YoutubePackageCard } from "./YoutubePackage.tsx";
 
 const KINDS = [
@@ -34,6 +35,7 @@ const KINDS = [
   { value: "agent_package", label: "Agent hand-off package (everything linked)", chapter: false },
   { value: "video_pages", label: "Narrated video — page cut (MP4)", chapter: false },
   { value: "video_panels", label: "Narrated video — panel cut, Ken Burns (MP4)", chapter: false },
+  { value: "video_shorts", label: "Shorts — a trailer of key shots, up to 3 min (MP4)", chapter: false },
   { value: "youtube_package", label: "YouTube package (newest video + thumbnail + text)", chapter: false },
 ] as const;
 const AREAS: Record<string, ("art" | "narration")[]> = {
@@ -49,10 +51,20 @@ const AREAS: Record<string, ("art" | "narration")[]> = {
   agent_package: ["art", "narration"],
   video_pages: ["art", "narration"],
   video_panels: ["art", "narration"],
+  video_shorts: [],
   youtube_package: ["art", "narration"],
 };
-const USES_LANGUAGE = new Set(["narration_audio", "timeline", "agent_package", "video_pages", "video_panels"]);
-const isVideo = (k: string) => k === "video_pages" || k === "video_panels";
+const USES_LANGUAGE = new Set([
+  "narration_audio",
+  "timeline",
+  "agent_package",
+  "video_pages",
+  "video_panels",
+  "video_shorts",
+]);
+const isVideo = (k: string) => k === "video_pages" || k === "video_panels" || k === "video_shorts";
+/** Chapter kinds that can also cover the whole project: they stream to disk, so length costs no memory. */
+const WHOLE_PROJECT = new Set(["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon"]);
 type Issue = {
   code: string;
   area: "art" | "narration";
@@ -97,6 +109,10 @@ export function ExportsPage() {
     pageWidthRatio: 0.6,
     zoom: 0.06,
   });
+  // Frame shape: landscape unless chosen; a Short opens vertical.
+  const [chosenAspect, setAspect] = useState<VideoAspect>();
+  const [shortsPick, setShortsPick] = useState<string[]>([]);
+  const [shortsSeconds, setShortsSeconds] = useState(SHORTS_DEFAULT_MS / 1000);
   // Partial renders: the first N minutes, and/or a range of pages within the chosen chapter.
   const [maxMinutes, setMaxMinutes] = useState("");
   const [pageRange, setPageRange] = useState({ from: "", to: "" });
@@ -108,11 +124,16 @@ export function ExportsPage() {
   }, [minShot]);
 
   const needsChapter = KINDS.find((k) => k.value === kind)!.chapter;
+  const shorts = kind === "video_shorts";
+  const aspect: VideoAspect = chosenAspect ?? (shorts ? "9:16" : "16:9");
   const [agentChapter, setAgentChapter] = useState("");
-  const selectedChapter = chapterId || chapters.data?.chapters[0]?.id || "";
+  const wholeProject = WHOLE_PROJECT.has(kind) && chapterId === "all";
+  const selectedChapter = (chapterId !== "all" && chapterId) || chapters.data?.chapters[0]?.id || "";
 
   const scopeChapter = needsChapter
-    ? selectedChapter
+    ? wholeProject
+      ? null
+      : selectedChapter
     : kind === "agent_package" || isVideo(kind) || kind === "youtube_package"
       ? agentChapter || null
       : null;
@@ -123,7 +144,7 @@ export function ExportsPage() {
     enabled: isVideo(kind) && Boolean(agentChapter),
   });
   const rangePageIds = (() => {
-    if (!isVideo(kind) || !agentChapter || (!pageRange.from && !pageRange.to)) return undefined;
+    if (!isVideo(kind) || shorts || !agentChapter || (!pageRange.from && !pageRange.to)) return undefined;
     const pgs = rangeChapter.data?.pages ?? [];
     const lo = Number(pageRange.from) || 1;
     const hi = Number(pageRange.to) || Number.POSITIVE_INFINITY;
@@ -142,11 +163,16 @@ export function ExportsPage() {
         includeAssets,
         video: {
           ...video,
-          ...(isVideo(kind) && Number(maxMinutes) > 0
+          // A narrow frame shows a page at its full width unless chosen otherwise.
+          pageWidthRatio: aspect === "16:9" ? video.pageWidthRatio : 1,
+          aspect,
+          ...(shorts ? { shortsSeconds } : {}),
+          ...(isVideo(kind) && !shorts && Number(maxMinutes) > 0
             ? { maxDurationMs: Math.round(Number(maxMinutes) * 60_000) }
             : {}),
         },
         ...(rangePageIds?.length ? { pageIds: rangePageIds } : {}),
+        ...(shorts ? { panelIds: shortsPick } : {}),
         ...(USES_LANGUAGE.has(kind) ? { language: lang } : {}),
         acknowledgeIssues,
       }),
@@ -244,7 +270,12 @@ export function ExportsPage() {
           </Field>
           {needsChapter && (
             <Field label="Chapter">
-              <select className="input" value={selectedChapter} onChange={(e) => setChapterId(e.target.value)}>
+              <select
+                className="input"
+                value={wholeProject ? "all" : selectedChapter}
+                onChange={(e) => setChapterId(e.target.value)}
+              >
+                {WHOLE_PROJECT.has(kind) && <option value="all">Whole project (all chapters)</option>}
                 {chapters.data?.chapters.map((c) => (
                   <option key={c.id} value={c.id}>
                     Ch. {c.order} — {c.title}
@@ -476,13 +507,27 @@ export function ExportsPage() {
           {isVideo(kind) && (
             <div className="grid grid-cols-2 gap-2">
               <div className="col-span-2">
-                {agentChapter ? (
+                {shorts ? (
+                  <ShortsPicker
+                    projectId={projectId}
+                    chapterId={agentChapter || null}
+                    language={lang}
+                    minHoldMs={video.minHoldMs}
+                    aspect={aspect}
+                    lengthSeconds={shortsSeconds}
+                    onLength={setShortsSeconds}
+                    value={shortsPick}
+                    onChange={setShortsPick}
+                  />
+                ) : agentChapter ? (
                   <PreviewVideoButton
                     projectId={projectId}
                     scope={{ chapterId: agentChapter }}
                     label="Preview in browser first"
                     title="Preview before rendering"
                     className="btn-secondary w-full"
+                    defaultAspect={aspect}
+                    defaultMinHoldMs={video.minHoldMs}
                   />
                 ) : (
                   <p className="muted text-xs">Pick a chapter to preview it in the browser before rendering.</p>
@@ -499,18 +544,27 @@ export function ExportsPage() {
                   <option value={1440}>1440p</option>
                 </select>
               </Field>
-              <Field label="Only the first … minutes (for a check)">
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  step={1}
-                  placeholder="Whole video"
-                  value={maxMinutes}
-                  onChange={(e) => setMaxMinutes(e.target.value)}
-                />
+              <Field label="Shape">
+                <select className="input" value={aspect} onChange={(e) => setAspect(e.target.value as VideoAspect)}>
+                  <option value="16:9">16:9 landscape</option>
+                  <option value="9:16">9:16 vertical (Shorts, Reels)</option>
+                  <option value="1:1">1:1 square</option>
+                </select>
               </Field>
-              {agentChapter && (
+              {!shorts && (
+                <Field label="Only the first … minutes (for a check)">
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    step={1}
+                    placeholder="Whole video"
+                    value={maxMinutes}
+                    onChange={(e) => setMaxMinutes(e.target.value)}
+                  />
+                </Field>
+              )}
+              {agentChapter && !shorts && (
                 <Field label="Pages (from – to)">
                   <div className="flex items-center gap-1">
                     <input
@@ -535,7 +589,7 @@ export function ExportsPage() {
                   </div>
                 </Field>
               )}
-              <Field label={kind === "video_panels" ? "Min seconds per panel" : "Min seconds per page"}>
+              <Field label={kind === "video_pages" ? "Min seconds per page" : "Min seconds per panel"}>
                 <input
                   className="input"
                   type="number"
@@ -546,7 +600,7 @@ export function ExportsPage() {
                   onChange={(e) => setVideo({ ...video, minHoldMs: Math.round(num(e.target.value) * 1000) })}
                 />
               </Field>
-              {kind === "video_panels" ? (
+              {kind !== "video_pages" ? (
                 <div className="col-span-2">
                   <Field label={`Ken Burns zoom ${Math.round(video.zoom * 100)}%`}>
                     <input
@@ -576,11 +630,13 @@ export function ExportsPage() {
                 </div>
               )}
               <p className="muted col-span-2 text-xs">
-                {kind === "video_panels"
-                  ? "Each panel's clean artwork (cropped as on the page, no bubbles) fills the frame for its own narration over a blurred copy of itself. Wide shots slowly push in, close-ups pull out. Panels without art use their lettered page crop."
-                  : video.framing === "scroll"
-                    ? "Each page is shown for the length of its own narration (at least the minimum) over a blurred copy of itself, scrolling from its top to its bottom over that time."
-                    : "Each page is shown for the length of its own narration (at least the minimum) over a blurred copy of itself; tall pages scroll at most 60 px/s."}{" "}
+                {shorts
+                  ? "The picked shots in story order, each with its own narration, up to the chosen length and without the intro and outro cards. Vertical and square frames crop each panel's art around its focal point; nothing is generated again. The logo watermark still applies."
+                  : kind === "video_panels"
+                    ? "Each panel's clean artwork (cropped as on the page, no bubbles) fills the frame for its own narration over a blurred copy of itself. Wide shots slowly push in, close-ups pull out. Panels without art use their lettered page crop."
+                    : video.framing === "scroll"
+                      ? "Each page is shown for the length of its own narration (at least the minimum) over a blurred copy of itself, scrolling from its top to its bottom over that time."
+                      : "Each page is shown for the length of its own narration (at least the minimum) over a blurred copy of itself; tall pages scroll at most 60 px/s."}{" "}
                 Hard cuts. Audio is loudness-normalised once over the whole film, the file is checked against the
                 narration length, and an .srt subtitle file is included.
               </p>
@@ -607,7 +663,7 @@ export function ExportsPage() {
           <button
             type="submit"
             className="btn-primary w-full"
-            disabled={create.isPending || (needsChapter && !selectedChapter)}
+            disabled={create.isPending || (needsChapter && !selectedChapter) || (shorts && !shortsPick.length)}
           >
             {create.isPending ? <Spinner /> : <FileDown className="size-4" />} Export
           </button>

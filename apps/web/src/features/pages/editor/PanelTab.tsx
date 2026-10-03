@@ -1,11 +1,13 @@
-import { CameraAngle, PanelSpec, ShotType } from "@openmanga/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { CameraAngle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
   Copy,
+  ImagePlus,
   Lock,
   Move,
+  PencilLine,
   RefreshCw,
   ScanEye,
   SplitSquareHorizontal,
@@ -13,13 +15,16 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { get, patch, post, put } from "../../../api/client.ts";
+import { api, get, patch, post, put } from "../../../api/client.ts";
 import { qk, useAction } from "../../../api/hooks.ts";
 import type { EditorPanel, LocationCard, PageDocument, PropCard } from "../../../api/types.ts";
-import { clsx, Field, StatusChip, TagInput } from "../../../components/ui.tsx";
+import { AssetImage, clsx, Field, Spinner, StatusChip, TagInput, toast } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
+import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
+import { DescribePose } from "./DescribePose.tsx";
+import { GuideDrawer } from "./GuideDrawer.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
 import { useEditor } from "./store.ts";
 
@@ -30,11 +35,13 @@ type PanelDetail = {
   characters: { id: string; versionNumber: number; status: string; characterId: string; name: string }[];
 };
 
-export function PanelList({ data, onDelete }: { data: PageDocument; onDelete: (id: string) => void }) {
+/** `onDelete` is left out for members who may not delete panels (only the owner can). */
+export function PanelList({ data, onDelete }: { data: PageDocument; onDelete?: (id: string) => void }) {
   const doc = useEditor((s) => s.doc);
   const selection = useEditor((s) => s.selection);
   const select = useEditor((s) => s.select);
   const ordered = [...doc.panels].sort((a, b) => a.order - b.order);
+  const counts = useCommentCounts(useProjectId()).data;
   const reorder = useAction((panelIds: string[]) => post(`/pages/${data.page.id}/reorder-panels`, { panelIds }), {
     invalidate: [qk.page(data.page.id)],
   });
@@ -68,6 +75,7 @@ export function PanelList({ data, onDelete }: { data: PageDocument; onDelete: (i
               <span className="font-semibold tabular-nums">{i + 1}</span>
               <span className="muted truncate">{server?.storyBeat || "Untitled panel"}</span>
             </button>
+            <CommentBadge n={counts?.panels[p.id]} />
             {server && <StatusChip status={server.status} />}
             <button
               type="button"
@@ -87,14 +95,16 @@ export function PanelList({ data, onDelete }: { data: PageDocument; onDelete: (i
             >
               <ArrowDown className="size-3.5" />
             </button>
-            <button
-              type="button"
-              className="btn-ghost p-0.5 text-red-500"
-              aria-label="Delete panel"
-              onClick={() => onDelete(p.id)}
-            >
-              <Trash2 className="size-3.5" />
-            </button>
+            {onDelete && (
+              <button
+                type="button"
+                className="btn-ghost p-0.5 text-red-500"
+                aria-label="Delete panel"
+                onClick={() => onDelete(p.id)}
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
           </li>
         );
       })}
@@ -126,7 +136,7 @@ export function PanelTab({
 }: {
   data: PageDocument;
   panel: EditorPanel;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
 }) {
   const projectId = useProjectId();
   const locked = panel.approvalStatus === "locked";
@@ -243,15 +253,17 @@ export function PanelTab({
           >
             <SplitSquareHorizontal className="size-4" />
           </button>
-          <button
-            type="button"
-            className="btn-ghost p-1.5 text-red-500"
-            aria-label="Delete panel"
-            disabled={locked}
-            onClick={() => onDelete(panel.id)}
-          >
-            <Trash2 className="size-4" />
-          </button>
+          {onDelete && (
+            <button
+              type="button"
+              className="btn-ghost p-1.5 text-red-500"
+              aria-label="Delete panel"
+              disabled={locked}
+              onClick={() => onDelete(panel.id)}
+            >
+              <Trash2 className="size-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -578,18 +590,20 @@ export function PanelTab({
         </button>
       </fieldset>
 
+      <LayoutGuide
+        panel={panel}
+        locked={locked}
+        aspect={(panel.frame.width * data.page.width) / (panel.frame.height * data.page.height)}
+        invalidate={[...inv, ["prompt-preview", panel.id]]}
+      />
+
+      <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
+
       {panel.artwork && (
         <div className="space-y-2 rounded-lg border border-[var(--border)] p-2">
           <div className="label">Artwork crop (original is never modified)</div>
           <div className="flex flex-wrap gap-1">
             <AdjustImageButton panelId={panel.id} disabled={locked} />
-            <PreviewVideoButton
-              projectId={projectId}
-              scope={{ panelId: panel.id }}
-              label="Preview move"
-              title="Preview — panel Ken Burns move"
-              className="btn-ghost text-xs"
-            />
             <button
               type="button"
               className="btn-ghost text-xs"
@@ -635,6 +649,221 @@ export function PanelTab({
         </div>
       )}
     </div>
+  );
+}
+
+/** A rough sketch, pose or thumbnail for this panel, sent with its generation as a layout reference. */
+function LayoutGuide({
+  panel,
+  locked,
+  aspect,
+  invalidate,
+}: {
+  panel: EditorPanel;
+  locked: boolean;
+  aspect: number;
+  invalidate: readonly (readonly unknown[])[];
+}) {
+  const qc = useQueryClient();
+  const [uploading, setUploading] = useState(false);
+  const [drawing, setDrawing] = useState(false);
+  const g = panel.guide;
+  const setGuide = useAction((guide: PanelGuide | null) => patch(`/panels/${panel.id}`, { guide }), {
+    invalidate,
+    success: "Layout guide saved",
+  });
+  const upload = async (file: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("strength", g?.strength ?? "loose");
+      await api(`/panels/${panel.id}/guide`, { method: "POST", body: form });
+      toast.success("Layout guide set");
+      for (const key of invalidate) qc.invalidateQueries({ queryKey: key });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setUploading(false);
+    }
+  };
+  return (
+    <fieldset disabled={locked} className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+      <div className="label mb-0">Layout guide</div>
+      <p className="muted text-xs">
+        A rough sketch, stick-figure pose or thumbnail. Generate and Regenerate send it as a reference for composition,
+        framing and poses only: its drawing style is ignored, and faces and outfits still come from the approved
+        references. Masked edits do not use it. With a prompt override the image is still sent, but only your text
+        describes it.
+      </p>
+      <div className="flex items-center gap-2">
+        {g && (
+          <AssetImage
+            assetId={g.assetId}
+            alt="Layout guide"
+            fit="contain"
+            className="size-20 shrink-0 rounded border border-[var(--border)]"
+          />
+        )}
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+          <label
+            className={clsx(
+              "btn-secondary cursor-pointer text-xs",
+              (uploading || locked) && "pointer-events-none opacity-50",
+            )}
+          >
+            {uploading ? <Spinner /> : <ImagePlus className="size-3.5" />} {g ? "Replace sketch" : "Upload sketch"}
+            <input
+              type="file"
+              className="sr-only"
+              accept="image/png,image/jpeg,image/webp"
+              disabled={uploading || locked}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void upload(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            disabled={uploading || locked}
+            onClick={() => setDrawing(true)}
+          >
+            <PencilLine className="size-3.5" /> {g ? "Edit drawing" : "Draw guide"}
+          </button>
+          {g && (
+            <button
+              type="button"
+              className="btn-ghost text-xs text-red-500"
+              disabled={setGuide.isPending}
+              onClick={() => setGuide.mutate(null)}
+            >
+              <Trash2 className="size-3.5" /> Remove
+            </button>
+          )}
+        </div>
+      </div>
+      {g && (
+        <Field label="How closely to follow it">
+          <select
+            className="input text-xs"
+            value={g.strength}
+            onChange={(e) => setGuide.mutate({ ...g, strength: e.target.value as PanelGuide["strength"] })}
+          >
+            <option value="loose">Loosely: the panel description wins where they differ</option>
+            <option value="strict">Strictly: keep its composition, framing and poses</option>
+          </select>
+        </Field>
+      )}
+      {g && (
+        <Field label="Pose, in words (optional)">
+          <textarea
+            key={`${panel.id}-${g.pose ?? ""}`}
+            className="input text-xs"
+            rows={2}
+            maxLength={800}
+            placeholder="e.g. one figure standing centred, full body, facing the viewer, hands on hips"
+            defaultValue={g.pose ?? ""}
+            onBlur={(e) => {
+              const pose = e.target.value.trim();
+              if (pose !== (g.pose ?? "")) setGuide.mutate({ ...g, pose });
+            }}
+          />
+        </Field>
+      )}
+      {g && (
+        <DescribePose
+          panelId={panel.id}
+          current={g.pose ?? ""}
+          disabled={locked}
+          onApply={(pose) => setGuide.mutate({ ...g, pose })}
+        />
+      )}
+      {drawing && (
+        <GuideDrawer
+          panelId={panel.id}
+          aspect={aspect}
+          guide={g ?? null}
+          artworkId={panel.artwork?.id ?? null}
+          onClose={() => setDrawing(false)}
+          onSaved={() => {
+            for (const key of invalidate) qc.invalidateQueries({ queryKey: key });
+          }}
+        />
+      )}
+    </fieldset>
+  );
+}
+
+const MOTIONS: [ShotVideo["motion"], string][] = [
+  ["auto", "Auto (by shot type, varied)"],
+  ["static", "Static"],
+  ["push-in", "Push in"],
+  ["pull-out", "Pull out"],
+  ["pan-left", "Pan left"],
+  ["pan-right", "Pan right"],
+  ["pan-up", "Pan up"],
+  ["pan-down", "Pan down"],
+];
+
+/** The panel as a video shot (panel cut): its camera move, the fade into it, and whether it is in the video at all. */
+function VideoShot({
+  panel,
+  locked,
+  onPatch,
+}: {
+  panel: EditorPanel;
+  locked: boolean;
+  onPatch: (video: ShotVideo) => void;
+}) {
+  const projectId = useProjectId();
+  const v = ShotVideo.parse(panel.video ?? {});
+  const set = (patch: Partial<ShotVideo>) => onPatch({ ...v, ...patch });
+  return (
+    <fieldset disabled={locked} className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+      <div className="flex items-center gap-2">
+        <span className="label mb-0">Video shot</span>
+        <PreviewVideoButton
+          projectId={projectId}
+          scope={{ panelId: panel.id }}
+          label="Preview shot"
+          title="Preview — this shot"
+          className="btn-ghost ml-auto text-xs"
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <Field label="Camera move">
+          <select
+            className="input text-xs"
+            value={v.motion}
+            onChange={(e) => set({ motion: e.target.value as ShotVideo["motion"] })}
+          >
+            {MOTIONS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Cut into this shot">
+          <select
+            className="input text-xs"
+            value={v.fade}
+            onChange={(e) => set({ fade: e.target.value as ShotVideo["fade"] })}
+          >
+            <option value="auto">Project default</option>
+            <option value="on">Fade through black</option>
+            <option value="off">Hard cut</option>
+          </select>
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={v.disabled} onChange={(e) => set({ disabled: e.target.checked })} />
+        Leave this shot and its narration out of videos
+      </label>
+    </fieldset>
   );
 }
 

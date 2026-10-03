@@ -11,6 +11,7 @@ import {
   Landmark,
   Loader2,
   Palette,
+  PersonStanding,
   Shirt,
   Sparkles,
   Sun,
@@ -33,6 +34,7 @@ const ICONS: Record<string, typeof ImageIcon> = {
   composition: Crop,
   mood: Heart,
   props: Boxes,
+  pose: PersonStanding,
   era: Clapperboard,
   technique: Palette,
 };
@@ -476,6 +478,7 @@ export function DescribeImage({
             {description.mood && <ResultCard title="Mood & tone" value={description.mood} />}
             {description.props && <ResultCard title="Props & objects" value={description.props} />}
             {description.era && <ResultCard title="Era & culture" value={description.era} />}
+            {description.pose && <ResultCard title="Pose & layout" value={description.pose} />}
             {description.technique && <ResultCard title="Medium & technique" value={description.technique} />}
             {description.custom && <ResultCard title="Your question" value={description.custom} />}
           </div>

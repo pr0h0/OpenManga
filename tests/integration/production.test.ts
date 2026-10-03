@@ -11,6 +11,8 @@ The door slammed shut with a BANG.`;
 type H = Awaited<ReturnType<typeof startHarness>>;
 let h: H;
 let u: TestClient;
+/** The project the first test produces, which the revised-story test builds on. */
+let builtProjectId = "";
 
 beforeAll(async () => {
   h = await startHarness();
@@ -54,6 +56,7 @@ describe("production runs", () => {
       201,
     );
     const projectId = p.project.id;
+    builtProjectId = projectId;
 
     // A run spends unattended, so it needs a cap first, and one at a time.
     await u.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: null } });
@@ -115,6 +118,104 @@ describe("production runs", () => {
     expect(second.id).toBe(again.run.id);
     expect(second.steps.find((s) => s.key === "analyze")?.status).toBe("skipped");
     expect(second.steps.find((s) => s.key === "thumbnail")?.status).toBe("skipped");
+  }, 400_000);
+
+  test("a revised story: Update production re-analyses it, waits with a diff, and applying keeps existing work", async () => {
+    const projectId = builtProjectId;
+    const before = await u.get<{ chapters: { id: string; title: string }[] }>(`/api/projects/${projectId}/chapters`);
+    expect(before.chapters.length).toBe(1);
+    const first = before.chapters[0]!;
+    const pagesOf = async (id: string) =>
+      (await u.get<{ pages: { id: string; readyCount: number }[] }>(`/api/chapters/${id}`)).pages;
+    const firstPages = await pagesOf(first.id);
+    expect(firstPages.length).toBeGreaterThan(0);
+
+    // The writer adds a chapter.
+    await u.post(
+      `/api/projects/${projectId}/story/revisions`,
+      { content: `${STORY}\n\nChapter 2: Dawn\n\nWoo Jin walked home at dawn. The city was quiet and grey.` },
+      201,
+    );
+    type Stage = { key: string; count: number };
+    const stale = async () =>
+      Object.fromEntries(
+        (await u.get<{ stages: Stage[] }>(`/api/projects/${projectId}/staleness`)).stages.map((s) => [s.key, s.count]),
+      );
+    expect((await stale()).story).toBe(1);
+
+    // Review gates off, and still the re-analysis waits for the user.
+    const { run } = await u.post<{ run: Run & { steps: { key: string; ref?: string }[] } }>(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, render: false, youtube: false },
+      201,
+    );
+    expect(run.steps.slice(0, 3).map((s) => s.key)).toEqual(["analyze", "review_analysis", "apply"]);
+    const waiting = await until(projectId, ["waiting"]);
+    expect(waiting.steps.find((s) => s.status === "review")?.key).toBe("review_analysis");
+    const ref = (waiting.steps as { key: string; ref?: string }[]).find((s) => s.key === "analyze")!.ref!;
+    // Nothing is applied before the user decides.
+    expect((await u.get<{ chapters: unknown[] }>(`/api/projects/${projectId}/chapters`)).chapters.length).toBe(1);
+
+    type Diff = {
+      hasExisting: boolean;
+      chapters: {
+        kept: { id: string; pages: number }[];
+        added: { title: string; position: number }[];
+        renamed: unknown[];
+        removed: unknown[];
+      };
+    };
+    const { diff } = await u.get<{ diff: Diff }>(`/api/story-analyses/${ref}/diff`);
+    expect(diff.hasExisting).toBe(true);
+    expect(diff.chapters.kept).toMatchObject([{ id: first.id, pages: firstPages.length }]);
+    expect(diff.chapters.added).toEqual([{ title: "Chapter 2: Dawn", position: 2 }]);
+    expect(diff.chapters.renamed).toEqual([]);
+    expect(diff.chapters.removed).toEqual([]);
+
+    // Continue: the analysis is applied keeping everything, and the run carries on to plan and draw the new chapter.
+    await u.post(`/api/production-runs/${run.id}/continue`);
+    const done = await until(projectId, ["completed"]);
+    expect(done.id).toBe(run.id);
+    const after = await u.get<{ chapters: { id: string; title: string; order: number }[] }>(
+      `/api/projects/${projectId}/chapters`,
+    );
+    expect(after.chapters.map((c) => [c.title, c.order])).toEqual([
+      ["Chapter 1: Rooftop", 1],
+      ["Chapter 2: Dawn", 2],
+    ]);
+    expect(after.chapters[0]!.id).toBe(first.id);
+    // The existing chapter keeps its very pages; the new one was planned and drawn.
+    expect((await pagesOf(first.id)).map((p) => p.id)).toEqual(firstPages.map((p) => p.id));
+    const added = await pagesOf(after.chapters[1]!.id);
+    expect(added.length).toBeGreaterThan(0);
+    expect(added.every((p) => p.readyCount > 0)).toBe(true);
+    expect(await stale()).toMatchObject({ story: 0, plan: 0 });
+
+    // A revision that drops the new chapter: the diff lists it with its work, and applying still keeps it.
+    const rev = await u.post<{ revision: { id: string } }>(
+      `/api/projects/${projectId}/story/revisions`,
+      { content: STORY },
+      201,
+    );
+    const again = await u.post<{ job: { id: string }; analysis: { id: string } }>(
+      `/api/story-revisions/${rev.revision.id}/analyze`,
+      {},
+      202,
+    );
+    await waitFor(
+      async () =>
+        (await u.get<{ job: { status: string } }>(`/api/generations/${again.job.id}`)).job.status === "completed",
+      { label: "re-analysis" },
+    );
+    const dropped = (
+      await u.get<{ diff: Diff & { chapters: { removed: { id: string; pages: number }[] } } }>(
+        `/api/story-analyses/${again.analysis.id}/diff`,
+      )
+    ).diff;
+    expect(dropped.chapters.removed).toMatchObject([{ id: after.chapters[1]!.id, pages: added.length }]);
+    await u.post(`/api/story-analyses/${again.analysis.id}/apply`, {});
+    const kept = await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`);
+    expect(kept.chapters.map((c) => c.id)).toEqual(after.chapters.map((c) => c.id));
   }, 400_000);
 
   test("the batch policy only batches keys whose provider has a batch API", async () => {

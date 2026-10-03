@@ -1,5 +1,6 @@
 import type { McpTool } from "../registry.ts";
 import { chapterTools } from "./chapters.ts";
+import { commentTools } from "./comments.ts";
 import { expertTools } from "./experts.ts";
 import { exportTools } from "./exports.ts";
 import { generationTools } from "./generations.ts";
@@ -7,6 +8,7 @@ import { imageTools } from "./images.ts";
 import { libraryTools } from "./library.ts";
 import { narrationTools } from "./narration.ts";
 import { panelTools } from "./panels.ts";
+import { productionTools } from "./production.ts";
 import { projectTools } from "./projects.ts";
 import { storyTools } from "./stories.ts";
 import { systemTools } from "./system.ts";
@@ -19,9 +21,11 @@ export const MCP_TOOLS = [
   ...libraryTools,
   ...chapterTools,
   ...panelTools,
+  ...commentTools,
   ...imageTools,
   ...generationTools,
   ...narrationTools,
   ...exportTools,
+  ...productionTools,
   ...expertTools,
 ] as unknown as McpTool[];

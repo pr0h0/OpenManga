@@ -9,6 +9,7 @@ import type { TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
+import { VideoSection } from "./VideoSettings.tsx";
 
 type Form = {
   title: string;
@@ -53,6 +54,7 @@ export function SettingsPage() {
     { enabled: Boolean(form) },
   );
   if (!form || !data) return null;
+  const owner = data.role === "owner" || data.role === "admin";
   const s = form.settings;
   const set = (k: keyof Form, v: string) => setForm({ ...form, [k]: v });
   const setS = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K]) =>
@@ -152,6 +154,8 @@ export function SettingsPage() {
               min={0}
               step={1}
               placeholder="No cap"
+              disabled={!owner}
+              title={owner ? undefined : "Only the project's owner can change the budget"}
               value={s.budgetUsd ?? ""}
               onChange={(e) => setS("budgetUsd", e.target.value === "" ? null : Math.max(0, Number(e.target.value)))}
             />
@@ -260,6 +264,13 @@ export function SettingsPage() {
           onChange={(v) => setS("targetRuntime", v)}
         />
 
+        <VideoSection
+          projectId={projectId}
+          projectTitle={form.title}
+          value={s.video}
+          onChange={(v) => setS("video", v)}
+        />
+
         <section className="card space-y-3 p-4">
           <h2 className="font-medium">Production</h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -297,19 +308,24 @@ export function SettingsPage() {
 
         <LetteringSection value={s.lettering} onChange={(v) => setS("lettering", v)} />
 
-        <ConsistencySection value={s.consistencyCheck} onChange={(v) => setS("consistencyCheck", v)} />
+        {/* The project's own keys, its budget and its fate are the owner's; members see the rest. */}
+        {owner && (
+          <>
+            <ConsistencySection value={s.consistencyCheck} onChange={(v) => setS("consistencyCheck", v)} />
 
-        <FallbackSection value={s.contentPolicyFallback} onChange={(v) => setS("contentPolicyFallback", v)} />
+            <FallbackSection value={s.contentPolicyFallback} onChange={(v) => setS("contentPolicyFallback", v)} />
 
-        <section className="card flex flex-wrap items-center gap-2 border-red-500/30 p-4">
-          <h2 className="mr-auto font-medium">Danger zone</h2>
-          <button type="button" className="btn-secondary" onClick={() => setConfirm("archive")}>
-            {data.project.status === "archived" ? "Unarchive" : "Archive"} project
-          </button>
-          <button type="button" className="btn-danger" onClick={() => setConfirm("trash")}>
-            Move to trash
-          </button>
-        </section>
+            <section className="card flex flex-wrap items-center gap-2 border-red-500/30 p-4">
+              <h2 className="mr-auto font-medium">Danger zone</h2>
+              <button type="button" className="btn-secondary" onClick={() => setConfirm("archive")}>
+                {data.project.status === "archived" ? "Unarchive" : "Archive"} project
+              </button>
+              <button type="button" className="btn-danger" onClick={() => setConfirm("trash")}>
+                Move to trash
+              </button>
+            </section>
+          </>
+        )}
       </div>
       <ConfirmDialog
         open={confirm !== null}

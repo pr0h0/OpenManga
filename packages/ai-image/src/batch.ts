@@ -10,7 +10,13 @@
  *     Its binding limit is payload size (20 MB inline), so batches are chunked by bytes.
  * Both are 50% of the interactive price and target 24h; Gemini expires a job that is still pending at 48h.
  */
-import { classifyFetchError, classifyHttpStatus, ProviderError, refuseRedirect } from "@openmanga/domain/browser";
+import {
+  classifyFetchError,
+  classifyHttpStatus,
+  isBatchQueueFull,
+  ProviderError,
+  refuseRedirect,
+} from "@openmanga/domain/browser";
 import { chooseImageDimensions, probeImage, type SizeOption } from "@openmanga/image-utils";
 import type { Logger } from "@openmanga/logger";
 import { geminiAspectFor } from "./gemini.ts";
@@ -54,6 +60,8 @@ export type BatchStatus = {
   /** Present once terminal. Items the provider failed carry `ok: false` and are retried synchronously. */
   items?: BatchItemResult[];
   error?: string;
+  /** Refused because the account's batch queue for this model is full; nothing ran and nothing was billed. */
+  queueFull?: boolean;
 };
 
 export interface ImageBatchProvider {
@@ -178,7 +186,9 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
       try {
         msg = (JSON.parse(text) as { error?: { message?: string } }).error?.message ?? msg;
       } catch {}
-      throw new ProviderError(this.provider, classifyHttpStatus(res.status), `OpenAI HTTP ${res.status}: ${msg}`, {
+      // A full batch queue is waited out, not failed: earlier batches finishing make room for this one.
+      const code = isBatchQueueFull(text) ? "batch_queue_full" : classifyHttpStatus(res.status);
+      throw new ProviderError(this.provider, code, `OpenAI HTTP ${res.status}: ${msg}`, {
         status: res.status,
         requestId: res.headers.get("x-request-id") ?? undefined,
       });
@@ -319,6 +329,8 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
       counts,
       items,
       error: state === "failed" ? JSON.stringify(b.errors ?? {}).slice(0, 300) : undefined,
+      // OpenAI accepts a batch over the enqueued-token limit, then fails it during validation without running it.
+      queueFull: state === "failed" && isBatchQueueFull(JSON.stringify(b.errors ?? {})),
     };
   }
 
@@ -484,7 +496,11 @@ export class GeminiImageBatchProvider implements ImageBatchProvider {
       } catch {}
       throw new ProviderError(
         this.provider,
-        status === "RESOURCE_EXHAUSTED" || status === "FAILED_PRECONDITION" ? "quota" : classifyHttpStatus(res.status),
+        isBatchQueueFull(text)
+          ? "batch_queue_full"
+          : status === "RESOURCE_EXHAUSTED" || status === "FAILED_PRECONDITION"
+            ? "quota"
+            : classifyHttpStatus(res.status),
         `Gemini HTTP ${res.status}${status ? ` ${status}` : ""}: ${msg}`,
         { status: res.status },
       );
@@ -522,6 +538,8 @@ export class GeminiImageBatchProvider implements ImageBatchProvider {
 
   async pollBatch(h: BatchHandle): Promise<BatchStatus> {
     const j = await this.api<{
+      /** The operation's own error, when the whole batch failed. */
+      error?: { message?: string; status?: string };
       metadata?: {
         state?: string;
         batchStats?: { requestCount?: string; successfulRequestCount?: string; failedRequestCount?: string };
@@ -553,7 +571,8 @@ export class GeminiImageBatchProvider implements ImageBatchProvider {
             : counts.failed > 0
               ? "partial"
               : "succeeded";
-    return { state, counts, items };
+    const error = state === "failed" && j.error ? `${j.error.status ?? ""} ${j.error.message ?? ""}`.trim() : undefined;
+    return { state, counts, items, error, queueFull: Boolean(error && isBatchQueueFull(error)) };
   }
 
   private async itemFrom(item: GeminiItem): Promise<BatchItemResult> {

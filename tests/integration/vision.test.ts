@@ -10,6 +10,7 @@ import {
 } from "@openmanga/db";
 import { mockImagePng } from "@openmanga/testing";
 import { imageDescribe } from "../../apps/worker/src/handlers/text.ts";
+import { inProject } from "../../apps/worker/src/lib/runner.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -50,7 +51,10 @@ test("uploading an image stores it and queues a description job", async () => {
   expect(job!.templateName).toBe("image-describe");
 
   // The handler runs against the mock provider and returns a parsed description.
-  const r = (await imageDescribe(h.workerDeps, job!)) as { description: Record<string, unknown>; aspects: string[] };
+  const r = (await imageDescribe(h.workerDeps, inProject(job!))) as {
+    description: Record<string, unknown>;
+    aspects: string[];
+  };
   expect(r.aspects).toEqual(["style", "character", "location"]);
   expect(r.description).toBeTruthy();
 });
@@ -117,7 +121,7 @@ test("descriptions are listed with their image and inputs, across projects by de
   expect(res.status).toBe(202);
   const started = (await res.json()) as { job: { id: string }; asset: { id: string } };
   const [job] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, started.job.id));
-  await imageDescribe(h.workerDeps, job!);
+  await imageDescribe(h.workerDeps, inProject(job!));
   // The handler's return value is what the runner stores; mirror that so the row looks like a finished job.
   await h.deps.db
     .update(generationJobs)

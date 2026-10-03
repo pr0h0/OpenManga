@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { FieldDocs } from "./answer-format.ts";
+import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
   NarrationDraftV2,
@@ -26,6 +27,9 @@ export const ANSWER_SCHEMAS = {
   ImageDescription,
   PanelCheck,
   YoutubePackage,
+  ProjectConcept,
+  ProjectPremise,
+  StoryOutline,
 } satisfies Record<string, z.ZodType>;
 
 /** Prefixes every key of a shared group, so a sub-object that appears in several answers is explained once. */
@@ -667,6 +671,18 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
         "paraffin lamp in the lantern room",
       ]),
     ),
+    pose: "The layout of a sketch or pose drawing: each figure's pose and place in the frame, and the framing.",
+    ...under("pose", {
+      summary: [
+        "One plain sentence a comic panel's composition can use as is: figures, placement, facing, pose, shot and angle.",
+        "one figure standing centred, full body, facing the viewer, hands on hips, feet shoulder-width apart, eye-level medium-wide shot",
+      ],
+      figures: ["One entry per figure, left to right.", ["standing centred, facing the viewer, hands on hips"]],
+      framing: [
+        "Shot type, camera angle and how much of each figure is in frame.",
+        "eye-level medium-wide shot, whole figure in frame",
+      ],
+    }),
     technique: "The apparent medium and process.",
     ...under(
       "technique",
@@ -717,5 +733,54 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "faces[].width": ["Width of the face box, as a fraction of the image width.", 0.16],
     "faces[].height": ["Height of the face box, as a fraction of the image height.", 0.2],
     notes: ["Anything else worth noting. Saved with the check.", "Tomas is partly hidden behind the door."],
+  },
+
+  ProjectConcept: {
+    "": "A new project drawn from a concept in an expert's reply. You review it before the project is created.",
+    title: ["The project's title.", "The Lamp at Vell"],
+    logline: [
+      "One sentence: who wants what, and what stands in the way. The first line of the project description.",
+      "An engineer sent to close the last lighthouse finds its keeper will not leave.",
+    ],
+    premise: [
+      "A paragraph on the story: setting, main characters, the central conflict and its stakes, without the ending.",
+      "Ines repairs lighthouses nobody visits. At Vell, the old keeper Tomas says the lamp turns by itself, and she " +
+        "has a week to shut it down before the storm season.",
+    ],
+    projectType: ["What kind of comic the project is.", "manhwa"],
+    format: [
+      'How it is made: "comic" (pages of panels), "film" (16:9 shots for a narrated video) or "vertical" (a ' +
+        "scrolling strip).",
+      "comic",
+    ],
+    storyIdea: [
+      "The concept written out as a story idea, as much as the reply gives. Saved as the project's first story " +
+        "revision, to analyse or develop further.",
+      "Ines arrives at Vell to close the light. Tomas refuses to leave. On the third night she stays awake and sees " +
+        "the lamp turn on its own.",
+    ],
+  },
+
+  ProjectPremise: {
+    "": "A replacement premise for the project, from an expert's reply. It becomes the project description.",
+    logline: [
+      "One sentence: who wants what, and what stands in the way.",
+      "An engineer sent to close the last lighthouse finds its keeper will not leave.",
+    ],
+    premise: [
+      "A paragraph on the story: setting, main characters, the central conflict and its stakes, without the ending.",
+      "Ines has a week to shut down Vell Light before the storm season, and Tomas has kept it for forty years.",
+    ],
+  },
+
+  StoryOutline: {
+    "": "An outline from an expert's reply, chapter by chapter. Saved as a new story revision of kind outline.",
+    title: ["A title for the outline revision. Empty for none.", "Three-act outline"],
+    chapters: "The chapters in story order; at least one.",
+    "chapters[].title": ["The chapter's title.", "Arrival at Vell"],
+    "chapters[].summary": [
+      "What happens in the chapter.",
+      "Ines reaches Vell and meets Tomas, who refuses to leave; she agrees to stay until the storm passes.",
+    ],
   },
 };

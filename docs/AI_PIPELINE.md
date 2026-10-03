@@ -2,18 +2,19 @@
 
 | Stage | Job kind / queue | Template (live version) | Output |
 | --- | --- | --- | --- |
-| Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters |
+| Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters; on a project that already has them it is additive (existing chapters keep their pages, new ones are inserted, nothing is removed; `GET /api/story-analyses/:id/diff` shows the changes first) |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
 | Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v2 then `scene-pages` v2 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v6, `shot-planning` v3 or `strip-planning` v2 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
 | Narration text | `narration_text` / text-ai | `narration` v5 | narration lines → TTS segments |
 | References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v8 | a new `panel_art` asset, activated on the panel |
+| Panels | `panel_generation` / image-generation | `panel-generation` v11 | a new `panel_art` asset, activated on the panel |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
+| Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
 `export`); see `docs/ARCHITECTURE.md` for the queue table and `docs/PROMPT_SYSTEM.md` for the templates.
@@ -21,6 +22,15 @@ Narration synthesis and exports are separate job families (`audio_jobs` on the `
 A job keeps its row, compiled prompt and cost after its image is deleted: the generation history then shows the
 output as deleted (`outputDeleted`) instead of the picture, and the job's page offers **Restore image** while the
 image is still in the trash.
+
+A panel generation attaches, in this order and at most eight: the approved character references (each followed by
+the reference of the outfit worn), the location, the props, the project style, the panel's **layout guide** (a
+sketch or pose the user uploaded or drew, role `layout_guide`, always given a slot), and last the previous panel of
+the scene for continuity only. The prompt names each one; the guide is read for composition, framing and poses only
+(`loose` or `strict`), never for style or identity, and masked edits leave it out. It is also the one reference
+sent large: a lossless PNG fitting 1024 px instead of the 192×288 derivative, because a pose lives in thin strokes.
+In strict mode a `POSE / LAYOUT` section right after the goal line says the sketch wins over the written composition
+on pose, placement and framing. Details and the reasons for the order are in `docs/IMAGE_REFERENCES.md`.
 
 The video thumbnail (`POST /api/projects/:projectId/thumbnail`, same body as the cover plus `side: left|right`) draws
 16:9 art that keeps that side dark and clear. The title and subtitle stay text in `settings.thumbnail`, and
@@ -114,6 +124,30 @@ to copy, and the pasted answer (plus any image uploaded with it) completes it. U
 `expert_image`, against the chat's project, or against no project, which the user's own usage page includes.
 Images attached to or drawn in a chat are `source_image` assets owned by the user, in the chat's project when it has
 one; an image with no project is readable by its owner only.
+
+### Output actions
+
+A finished reply offers four actions (*Use as*: New project, Premise, Outline, YouTube text). Each queues an
+`expert_extract` text job (`POST /api/expert-messages/:id/extract` with the action and the usual `ai` choice), so it
+runs with a provider key or in paste mode like any text step, with validation and one repair. The reply and the
+question it answered are copied onto the job when it is queued, so retrying the reply later does not change what an
+extraction read. The four templates share one frame: work from the reply, keep its names and wording, take the option
+it recommends (or the first), and write in the project's language. Their schemas are in `packages/schemas`
+(`experts.ts`): `ProjectConcept` (title, logline, premise, project type, format, story idea), `ProjectPremise`
+(logline and premise), `StoryOutline` (chapters with title and summary) and the existing `YoutubePackage`.
+
+Nothing is applied by the job. The chat shows the result under the reply for review and editing, and
+`POST /api/expert-extractions/:id/apply` (the reviewed `data`, `again`, and for a concept `attachChat`) applies it
+with the same code as the ordinary routes: creating the project with the story idea as an `idea` revision (and,
+optionally, moving the chat to it), replacing the description (logline, a blank line, the premise) or
+`settings.youtubePackage`, or adding an `outline` story revision (one `Chapter N: title` paragraph per chapter).
+Applying is recorded on the job (`result.applied`: when, how many times, and the project or revision it made), so
+the chat shows "Applied" with a link after a reload. The job is claimed in one statement before anything changes,
+so a double click or a retry cannot apply it twice; a second apply is refused with 409 `already_applied` unless
+`again: true` (the chat's *Apply again*, behind a confirmation). A failed apply puts the record back as it was. Premise, outline and YouTube text need a chat about a project; the job runs
+in that project (its budget, its Generation page). A concept from a chat about no project is the one job without a
+project: `generation_jobs.project_id` is null, only its owner can read or answer it, its usage is recorded against no
+project (only the server's monthly ceiling applies to it), and it is followed from the chat itself.
 
 ## What each text step is given
 
@@ -222,6 +256,10 @@ Reference derivatives are sized per provider — see `docs/IMAGE_REFERENCES.md`.
   `budget_exceeded` once recorded spend reaches the cap; the web client asks and retries with
   `x-allow-over-budget: 1`. Bulk estimates include the budget, a confirmed bulk run is refused when its estimate
   would reach the cap, and queued batch jobs re-check it when they start, pausing the batch instead of overspending.
+- **Server budget ceiling** (Admin → Usage, default `INSTANCE_BUDGET_USD_MONTHLY`): the whole server's spend this
+  calendar month (UTC). Checked before the project cap at the same points (`assertBudget`, the worker's batch gate),
+  refused with 402 `instance_budget_exceeded`, which no header overrides. Batches pause and production runs pause
+  exactly as at the project cap.
 - **Pause/resume batches**: `POST /api/generations/batches/:batchId/pause|resume`. Pausing removes not-yet-started
   jobs from Redis and marks them `paused` (reason in `failure_reason`); running jobs finish. A job failing with `auth`
   or `quota` pauses the rest of its batch automatically. Resume re-arms the jobs' outbox rows — same job ids, so
@@ -281,8 +319,8 @@ content parts, Anthropic image blocks).
 does the same for an image already in the project (a panel, a reference, an earlier upload). Both refuse before
 storing anything, so a request rejected for want of a key leaves no orphan image behind.
 
-The job attaches the 1024 px preview to the user message and asks `image-describe` v1 for the schema
-`ImageDescription`. Ten aspects, each with its own prompt fragment rather than one broad instruction:
+The job attaches the 1024 px preview to the user message and asks `image-describe` v2 for the schema
+`ImageDescription`. Eleven aspects, each with its own prompt fragment rather than one broad instruction:
 
 | aspect | returns | applies to |
 |---|---|---|
@@ -290,6 +328,7 @@ The job attaches the 1024 px preview to the user message and asks `image-describ
 | `character` | `CharacterBible` | a new character |
 | `location` | `LocationDescription` | a new location |
 | `outfit`, `lighting`, `composition`, `mood`, `props`, `era`, `technique` | prose + bullet details | copied by hand |
+| `pose` (v2) | one composition-ready sentence, per-figure notes, framing | a layout guide's pose text, after review (*Describe pose* on a layout guide) |
 
 The three that map onto an entity return **exactly** the shape that entity's existing endpoint already accepts, so
 applying a result is a plain `POST` of the object — there is no translation step and no write path of its own.
@@ -362,6 +401,33 @@ Spend is recorded against a `:batch` model at half rate, so batch cost is visibl
 sees the real figure. Each chunk's idempotency key is derived from the job ids in it and echoed in the provider's
 own metadata, so a crash between submitting and persisting finds the batch already paid for instead of buying a
 second one.
+
+**A full provider batch queue is waited out, not failed.** OpenAI caps the tokens an organisation may have
+enqueued per model across all its unfinished batches (`token_limit_exceeded`, "Enqueued token limit reached"), and
+Google has an equivalent enqueued-tokens quota. A refusal arrives either on the create call or, for OpenAI, as a
+batch that is accepted and then fails validation without running. Either way nothing ran and nothing was billed,
+so (`apps/worker/src/lib/batch-wait.ts`):
+
+- Chunks already accepted stay submitted. The submitter stops at the first refused chunk, since the rest would be
+  refused the same way.
+- The refused jobs stay `queued`, with `parameters.queueWait = { since, nextAt, tries, reason }`. The `batch-poll`
+  scheduler resubmits them when `nextAt` passes, after 5, 10 and 20 minutes and then every 30. It re-checks the
+  project budget first, as the runner does.
+- Each round adds `:w<tries>` to the chunk's idempotency key. A batch that was accepted and then refused still
+  exists under its old key, and reusing that key would adopt the refusal instead of submitting again.
+- After 24 hours of waiting the jobs fail with `batch_queue_full` and say why. By then every earlier batch has
+  completed or expired, so something else is holding the queue.
+- Most refusals are avoided up front: a key may have at most `BATCH_MAX_IN_FLIGHT_IMAGE` (4) image batches and
+  `BATCH_MAX_IN_FLIGHT_TEXT` (16) text batches in flight per provider and model (queued or running at the provider;
+  0 = no limit). The submitter checks the count before it builds any request, submits only as many chunks as fit, and
+  holds the rest as `queueWait.held`. Held jobs show as waiting too, but the poller retries them on every pass,
+  after ingesting, so a slot freed by a finished batch is filled in the same pass. They have no deadline, and they
+  keep their idempotency round, because nothing was sent. The count is per user rather than per credential: one user
+  with two keys for the same provider shares one limit.
+- The batch banner and `GET /api/projects/:projectId/generations/batches` show the state `waiting` (or `submitted`
+  while other chunks are at the provider) with `queueWaitUntil`: "waiting for room in the provider's batch queue,
+  next try at HH:MM". Pause and cancel work as for any queued batch job. The maintenance sweep for stranded batch
+  jobs only fails jobs whose submit job failed, so it leaves these alone.
 
 ## Target runtime
 

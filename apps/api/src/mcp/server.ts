@@ -9,6 +9,7 @@ import { agentContext } from "@openmanga/services";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { ApiError, notFound } from "../lib/http.ts";
+import { failureGuard } from "../lib/middleware.ts";
 import { runTool, setToolIndex, type ToolRun } from "./approvals.ts";
 import { authenticateBearer, bearerChallenge } from "./auth.ts";
 import { type McpActor, mcpAllowedHosts } from "./context.ts";
@@ -28,7 +29,7 @@ Asynchronous work: tools that start AI work return a job immediately. Poll it wi
 
 Manual (paste) mode needs no provider key: pass ai: { manual: true } to a text tool. When the job is awaiting_input, call get_manual_prompt, write an answer that satisfies the schema it shows (get_answer_schema explains every schema), and send it with submit_manual_answer. A chapter plan asks several questions in turn (ChapterOutline, then one ScenePages per scene): repeat until the job completes. A rejected answer leaves the job awaiting_input with lastError; fix only what it names and resubmit.
 
-Spending: image generation, provider-backed text, vision and cloud speech use the user's own provider keys and budget. Estimate bulk work with estimate_bulk_generation before run_bulk_generation. Never try to get around budget_exceeded or credentials_required; tell the user.
+Spending: image generation, provider-backed text, vision and cloud speech use the user's own provider keys and budget. Estimate bulk work with estimate_bulk_generation before run_bulk_generation. Never try to get around budget_exceeded, instance_budget_exceeded or credentials_required; tell the user.
 
 Approvals: some calls return status "pending_approval" instead of running. That is not an error. Tell the user an approval is waiting and give them approvalUrl. Do not call the original tool again. Check later with get_approval_request (not in a loop); when it is executed, continue from its result. When denied, respect it. When expired, propose the action again only if still needed. When stale, re-read the target first.
 
@@ -70,8 +71,10 @@ function toErrorResult(deps: Deps, actor: McpActor, e: unknown, requestId: strin
     _meta?: Record<string, unknown>;
   } = { isError: true, content: [{ type: "text", text: JSON.stringify({ ok: false, error }) }] };
   // OAuth clients can step up: the challenge names the scopes to ask the user for (ChatGPT reads it from _meta).
-  if (err.code === "scope_missing" && actor.serviceKind === "oauth") {
-    const missing = ((err.details as { missing?: string[] })?.missing ?? []) as string[];
+  // Not for a scope the user already declined: the client would only show them the same consent screen again.
+  const details = (err.details ?? {}) as { missing?: string[]; declined?: string[] };
+  if (err.code === "scope_missing" && actor.serviceKind === "oauth" && !details.declined?.length) {
+    const missing = details.missing ?? [];
     const scope = [...new Set([...actor.scopes, ...missing])].join(" ");
     result._meta = {
       "mcp/www_authenticate": [bearerChallenge(deps, { code: "insufficient_scope", description: err.message, scope })],
@@ -162,8 +165,11 @@ mcpRoutes.all("/mcp", async (c) => {
     hostHeaderValidationResponse(c.req.raw, hosts) ??
     originValidationResponse(c.req.raw, [...hosts, "chatgpt.com", "chat.openai.com"]);
   if (rejected) return rejected;
+  // Guessed tokens are capped per address; an expired or revoked one is a real client and does not count.
+  const guesses = await failureGuard(c, "mcp-token", 20, 900);
   const auth = await authenticateBearer(deps, c.req.header("authorization"));
   if ("error" in auth) {
+    if (auth.unknown) await guesses.fail();
     c.header(
       "WWW-Authenticate",
       bearerChallenge(

@@ -56,7 +56,7 @@ Profiles (set `COMPOSE_PROFILES` in `.env`):
 | `/api/public/*` | reader-link API (`/api/public/shares/<token>`), no sign-in; the SPA's reader is `/app/read/<token>` |
 | `/mcp` | MCP endpoint for AI agents: unbuffered (replies can upgrade to SSE), 300 s read timeout, 8 MB body (`docs/MCP.md`) |
 | `/oauth/*`, `/.well-known/oauth-*` | the MCP's OAuth authorization server and discovery documents, 64 KB body |
-| `/cdn/*` | API authorization → `X-Accel-Redirect` → the internal `/_protected_assets/` location |
+| `/cdn/*` | API authorization → `X-Accel-Redirect` → the internal `/_protected_assets/` location; with `STORAGE_DRIVER=s3`, a 302 to a short-lived signed bucket URL instead |
 | `/healthz`, `/readyz` | API health and readiness (`/readyz` checks Postgres and Redis; Kokoro is reported as optional and never fails readiness) |
 
 Security headers (CSP, nosniff, frame options, referrer policy, permissions policy, HSTS) are set by nginx;
@@ -78,6 +78,15 @@ docker run --rm --network openmanga_edge -v "$PWD":/repo -w /repo oven/bun:1.4-d
 ```
 
 Then check Cost → providers. `docs/TESTING.md` documents the other smoke-test options.
+
+### Server budget ceiling
+
+Each project has its own budget cap, which its owner can raise. On a shared install, hold the whole server to a
+monthly figure as well: **Admin → Usage → Server budget** sets a ceiling in USD per calendar month (UTC) and shows
+this month's spend against it. `INSTANCE_BUDGET_USD_MONTHLY` sets the default (empty for none). A value saved in
+Admin overrides it, and **Use default** goes back to it. Once the ceiling is reached, new AI work is refused with
+402 `instance_budget_exceeded`, queued batches pause, and production runs pause, until an admin raises it or the
+month turns. Users cannot confirm past it. See [COSTS](COSTS.md#keeping-spend-visible).
 
 ## Future subdomains
 
@@ -152,7 +161,8 @@ being killed after the user has already paid for it.
 ## Persistence
 
 Named volumes: `postgres-data`, `redis-data` (AOF, `maxmemory-policy noeviction`), `assets-data`, `tmp-data`,
-`kokoro-cache`. `docker compose down` keeps them — never use `-v` in production. Restart policy `unless-stopped`;
+`kokoro-cache`. With `STORAGE_DRIVER=s3`, `assets-data` stays empty and the files live in the bucket; `tmp-data` is
+still needed (imports, export and render work files). `docker compose down` keeps them — never use `-v` in production. Restart policy `unless-stopped`;
 health checks on postgres, redis, api, nginx, kokoro and the worker.
 
 ## Backups
@@ -166,9 +176,20 @@ asset volume, the compose and deploy configuration, a mode-600 copy of `.env`, a
 ```
 
 `scripts/restore.sh <dir> [--yes]` verifies the checksums, stops the app services, recreates the database, restores
-the assets, flushes Redis and restarts. The procedure was verified by backing up, deleting data and files, and
+the assets, flushes Redis and restarts. With `STORAGE_DRIVER=s3` neither script touches the bucket: back it up and
+restore it with the bucket's own tools ([STORAGE.md](STORAGE.md#backups-with-s3)). The procedure was verified by backing up, deleting data and files, and
 restoring. Redis being flushed is safe: the worker re-publishes still-queued jobs from the database within a minute of
 starting.
+
+## S3-compatible storage
+
+Assets can live in a bucket instead of the `assets-data` volume: set `STORAGE_DRIVER=s3`, the `S3_*` settings and
+`ASSET_CSP_ORIGIN` (the bucket origin browsers load from, which nginx adds to the app's CSP) in `.env`, then
+`docker compose up -d`. `/cdn` then answers with a redirect to a URL signed for `S3_PRESIGN_EXPIRES_SECONDS` (900),
+large files are uploaded in parts, and nothing else changes. The settings, the copy recipe for an existing install
+and what backups cover are in [STORAGE.md](STORAGE.md#assetstorage). A MinIO next to the stack works: put it on the
+`internal` network, set `S3_ENDPOINT=http://minio:9000`, `S3_FORCE_PATH_STYLE=true` and `S3_PUBLIC_ENDPOINT` to the
+address browsers reach it at. MinIO no longer publishes images; CI uses the `pgsty/minio` community build.
 
 ## Rotating the provider-key encryption key
 
@@ -199,10 +220,34 @@ Losing every key that can decrypt a row makes that saved key unreadable and the 
   are the rest. Per-provider request concurrency is capped separately by `AI_IMAGE_MAX_CONCURRENCY` and
   `AI_TEXT_MAX_CONCURRENCY`.
 - **Video export** renders and encodes `VIDEO_ENCODE_CONCURRENCY` clips at once (default 4, roughly one core each at
-  `veryfast`); narration audio is still assembled in page order.
+  `veryfast`); narration audio is still assembled in page order. Video renders and project imports run on their own
+  `render` queue (`RENDER_WORKER_CONCURRENCY`, default 1), so a long render never holds up a PDF or a ZIP on the
+  `export` queue (`EXPORT_WORKER_CONCURRENCY`, default 1). Each render already uses `VIDEO_ENCODE_CONCURRENCY` cores,
+  so raise `RENDER_WORKER_CONCURRENCY` only with cores to spare.
 - **Polling jobs**: `GET /api/jobs/:id` returns `{ type, job }` for any generation, audio, export or import job the
   caller can read (exports include their files). `POST /api/projects/:id/exports` returns the export *job*, not a
   file.
+
+### Dedicated render worker
+
+One worker container consumes every queue by default. To give video renders their own container (more memory or
+CPU, or a separate host with the same volumes and network), split the queues with `WORKER_QUEUES`:
+
+1. Uncomment the `worker-render` service in `docker-compose.yml`. It runs the same image with `WORKER_QUEUES: render`.
+2. In `.env`, set `WORKER_QUEUES` for the main worker to every other queue:
+   `WORKER_QUEUES=text-ai,image-generation,image-edit,asset-processing,tts,export,maintenance,image-batch`.
+   Leaving it empty also works, but then the main worker keeps taking renders too.
+3. `docker compose up -d worker worker-render`.
+
+Both containers need the `assets-data` and `tmp-data` volumes: imports read their upload from `tmp-data`. Every
+worker runs the outbox publisher and the Redis reconcile loop, which are safe to run twice. An unknown name in
+`WORKER_QUEUES` stops the worker at start, and the worker logs the queues it consumes. The Queues table in Admin shows the
+`render` queue's counts next to the others.
+
+**Upgrading from a release without the `render` queue.** Renders and imports queued before the upgrade stay on the
+`export` queue and still run there: the `export` worker takes any export kind, and reconcile, cancel and the stalled
+sweep look on both queues. They need a worker that consumes `export`, which the main worker does in both setups above.
+Nothing needs to be moved by hand.
 
 ## GPU Kokoro (later)
 
@@ -211,7 +256,7 @@ Add a compose override with `deploy.resources.reservations.devices` for the koko
 
 ## Health and recovery
 
-- Every long-running service has a health check. The worker writes `/data/tmp/worker-heartbeat` every 30 s and is
+- Every long-running service has a health check. The worker writes `/tmp/worker-heartbeat` (inside its own container) every 30 s and is
   unhealthy after 2 minutes without it.
 - The hourly `maintenance` job fails jobs that have not written to their row for `STALLED_JOB_TIMEOUT_MINUTES`
   (120) and that no worker still holds, fails batched panels whose submitter died, and prunes expired sessions,
@@ -232,14 +277,24 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   anyway"); draft versions are informational. The same issues are written into agent packages. The endpoint also
   reports whether the caller has a usable provider key for further generation.
 - **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`, `zip_package`, `project_json`,
-  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `youtube_package`. `pdf.pageSize`
+  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `video_shorts` (a trailer of `panelIds` up to `video.shortsSeconds`, default 180, at most 600), `youtube_package`.
+  Video kinds take `video.aspect` (`16:9`, `9:16`, `1:1`). `pdf.pageSize`
   takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
   `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
   fixed-layout with the cover.
-  Page images, PDF, CBZ, EPUB, webtoon, narration audio and timeline need a chapter (or page ids).
+  Narration audio and timeline need a chapter (or page ids). Every page-based kind (page images, PDF, CBZ, EPUB,
+  webtoon) also takes the whole project (no `chapterId`), every chapter in order: they all stream to disk, so a long
+  project costs no more memory than one chapter. Page images spanning chapters are named
+  `<title>_project_ch02_p003.png`, since page numbers restart in every chapter. A whole-project webtoon without
+  `split` is still one image, capped at 200 MP like any strip, so leave splitting on for a long project.
   `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
   project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
   `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
+- **Memory**: every output is written to a file in the job's temp directory as it is built. A PDF, CBZ or EPUB holds
+  one page at a time (the EPUB's manifest and spine are written last, from page sizes alone), a webtoon strip one
+  chunk (`maxChunkHeight`), a ZIP one entry (a video goes in chunk by chunk), so memory does not grow with project
+  length. ZIPs switch to ZIP64 records past 4 GiB or 65,535 entries; smaller archives stay plain ZIP. A package over
+  4 GiB is written, but importing one back is limited by `IMPORT_MAX_UPLOAD_MB`.
 - **Deleting**: `DELETE /api/exports/:id` or `DELETE /api/projects/:id/exports` removes finished exports and their
   files from disk at once (no trash); running exports are kept.
 - **Video export (panel cut)** `video_panels`: one clip per panel in reading order, clean artwork cropped exactly as

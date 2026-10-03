@@ -148,6 +148,55 @@
       "when": 1790635113513,
       "tag": "0020_production_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790893257393,
+      "tag": "0021_video_shots",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790895860507,
+      "tag": "0022_instance_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790897389745,
+      "tag": "0023_expert_extract_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790954336658,
+      "tag": "0024_project_invites",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790956029353,
+      "tag": "0025_panel_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790958614318,
+      "tag": "0026_panel_guide",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791025658163,
+      "tag": "0027_batch_art_panel_ids",
+      "breakpoints": true
     }
   ]
 }

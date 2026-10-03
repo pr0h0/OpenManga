@@ -378,7 +378,12 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "story-rewrite": "story-rewrite-v1",
     "json-repair": "json-repair-v1",
     "panel-check": "panel-check-v1",
+    "image-describe": "image-describe-v1",
     "expert-chat": "expert-chat-v1",
+    "expert-concept": "expert-concept-v1",
+    "expert-premise": "expert-premise-v1",
+    "expert-outline": "expert-outline-v1",
+    "expert-youtube": "expert-youtube-v1",
   };
   const route = tpl === "narration-v1" ? tpl : name === "narration" ? "narration-v2" : (byName[name] ?? tpl);
   switch (route) {
@@ -460,8 +465,62 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
       if (system.includes("IMAGE PROMPT:")) lines.push(`IMAGE PROMPT: a mock illustration of ${last.slice(0, 60)}`);
       return lines.join("\n\n");
     }
+    case "expert-concept-v1":
+    case "expert-premise-v1":
+    case "expert-outline-v1":
+    case "expert-youtube-v1": {
+      // Built from the reply itself, so a test can see that what was extracted came from the message it named.
+      const reply = (extractTagged(user, "expert_reply")[0] ?? "").trim();
+      const paras = reply
+        .split(/\n\s*\n/)
+        .map((p) => p.replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+      const first = (paras[0] ?? "An untitled idea").slice(0, 280);
+      const project = (data[0] ?? null) as { title?: string } | null;
+      if (route === "expert-concept-v1")
+        return {
+          title: first.slice(0, 60),
+          logline: first,
+          premise: paras.slice(0, 2).join(" ").slice(0, 3900) || first,
+          projectType: "manhwa",
+          format: "comic",
+          storyIdea: reply || first,
+        };
+      if (route === "expert-premise-v1") return { logline: first, premise: paras.join(" ").slice(0, 3900) || first };
+      if (route === "expert-outline-v1")
+        return {
+          title: "Outline from the expert",
+          chapters: (paras.length ? paras : [first]).slice(0, 12).map((p, i) => ({
+            title: `Part ${i + 1}`,
+            summary: p.slice(0, 3900),
+          })),
+        };
+      const title = project?.title ?? first.slice(0, 60);
+      return {
+        titles: [`${title}: ${first.slice(0, 40)}`],
+        description: paras.join("\n\n").slice(0, 4400) || first,
+        tags: [title.toLowerCase().slice(0, 60)],
+        pinnedComment: "What would you have done?",
+        thumbnailHeadlines: ["THE EXPERT WAS RIGHT"],
+      };
+    }
     case "story-rewrite-v1":
       return mockRewrite(story, extractTagged(user, "editor_instruction")[0] ?? "");
+    case "image-describe-v1":
+      // The overview always; a pose only when it was asked for, so a test sees the aspect reach the prompt.
+      return {
+        overview: "A mock description of the image.",
+        ...(/^\d+\. pose:/m.test(user)
+          ? {
+              pose: {
+                summary:
+                  "one figure standing centred, full body, facing the viewer, hands on hips, feet shoulder-width apart, eye-level medium-wide shot",
+                figures: ["standing centred, facing the viewer, hands on hips"],
+                framing: "eye-level medium-wide shot, whole figure in frame",
+              },
+            }
+          : {}),
+      };
     case "json-repair-v1": {
       const raw = data[0] as unknown;
       return raw ?? {};

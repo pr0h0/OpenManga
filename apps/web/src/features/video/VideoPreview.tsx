@@ -1,11 +1,17 @@
 import {
+  cardFrames,
+  fadeOpacity,
   frameSizeFor,
-  holdFor,
-  kenBurnsPullsOut,
-  kenBurnsZoomAt,
+  type Motion,
+  motionAt,
+  motionPath,
   pageShotBox,
   panelShotBox,
   scrollPlan,
+  shotGroups,
+  timeGroup,
+  type VideoAspect,
+  watermarkBox,
 } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -25,34 +31,80 @@ import { API_BASE, ApiError, assetUrl, get, post } from "../../api/client.ts";
 import { ConfirmDialog, ErrorBox, Field, Modal, Spinner, toast } from "../../components/ui.tsx";
 
 type Crop = { left: number; top: number; width: number; height: number };
+type PreviewSegment = {
+  id: string;
+  text: string;
+  pauseAfterMs: number;
+  audioAssetId: string | null;
+  durationMs: number | null;
+};
 type PreviewShot = {
   key: string;
   label: string;
+  /** Shares one hold with the next shot: a narration line spans the cut. */
+  joinNext: boolean;
+  fade: { in: boolean; out: boolean };
+  /** Panel cut: the resolved camera move. */
+  motion: Motion | null;
   page: { id: string; order: number; chapterOrder: number; width: number; height: number; updatedAt: string };
   panel: {
     id: string;
     shotType: string;
     frame: { x: number; y: number; width: number; height: number };
     aspect: number;
-    art: { assetId: string; width: number; height: number; crop: Crop; focus: { x: number; y: number } } | null;
+    /** Cropped to fill the frame (vertical and square profiles). */
+    fill: boolean;
+    focus: { x: number; y: number };
+    art: { assetId: string; width: number; height: number; crop: Crop } | null;
   } | null;
-  segments: {
-    id: string;
-    text: string;
-    pauseAfterMs: number;
-    audioAssetId: string | null;
-    durationMs: number | null;
-  }[];
+  lines: { id: string; startOffsetMs: number; endOffsetMs: number; segments: PreviewSegment[] }[];
 };
-type Preview = { cut: "page" | "panel"; language: string; unplacedLines: number; shots: PreviewShot[] };
+type Card = { title: string; subtitle: string; durationMs: number };
+type Branding = {
+  intro: Card | null;
+  outro: Card | null;
+  watermark: {
+    assetId: string;
+    corner: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+    opacity: number;
+    size: number;
+    width: number;
+    height: number;
+  } | null;
+  /** Changes whenever the project's settings do, so a re-rendered card is not served from the cache. */
+  version: string;
+};
+type Preview = {
+  cut: "page" | "panel";
+  language: string;
+  branding: Branding;
+  unplacedLines: number;
+  disabledPanels: number;
+  shots: PreviewShot[];
+};
 
-export type PreviewScope = { chapterId?: string; pageId?: string; panelId?: string };
+const MOTION_LABEL: Record<Motion, string> = {
+  static: "static",
+  "push-in": "push in",
+  "pull-out": "pull out",
+  "pan-left": "pan left",
+  "pan-right": "pan right",
+  "pan-up": "pan up",
+  "pan-down": "pan down",
+};
+
+export type PreviewScope = { chapterId?: string; pageId?: string; panelId?: string; panelIds?: string[] };
 
 const FPS = 30;
-const { frameW: W, frameH: H } = frameSizeFor(1080);
+/** The stage is the 1080p frame of the chosen shape, scaled to fit the window. */
+const stageSize = (aspect: VideoAspect) => {
+  const { frameW, frameH } = frameSizeFor(1080, aspect);
+  return { W: frameW, H: frameH };
+};
 
 type Options = {
   cut: "page" | "panel";
+  aspect: VideoAspect;
   minHoldMs: number;
   zoom: number;
   framing: "width" | "height" | "scroll";
@@ -61,44 +113,156 @@ type Options = {
   maxScrollPxPerSec: number;
 };
 
-/** Timeline with the same holds as the final render (narration + breath, at least the minimum, whole frames). */
-function buildTimeline(shots: PreviewShot[], minHoldMs: number) {
-  let start = 0;
-  const cues: { startMs: number; endMs: number; audioAssetId: string; shot: number }[] = [];
-  const timed = shots.map((shot, i) => {
-    const voiced = shot.segments.filter((s) => s.audioAssetId && s.durationMs);
-    let t = 0;
-    for (const [k, s] of voiced.entries()) {
-      cues.push({ startMs: start + t, endMs: start + t + s.durationMs!, audioAssetId: s.audioAssetId!, shot: i });
-      t += s.durationMs! + (k < voiced.length - 1 ? s.pauseAfterMs : 0);
-    }
-    const { holdMs } = holdFor(t, voiced.length > 0, minHoldMs, FPS);
-    const out = { shot, startMs: start, holdMs, missingAudio: shot.segments.length - voiced.length };
-    start += holdMs;
-    return out;
-  });
-  return { timed, cues, totalMs: start };
+/** One entry of the timeline: a shot, or the intro or outro card. */
+type Timed = {
+  key: string;
+  label: string;
+  shot: PreviewShot | null;
+  card: "intro" | "outro" | null;
+  startMs: number;
+  holdMs: number;
+  frames: number;
+  missingAudio: number;
+};
+
+/**
+ * Timeline with the same holds as the final render: the intro card, the shared `timeGroup` over each run of shots a
+ * narration line spans (narration + offsets + breath, at least the minimum per shot, whole frames), the outro card.
+ */
+function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined, capMs?: number) {
+  let frames = 0;
+  const at = (f: number) => (f * 1000) / FPS;
+  const cues: { startMs: number; endMs: number; audioAssetId: string }[] = [];
+  const timed: Timed[] = [];
+  const card = (which: "intro" | "outro") => {
+    const c = branding?.[which];
+    if (!c || !shots.length) return;
+    const n = cardFrames(c.durationMs, FPS);
+    const label = which === "intro" ? "Intro card" : "Outro card";
+    timed.push({
+      key: which,
+      label,
+      shot: null,
+      card: which,
+      startMs: at(frames),
+      holdMs: at(n),
+      frames: n,
+      missingAudio: 0,
+    });
+    frames += n;
+  };
+  card("intro");
+  for (const g of shotGroups(shots.map((s) => s.joinNext))) {
+    const members = shots.slice(g.first, g.last + 1);
+    const lines = members.flatMap((s) =>
+      s.lines.map((l) => ({ ...l, voiced: l.segments.filter((x) => x.audioAssetId && x.durationMs) })),
+    );
+    const timing = timeGroup(
+      lines.map((l) => ({
+        ...l,
+        segments: l.voiced.map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
+      })),
+      members.length,
+      { minHoldMs, fps: FPS },
+    );
+    // A Shorts cut ends before the shot that would pass its length limit, as the render does.
+    if (capMs && timed.length && at(frames + timing.totalFrames) > capMs) break;
+    const groupMs = at(frames);
+    lines.forEach((l, k) => {
+      l.voiced.forEach((x, j) => {
+        const start = groupMs + timing.starts[k]![j]!;
+        cues.push({ startMs: start, endMs: start + x.durationMs!, audioAssetId: x.audioAssetId! });
+      });
+    });
+    members.forEach((shot, m) => {
+      const n = timing.frames[m]!;
+      const all = shot.lines.flatMap((l) => l.segments);
+      const voiced = all.filter((x) => x.audioAssetId && x.durationMs).length;
+      timed.push({
+        key: shot.key,
+        label: shot.label,
+        shot,
+        card: null,
+        startMs: at(frames),
+        holdMs: at(n),
+        frames: n,
+        missingAudio: all.length - voiced,
+      });
+      frames += n;
+    });
+  }
+  card("outro");
+  return { timed, cues, totalMs: at(frames) };
 }
 
 /** Where the preview loads pages and media: the signed-in routes, or a reader link's public ones. */
 type PreviewUrls = {
   page: (pageId: string, updatedAt: string) => string;
   asset: (id: string, variant?: "web") => string;
+  card: (which: "intro" | "outro", version: string, aspect: VideoAspect) => string;
 };
-const SIGNED_IN: PreviewUrls = {
+const signedInUrls = (projectId: string): PreviewUrls => ({
   page: (pageId, updatedAt) => `${API_BASE}/pages/${pageId}/render.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => assetUrl(id, variant),
-};
+  card: (which, version, aspect) =>
+    `${API_BASE}/projects/${projectId}/video-card/${which}.png?${new URLSearchParams({ aspect, v: version })}`,
+});
 const sharedUrls = (token: string): PreviewUrls => ({
   page: (pageId, updatedAt) =>
     `${API_BASE}/public/shares/${token}/pages/${pageId}.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => `${API_BASE}/public/shares/${token}/assets/${id}${variant ? `?v=${variant}` : ""}`,
+  card: (which, version, aspect) =>
+    `${API_BASE}/public/shares/${token}/video-card/${which}.png?${new URLSearchParams({ aspect, v: version })}`,
 });
-const Urls = createContext<PreviewUrls>(SIGNED_IN);
+const Urls = createContext<PreviewUrls>(sharedUrls(""));
+
+/** An entry of the timeline on the stage, with the logo over it, as the render composites it. */
+function StageFrame({ entry, t, o, branding }: { entry: Timed; t: number; o: Options; branding: Branding }) {
+  const urls = useContext(Urls);
+  const { W, H } = stageSize(o.aspect);
+  const wm = branding.watermark;
+  const box = wm ? watermarkBox(W, H, wm, wm.corner, wm.size) : null;
+  return (
+    <>
+      {entry.card ? (
+        <img
+          src={urls.card(entry.card, branding.version, o.aspect)}
+          alt=""
+          style={{ position: "absolute", inset: 0, width: W, height: H }}
+        />
+      ) : (
+        entry.shot && <ShotFrame shot={entry.shot} t={t} holdMs={entry.holdMs} frames={entry.frames} o={o} />
+      )}
+      {wm && box && (
+        <img
+          src={urls.asset(wm.assetId)}
+          alt=""
+          style={{ position: "absolute", left: box.x, top: box.y, width: box.w, height: box.h, opacity: wm.opacity }}
+        />
+      )}
+    </>
+  );
+}
+
+/** Black over the picture where a scene break fades (the render's ffmpeg fade, same ramp). */
+function FadeShade({ shot, t, frames }: { shot: PreviewShot; t: number; frames: number }) {
+  const opacity = fadeOpacity(t * frames, frames, FPS, shot.fade);
+  return opacity > 0 ? <div style={{ position: "absolute", inset: 0, background: "black", opacity }} /> : null;
+}
 
 /** One shot drawn on a 1920×1080 stage at time `t` (0..1 of its hold) — the same geometry as the ffmpeg render. */
-function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdMs: number; o: Options }) {
+function ShotFrame(props: { shot: PreviewShot; t: number; holdMs: number; frames: number; o: Options }) {
+  return (
+    <>
+      <ShotPicture {...props} />
+      <FadeShade shot={props.shot} t={props.t} frames={props.frames} />
+    </>
+  );
+}
+
+function ShotPicture({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdMs: number; o: Options }) {
   const urls = useContext(Urls);
+  const { W, H } = stageSize(o.aspect);
   const pg = shot.page;
   if (o.cut === "page" || !shot.panel) {
     const box = pageShotBox(pg.width, pg.height, W, H, o);
@@ -107,7 +271,7 @@ function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdM
     const top = box.h > H ? -(y0 + travel * t) : (H - box.h) / 2;
     return (
       <>
-        <Backdrop src={src} />
+        <Backdrop src={src} w={W} h={H} />
         <img
           key={src}
           src={src}
@@ -120,13 +284,7 @@ function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdM
   const pn = shot.panel;
   // Clean art cropped as on the page, or the lettered page crop when there is no art (like the render).
   const source = pn.art
-    ? {
-        src: urls.asset(pn.art.assetId, "web"),
-        w: pn.art.width,
-        h: pn.art.height,
-        crop: pn.art.crop,
-        focus: pn.art.focus,
-      }
+    ? { src: urls.asset(pn.art.assetId, "web"), w: pn.art.width, h: pn.art.height, crop: pn.art.crop }
     : {
         src: urls.page(pg.id, pg.updatedAt),
         w: pg.width,
@@ -137,19 +295,18 @@ function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdM
           width: pn.frame.width * pg.width,
           height: pn.frame.height * pg.height,
         },
-        focus: { x: 0.5, y: 0.5 },
       };
-  const box = panelShotBox(pn.aspect, W, H);
-  const z = kenBurnsZoomAt(pn.shotType, o.zoom, t);
-  // zoompan anchor: the visible window keeps the focus at the same relative position while it zooms.
-  const vw = source.crop.width / z;
-  const vh = source.crop.height / z;
-  const vx = source.crop.left + (source.crop.width - vw) * source.focus.x;
-  const vy = source.crop.top + (source.crop.height - vh) * source.focus.y;
+  const box = pn.fill ? { full: true, w: W, h: H } : panelShotBox(pn.aspect, W, H);
+  // zoompan's window: zoom z, sitting at (x, y) of the slack the zoom leaves.
+  const m = motionAt(motionPath(shot.motion ?? "static", o.zoom, pn.focus), t);
+  const vw = source.crop.width / m.z;
+  const vh = source.crop.height / m.z;
+  const vx = source.crop.left + (source.crop.width - vw) * m.x;
+  const vy = source.crop.top + (source.crop.height - vh) * m.y;
   const s = box.w / vw;
   return (
     <>
-      {!box.full && <Backdrop src={source.src} />}
+      {!box.full && <Backdrop src={source.src} w={W} h={H} />}
       <div
         style={{
           position: "absolute",
@@ -178,7 +335,7 @@ function ShotFrame({ shot, t, holdMs, o }: { shot: PreviewShot; t: number; holdM
   );
 }
 
-function Backdrop({ src }: { src: string }) {
+function Backdrop({ src, w, h }: { src: string; w: number; h: number }) {
   return (
     <img
       key={src}
@@ -187,8 +344,8 @@ function Backdrop({ src }: { src: string }) {
       style={{
         position: "absolute",
         inset: 0,
-        width: W,
-        height: H,
+        width: w,
+        height: h,
         objectFit: "cover",
         filter: "blur(36px) brightness(0.55)",
         transform: "scale(1.12)",
@@ -227,6 +384,9 @@ export function VideoPreview({
   projectId,
   scope,
   defaultCut,
+  defaultAspect,
+  defaultMinHoldMs,
+  capMs,
   title,
   shareToken,
 }: {
@@ -235,23 +395,36 @@ export function VideoPreview({
   projectId: string;
   scope: PreviewScope;
   defaultCut: "page" | "panel";
+  /** Frame shape to open with (a Shorts pick opens vertical). */
+  defaultAspect?: VideoAspect;
+  /** Minimum hold to open with. */
+  defaultMinHoldMs?: number;
+  /** A length limit (a Shorts cut): the timeline ends before the shot that would pass it, as the render does. */
+  capMs?: number;
   title: string;
   /** Played from a reader link: public, read-only routes, and nothing to render. */
   shareToken?: string;
 }) {
-  const urls = useMemo(() => (shareToken ? sharedUrls(shareToken) : SIGNED_IN), [shareToken]);
+  const urls = useMemo(() => (shareToken ? sharedUrls(shareToken) : signedInUrls(projectId)), [shareToken, projectId]);
   const [o, setO] = useState<Options>({
-    cut: scope.panelId ? "panel" : defaultCut,
-    minHoldMs: 2500,
+    cut: scope.panelId || scope.panelIds ? "panel" : defaultCut,
+    aspect: defaultAspect ?? "16:9",
+    minHoldMs: defaultMinHoldMs ?? 2500,
     zoom: 0.06,
     framing: "width",
     pageWidthRatio: 0.6,
     pageHeightRatio: 0.96,
     maxScrollPxPerSec: 60,
   });
+  const { W, H } = stageSize(o.aspect);
   const params = new URLSearchParams({
     cut: o.cut,
-    ...Object.fromEntries(Object.entries(scope).filter(([, v]) => Boolean(v))),
+    aspect: o.aspect,
+    ...Object.fromEntries(
+      Object.entries(scope)
+        .filter(([, v]) => Boolean(v))
+        .map(([k, v]) => [k, Array.isArray(v) ? v.join(",") : v]),
+    ),
   });
   const preview = useQuery({
     queryKey: ["video-preview", params.toString()],
@@ -259,7 +432,10 @@ export function VideoPreview({
       get<Preview>(shareToken ? `/public/shares/${shareToken}/video-preview?${params}` : `/video-preview?${params}`),
     enabled: open,
   });
-  const timeline = useMemo(() => buildTimeline(preview.data?.shots ?? [], o.minHoldMs), [preview.data, o.minHoldMs]);
+  const timeline = useMemo(
+    () => buildTimeline(preview.data?.shots ?? [], o.minHoldMs, preview.data?.branding, capMs),
+    [preview.data, o.minHoldMs, capMs],
+  );
 
   const [clock, setClock] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -316,7 +492,9 @@ export function VideoPreview({
     const decode = (id: string) => {
       let b = buffers.current.get(id);
       if (!b) {
-        b = fetch(urls.asset(id))
+        // Read through the API even with bucket storage: a redirect to the bucket would need a CORS rule there.
+        const url = urls.asset(id);
+        b = fetch(`${url}${url.includes("?") ? "&" : "?"}proxy=1`)
           .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
           .then((data) => p.ctx.decodeAudioData(data))
           .catch(() => null);
@@ -399,6 +577,7 @@ export function VideoPreview({
   // Warm the next shots' images so cuts land on a loaded picture.
   useEffect(() => {
     for (const next of timeline.timed.slice(current + 1, current + 3)) {
+      if (!next.shot) continue;
       const pn = next.shot.panel;
       const img = new Image();
       img.src =
@@ -417,7 +596,7 @@ export function VideoPreview({
     const ro = new ResizeObserver(() => setStageW(Math.max(160, Math.min(el.clientWidth, (el.clientHeight * W) / H))));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [open, preview.data]);
+  }, [open, preview.data, W, H]);
 
   // Shot list and settings fold away; the choice is remembered in this browser.
   const [showLines, setShowLines] = useState(() => readFlag("om-preview-lines", true));
@@ -465,7 +644,7 @@ export function VideoPreview({
           fps: FPS,
           minHoldMs: o.minHoldMs,
           framing: o.framing,
-          pageWidthRatio: o.pageWidthRatio,
+          aspect: o.aspect,
           pageHeightRatio: o.pageHeightRatio,
           maxScrollPxPerSec: o.maxScrollPxPerSec,
           zoom: o.zoom,
@@ -487,7 +666,7 @@ export function VideoPreview({
   }, [current, showLines]);
 
   const missingAudio = timeline.timed.reduce((n, s) => n + s.missingAudio, 0);
-  const noArt = o.cut === "panel" ? timeline.timed.filter((s) => s.shot.panel && !s.shot.panel.art).length : 0;
+  const noArt = o.cut === "panel" ? timeline.timed.filter((s) => s.shot?.panel && !s.shot.panel.art).length : 0;
   const scale = stageW / W;
   const t = shot ? Math.min(1, Math.max(0, (clock - shot.startMs) / shot.holdMs)) : 0;
 
@@ -501,6 +680,8 @@ export function VideoPreview({
     noArt > 0 && `${noArt} panel(s) have no artwork and show their lettered page crop`,
     (preview.data?.unplacedLines ?? 0) > 0 &&
       `${preview.data?.unplacedLines} narration line(s) aren't linked to a page or panel and are left out`,
+    (preview.data?.disabledPanels ?? 0) > 0 &&
+      `${preview.data?.disabledPanels} panel(s) are disabled as shots and left out with their narration`,
   ].filter(Boolean) as string[];
 
   return (
@@ -542,10 +723,10 @@ export function VideoPreview({
                     overflow: "hidden",
                   }}
                 >
-                  {shot && <ShotFrame shot={shot.shot} t={t} holdMs={shot.holdMs} o={o} />}
+                  {shot && preview.data && <StageFrame entry={shot} t={t} o={o} branding={preview.data.branding} />}
                 </div>
                 <div className="absolute right-2 bottom-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
-                  {shot?.shot.label}
+                  {shot?.label}
                 </div>
               </button>
             </div>
@@ -627,7 +808,24 @@ export function VideoPreview({
             {showOptions && (
               <div className="shrink-0 space-y-2">
                 <div className="grid gap-3 sm:grid-cols-4">
-                  {!scope.panelId && (
+                  <Field label="Shape">
+                    <select
+                      className="input"
+                      value={o.aspect}
+                      onChange={(e) => {
+                        setPlaying(false);
+                        seek(0);
+                        const aspect = e.target.value as VideoAspect;
+                        // A narrow frame shows a page at its full width, as the render does.
+                        setO({ ...o, aspect, pageWidthRatio: aspect === "16:9" ? 0.6 : 1 });
+                      }}
+                    >
+                      <option value="16:9">16:9 landscape</option>
+                      <option value="9:16">9:16 vertical (Shorts)</option>
+                      <option value="1:1">1:1 square</option>
+                    </select>
+                  </Field>
+                  {!scope.panelId && !scope.panelIds && (
                     <Field label="Cut">
                       <select
                         className="input"
@@ -702,26 +900,34 @@ export function VideoPreview({
                 className="h-[calc(5*1.85rem+6px)] shrink-0 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs"
               >
                 {timeline.timed.map((s, i) => {
-                  const narration = s.shot.segments.map((x) => x.text).join(" ");
+                  const narration = (s.shot?.lines ?? [])
+                    .flatMap((l) => l.segments)
+                    .map((x) => x.text)
+                    .join(" ");
+                  // A line spanning the cut keeps speaking over this shot.
+                  const continues = timeline.timed[i - 1]?.shot?.joinNext;
                   return (
-                    <li key={s.shot.key} data-shot={i}>
+                    <li key={s.key} data-shot={i}>
                       <button
                         type="button"
                         className={`flex h-[1.85rem] w-full items-center gap-3 px-2 text-left hover:bg-[var(--panel-2)] ${i === current ? "bg-accent-600/15" : ""}`}
                         onClick={() => seek(s.startMs + 1)}
                       >
-                        <span className="w-44 shrink-0 truncate font-medium">{s.shot.label}</span>
+                        <span className="w-44 shrink-0 truncate font-medium">{s.label}</span>
                         <span className="muted w-24 shrink-0 tabular-nums">
                           {mmss(s.startMs)} · {(s.holdMs / 1000).toFixed(1)}s
                         </span>
-                        {o.cut === "panel" && s.shot.panel && (
-                          <span className="muted w-14 shrink-0">
-                            {kenBurnsPullsOut(s.shot.panel.shotType) ? "zoom out" : "zoom in"}
+                        {o.cut === "panel" && s.shot?.panel && (
+                          <span className="muted w-16 shrink-0">
+                            {s.shot.motion ? MOTION_LABEL[s.shot.motion] : ""}
+                            {s.shot.fade.in ? " · fade" : ""}
                           </span>
                         )}
                         {/* Truncated to keep the row one line; the title shows the whole narration on hover. */}
                         <span className="muted truncate" title={narration || undefined}>
-                          {narration || "— no narration —"}
+                          {s.card
+                            ? (preview.data?.branding[s.card]?.title ?? "")
+                            : narration || (continues ? "↳ narration continues" : "— no narration —")}
                         </span>
                       </button>
                     </li>
@@ -753,12 +959,18 @@ export function PreviewVideoButton({
   label = "Preview video",
   title,
   className = "btn-secondary",
+  defaultAspect,
+  defaultMinHoldMs,
+  capMs,
 }: {
   projectId: string;
   scope: PreviewScope;
   label?: string;
   title: string;
   className?: string;
+  defaultAspect?: VideoAspect;
+  defaultMinHoldMs?: number;
+  capMs?: number;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -773,6 +985,9 @@ export function PreviewVideoButton({
           projectId={projectId}
           scope={scope}
           defaultCut="panel"
+          defaultAspect={defaultAspect}
+          defaultMinHoldMs={defaultMinHoldMs}
+          capMs={capMs}
           title={title}
         />
       )}

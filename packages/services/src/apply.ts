@@ -23,6 +23,7 @@ import {
   propVersions,
   scenes,
   soundEffects,
+  sql,
   storyAnalyses,
   storyBeats,
   storyRevisions,
@@ -86,6 +87,154 @@ export function sliceChapters(story: string, starts: string[]): string[] {
   return positions.map((p, i) => story.slice(p, positions[i + 1] ?? story.length).trim());
 }
 
+type ExistingChapter = { id: string; title: string; order: number; storyAnalysisId: string | null };
+
+const sameTitle = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * How an analysis's chapters line up with a project's existing ones, so applying it again never loses work. A
+ * chapter with the same title is kept (and updated); one at the same position whose title the new analysis no longer
+ * has, and that an analysis made, is renamed; the rest are added. Existing chapters left over are `unmatched`: they
+ * stay unless their removal is confirmed separately. `order` is the final sequence: the analysis's chapters in its
+ * order, each unmatched chapter right after the chapter it used to follow.
+ */
+export function mergeChapters(existing: ExistingChapter[], next: { title: string }[]) {
+  const old = [...existing].sort((a, b) => a.order - b.order);
+  const taken = new Set<string>();
+  const match: (ExistingChapter | null)[] = next.map((ch) => {
+    const e = old.find((x) => !taken.has(x.id) && sameTitle(x.title, ch.title));
+    if (e) taken.add(e.id);
+    return e ?? null;
+  });
+  const titles = next.map((c) => c.title);
+  next.forEach((_, i) => {
+    if (match[i]) return;
+    const e = old[i];
+    if (e && !taken.has(e.id) && e.storyAnalysisId && !titles.some((t) => sameTitle(t, e.title))) {
+      taken.add(e.id);
+      match[i] = e;
+    }
+  });
+  const chapters = next.map((ch, i) => {
+    const e = match[i];
+    return {
+      index: i,
+      title: ch.title,
+      existingId: e?.id ?? null,
+      kind: !e ? ("added" as const) : sameTitle(e.title, ch.title) ? ("kept" as const) : ("renamed" as const),
+      fromTitle: e?.title,
+    };
+  });
+  const unmatched = old.filter((e) => !taken.has(e.id));
+  // The final sequence: the analysis order, each leftover chapter after the nearest earlier chapter it followed.
+  const order: ({ existingId: string } | { index: number })[] = chapters.map((c) =>
+    c.existingId ? { existingId: c.existingId } : { index: c.index },
+  );
+  const leftover = new Set(unmatched.map((u) => u.id));
+  const at = (id: string) => order.findIndex((o) => "existingId" in o && o.existingId === id);
+  for (const u of unmatched) {
+    const anchor = old
+      .slice(0, old.indexOf(u))
+      .reverse()
+      .find((b) => at(b.id) >= 0);
+    // After the anchor and after leftovers already placed there, so leftovers keep their own order.
+    let i = anchor ? at(anchor.id) + 1 : 0;
+    while (
+      i < order.length &&
+      "existingId" in order[i]! &&
+      leftover.has((order[i] as { existingId: string }).existingId)
+    )
+      i++;
+    order.splice(i, 0, { existingId: u.id });
+  }
+  return { chapters, unmatched, order };
+}
+
+/**
+ * What applying an analysis would change in its project, for the review before it is applied. Chapters line up as
+ * `mergeChapters` lines them up: kept (with `textChanged` when the story under them changed), renamed, added, and
+ * removed — chapters an analysis made that the new one no longer has, with their pages and drawn panels, which apply
+ * keeps unless their removal is confirmed. Characters, locations and props are added (new to the project) or removed
+ * (made by an analysis and absent from this one; apply keeps them too).
+ */
+export async function analysisDiff(db: Database, analysisId: string, edited?: StoryAnalysis) {
+  const [analysis] = await db.select().from(storyAnalyses).where(eq(storyAnalyses.id, analysisId));
+  if (!analysis) throw new Error("Analysis not found");
+  const result = edited ?? analysis.result;
+  if (!result) throw new Error("Analysis has no result");
+  const projectId = analysis.projectId;
+  const [rev] = await db.select().from(storyRevisions).where(eq(storyRevisions.id, analysis.storyRevisionId));
+  const existing = await db
+    .select({
+      id: chapters.id,
+      title: chapters.title,
+      order: chapters.order,
+      storyAnalysisId: chapters.storyAnalysisId,
+      sourceExcerpt: chapters.sourceExcerpt,
+      pages: sql<number>`(select count(*)::int from pages p where p.chapter_id = "chapters"."id")`,
+      drawn: sql<number>`(select count(*)::int from panels pn join pages p on p.id = pn.page_id
+        where p.chapter_id = "chapters"."id" and pn.active_artwork_asset_id is not null)`,
+    })
+    .from(chapters)
+    .where(eq(chapters.projectId, projectId));
+  const merge = mergeChapters(existing, result.chapters);
+  const texts = sliceChapters(
+    rev?.content ?? "",
+    result.chapters.map((c) => c.sourceStart),
+  );
+  const byId = new Map(existing.map((e) => [e.id, e]));
+  const work = (id: string) => ({ pages: byId.get(id)!.pages, drawnPanels: byId.get(id)!.drawn });
+  type Named = { id: string; name: string; analysisKey: string | null; deletedAt: Date | null };
+  // Added: what apply would create. Removed: what an analysis made and this one no longer mentions at all.
+  const named = (all: Named[], mentioned: { key: string; name: string }[], created = mentioned) => {
+    const rows = all.filter((r) => !r.deletedAt);
+    const is = (r: Named, n: { key: string; name: string }) =>
+      r.analysisKey === n.key || r.name.toLowerCase() === n.name.toLowerCase();
+    return {
+      added: created.filter((n) => !rows.some((r) => is(r, n))).map((n) => n.name),
+      removed: rows
+        .filter((r) => r.analysisKey && !mentioned.some((n) => is(r, n)))
+        .map((r) => ({ id: r.id, name: r.name })),
+    };
+  };
+  return {
+    hasExisting: existing.length > 0,
+    chapters: {
+      kept: merge.chapters
+        .filter((c) => c.kind === "kept")
+        .map((c) => ({
+          id: c.existingId!,
+          title: c.title,
+          textChanged: (byId.get(c.existingId!)!.sourceExcerpt ?? "").trim() !== (texts[c.index] ?? "").trim(),
+          ...work(c.existingId!),
+        })),
+      renamed: merge.chapters
+        .filter((c) => c.kind === "renamed")
+        .map((c) => ({ id: c.existingId!, from: c.fromTitle!, to: c.title, ...work(c.existingId!) })),
+      added: merge.chapters.filter((c) => c.kind === "added").map((c) => ({ title: c.title, position: c.index + 1 })),
+      removed: merge.unmatched
+        .filter((u) => u.storyAnalysisId)
+        .map((u) => ({ id: u.id, title: u.title, ...work(u.id) })),
+    },
+    characters: named(await db.select().from(characters).where(eq(characters.projectId, projectId)), result.characters),
+    locations: named(await db.select().from(locations).where(eq(locations.projectId, projectId)), result.locations),
+    // Only recurring props are created, but any mention keeps an existing one.
+    props: named(
+      await db.select().from(props).where(eq(props.projectId, projectId)),
+      result.props,
+      result.props.filter((p) => p.recurring),
+    ),
+  };
+}
+
+/**
+ * Creates the cast, world and chapters of an analysis in its project. Applying to a project that already has them
+ * (a revised story's analysis, or the same one again) is additive: characters, locations and props are matched by
+ * key or name and never changed; chapters line up as `mergeChapters` says — kept and renamed chapters keep their pages
+ * and get the new summary, beats and source text, new chapters are inserted at their place, and chapters the
+ * analysis no longer has stay where they were. Nothing is removed here: `analysisDiff` lists what the new analysis
+ * drops, and removing it is a separate, confirmed step.
+ */
 export async function applyStoryAnalysis(
   db: Database,
   analysisId: string,
@@ -99,7 +248,7 @@ export async function applyStoryAnalysis(
     if (!result) throw new Error("Analysis has no result");
     const [rev] = await tx.select().from(storyRevisions).where(eq(storyRevisions.id, analysis.storyRevisionId));
     const projectId = analysis.projectId;
-    const created = { characters: 0, locations: 0, props: 0, chapters: 0 };
+    const created = { characters: 0, locations: 0, props: 0, chapters: 0, renamed: 0 };
 
     const existingChars = await tx
       .select()
@@ -154,21 +303,36 @@ export async function applyStoryAnalysis(
       rev?.content ?? "",
       result.chapters.map((c) => c.sourceStart),
     );
-    const base = existingChapters.length ? Math.max(...existingChapters.map((c) => c.order)) : 0;
-    for (const [i, ch] of result.chapters.entries()) {
-      if (existingChapters.some((e) => e.title.toLowerCase() === ch.title.toLowerCase() && e.storyAnalysisId !== null))
-        continue;
-      await tx.insert(chapters).values({
-        projectId,
+    const merge = mergeChapters(existingChapters, result.chapters);
+    const ids = new Map<number, string>();
+    for (const m of merge.chapters) {
+      const ch = result.chapters[m.index]!;
+      const fields = {
         storyAnalysisId: analysis.id,
-        order: base + i + 1,
         title: ch.title,
         summary: ch.summary,
-        sourceExcerpt: texts[i] ?? "",
+        sourceExcerpt: texts[m.index] ?? "",
         beats: ch.beats,
-      });
+      };
+      if (m.existingId) {
+        await tx.update(chapters).set(fields).where(eq(chapters.id, m.existingId));
+        ids.set(m.index, m.existingId);
+        if (m.kind === "renamed") created.renamed++;
+        continue;
+      }
+      const [row] = await tx
+        .insert(chapters)
+        .values({ projectId, order: 0, ...fields })
+        .returning({ id: chapters.id });
+      ids.set(m.index, row!.id);
       created.chapters++;
     }
+    // Number every chapter in its final place: the analysis's order, with the chapters it no longer has where they were.
+    for (const [n, o] of merge.order.entries())
+      await tx
+        .update(chapters)
+        .set({ order: n + 1 })
+        .where(eq(chapters.id, "existingId" in o ? o.existingId : ids.get(o.index)!));
 
     const [project] = await tx.select().from(projects).where(eq(projects.id, projectId));
     // The cover is drawn from the project's description; an empty one takes the story's summary.

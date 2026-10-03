@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { RotateCcw, Search, Shield, UserPlus, Wrench, XCircle } from "lucide-react";
 import { useState } from "react";
-import { get, patch, post } from "../../api/client.ts";
+import { del, get, patch, post, put } from "../../api/client.ts";
 import { useAction, useMe } from "../../api/hooks.ts";
 import type { GenerationJobRow, UsageSummary, UserRow } from "../../api/types.ts";
 import {
@@ -513,8 +513,120 @@ function JobsTab() {
 
 function AdminUsage() {
   const q = useQuery({ queryKey: ["admin", "usage"], queryFn: () => get<UsageSummary>("/admin/usage") });
-  if (q.error) return <ErrorBox error={q.error} />;
-  return q.data ? <UsageDashboard data={q.data} /> : <Spinner />;
+  return (
+    <div className="space-y-4">
+      <ServerBudget />
+      {q.error ? <ErrorBox error={q.error} /> : q.data ? <UsageDashboard data={q.data} /> : <Spinner />}
+    </div>
+  );
+}
+
+type InstanceBudget = {
+  limitUsd: number | null;
+  source: "admin" | "env" | "none";
+  spentUsd: number;
+  remainingUsd: number | null;
+  exceeded: boolean;
+  monthStart: string;
+};
+
+/** This month's spend across the whole server against the admin-set ceiling, and the form to change it. */
+function ServerBudget() {
+  const q = useQuery({
+    queryKey: ["admin", "budget"],
+    queryFn: () => get<{ budget: InstanceBudget; envDefaultUsd: number | null }>("/admin/budget"),
+  });
+  const [draft, setDraft] = useState<string | null>(null);
+  const save = useAction((monthlyUsd: number | null) => put("/admin/budget", { monthlyUsd }), {
+    invalidate: [["admin", "budget"]],
+    success: "Server budget saved",
+    onSuccess: () => setDraft(null),
+  });
+  const reset = useAction(() => del("/admin/budget"), {
+    invalidate: [["admin", "budget"]],
+    success: "Server budget reset to the default",
+    onSuccess: () => setDraft(null),
+  });
+  if (!q.data) return q.error ? <ErrorBox error={q.error} /> : null;
+  const { budget: b, envDefaultUsd } = q.data;
+  const value = draft ?? (b.limitUsd === null ? "" : String(b.limitUsd));
+  const pct = b.limitUsd ? Math.min(100, (b.spentUsd / b.limitUsd) * 100) : 0;
+  const month = new Date(b.monthStart).toLocaleDateString([], { month: "long", year: "numeric", timeZone: "UTC" });
+  return (
+    <section className="card p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h2 className="mr-auto font-medium">Server budget · {month} (UTC)</h2>
+        <span
+          className={
+            b.exceeded
+              ? "chip bg-red-500/15 text-red-600 dark:text-red-300"
+              : "chip bg-[var(--panel-2)] text-[var(--text)]"
+          }
+        >
+          {fmt.usd(b.spentUsd)} {b.limitUsd === null ? "spent, no ceiling" : `of ${fmt.usd(b.limitUsd)}`}
+        </span>
+      </div>
+      {b.limitUsd !== null && (
+        <div
+          className="mb-3 h-2 overflow-hidden rounded-full bg-[var(--panel-2)]"
+          role="progressbar"
+          aria-label="Server spend this month"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(pct)}
+        >
+          <div
+            className={b.exceeded ? "h-full bg-red-500" : pct >= 80 ? "h-full bg-amber-500" : "h-full bg-accent-500"}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      <p className="muted mb-3 text-sm">
+        A ceiling on all AI spend on this server per calendar month, on top of each project's own cap. Once it is
+        reached, new AI work is refused and queued batches pause until it is raised or the month turns. Nobody can
+        confirm past it.
+        {b.exceeded && " It is reached now."}
+      </p>
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate(value === "" ? null : Math.max(0, Number(value)));
+        }}
+      >
+        <div className="w-44">
+          <Field label="Monthly ceiling (USD)">
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={1}
+              placeholder="No ceiling"
+              value={value}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          </Field>
+        </div>
+        <button type="submit" className="btn-primary" disabled={save.isPending || draft === null}>
+          Save
+        </button>
+        {b.source === "admin" && (
+          <button type="button" className="btn-secondary" disabled={reset.isPending} onClick={() => reset.mutate()}>
+            Use default
+          </button>
+        )}
+      </form>
+      <p className="muted mt-2 text-xs">
+        {b.source === "admin"
+          ? "Set here. "
+          : b.source === "env"
+            ? "From INSTANCE_BUDGET_USD_MONTHLY. "
+            : "No ceiling set. "}
+        Default from the environment: {envDefaultUsd === null ? "none" : fmt.usd(envDefaultUsd)}. Leave the field empty
+        and save for no ceiling at all.
+      </p>
+    </section>
+  );
 }
 
 type Rate = {

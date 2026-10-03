@@ -404,6 +404,10 @@ async function restore(
     }
   }
   const cover = await importAsset(p.cover, "cover");
+  // The watermark points at the package's logo, never at an asset id from the exporting instance.
+  const logo = await importAsset(p.videoLogo, "source_image", { metadata: { role: "video_logo" } });
+  const wm = p.settings.video?.watermark;
+  if (wm) p.settings.video!.watermark = logo ? { ...wm, assetId: logo.id } : null;
   await tx
     .update(projects)
     .set({
@@ -556,6 +560,8 @@ async function restore(
     v && typeof v === "object" && !Array.isArray(v)
       ? Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === "string"))
       : {};
+  /** Panel guides, set once every panel's artwork is in: a guide may be another panel's art in the package. */
+  const guides: { panelId: string; asset: string; strength: "loose" | "strict"; pose: string }[] = [];
 
   for (const ch of doc.chapters) {
     const m = ch.memory;
@@ -652,6 +658,7 @@ async function restore(
             propVersionIds: pn.props.flatMap((r) => refs.get(r) ?? []),
             approvalStatus: pick(approvalStatus.enumValues, pn.approvalStatus, "draft"),
             promptOverride: pn.promptOverride,
+            video: pn.video,
             plannedLettering: pn.plannedLettering && {
               ...pn.plannedLettering,
               dialogue: pn.plannedLettering.dialogue.map((d) => ({
@@ -671,6 +678,7 @@ async function restore(
         const art = await importAsset(pn.artwork, "panel_art", { metadata: { panelId } });
         if (art)
           await tx.update(panels).set({ activeArtworkAssetId: art.id, status: "ready" }).where(eq(panels.id, panelId));
+        if (pn.guide) guides.push({ panelId, ...pn.guide });
         if (pn.spec)
           // ponytail: column is typed "ai" | "user"; "import" marks provenance without a schema change
           await tx
@@ -724,6 +732,10 @@ async function restore(
           text: nl.text,
           showOnPage: nl.showOnPage,
           box: nl.box,
+          video: nl.video && {
+            ...nl.video,
+            untilPanelId: (nl.video.untilPanelId && refs.get(nl.video.untilPanelId)) || null,
+          },
         })
         .returning({ id: narrationLines.id });
       counts.narrationLines!++;
@@ -761,6 +773,14 @@ async function restore(
           });
       }
     }
+  }
+  for (const g of guides) {
+    const a = await importAsset(g.asset, "source_image", { metadata: { role: "panel_guide", panelId: g.panelId } });
+    if (a)
+      await tx
+        .update(panels)
+        .set({ guide: { assetId: a.id, strength: g.strength, pose: g.pose } })
+        .where(eq(panels.id, g.panelId));
   }
 
   const unreferenced = Object.keys(doc.assets).length - counts.assets!;

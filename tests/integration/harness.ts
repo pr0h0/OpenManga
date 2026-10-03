@@ -41,12 +41,16 @@ export async function startHarness() {
     // The tests create their own accounts; the shipped default is closed registration.
     REGISTRATION_ENABLED: "true",
     ASSET_ROOT: assetRoot,
+    // STORAGE_DRIVER=s3 with S3_* in the environment runs the suite against a bucket, under a prefix of its own.
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k === "STORAGE_DRIVER" || k.startsWith("S3_"))),
+    S3_PREFIX: dbName,
     TEMP_ROOT: tempRoot,
     APP_PUBLIC_URL: "http://test.local/app",
     API_PUBLIC_URL: "http://test.local/api",
     CDN_PUBLIC_URL: "http://test.local/cdn",
     DEV_MAILBOX_ENABLED: "true",
     RATE_LIMIT_PER_MINUTE: "100000",
+    RATE_LIMIT_ANON_PER_MINUTE: "50000",
   });
   setConfig(config);
   await runMigrations(dbUrl);
@@ -63,6 +67,7 @@ export async function startHarness() {
     createWorker("image-edit", w.redis, gen, { concurrency: 2 }),
     createWorker("tts", w.redis, ttsProcessor(w.deps), { concurrency: 2 }),
     createWorker("export", w.redis, exportProcessor(w.deps), { concurrency: 1 }),
+    createWorker("render", w.redis, exportProcessor(w.deps), { concurrency: 1 }),
     createWorker("asset-processing", w.redis, assetProcessor(w.deps)),
     createWorker("maintenance", w.redis, maintenanceProcessor(w.deps)),
   ];
@@ -91,6 +96,8 @@ export async function startHarness() {
 /** Cookie-jar client that behaves like the browser SPA (session cookie + CSRF header). */
 export class TestClient {
   cookies = new Map<string, string>();
+  /** Follow a redirect to a signed bucket URL as a browser does (bucket storage only). */
+  followSigned = true;
   constructor(private readonly app: { request: (input: string, init?: RequestInit) => Response | Promise<Response> }) {}
 
   async raw(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}) {
@@ -107,7 +114,13 @@ export class TestClient {
       headers["content-type"] = "application/json";
       payload = JSON.stringify(body);
     }
-    const res = await this.app.request(`http://test.local${path}`, { method, headers, body: payload });
+    let res = await this.app.request(`http://test.local${path}`, { method, headers, body: payload });
+    // With bucket storage /cdn answers with a redirect to a signed URL; follow it as a browser would.
+    const location = res.status === 302 ? res.headers.get("location") : null;
+    if (this.followSigned && location?.startsWith("http") && !location.startsWith("http://test.local")) {
+      const signed = await fetch(location);
+      res = new Response(signed.body, { status: signed.status, headers: signed.headers });
+    }
     for (const sc of res.headers.getSetCookie()) {
       const [pair] = sc.split(";");
       const [k, ...v] = pair!.split("=");

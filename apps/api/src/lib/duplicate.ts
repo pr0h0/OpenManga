@@ -89,6 +89,21 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
       return na!.id;
     };
 
+    // The video watermark must be the copy's own image: a render only uses a logo of its own project.
+    const wm = src.settings.video?.watermark;
+    if (wm) {
+      const logo = await copyAsset(wm.assetId);
+      await tx
+        .update(projects)
+        .set({
+          settings: {
+            ...src.settings,
+            video: { ...src.settings.video!, watermark: logo ? { ...wm, assetId: logo } : null },
+          },
+        })
+        .where(eq(projects.id, np));
+    }
+
     for (const r of await tx.select().from(storyRevisions).where(eq(storyRevisions.projectId, projectId))) {
       await tx
         .insert(storyRevisions)
@@ -296,6 +311,8 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         ids.set(pg.id, npg!.id);
         for (const pn of await tx.select().from(panels).where(eq(panels.pageId, pg.id))) {
           const art = await copyAsset(pn.activeArtworkAssetId);
+          // The guide must be the copy's own image too: generation only sends an image of the panel's own project.
+          const guide = pn.guide && (await copyAsset(pn.guide.assetId));
           const [npn] = await tx
             .insert(panels)
             .values({
@@ -308,6 +325,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
               characterVersionIds: mapArr(pn.characterVersionIds),
               propVersionIds: mapArr(pn.propVersionIds),
               activeArtworkAssetId: art,
+              guide: pn.guide && guide ? { ...pn.guide, assetId: guide } : null,
               status: art
                 ? "ready"
                 : pn.status === "ready"
@@ -336,6 +354,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
           chapterId,
           pageId: map(nl.pageId),
           panelId: map(nl.panelId),
+          video: nl.video && { ...nl.video, untilPanelId: map(nl.video.untilPanelId) },
           createdAt: undefined,
           updatedAt: undefined,
         })

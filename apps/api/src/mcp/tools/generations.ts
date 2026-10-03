@@ -3,7 +3,7 @@ import { z } from "zod";
 import { CoverInput } from "../../routes/generations.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough, type ToolContext } from "../registry.ts";
 import { argsHash, toolError } from "../runtime.ts";
-import { cls, ImageAiInput, jobView, links, projectOf, restAi, Uuid } from "./common.ts";
+import { cls, ImageAiInput, jobView, links, restAi, Uuid } from "./common.ts";
 
 const MAX_IMAGES = 4;
 
@@ -150,7 +150,7 @@ export const generationTools = [
     routes: ["GET /api/jobs/:id", "GET /api/generations/:id"],
     actionKeys: [],
     handler: async ({ jobId, detail }, ctx) => {
-      const r = await ctx.invoke<{ type: string; job: Record<string, unknown> & { projectId: string } }>(
+      const r = await ctx.invoke<{ type: string; job: Record<string, unknown> & { projectId: string | null } }>(
         "GET",
         `/api/jobs/${jobId}`,
       );
@@ -160,11 +160,11 @@ export const generationTools = [
               .invoke<Record<string, unknown>>("GET", `/api/generations/${jobId}`)
               .then(({ job: _j, ...rest }) => rest)
           : {};
+      const p = r.job.projectId;
       return {
         data: { type: r.type, job: jobView(r.job), ...extra },
-        links: {
-          job: r.type === "export" ? links(ctx).exports(r.job.projectId) : links(ctx).job(r.job.projectId, jobId),
-        },
+        // An expert extraction from a chat about no project has no page of its own to link to.
+        links: p ? { job: r.type === "export" ? links(ctx).exports(p) : links(ctx).job(p, jobId) } : undefined,
       };
     },
   }),
@@ -186,13 +186,13 @@ export const generationTools = [
         "GET",
         `/api/generations/${jobId}/manual`,
       );
-      const projectId = await projectOf(ctx, "generation", jobId);
+      const { projectId } = await jobKind(ctx, jobId);
       const content: { type: "image"; data: string; mimeType: string }[] = [];
       if (includeImages)
         for (const id of m.attachments.slice(0, MAX_IMAGES)) {
           const asset = await ctx.deps.assets.get(id);
           // Only the job's own project's images, and a preview-size copy: enough to judge, small to send.
-          if (!asset || asset.projectId !== projectId) continue;
+          if (!asset || !projectId || asset.projectId !== projectId) continue;
           const v = await ctx.deps.assets.ensureResized(asset, "preview");
           if (!v) continue;
           content.push({
@@ -232,7 +232,7 @@ export const generationTools = [
     routes: ["POST /api/generations/:id/manual"],
     actionKeys: ["generation.manual_answer"],
     classify: async ({ jobId }, ctx) =>
-      cls("write", "generation.manual_answer", await projectOf(ctx, "generation", jobId), "Answer a manual job"),
+      cls("write", "generation.manual_answer", (await jobKind(ctx, jobId)).projectId, "Answer a manual job"),
     handler: async ({ jobId, answer }, ctx) => ({
       data: await ctx.invoke("POST", `/api/generations/${jobId}/manual`, {
         body: { text: typeof answer === "string" ? answer : JSON.stringify(answer) },
@@ -309,7 +309,7 @@ export const generationTools = [
     name: "run_bulk_generation",
     title: "Run bulk image generation",
     description:
-      "Start the image generation you estimated with estimate_bulk_generation (same arguments plus its estimateToken). Spends the user's image-provider credits: always a spend action (may need approval). Re-estimates first; if the count, price, provider or model changed it refuses with estimate_changed and the new estimate, so nothing more is spent than was shown. Respects the project budget (402 budget_exceeded); allowOverBudget only when the user explicitly chose to exceed it. Asynchronous: returns a batchId and jobs; follow with manage_batch status or list_jobs.",
+      "Start the image generation you estimated with estimate_bulk_generation (same arguments plus its estimateToken). Spends the user's image-provider credits: always a spend action (may need approval). Re-estimates first; if the count, price, provider or model changed it refuses with estimate_changed and the new estimate, so nothing more is spent than was shown. Respects the project budget (402 budget_exceeded); allowOverBudget only when the user explicitly chose to exceed it. The server's monthly ceiling (402 instance_budget_exceeded) has no override. Asynchronous: returns a batchId and jobs; follow with manage_batch status or list_jobs.",
     input: z.object({
       ...BulkArgs,
       estimateToken: z.string().min(8).max(64),

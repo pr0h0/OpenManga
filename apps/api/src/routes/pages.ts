@@ -55,12 +55,15 @@ import {
   CameraAngle,
   Frame,
   ImageTransform,
+  PanelGuide,
   PanelSeam,
   PanelSpec,
   SfxStyle,
   ShotType,
+  ShotVideo,
 } from "@openmanga/schemas";
 import {
+  credentialOwnedBy,
   letterPanel,
   outfitReferenceAssets,
   outfitTimeline,
@@ -68,6 +71,7 @@ import {
   recordAudit,
   resolveOutfits,
 } from "@openmanga/services";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -105,7 +109,7 @@ async function loadPageProject(
 async function loadPanel(
   c: Parameters<typeof projectAccess>[0],
   panelId: string,
-  action: "read" | "write" | "generate",
+  action: "read" | "write" | "generate" | "delete",
 ) {
   const project = await entityAccess(c, "panel", panelId, action);
   const [row] = await c
@@ -672,6 +676,13 @@ export const PatchPanel = z.object({
   promptOverride: z.string().max(32_000).nullable().optional(),
   /** Vertical strips: how this panel meets the one before it. Null clears it back to the project's plain gap. */
   seam: PanelSeam.nullable().optional(),
+  /** The panel as a video shot: camera motion, fade at the cut into it, disabled. Null resets every default. */
+  video: ShotVideo.nullable().optional(),
+  /**
+   * Layout sketch sent with the generation (composition and poses only): any image asset of this project, e.g. one
+   * uploaded with POST /api/panels/:id/guide. Null removes it.
+   */
+  guide: PanelGuide.nullable().optional(),
   /** Clear-only: prepared prompt text is written by the text model, never authored by hand through this route. */
   promptDraft: z.null().optional(),
   approvalStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),
@@ -715,6 +726,21 @@ pageRoutes.patch("/panels/:id", async (c) => {
       .innerJoin(props, eq(props.id, propVersions.propId))
       .where(and(inArray(propVersions.id, input.propVersionIds), eq(props.projectId, project.id)));
     if (found.length !== new Set(input.propVersionIds).size) throw badRequest("Unknown prop version");
+  }
+  // The guide is sent to the image model, so it must be an image of this project that is not in the trash.
+  if (input.guide) {
+    const [a] = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.id, input.guide.assetId),
+          eq(assets.projectId, project.id),
+          isNull(assets.deletedAt),
+          inArray(assets.type, [...GUIDE_ASSET_TYPES]),
+        ),
+      );
+    if (!a) throw badRequest("Unknown guide image: use an image asset of this project");
   }
   const set: Partial<typeof panels.$inferInsert> = {
     ...input,
@@ -894,7 +920,9 @@ pageRoutes.delete("/outfit-assignments/:id", async (c) => {
 
 doc({ method: "DELETE", path: "/api/panels/:id", summary: "Remove panel", tag: "panels" });
 pageRoutes.delete("/panels/:id", async (c) => {
-  const { panel } = await loadPanel(c, uuidParam(c, "id"), "write");
+  // Owner only: an editor turns a panel off instead ("leave out of videos"), which loses nothing. Pages and scenes
+  // have no off switch, so editors may still delete those.
+  const { panel } = await loadPanel(c, uuidParam(c, "id"), "delete");
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
     await tx.delete(panels).where(eq(panels.id, panel.id));
@@ -1107,6 +1135,59 @@ pageRoutes.post("/panels/:id/mask", async (c) => {
     metadata: { panelId: panel.id, sourceAssetId: panel.activeArtworkAssetId },
   });
   return c.json({ asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
+});
+
+/** Images a panel guide may point at: uploads, references and artwork. Masks, derivatives and exports are not art. */
+const GUIDE_ASSET_TYPES = [
+  "source_image",
+  "panel_art",
+  "character_reference",
+  "location_reference",
+  "prop_reference",
+  "style_reference",
+  "cover",
+] as const;
+
+doc({
+  method: "POST",
+  path: "/api/panels/:id/guide",
+  summary:
+    "Upload a layout guide for the panel (multipart: file, optional strength=loose|strict): a rough sketch, pose or composition thumbnail sent with generation for its layout only. Replaces any current guide; clear it with PATCH guide: null.",
+  tag: "panels",
+});
+pageRoutes.post("/panels/:id/guide", async (c) => {
+  const { panel, project } = await loadPanel(c, uuidParam(c, "id"), "write");
+  if (panel.approvalStatus === "locked") throw conflict("Panel is locked");
+  const up = await readImageUpload(c);
+  const strength = PanelGuide.shape.strength.safeParse(up.form.get("strength") ?? undefined);
+  if (!strength.success) throw badRequest("strength must be loose or strict");
+  const deps = c.get("deps");
+  const asset = await deps.assets.store({
+    projectId: project.id,
+    ownerUserId: user(c).id,
+    type: "source_image",
+    data: up.data,
+    mimeType: up.mime,
+    width: up.width,
+    height: up.height,
+    metadata: { role: "panel_guide", panelId: panel.id, originalName: up.originalName },
+  });
+  const [row] = await deps.db
+    .update(panels)
+    // A new or redrawn sketch keeps the pose already typed for it.
+    .set({ guide: { assetId: asset.id, strength: strength.data, pose: panel.guide?.pose ?? "" } })
+    .where(eq(panels.id, panel.id))
+    .returning();
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: project.id,
+    action: "panel.guide",
+    targetType: "panel",
+    targetId: panel.id,
+    metadata: { assetId: asset.id, bytes: up.data.byteLength },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ panel: row, asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
 });
 
 export const EditInput = z.object({
@@ -1732,13 +1813,19 @@ doc({
   tag: "panels",
   body: CheckInput,
 });
-/** The vision key a check runs on: the project's own, else the caller's picker (which may not read images). */
-function checkChoice(
+/**
+ * The vision key a check runs on: the project's own, else the caller's picker (which may not read images). The
+ * project's key is one member's, so it is used only when that member is the caller.
+ */
+async function checkChoice(
+  c: Context<AppEnv>,
   project: { settings: { consistencyCheck?: { credentialId?: string | null; model?: string } } },
   ai: AiChoiceInput,
 ) {
   const cc = project.settings.consistencyCheck;
-  return cc?.credentialId ? { credentialId: cc.credentialId, model: cc.model || null } : (ai ?? null);
+  return cc?.credentialId && (await credentialOwnedBy(c.get("deps").db, cc.credentialId, user(c).id))
+    ? { credentialId: cc.credentialId, model: cc.model || null }
+    : (ai ?? null);
 }
 
 /** Queue one panel's check inside a transaction; batched checks wait for the caller's batch submit. */
@@ -1783,7 +1870,7 @@ pageRoutes.post("/panels/:id/check", async (c) => {
   if (!panel.activeArtworkAssetId) throw conflict("Panel has no artwork to check");
   // The project's own vision key wins: it was picked for this job, while `ai` is whatever the page's text picker
   // happens to hold, which may well be a model that cannot read images.
-  const choice = checkChoice(project, ai);
+  const choice = await checkChoice(c, project, ai);
   await assertBudget(c, project.id);
   const run = await textRun(c, choice ?? null);
   const deps = c.get("deps");
@@ -1869,7 +1956,7 @@ pageRoutes.post("/projects/:projectId/checks", async (c) => {
   );
   const eligible = withArt.filter((r) => !inFlight.has(r.id) && (!input.onlyUnchecked || !current(r)));
   if (eligible.length > MAX_BULK_CHECKS) throw badRequest(`Check at most ${MAX_BULK_CHECKS} panels at a time.`);
-  const choice = checkChoice(project, input.ai);
+  const choice = await checkChoice(c, project, input.ai);
   const run = await textRun(c, choice ?? null);
   assertBatchable(c, input.batch, run.provider);
   const rate = await deps.usage.rateFor(run.provider, input.batch ? batchModel(run.model) : run.model);

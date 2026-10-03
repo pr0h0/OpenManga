@@ -26,6 +26,7 @@ import {
   stylePresets,
 } from "@openmanga/db";
 import { aspectRatioOf, COLOR_MODE_DIRECTIVES } from "@openmanga/domain";
+import type { ReferenceParams } from "@openmanga/image-utils";
 import {
   characterReferenceV1,
   coverV1,
@@ -89,6 +90,19 @@ export const REFERENCE_ASPECT: Record<string, number> = {
 
 type RefSubject = "character" | "location" | "prop" | "style";
 const MAX_REFERENCES = 8;
+/**
+ * The layout guide is the one reference sent large (the exception to the small-derivative rule): a sketch's pose
+ * lives in thin strokes, and at the usual 192 px box a stick figure's hands-on-hips became an unreadable smudge the
+ * written description out-voted. Lossless PNG keeps the strokes; a sketch compresses to a few kB anyway.
+ */
+export const GUIDE_REFERENCE: ReferenceParams = {
+  maxWidth: 1024,
+  maxHeight: 1024,
+  fit: "inside",
+  allowUpscale: false,
+  format: "png",
+  quality: 100,
+};
 
 export class GenerationPlanner {
   constructor(
@@ -189,11 +203,14 @@ export class GenerationPlanner {
     settings: ProjectSettings,
     provider: string | null = null,
   ): Promise<NewGenerationInput> {
-    const params = this.assetsSvc.referenceParams({
-      maxWidth: settings.referenceMaxWidth,
-      maxHeight: settings.referenceMaxHeight,
-      provider,
-    });
+    const params =
+      role === "layout_guide"
+        ? GUIDE_REFERENCE
+        : this.assetsSvc.referenceParams({
+            maxWidth: settings.referenceMaxWidth,
+            maxHeight: settings.referenceMaxHeight,
+            provider,
+          });
     const v = await this.assetsSvc.ensurePromptReference(asset, params);
     return {
       role,
@@ -245,6 +262,11 @@ export class GenerationPlanner {
       label: string;
       subjectVersionId: string | null;
     }[] = [];
+    // The user's layout guide is the one reference they picked for this panel by hand, so it keeps a slot even when
+    // subject references would fill every one. It is read for composition only; identity stays with the refs above it.
+    const guideAsset = panel.guide ? await this.assetsSvc.get(panel.guide.assetId) : null;
+    const guide = guideAsset && !guideAsset.deletedAt && guideAsset.projectId === panel.projectId ? guideAsset : null;
+    const cap = MAX_REFERENCES - (guide ? 1 : 0);
 
     const charRows = panel.characterVersionIds.length
       ? await this.db
@@ -277,7 +299,7 @@ export class GenerationPlanner {
       const ref = await this.approvedReference("character", v.id);
       const pc = specOf(c);
       let referenceImageIndex: number | undefined;
-      if (ref && refs.length < MAX_REFERENCES) {
+      if (ref && refs.length < cap) {
         refs.push({
           asset: ref,
           role: "character_ref",
@@ -292,7 +314,7 @@ export class GenerationPlanner {
       const outfitAsset = outfit
         ? (await outfitReferenceAssets(this.db, [outfit.outfit.id], v.id)).get(outfit.outfit.id)
         : undefined;
-      if (outfit && outfitAsset && outfitAsset.id !== ref?.id && refs.length < MAX_REFERENCES) {
+      if (outfit && outfitAsset && outfitAsset.id !== ref?.id && refs.length < cap) {
         refs.push({
           asset: outfitAsset,
           role: "character_ref",
@@ -331,7 +353,7 @@ export class GenerationPlanner {
       if (l) {
         const ref = await this.approvedReference("location", l.v.id);
         let referenceImageIndex: number | undefined;
-        if (ref && refs.length < MAX_REFERENCES) {
+        if (ref && refs.length < cap) {
           refs.push({
             asset: ref,
             role: "location_ref",
@@ -359,7 +381,7 @@ export class GenerationPlanner {
       for (const pr of prs) {
         const ref = await this.approvedReference("prop", pr.v.id);
         let referenceImageIndex: number | undefined;
-        if (ref && refs.length < MAX_REFERENCES) {
+        if (ref && refs.length < cap) {
           refs.push({
             asset: ref,
             role: "prop_ref",
@@ -377,9 +399,21 @@ export class GenerationPlanner {
       }
     }
 
-    if (styleRef && refs.length < MAX_REFERENCES) {
+    if (styleRef && refs.length < cap) {
       refs.push({ asset: styleRef, role: "style_ref", label: "project style", subjectVersionId: null });
       style.hasStyleReference = refs.length;
+    }
+
+    // After every subject reference (identity first), before the previous panel (continuity always last).
+    let guideInput: PanelPromptInput["guide"];
+    if (guide && panel.guide) {
+      refs.push({
+        asset: guide,
+        role: "layout_guide",
+        label: `layout guide (${panel.guide.strength})`,
+        subjectVersionId: null,
+      });
+      guideInput = { imageIndex: refs.length, strength: panel.guide.strength, pose: panel.guide.pose ?? "" };
     }
 
     const scene = panel.sceneId
@@ -457,6 +491,7 @@ export class GenerationPlanner {
       characters: chars,
       location,
       props: propCtx,
+      guide: guideInput,
       previousPanelImageIndex,
       continuity: [...new Set(continuity)].slice(0, 12),
       reserveTextSpace: await this.panelHasLettering(panel.id),
@@ -813,7 +848,8 @@ export class GenerationPlanner {
         metadata: { fullResolution: true },
       },
     ];
-    const charRefs = ctx.refs.filter((r) => r.role !== "previous_panel");
+    // A layout guide describes a whole new composition; a masked edit keeps the existing one, so it is not sent.
+    const charRefs = ctx.refs.filter((r) => r.role !== "previous_panel" && r.role !== "layout_guide");
     const editChars: { name: string; referenceImageIndex?: number; immutableTraits: string[] }[] = [];
     for (const r of charRefs) {
       inputs.push(await this.derivativeInput(r.asset, r.role, r.label, r.subjectVersionId, ctx.settings, run.provider));

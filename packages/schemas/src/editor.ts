@@ -138,6 +138,72 @@ export const VERTICAL_PAGE = { pageWidth: 800, pageHeight: 1200, pageMargin: 0, 
  */
 export const VERTICAL_LETTERING = { autoPlace: true } as const;
 
+/** A logo over every frame of a video: an uploaded image of the project, in a corner. */
+export const VideoWatermark = z.object({
+  assetId: z.string().uuid(),
+  corner: z.enum(["top-left", "top-right", "bottom-left", "bottom-right"]).default("bottom-right"),
+  opacity: z.number().min(0.05).max(1).default(0.8),
+  /** Logo width as a share of the frame width. */
+  size: z.number().min(0.03).max(0.4).default(0.12),
+});
+export type VideoWatermark = z.infer<typeof VideoWatermark>;
+
+/** A title card before or after a video, composited from the project's art and lettering font. */
+export const VideoCard = z.object({
+  title: z.string().max(120).default(""),
+  subtitle: z.string().max(200).default(""),
+  durationMs: z.number().int().min(1000).max(15_000).default(3000),
+});
+export type VideoCard = z.infer<typeof VideoCard>;
+
+/**
+ * A panel's settings as a video shot (panel cut). "auto" motion is the push or pull chosen by shot type, varied so
+ * neighbouring shots do not repeat the same move. `fade` overrides the project's fade to black at a scene break
+ * for the cut into this shot: "on" fades here even inside a scene, "off" keeps a hard cut. A disabled shot is
+ * left out of the video with its narration; the panel stays on the page.
+ */
+export const ShotMotion = z.enum([
+  "auto",
+  "static",
+  "pan-left",
+  "pan-right",
+  "pan-up",
+  "pan-down",
+  "push-in",
+  "pull-out",
+]);
+export type ShotMotion = z.infer<typeof ShotMotion>;
+export const ShotVideo = z.object({
+  motion: ShotMotion.default("auto"),
+  fade: z.enum(["auto", "on", "off"]).default("auto"),
+  disabled: z.boolean().default(false),
+});
+export type ShotVideo = z.infer<typeof ShotVideo>;
+
+/**
+ * A rough sketch, stick-figure pose or composition thumbnail for one panel. It goes with the panel's generation
+ * as a reference image for layout only: the prompt tells the model to take its composition, framing and poses and
+ * to ignore its drawing style. `strict` follows it closely; `loose` lets the panel description win where they differ.
+ */
+export const PanelGuide = z.object({
+  assetId: z.string().uuid(),
+  strength: z.enum(["loose", "strict"]).default("loose"),
+  /** The pose in words, typed or from Describe pose: sent with the sketch, so a model that skims the image still gets it. */
+  pose: z.string().trim().max(800).default(""),
+});
+export type PanelGuide = z.infer<typeof PanelGuide>;
+
+/**
+ * A narration line's place in the video. `untilPanelId` stretches the line over every shot from its own to that
+ * panel's (they share one hold, split evenly); the offsets add silence before and after the line.
+ */
+export const NarrationLineVideo = z.object({
+  untilPanelId: z.string().uuid().nullable().default(null),
+  startOffsetMs: z.number().int().min(0).max(10_000).default(0),
+  endOffsetMs: z.number().int().min(0).max(10_000).default(0),
+});
+export type NarrationLineVideo = z.infer<typeof NarrationLineVideo>;
+
 /**
  * How a panel meets the panel before it in a vertical strip. The leading edge belongs to the later panel, so a
  * scene change is authored on the panel that opens the new scene.
@@ -303,6 +369,18 @@ export const ProjectSettings = z.object({
   sceneBreakPauseMs: z.number().int().min(0).max(10000).default(700),
   /** Style instruction for narration writing, kept so every chapter is written in the same voice. */
   narrationStyle: z.string().max(500).default(""),
+  /**
+   * Video exports, applied to every render and shown in the preview: fade to black where the scene changes (each
+   * shot can override it), a logo watermark, and intro and outro cards.
+   */
+  video: z
+    .object({
+      fadeAtSceneBreaks: z.boolean().default(false),
+      watermark: VideoWatermark.nullable().optional(),
+      intro: VideoCard.nullable().optional(),
+      outro: VideoCard.nullable().optional(),
+    })
+    .optional(),
   /** Opt-in vision check of generated panels (expected cast and headcount). Needs one of your vision-capable keys. */
   consistencyCheck: z
     .object({

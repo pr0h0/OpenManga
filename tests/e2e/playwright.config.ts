@@ -9,7 +9,10 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   outputDir: process.env.E2E_OUTPUT_DIR ?? "./test-results",
-  reporter: [["list"]],
+  // E2E_HTML_REPORT adds the HTML report (CI uploads it when a run fails); outside the output dir, which is cleared.
+  reporter: process.env.E2E_HTML_REPORT
+    ? [["list"], ["html", { outputFolder: process.env.E2E_HTML_REPORT, open: "never" }]]
+    : [["list"]],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3480",
     trace: "retain-on-failure",

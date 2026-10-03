@@ -37,6 +37,7 @@ import {
 } from "@openmanga/schemas";
 import { recordAudit, UNPRICED_USAGE } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
+import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -97,13 +98,8 @@ projectRoutes.get("/", async (c) => {
   const u = user(c);
   const { db } = c.get("deps");
   const { status } = query(c, ListQuery);
-  const memberOf = db
-    .select({ id: projectMembers.projectId })
-    .from(projectMembers)
-    .where(eq(projectMembers.userId, u.id));
   const service = c.get("service");
   const where = and(
-    inArray(projects.id, memberOf),
     // A connection limited to selected projects sees only those.
     service?.projectAccess === "selected"
       ? service.projectIds.size
@@ -116,7 +112,19 @@ projectRoutes.get("/", async (c) => {
         ? undefined
         : and(isNull(projects.deletedAt), eq(projects.status, status)),
   );
-  const rows = await db.select().from(projects).where(where).orderBy(desc(projects.updatedAt)).limit(200);
+  // Every project the caller is a member of: their own and the ones shared with them, with their role in each.
+  const memberRows = await db
+    .select({
+      project: projects,
+      role: projectMembers.role,
+      ownerUsername: sql<string>`(select u.username from users u where u.id = ${projects.ownerUserId})`,
+    })
+    .from(projects)
+    .innerJoin(projectMembers, and(eq(projectMembers.projectId, projects.id), eq(projectMembers.userId, u.id)))
+    .where(where)
+    .orderBy(desc(projects.updatedAt))
+    .limit(200);
+  const rows = memberRows.map((r) => ({ ...r.project, role: r.role, ownerUsername: r.ownerUsername }));
   const ids = rows.map((r) => r.id);
   if (!ids.length) return c.json({ projects: [] });
   const stats = await db.execute<{
@@ -163,10 +171,12 @@ doc({
   tag: "projects",
   body: CreateProject,
 });
-projectRoutes.post("/", async (c) => {
+projectRoutes.post("/", async (c) => c.json({ project: await createProject(c, await body(c, CreateProject)) }, 201));
+
+/** Creates a project for the caller: the create route, and an expert's concept once the user applies it. */
+export async function createProject(c: Context<AppEnv>, input: z.infer<typeof CreateProject>) {
   const u = user(c);
   const { db } = c.get("deps");
-  const input = await body(c, CreateProject);
   // Only settings come from the preset or template: the wizard fills type, format and style from it itself.
   const presetSettings: Record<string, unknown> = input.preset?.startsWith("template:")
     ? (u.settings.projectTemplates?.find((t) => t.id === input.preset!.slice(9))?.settings ?? {})
@@ -238,8 +248,8 @@ projectRoutes.post("/", async (c) => {
     action: "project.create",
     requestId: c.get("requestId"),
   });
-  return c.json({ project }, 201);
-});
+  return project;
+}
 
 doc({ method: "GET", path: "/api/projects/:projectId", summary: "Project overview", tag: "projects" });
 projectRoutes.get("/:projectId", async (c) => {
@@ -278,6 +288,7 @@ projectRoutes.get("/:projectId", async (c) => {
         when a.type in ('character_reference', 'location_reference', 'prop_reference', 'style_reference', 'source_image')
           then 'references'
         when a.type = 'audio' then 'narration'
+        when a.metadata ? 'renderSection' then 'renderCache'
         when a.type = 'export' then 'exports'
         else 'derived' end as category,
       coalesce(sum(a.byte_size), 0)::float8 as bytes,
@@ -287,7 +298,7 @@ projectRoutes.get("/:projectId", async (c) => {
     select coalesce(sum(v.byte_size), 0)::float8 as bytes,
       coalesce(sum(v.byte_size) filter (where a.deleted_at is not null), 0)::float8 as trash
     from asset_variants v join assets a on a.id = v.asset_id where a.project_id = ${p.id}`);
-  const categories = { artwork: 0, references: 0, narration: 0, exports: 0, derived: 0 };
+  const categories = { artwork: 0, references: 0, narration: 0, exports: 0, renderCache: 0, derived: 0 };
   let trashBytes = variants?.trash ?? 0;
   for (const row of byType) {
     categories[row.category as keyof typeof categories] += row.bytes;
@@ -315,9 +326,21 @@ doc({
   tag: "projects",
   body: UpdateProject,
 });
-projectRoutes.patch("/:projectId", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
-  const input = await body(c, UpdateProject);
+projectRoutes.patch("/:projectId", async (c) =>
+  c.json({ project: await updateProject(c, uuidParam(c, "projectId"), await body(c, UpdateProject)) }),
+);
+
+const OWNER_SETTINGS = ["budgetUsd", "consistencyCheck", "contentPolicyFallback"] as const;
+
+/** Updates a project's fields and settings: the PATCH route, and an expert's premise or YouTube text once applied. */
+export async function updateProject(c: Context<AppEnv>, projectId: string, input: z.infer<typeof UpdateProject>) {
+  const p = await projectAccess(c, projectId, "write");
+  // The budget cap and the project's own keys (the check's, the content policy fallback's) are the owner's:
+  // the cap limits what members spend, and a key is one member's. Editors change everything else.
+  // Compared by value: a settings form that sends these back unchanged is not changing them.
+  const changes = (k: (typeof OWNER_SETTINGS)[number]) =>
+    input.settings?.[k] !== undefined && JSON.stringify(input.settings[k]) !== JSON.stringify(p.settings[k] ?? null);
+  if (OWNER_SETTINGS.some(changes)) await projectAccess(c, projectId, "manage");
   const settings = input.settings ? ProjectSettings.parse({ ...p.settings, ...input.settings }) : p.settings;
   if (settings.format !== p.settings.format) {
     const [page] = await c
@@ -338,14 +361,31 @@ projectRoutes.patch("/:projectId", async (c) => {
       settings.lettering = { ...VERTICAL_LETTERING, ...settings.lettering };
     }
   }
+  // A watermark is one of this project's own images: any other id would put someone else's file in the video.
+  const logoId = settings.video?.watermark?.assetId;
+  if (logoId && logoId !== p.settings.video?.watermark?.assetId) {
+    const [logo] = await c
+      .get("deps")
+      .db.select({ id: assets.id })
+      .from(assets)
+      .where(
+        and(
+          eq(assets.id, logoId),
+          eq(assets.projectId, p.id),
+          isNull(assets.deletedAt),
+          sql`${assets.mimeType} like 'image/%'`,
+        ),
+      );
+    if (!logo) throw badRequest("The watermark must be an image of this project (upload one with POST video-logo)");
+  }
   const [row] = await c
     .get("deps")
     .db.update(projects)
     .set({ ...input, settings })
     .where(eq(projects.id, p.id))
     .returning();
-  return c.json({ project: row });
-});
+  return row!;
+}
 
 doc({
   method: "POST",
@@ -354,7 +394,8 @@ doc({
   tag: "projects",
 });
 projectRoutes.post("/:projectId/duplicate", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  // A full copy, files included, owned by the caller: more than viewing, so not for viewers.
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const deps = c.get("deps");
   const copy = await duplicateProject(deps.db, deps.assets, p.id, user(c).id);
   await recordAudit(deps.db, {
@@ -393,6 +434,10 @@ projectRoutes.post("/:projectId/template", async (c) => {
     : [];
   const settings: Record<string, unknown> = { ...p.settings };
   for (const k of NOT_TEMPLATED) delete settings[k];
+  // Keys named in the settings are the owner's; a member's template would carry ids that are of no use to them.
+  if (p.ownerUserId !== u.id)
+    for (const k of ["consistencyCheck", "contentPolicyFallback"] as const)
+      if (p.settings[k]) settings[k] = { ...p.settings[k], credentialId: null };
   const template = {
     id: crypto.randomUUID(),
     name,

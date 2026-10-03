@@ -2,10 +2,11 @@ import type { StoryAnalysis } from "@openmanga/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { patch, post } from "../../api/client.ts";
+import { del, patch, post } from "../../api/client.ts";
 import { qk } from "../../api/hooks.ts";
 import type { StoryAnalysisRow } from "../../api/types.ts";
-import { Field, Spinner, StatusChip, TagInput, toast } from "../../components/ui.tsx";
+import { ConfirmDialog, Field, Spinner, StatusChip, TagInput, toast } from "../../components/ui.tsx";
+import { AnalysisDiff, NO_REMOVALS, type Removals, useAnalysisDiff } from "./AnalysisDiff.tsx";
 
 type Char = StoryAnalysis["characters"][number];
 
@@ -22,7 +23,11 @@ export function AnalysisReview({
   const qc = useQueryClient();
   const [draft, setDraft] = useState<StoryAnalysis | null>(analysis.result as StoryAnalysis | null);
   const [busy, setBusy] = useState<"save" | "apply" | null>(null);
+  const [removals, setRemovals] = useState<Removals>(NO_REMOVALS);
+  const [confirming, setConfirming] = useState(false);
   useEffect(() => setDraft(analysis.result as StoryAnalysis | null), [analysis.id, analysis.result]);
+  useEffect(() => setRemovals(NO_REMOVALS), [analysis.id]);
+  const diff = useAnalysisDiff(analysis.id, analysis.status !== "applied");
   if (!draft) return <p className="muted text-sm">This analysis has no result.</p>;
   const applied = analysis.status === "applied";
   const set = <K extends keyof StoryAnalysis>(k: K, v: StoryAnalysis[K]) => setDraft({ ...draft, [k]: v });
@@ -46,12 +51,26 @@ export function AnalysisReview({
       setBusy(null);
     }
   };
+  const ticked = Object.values(removals).flat().length;
   const apply = async () => {
+    setConfirming(false);
     setBusy("apply");
     try {
       const r = await post<{ created: Record<string, number> }>(`/story-analyses/${analysis.id}/apply`, {
         result: draft,
       });
+      // What the user confirmed removing goes through the ordinary delete routes, with their own safeguards (a
+      // chapter with generation in progress is refused; cast and places go to the trash).
+      const failed: string[] = [];
+      for (const [kind, path] of [
+        ["chapters", "chapters"],
+        ["characters", "characters"],
+        ["locations", "locations"],
+        ["props", "props"],
+      ] as const)
+        for (const id of removals[kind]) await del(`/${path}/${id}`).catch((e) => failed.push(String(e?.message ?? e)));
+      if (failed.length) toast.error(`${failed.length} removal(s) were refused: ${failed[0]}`);
+      setRemovals(NO_REMOVALS);
       for (const key of [
         qk.story(projectId),
         qk.cast(projectId),
@@ -59,6 +78,7 @@ export function AnalysisReview({
         qk.props(projectId),
         qk.chapters(projectId),
         qk.project(projectId),
+        ["analysis-diff", analysis.id],
       ])
         await qc.invalidateQueries({ queryKey: key });
       toast.success(
@@ -84,12 +104,43 @@ export function AnalysisReview({
           <button type="button" className="btn-secondary" onClick={save} disabled={busy !== null}>
             {busy === "save" && <Spinner />} Save edits
           </button>
-          <button type="button" className="btn-primary" onClick={apply} disabled={busy !== null}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => (ticked ? setConfirming(true) : apply())}
+            disabled={busy !== null}
+          >
             {busy === "apply" ? <Spinner /> : <Check className="size-4" />}{" "}
             {applied ? "Apply again" : "Apply to project"}
           </button>
         </div>
       </div>
+
+      {!applied && <AnalysisDiff analysisId={analysis.id} removals={removals} onRemovals={setRemovals} />}
+      <ConfirmDialog
+        open={confirming}
+        title="Apply and remove?"
+        confirmLabel={`Apply and remove ${ticked}`}
+        danger
+        onClose={() => setConfirming(false)}
+        onConfirm={() => void apply()}
+      >
+        <p className="mb-2">The analysis is applied, then these are removed:</p>
+        <ul className="list-inside list-disc text-sm">
+          {diff.data?.chapters.removed
+            .filter((c) => removals.chapters.includes(c.id))
+            .map((c) => (
+              <li key={c.id}>
+                Chapter “{c.title}”, deleted with its {c.pages} page(s) and {c.drawnPanels} drawn panel(s)
+              </li>
+            ))}
+          {(["characters", "locations", "props"] as const).flatMap((k) =>
+            (diff.data?.[k].removed ?? [])
+              .filter((r) => removals[k].includes(r.id))
+              .map((r) => <li key={r.id}>{r.name}, moved to the trash with its reference images</li>),
+          )}
+        </ul>
+      </ConfirmDialog>
 
       <section className="card space-y-3 p-4">
         <h3 className="font-medium">Summary</h3>

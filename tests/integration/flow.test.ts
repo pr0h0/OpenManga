@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
 import { sharp } from "@openmanga/image-utils";
+import { cachedPageRender } from "@openmanga/services";
 import { unzipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
+import { runMaintenance } from "../../apps/worker/src/handlers/maintenance.ts";
 import { FakeImageAIProvider } from "../../packages/ai-image/src/index.ts";
 import { type startHarness as Start, startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -632,24 +634,25 @@ describe("full production flow (mock AI)", () => {
     type Shot = {
       key: string;
       page: { id: string };
-      panel: { id: string; art: { crop: { width: number }; focus: { x: number } } | null } | null;
-      segments: { audioAssetId: string | null; durationMs: number | null }[];
+      panel: { id: string; focus: { x: number }; art: { crop: { width: number } } | null } | null;
+      lines: { segments: { audioAssetId: string | null; durationMs: number | null }[] }[];
     };
+    const segments = (x: Shot) => x.lines.flatMap((l) => l.segments);
     const chapterPanel = await alice.get<{ cut: string; shots: Shot[] }>(`/api/video-preview?chapterId=${chapterId}`);
     const ch = await alice.get<{ pages: { panelCount: number }[] }>(`/api/chapters/${chapterId}`);
     expect(chapterPanel.cut).toBe("panel");
     expect(chapterPanel.shots.length).toBe(ch.pages.reduce((n, p) => n + p.panelCount, 0));
     const withArt = chapterPanel.shots.find((x) => x.panel?.art)!;
     expect(withArt.panel!.art!.crop.width).toBeGreaterThan(0);
-    expect(withArt.panel!.art!.focus.x).toBeGreaterThanOrEqual(0);
-    const voiced = chapterPanel.shots.flatMap((x) => x.segments).filter((x) => x.audioAssetId);
+    expect(withArt.panel!.focus.x).toBeGreaterThanOrEqual(0);
+    const voiced = chapterPanel.shots.flatMap(segments).filter((x) => x.audioAssetId);
     expect(voiced.length).toBeGreaterThan(0);
     expect(voiced.every((x) => (x.durationMs ?? 0) > 0)).toBe(true);
 
     const pageCut = await alice.get<{ shots: Shot[] }>(`/api/video-preview?chapterId=${chapterId}&cut=page`);
     expect(pageCut.shots.length).toBe(ch.pages.length);
     // every narration segment lands somewhere in both cuts
-    const count = (r: { shots: Shot[] }) => r.shots.reduce((n, x) => n + x.segments.length, 0);
+    const count = (r: { shots: Shot[] }) => r.shots.reduce((n, x) => n + segments(x).length, 0);
     expect(count(pageCut)).toBe(count(chapterPanel));
 
     const single = await alice.get<{ cut: string; shots: Shot[] }>(`/api/video-preview?panelId=${panelId}&cut=page`);
@@ -675,8 +678,13 @@ describe("full production flow (mock AI)", () => {
       "webtoon",
       "pdf",
       "pdf_kdp",
+      "pdf_project",
+      "webtoon_project",
+      "png_pages_project",
       "cbz",
+      "cbz_project",
       "epub",
+      "epub_project",
       "narration_audio",
       "project_json",
       "zip_package",
@@ -685,8 +693,12 @@ describe("full production flow (mock AI)", () => {
       const r = await alice.post<{ job: { id: string } }>(
         `/api/projects/${projectId}/exports`,
         {
-          kind: kind === "pdf_kdp" ? "pdf" : kind,
-          chapterId: kind === "project_json" || kind === "zip_package" || kind === "agent_package" ? null : chapterId,
+          // `<kind>_project` is that kind over the whole project, with no chapter.
+          kind: kind === "pdf_kdp" ? "pdf" : kind.replace(/_project$/, ""),
+          chapterId:
+            ["project_json", "zip_package", "agent_package"].includes(kind) || kind.endsWith("_project")
+              ? null
+              : chapterId,
           audio: { format: "wav", normalize: false },
           ...(kind === "pdf_kdp" ? { pdf: { pageSize: "kdp_6x9" } } : {}),
         },
@@ -719,6 +731,31 @@ describe("full production flow (mock AI)", () => {
           expect(names).toContain(f);
       }
       if (kind === "pdf") expect(new TextDecoder().decode(buf.slice(0, 5))).toBe("%PDF-");
+      // Whole-project exports hold every page of every chapter, plus the cover where the kind prints one.
+      const [n] = await h.deps.db.execute<{ pages: number; cover: boolean }>(
+        sql`select (select count(*)::int from pages where project_id = ${projectId}) as pages,
+          (select cover_asset_id is not null from projects where id = ${projectId}) as cover`,
+      );
+      const cover = n!.cover ? 1 : 0;
+      if (kind === "pdf_project") {
+        expect((await PDFDocument.load(buf)).getPageCount()).toBe(n!.pages + cover);
+        expect(f.fileName).toContain("_project");
+      }
+      if (kind === "webtoon_project") expect(f.mimeType.startsWith("image/") || f.fileName.endsWith(".zip")).toBe(true);
+      if (kind === "png_pages_project") {
+        // Page numbers restart per chapter, so every name carries its chapter too.
+        const names = f.fileName.endsWith(".zip") ? Object.keys(unzipSync(buf)) : [f.fileName];
+        expect(names.length).toBe(n!.pages);
+        for (const name of names) expect(name).toMatch(/_ch\d\d_p\d{3}\.png$/);
+      }
+      if (kind === "cbz_project")
+        expect(new TextDecoder().decode(unzipSync(buf)["ComicInfo.xml"])).toContain(
+          `<PageCount>${n!.pages}</PageCount>`,
+        );
+      if (kind === "epub_project") {
+        const opf = new TextDecoder().decode(unzipSync(buf)["OEBPS/content.opf"]);
+        expect([...opf.matchAll(/<itemref /g)].length).toBe(n!.pages + cover);
+      }
       if (kind === "pdf_kdp") {
         // 6" x 9" trim plus KDP bleed (0.125" wide, 0.25" tall), trim box marking the cut, outside edge first.
         const page = (await PDFDocument.load(buf)).getPage(0);
@@ -1099,6 +1136,27 @@ describe("full production flow (mock AI)", () => {
     expect((await h.client().raw("GET", `/cdn/a/${artworkAssetId}`)).status).toBe(401);
     expect((await alice.raw("GET", `/cdn/a/${artworkAssetId}?v=thumbnail`)).status).toBe(200);
     expect((await alice.raw("GET", "/cdn/a/../../etc/passwd")).status).toBe(404);
+    // A download names its file whichever storage serves it.
+    const art = await alice.raw("GET", `/cdn/a/${artworkAssetId}?download=art.png`);
+    expect(art.status).toBe(200);
+    expect(art.headers.get("content-type")).toBe("image/png");
+    expect(art.headers.get("content-disposition")).toContain('filename="art.png"');
+    if (h.config.STORAGE_DRIVER === "s3") {
+      // From a bucket the API answers with a signed URL, and the redirect is never cached past the URL's lifetime.
+      const peek = h.client();
+      peek.cookies = alice.cookies;
+      peek.followSigned = false;
+      const r = await peek.raw("GET", `/cdn/a/${artworkAssetId}?v=thumbnail`);
+      expect(r.status).toBe(302);
+      const signed = new URL(r.headers.get("location")!);
+      expect(signed.searchParams.get("X-Amz-Expires")).toBe(String(h.config.S3_PRESIGN_EXPIRES_SECONDS));
+      expect(signed.searchParams.get("response-content-type")).toBe("image/webp");
+      expect(r.headers.get("cache-control")).toBe(`private, max-age=${h.config.S3_PRESIGN_EXPIRES_SECONDS - 60}`);
+      // The app's own fetch() reads stream through the API instead, so the bucket needs no CORS rule.
+      const proxied = await peek.raw("GET", `/cdn/a/${artworkAssetId}?proxy=1`);
+      expect(proxied.status).toBe(200);
+      expect((await sharp(new Uint8Array(await proxied.arrayBuffer())).metadata()).format).toBe("png");
+    }
   });
 
   test("usage and cost accounting recorded", async () => {
@@ -1521,6 +1579,37 @@ describe("full production flow (mock AI)", () => {
     expect(png.status).toBe(200);
     expect((await sharp(new Uint8Array(await png.arrayBuffer())).metadata()).width).toBeLessThanOrEqual(400);
 
+    // The render is kept: a repeat read serves the stored copy, and an edit draws a new one in its place.
+    const renders = async () =>
+      h.deps.db.execute<{ id: string; width: string }>(
+        sql`select id, metadata->'pageRender'->>'width' as width from assets
+          where metadata->'pageRender'->>'pageId' = ${first.id} order by created_at`,
+      );
+    const [kept] = await renders();
+    expect(kept?.width).toBe("400");
+    const again = await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=390`);
+    expect(again.status).toBe(200);
+    expect((await renders()).map((r) => r.id)).toEqual([kept!.id]);
+    // Served by the API from local disk; a bucket answers conditional requests itself.
+    if (h.config.STORAGE_DRIVER === "local")
+      expect(
+        (
+          await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`, undefined, {
+            "if-none-match": again.headers.get("etag")!,
+          })
+        ).status,
+      ).toBe(304);
+    await alice.post(`/api/pages/${first.id}/sfx`, { text: "THUD" }, 201);
+    expect((await anon.raw("GET", `/api/public/shares/${share.token}/pages/${first.id}.png?width=400`)).status).toBe(
+      200,
+    );
+    const redrawn = await renders();
+    expect(redrawn).toHaveLength(1);
+    expect(redrawn[0]!.id).not.toBe(kept!.id);
+    // Stored renders count as the project's derived files.
+    const usage = await alice.get<{ disk: { byCategory: { derived: number } } }>(`/api/projects/${projectId}`);
+    expect(usage.disk.byCategory.derived).toBeGreaterThan(0);
+
     // A page outside the shared chapter is not reachable through the link.
     const other = await alice.post<{ chapter: { id: string } }>(
       `/api/projects/${projectId}/chapters`,
@@ -1531,6 +1620,12 @@ describe("full production flow (mock AI)", () => {
     expect((await anon.raw("GET", `/api/public/shares/${share.token}/pages/${otherPage.page.id}.png`)).status).toBe(
       404,
     );
+    // A deleted page's renders are swept by maintenance.
+    const orphan = await cachedPageRender(h.deps.db, h.deps.assets, projectId, otherPage.page.id, "ltr", 400);
+    expect(orphan.rendered).toBe(true);
+    await alice.del(`/api/pages/${otherPage.page.id}`);
+    await runMaintenance(h.workerDeps);
+    expect(await h.deps.assets.get(orphan.asset.id)).toBeNull();
 
     // The video preview plays the shared chapter: its shot list, and the artwork and audio of those shots only.
     const preview = await anon.get<{ shots: { panel: { art: { assetId: string } | null } | null }[] }>(

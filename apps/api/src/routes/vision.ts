@@ -1,4 +1,4 @@
-import { and, assets, desc, eq, generationJobs, inArray, projectMembers, projects, sql } from "@openmanga/db";
+import { and, assets, desc, eq, generationJobs, inArray, panels, projectMembers, projects, sql } from "@openmanga/db";
 import { PRIORITY } from "@openmanga/domain";
 import { imageDescribeV1 } from "@openmanga/prompts";
 import { ImageAspect } from "@openmanga/schemas";
@@ -158,6 +158,31 @@ visionRoutes.post("/assets/:id/describe", async (c) => {
   return c.json({ job }, 202);
 });
 
+const DescribeGuideInput = z.object({ batch: BatchInput, ai: AiChoiceInput });
+doc({
+  method: "POST",
+  path: "/api/panels/:id/guide/describe",
+  summary:
+    "Describe the pose, figure placement and framing of the panel's layout guide in words (an image_describe job with the pose aspect). Read result.description.pose.summary from /api/generations/:id; nothing is written to the panel until you save it into its composition.",
+  tag: "vision",
+  body: DescribeGuideInput,
+});
+visionRoutes.post("/panels/:id/guide/describe", async (c) => {
+  const deps = c.get("deps");
+  const [panel] = await deps.db
+    .select()
+    .from(panels)
+    .where(eq(panels.id, uuidParam(c, "id")));
+  if (!panel) throw notFound("Panel");
+  await projectAccess(c, panel.projectId, "generate");
+  if (!panel.guide) throw badRequest("This panel has no layout guide");
+  const b = await body(c, DescribeGuideInput);
+  const input = { ...b, aspects: ["pose" as const], custom: "", note: "rough layout sketch for one comic panel" };
+  const run = await checkDescribe(c, panel.projectId, input);
+  const job = await queueDescribe(c, { projectId: panel.projectId, assetId: panel.guide.assetId, input, run });
+  return c.json({ job }, 202);
+});
+
 const HistoryQuery = z.object({
   /** "project" limits to one project; "all" (the default) spans every project the caller is a member of. */
   scope: z.enum(["project", "all"]).default("all"),
@@ -242,7 +267,7 @@ visionRoutes.delete("/image-descriptions/:id", async (c) => {
   const id = uuidParam(c, "id");
   const deps = c.get("deps");
   const [job] = await deps.db.select().from(generationJobs).where(eq(generationJobs.id, id));
-  if (job?.kind !== "image_describe") throw notFound("Description");
+  if (job?.kind !== "image_describe" || !job.projectId) throw notFound("Description");
   await projectAccess(c, job.projectId, "write");
   if (job.userId && job.userId !== user(c).id) throw notFound("Description");
   // Mid-flight is the only state worth refusing: the handler is holding this row. A job that has not started
@@ -260,6 +285,7 @@ visionRoutes.delete("/image-descriptions/:id", async (c) => {
       ? await deps.db.execute<{ n: number }>(sql`select (
           (select count(*) from reference_assets where asset_id = ${assetId})
           + (select count(*) from panels where active_artwork_asset_id = ${assetId})
+          + (select count(*) from panels where guide->>'assetId' = ${assetId})
           + (select count(*) from generation_jobs where kind = 'image_describe' and input->>'assetId' = ${assetId})
         )::int as n`)
       : [];

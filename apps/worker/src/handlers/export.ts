@@ -38,7 +38,7 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { buildTimeline, chunkStrip, youtubeChapters } from "@openmanga/domain";
+import { buildTimeline, chunkStrip, type SeamedBlock, SHORTS_DEFAULT_MS, youtubeChapters } from "@openmanga/domain";
 import { extForMime, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
@@ -49,11 +49,12 @@ import {
   renderStrip,
   renderThumbnail,
   renderWebtoonBlocks,
+  sweepRenderSections,
 } from "@openmanga/services";
-import { withTempDir } from "@openmanga/storage";
-import { PDFDocument, ReadingDirection } from "pdf-lib";
+import { sha256Hex, withTempDir } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
-import { type BookMeta, comicInfoXml, epubFiles } from "../lib/ebook.ts";
+import { type BookImage, type BookMeta, writeBook } from "../lib/ebook.ts";
+import { type ImagePage, PdfWriter } from "../lib/pdf.ts";
 import { renderPageCutVideo, renderPanelCutVideo, type VideoOptions } from "../lib/video.ts";
 import { ZipWriter } from "../lib/zip.ts";
 import { buildAgentPackage } from "./agent-package.ts";
@@ -64,6 +65,8 @@ type Opts = {
   kind: ExportJob["kind"];
   chapterId: string | null;
   pageIds?: string[];
+  /** video_shorts: the picked panels. */
+  panelIds?: string[];
   scale: number;
   jpgQuality: number;
   pdf: {
@@ -126,7 +129,7 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
     await publish("processing", p);
   };
   try {
-    // Project import rides the export queue: it restores into job.projectId instead of producing files.
+    // Project import rides the render queue: it restores into job.projectId instead of producing files.
     if (job.kind === "project_import") {
       const result = await importProject(deps, job, progress);
       await deps.db
@@ -139,7 +142,7 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
     await mkdir(deps.config.TEMP_ROOT, { recursive: true });
     const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
     if (!project) throw new UnrecoverableError("Project no longer exists");
-    // Files built on disk (video) are stored from the temp dir, so everything happens before it is removed.
+    // Files built on disk (video, PDF, archives) are stored from the temp dir, so everything happens before it is removed.
     const files = await withTempDir(deps.config.TEMP_ROOT, async (dir) => {
       const files = await buildExport(deps, job, opts, project, progress, dir);
       await deps.db.transaction(async (tx) => {
@@ -214,23 +217,27 @@ type OutFile = { name: string; mime: string; width?: number; height?: number; du
   | { path: string }
 );
 
-/** Always scoped to the job's own project: page ids reach this through job options, i.e. from a request body. */
-async function pageIdsFor(deps: WorkerDeps, opts: Opts, projectId: string) {
-  if (opts.pageIds?.length) {
-    const rows = await deps.db
-      .select({ id: pages.id })
-      .from(pages)
-      .where(and(eq(pages.projectId, projectId), inArray(pages.id, opts.pageIds)))
-      .orderBy(asc(pages.order));
-    return rows.map((r) => r.id);
-  }
-  if (!opts.chapterId) return [];
-  const rows = await deps.db
-    .select({ id: pages.id })
+/**
+ * The export's pages in reading order, each with its chapter's number: a chosen chapter, a page selection, or the
+ * whole project. Always scoped to the job's own project: page ids reach this through job options, i.e. from a request
+ * body.
+ */
+async function pagesFor(deps: WorkerDeps, opts: Opts, projectId: string) {
+  return deps.db
+    .select({ id: pages.id, chapter: chapters.order })
     .from(pages)
-    .where(and(eq(pages.projectId, projectId), eq(pages.chapterId, opts.chapterId)))
-    .orderBy(asc(pages.order));
-  return rows.map((r) => r.id);
+    .innerJoin(chapters, eq(chapters.id, pages.chapterId))
+    .where(
+      and(
+        eq(pages.projectId, projectId),
+        opts.pageIds?.length
+          ? inArray(pages.id, opts.pageIds)
+          : opts.chapterId
+            ? eq(pages.chapterId, opts.chapterId)
+            : undefined,
+      ),
+    )
+    .orderBy(asc(chapters.order), asc(pages.order));
 }
 
 async function buildExport(
@@ -261,13 +268,17 @@ async function buildExport(
     case "png_pages":
     case "jpg_pages": {
       const fmt = job.kind === "png_pages" ? "png" : "jpg";
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const zip = ids.length > 1 ? new ZipWriter(join(dir, "pages.zip")) : null;
-      for (const [i, pid] of ids.entries()) {
+      for (const [i, { id: pid, chapter: chapterNo }] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
         const img = await renderPageImage(page, fmt, { scale: opts.scale, quality: opts.jpgQuality });
-        const name = `${prefix}_p${String(page.order).padStart(3, "0")}.${fmt}`;
+        // Page numbers restart in every chapter, so an export spanning chapters names each page by both.
+        const pageNo = `p${String(page.order).padStart(3, "0")}`;
+        const name = opts.chapterId
+          ? `${prefix}_${pageNo}.${fmt}`
+          : `${prefix}_ch${String(chapterNo).padStart(2, "0")}_${pageNo}.${fmt}`;
         if (!zip) return [{ name, data: img.data, mime: img.mime, width: img.width, height: img.height }];
         await zip.add(name, img.data);
         await progress((i + 1) / ids.length);
@@ -275,14 +286,14 @@ async function buildExport(
       return [{ name: `${prefix}_${fmt}_pages.zip`, path: await zip!.close(), mime: "application/zip" }];
     }
     case "pdf": {
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
-      const readingDir = opts.pdf.readingDirection ?? project.readingDirection;
-      const ordered = ids;
-      const pdf = await PDFDocument.create();
-      if (readingDir === "rtl") pdf.catalog.getOrCreateViewerPreferences().setReadingDirection(ReadingDirection.R2L);
-      pdf.setTitle(`${project.title} — ${chapterTitle}`);
-      pdf.setCreator("OpenManga");
+      // Streamed page by page into the file, so a whole-project PDF costs the memory of one page.
+      const path = join(dir, "book.pdf");
+      const pdf = await PdfWriter.create(path, {
+        title: opts.chapterId ? `${project.title} — ${chapterTitle}` : project.title,
+        rtl: (opts.pdf.readingDirection ?? project.readingDirection) === "rtl",
+      });
       // A KDP interior carries no cover: the cover is a separate file uploaded next to it.
       if (project.coverAssetId && !KDP_TRIM_IN[opts.pdf.pageSize]) {
         const cover = await deps.assets.get(project.coverAssetId);
@@ -290,30 +301,37 @@ async function buildExport(
           const png = await renderCover(
             await deps.assets.read(cover),
             project.title,
-            chapterTitle,
+            opts.chapterId ? chapterTitle : "",
             project.settings.author,
           );
-          addImagePage(pdf, await pdf.embedPng(png), 1200, 1800, opts);
+          await pdf.addPage(imagePage(png, 1200, 1800, opts));
         }
       }
-      for (const [i, pid] of ordered.entries()) {
+      for (const [i, { id: pid }] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
         const img = await renderPageImage(page, "png", { scale: opts.scale });
-        addImagePage(pdf, await pdf.embedPng(img.data), img.width, img.height, opts, i);
-        await progress((i + 1) / ordered.length);
+        await pdf.addPage(imagePage(img.data, img.width, img.height, opts, i));
+        await progress((i + 1) / ids.length);
       }
-      return [{ name: `${prefix}.pdf`, data: await pdf.save(), mime: "application/pdf" }];
+      await pdf.close();
+      return [{ name: `${prefix}.pdf`, path, mime: "application/pdf" }];
     }
     case "webtoon": {
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const width = opts.webtoon.width ?? project.settings.webtoonWidth;
       const gap = opts.webtoon.gap ?? project.settings.webtoonGap;
       const maxH = opts.webtoon.maxChunkHeight ?? project.settings.webtoonChunkHeight;
-      const blocks: { data: Uint8Array; height: number }[] = [];
-      for (const [i, pid] of ids.entries()) {
+      // Panel blocks wait on disk, not in memory: a whole project is thousands of them. Only the chunk being
+      // stitched is read back, so memory is bounded by the chunk height rather than by the length of the strip.
+      const blocks: (SeamedBlock & { path: string })[] = [];
+      for (const [i, { id: pid }] of ids.entries()) {
         const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
-        blocks.push(...(await renderWebtoonBlocks(page, width)));
+        for (const b of await renderWebtoonBlocks(page, width)) {
+          const path = join(dir, `block-${blocks.length}.png`);
+          await Bun.write(path, b.data);
+          blocks.push({ path, height: b.height, seam: b.seam });
+        }
         await progress(((i + 1) / ids.length) * 0.8);
       }
       // Seam-aware: a vertical project authors what happens between panels, so chunking has to respect blends
@@ -321,7 +339,8 @@ async function buildExport(
       const chunks = opts.webtoon.split ? chunkStrip(blocks, maxH, { gap }) : [blocks];
       const zip = chunks.length > 1 ? new ZipWriter(join(dir, "webtoon.zip")) : null;
       for (const [i, chunk] of chunks.entries()) {
-        const strip = await renderStrip(chunk, width, gap);
+        const loaded = await Promise.all(chunk.map(async (b) => ({ ...b, data: await Bun.file(b.path).bytes() })));
+        const strip = await renderStrip(loaded, width, gap);
         const data =
           opts.webtoon.format === "jpg"
             ? new Uint8Array(
@@ -333,6 +352,7 @@ async function buildExport(
         const name = `${prefix}_webtoon_${String(i + 1).padStart(2, "0")}.${opts.webtoon.format}`;
         if (!zip) return [{ name, data, mime: opts.webtoon.format === "jpg" ? "image/jpeg" : "image/png", width }];
         await zip.add(name, data);
+        await progress(0.8 + ((i + 1) / chunks.length) * 0.2);
       }
       await progress(1);
       return [{ name: `${prefix}_webtoon.zip`, path: await zip!.close(), mime: "application/zip" }];
@@ -420,24 +440,73 @@ async function buildExport(
       ];
     }
     case "video_pages":
-    case "video_panels": {
+    case "video_panels":
+    case "video_shorts": {
+      const shorts = job.kind === "video_shorts";
+      const aspect = opts.video?.aspect ?? (shorts ? "9:16" : "16:9");
       const v: VideoOptions = {
         height: 1080,
         fps: 30,
         minHoldMs: 2500,
         framing: "width",
-        pageWidthRatio: 0.6,
         pageHeightRatio: 0.96,
         maxScrollPxPerSec: 60,
         zoom: 0.06,
         breathMs: 150,
         concurrency: deps.config.VIDEO_ENCODE_CONCURRENCY,
         ...opts.video,
+        aspect,
+        // A vertical or square frame is narrow: a page fills its width rather than 3/5 of it.
+        pageWidthRatio: opts.video?.pageWidthRatio ?? (aspect === "16:9" ? 0.6 : 1),
+        // A Shorts cut is its picked shots only, up to its chosen length, without the intro and outro cards.
+        ...(shorts ? { capMs: (opts.video?.shortsSeconds ?? SHORTS_DEFAULT_MS / 1000) * 1000, cards: false } : {}),
       };
-      const render = job.kind === "video_panels" ? renderPanelCutVideo : renderPageCutVideo;
-      // A page selection narrows the film to those pages; otherwise the chapter, or the whole project.
-      const scope = opts.pageIds?.length ? { pageIds: opts.pageIds } : undefined;
-      const out = await render(deps, project, opts.chapterId, { ...v, language: opts.language, scope }, dir, progress);
+      const render = job.kind === "video_pages" ? renderPageCutVideo : renderPanelCutVideo;
+      // A panel or page selection narrows the film to those; otherwise the chapter, or the whole project.
+      const scope = shorts
+        ? { panelIds: opts.panelIds ?? [] }
+        : opts.pageIds?.length
+          ? { pageIds: opts.pageIds }
+          : undefined;
+      // Renders of the same series (same kind, scope, language and options) supersede each other's cached sections.
+      const series = sha256Hex(
+        JSON.stringify({
+          kind: job.kind,
+          chapterId: opts.chapterId,
+          pageIds: opts.pageIds ?? null,
+          panelIds: opts.panelIds ?? null,
+          language: opts.language ?? null,
+          video: { ...v, concurrency: undefined },
+        }),
+      );
+      const claim = async (result: Record<string, unknown>) => {
+        await deps.db.update(exportJobs).set({ result }).where(eq(exportJobs.id, job.id));
+      };
+      const out = await render(
+        deps,
+        project,
+        opts.chapterId,
+        { ...v, language: opts.language, scope, onSections: (sectionKeys) => claim({ series, sectionKeys }) },
+        dir,
+        progress,
+      );
+      await deps.db
+        .update(exportJobs)
+        .set({
+          result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({ sections: out.report.sections })}::jsonb`,
+        })
+        .where(eq(exportJobs.id, job.id));
+      await deps.db
+        .update(exportJobs)
+        .set({ result: sql`${exportJobs.result} - 'sectionKeys'` })
+        .where(
+          and(
+            eq(exportJobs.projectId, job.projectId),
+            sql`${exportJobs.id} <> ${job.id}`,
+            sql`${exportJobs.result} ->> 'series' = ${series}`,
+          ),
+        );
+      await sweepRenderSections(deps.db, deps.assets, job.projectId);
       deps.logger.info("video export rendered", {
         exportJobId: job.id,
         kind: job.kind,
@@ -447,7 +516,9 @@ async function buildExport(
         loudness: undefined,
       });
       await progress(1);
-      const name = `${prefix}_${out.report.language}_${job.kind === "video_panels" ? "panel" : "page"}-cut_${v.height}p`;
+      const cut = shorts ? "shorts" : job.kind === "video_panels" ? "panel-cut" : "page-cut";
+      const shape = aspect === "16:9" ? "" : `_${aspect.replace(":", "x")}`;
+      const name = `${prefix}_${out.report.language}_${cut}${shape}_${v.height}p`;
       return [
         {
           name: `${name}.mp4`,
@@ -496,7 +567,8 @@ async function buildExport(
       const zip = new ZipWriter(join(dir, "youtube.zip"));
       let chaptersText = "";
       for (const [i, f] of files.entries()) {
-        if (f.name.endsWith(".mp4")) await zip.addStream(`video/${f.name}`, deps.assets.storage.stream(f.a.storageKey));
+        if (f.name.endsWith(".mp4"))
+          await zip.addStream(`video/${f.name}`, deps.assets.storage.stream(f.a.storageKey), f.a.byteSize);
         else {
           const data = await deps.assets.read(f.a);
           if (f.name.endsWith(".chapters.txt")) chaptersText = new TextDecoder().decode(data).trim();
@@ -534,7 +606,7 @@ async function buildExport(
     }
     case "cbz":
     case "epub": {
-      const ids = await pageIdsFor(deps, opts, project.id);
+      const ids = await pagesFor(deps, opts, project.id);
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const meta: BookMeta = {
         id: job.id,
@@ -547,48 +619,39 @@ async function buildExport(
         rtl: project.readingDirection === "rtl",
         blackAndWhite: project.colorMode !== "full_color",
       };
-      const images: { file: string; data: Uint8Array; width: number; height: number }[] = [];
-      let hasCover = false;
+      let cover: BookImage | undefined;
       if (job.kind === "epub" && project.coverAssetId) {
-        const cover = await deps.assets.get(project.coverAssetId);
-        if (cover) {
-          const png = await renderCover(await deps.assets.read(cover), project.title, chapterTitle, meta.author);
+        const art = await deps.assets.get(project.coverAssetId);
+        if (art) {
+          const png = await renderCover(
+            await deps.assets.read(art),
+            project.title,
+            opts.chapterId ? chapterTitle : "",
+            meta.author,
+          );
           const jpg = await sharp(png)
             .jpeg({ quality: opts.jpgQuality, mozjpeg: true })
             .toBuffer({ resolveWithObject: true });
-          images.push({
-            file: "cover.jpg",
-            data: new Uint8Array(jpg.data),
-            width: jpg.info.width,
-            height: jpg.info.height,
-          });
-          hasCover = true;
+          cover = { data: new Uint8Array(jpg.data), width: jpg.info.width, height: jpg.info.height };
         }
       }
-      for (const [i, pid] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
-        const img = await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
-        images.push({
-          file: `${String(i + 1).padStart(4, "0")}.jpg`,
-          data: img.data,
-          width: img.width,
-          height: img.height,
-        });
-        await progress(((i + 1) / ids.length) * 0.95);
+      // Each page goes into the archive as it is composed; only its size is kept for the EPUB package files.
+      async function* rendered() {
+        for (const [i, { id: pid }] of ids.entries()) {
+          const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+          yield await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
+          await progress(((i + 1) / ids.length) * 0.95);
+        }
       }
-      const enc = new TextEncoder();
-      if (job.kind === "cbz") {
-        const zip = new ZipWriter(join(dir, "book.cbz"));
-        for (const im of images) await zip.add(im.file, im.data);
-        await zip.add("ComicInfo.xml", enc.encode(comicInfoXml(meta, images.length)));
-        return [{ name: `${prefix}.cbz`, path: await zip.close(), mime: "application/vnd.comicbook+zip" }];
-      }
-      const zip = new ZipWriter(join(dir, "book.epub"));
-      // Must be the first entry, stored uncompressed (ZipWriter never compresses).
-      await zip.add("mimetype", enc.encode("application/epub+zip"));
-      for (const f of epubFiles(meta, images, hasCover)) await zip.add(f.name, enc.encode(f.text));
-      for (const im of images) await zip.add(`OEBPS/images/${im.file}`, im.data);
-      return [{ name: `${prefix}.epub`, path: await zip.close(), mime: "application/epub+zip" }];
+      const ext = job.kind === "cbz" ? "cbz" : "epub";
+      const path = await writeBook(job.kind, join(dir, `book.${ext}`), meta, rendered(), cover);
+      return [
+        {
+          name: `${prefix}.${ext}`,
+          path,
+          mime: job.kind === "cbz" ? "application/vnd.comicbook+zip" : "application/epub+zip",
+        },
+      ];
     }
     case "zip_package": {
       const zip = new ZipWriter(join(dir, "package.zip"));
@@ -644,27 +707,30 @@ async function chapterFile(deps: WorkerDeps, starts: { chapterId: string; startM
     : [];
 }
 
-function addImagePage(
-  pdf: PDFDocument,
-  image: Awaited<ReturnType<PDFDocument["embedPng"]>>,
+/** Page size and image placement in points, for the page size, margins and bleed the export asked for. */
+function imagePage(
+  png: Uint8Array,
   pxW: number,
   pxH: number,
   opts: Opts,
   /** Interior page index, for which edge is the outside one in a KDP book. */
   index = 0,
-) {
+): ImagePage {
   const kdp = KDP_TRIM_IN[opts.pdf.pageSize];
   if (kdp) {
     // Full bleed to KDP's spec: the art covers the whole page (cropping a sliver at the edges) and the trim box
     // marks where the book is cut — bleed on the outside edge, which is the right of a recto (odd) page.
     const [tw, th] = [kdp[0] * 72, kdp[1] * 72];
-    const [pageW, pageH] = [tw + 9, th + 18];
-    const page = pdf.addPage([pageW, pageH]);
-    const k = Math.max(pageW / pxW, pageH / pxH);
-    page.drawImage(image, { x: (pageW - pxW * k) / 2, y: (pageH - pxH * k) / 2, width: pxW * k, height: pxH * k });
-    page.setTrimBox(index % 2 === 0 ? 0 : 9, 9, tw, th);
-    page.setBleedBox(0, 0, pageW, pageH);
-    return;
+    const [width, height] = [tw + 9, th + 18];
+    const k = Math.max(width / pxW, height / pxH);
+    return {
+      png,
+      width,
+      height,
+      image: { x: (width - pxW * k) / 2, y: (height - pxH * k) / 2, width: pxW * k, height: pxH * k },
+      trimBox: { x: index % 2 === 0 ? 0 : 9, y: 9, width: tw, height: th },
+      bleedBox: { x: 0, y: 0, width, height },
+    };
   }
   const bleed = mm(opts.pdf.bleedMm);
   const margin = mm(opts.pdf.marginMm);
@@ -678,13 +744,12 @@ function addImagePage(
     pageW = w + bleed * 2;
     pageH = h + bleed * 2;
   }
-  const page = pdf.addPage([pageW, pageH]);
   const availW = pageW - (margin + bleed) * 2;
   const availH = pageH - (margin + bleed) * 2;
   const k = Math.min(availW / pxW, availH / pxH);
   const w = pxW * k;
   const h = pxH * k;
-  page.drawImage(image, { x: (pageW - w) / 2, y: (pageH - h) / 2, width: w, height: h });
+  return { png, width: pageW, height: pageH, image: { x: (pageW - w) / 2, y: (pageH - h) / 2, width: w, height: h } };
 }
 
 /** Stable interchange document (schemaVersion 1). Never raw DB rows; assets referenced by manifest id. */
@@ -941,6 +1006,7 @@ export async function buildInterchange(
           .from(outfitAssignments)
           .where(eq(outfitAssignments.panelId, pn.id))
           .orderBy(asc(outfitAssignments.createdAt), asc(outfitAssignments.id));
+        const guideAsset = await assetRef(pn.guide?.assetId ?? null, "guides");
         panelDocs.push({
           ref: `pn-${pn.id}`,
           order: pn.order,
@@ -972,6 +1038,11 @@ export async function buildInterchange(
             })),
           },
           outfits: worn.map((w) => ({ character: `c-${w.characterId}`, outfit: `o-${w.outfitId}`, scope: w.scope })),
+          video: pn.video ?? null,
+          guide:
+            guideAsset && pn.guide
+              ? { asset: guideAsset, strength: pn.guide.strength, pose: pn.guide.pose ?? "" }
+              : null,
         });
       }
       pageDocs.push({
@@ -1014,6 +1085,7 @@ export async function buildInterchange(
         panel: l.panelId ? `pn-${l.panelId}` : null,
         showOnPage: l.showOnPage,
         box: l.box,
+        video: l.video && { ...l.video, untilPanelId: l.video.untilPanelId && `pn-${l.video.untilPanelId}` },
         segments: segDocs,
       });
     }
@@ -1073,6 +1145,7 @@ export async function buildInterchange(
       colorMode: project.colorMode,
       settings: project.settings,
       cover: await assetRef(project.coverAssetId, "exports"),
+      videoLogo: await assetRef(project.settings.video?.watermark?.assetId ?? null, "exports"),
     },
     style: style
       ? {

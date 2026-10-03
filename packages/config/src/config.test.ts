@@ -28,6 +28,14 @@ describe("config", () => {
   test("production boots with no keys at all", () => {
     expect(parseConfig({ ...base, NODE_ENV: "production" }).COOKIE_SECURE).toBe(true);
   });
+  test("local storage by default; s3 refuses to start without its bucket and keys", () => {
+    expect(parseConfig(base).STORAGE_DRIVER).toBe("local");
+    expect(() => parseConfig({ ...base, STORAGE_DRIVER: "s3", S3_BUCKET: "b" })).toThrow(/S3_ACCESS_KEY_ID/);
+    const s3 = { ...base, STORAGE_DRIVER: "s3", S3_BUCKET: "b", S3_ACCESS_KEY_ID: "k", S3_SECRET_ACCESS_KEY: "s" };
+    expect(parseConfig(s3).S3_PRESIGN_EXPIRES_SECONDS).toBe(900);
+    expect(() => parseConfig({ ...s3, S3_ENDPOINT: "minio:9000" })).toThrow(/S3_ENDPOINT/);
+  });
+
   test("missing database fails", () => {
     expect(() => parseConfig({ REDIS_URL: "x", SESSION_SECRET: "x".repeat(40) })).toThrow(ConfigError);
   });
@@ -44,6 +52,7 @@ describe("PublicUrlService", () => {
     expect(u.apiUrl("/auth/me")).toBe("https://manga.example.com/api/auth/me");
     expect(u.assetUrl("abc", "thumb")).toBe("https://manga.example.com/cdn/a/abc?v=thumb");
     expect(u.passwordResetUrl("t o")).toBe("https://manga.example.com/app/reset-password?token=t+o");
+    expect(u.inviteUrl("abc")).toBe("https://manga.example.com/app/invite?token=abc");
   });
   test("subdomains", () => {
     const u = new PublicUrlService({

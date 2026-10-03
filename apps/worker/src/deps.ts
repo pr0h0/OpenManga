@@ -12,7 +12,7 @@ import {
   ProviderResolver,
   UsageService,
 } from "@openmanga/services";
-import { LocalAssetStorage } from "@openmanga/storage";
+import { createAssetStorage } from "@openmanga/storage";
 import type { WorkerDeps } from "./context.ts";
 
 export function buildWorkerDeps(config: AppConfig) {
@@ -24,11 +24,12 @@ export function buildWorkerDeps(config: AppConfig) {
     config.TEXT_WORKER_CONCURRENCY +
     config.TTS_WORKER_CONCURRENCY +
     config.EXPORT_WORKER_CONCURRENCY +
+    config.RENDER_WORKER_CONCURRENCY +
     8;
   const { db, client } = createDb(config.DATABASE_URL, { max: Math.min(80, poolSize) });
   const redis = createRedis(config.REDIS_URL, true);
   const pub = createRedis(config.REDIS_URL);
-  const storage = new LocalAssetStorage(config.ASSET_ROOT);
+  const storage = createAssetStorage(config);
   const queue = new BullJobQueue(redis);
   const events = new EventBus(pub);
   const text = createTextProvider(config);

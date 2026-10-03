@@ -40,7 +40,7 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
   plus a one-time model download from HuggingFace for local TTS on first boot.
 
 ## Features
-- **Production run**: one button on the project overview runs the whole pipeline — analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package — skipping whatever already exists, pausing for your review where you ask, and spending only up to the project's budget cap.
+- **Production run**: one button on the project overview runs the whole pipeline — analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package — skipping whatever already exists, pausing for your review where you ask, and spending only up to the project's budget cap. The overview shows what is out of date from story to video, and **Update production** runs only those steps: a revised story is analysed again and shown as a list of changes to approve before anything is applied, existing chapters keep their pages, and a re-render re-encodes only the shots that changed.
 - **Presets and templates**: start a project from a production preset (a YouTube recap of 30 minutes, 1, 2 or 3 hours, manga chapters, webtoon episodes, economy draft) or from your own template saved from another project's setup.
 - **Target runtime**: aim a video at a length; the story analysis asks for enough chapters to reach it, and chapter plans and narration default to the page count and words per panel that land each chapter on its share.
 - **Project wizard**: details, format (comic pages, 16:9 video shots, or a vertical scrolling strip), style preset (including a photorealistic *Realistic* preset), story input (story/chapter/outline/screenplay/idea), AI analysis, editable review, apply.
@@ -51,16 +51,18 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 - **Outfits that change with the story**: switch a character's outfit on a panel, from that panel on (carried across pages and chapters) or for that panel only, picked from chips with each outfit's reference image; the character page lists every change, and chapter plans switch outfits too.
 - **World**: locations and props with versions and references (a location as a wide view, a panorama or a sheet of every side; a prop as a single view or from every angle) — draw every missing one in a single run, picking the kind of reference and seeing how many already have each, optionally as a half-price provider batch — style presets + custom style versions + style references, world notes.
 - **Chapters**: AI planning into scenes (continuity state carried scene to scene), beats, pages (deterministic layout templates) and panel specs with dialogue — placed automatically, or kept on each panel until *Letter from plan* places it where the plan left room; chapter/scene memory editors; *Play chapter* on the Pages list and previous/next chapter links.
-- **Page editor** (Konva): drag/resize/rotate panels, bubbles, SFX and narration boxes; zoom/pan; undo/redo; keyboard shortcuts; template swap, add/duplicate/split/reorder; crop and focal point; prompt inspector; generate/regenerate with operations; version compare/activate/revert; mask painting for targeted edits; a vision consistency check per panel (*Run check*) that also finds where faces are, so *Move bubbles off faces* can re-place a page's, chapter's or project's bubbles and captions and point each tail at its speaker.
+- **Page editor** (Konva): drag/resize/rotate panels, bubbles, SFX and narration boxes; zoom/pan; undo/redo; keyboard shortcuts; template swap, add/duplicate/split/reorder; crop and focal point; prompt inspector; generate/regenerate with operations; version compare/activate/revert; mask painting for targeted edits; a per-panel layout guide (upload a rough sketch or draw one with pen, lines and posable stick figures over the faint art) sent with generation for composition and poses only, and *Describe pose* to put a sketch into words (or type the pose yourself) for the panel's guide; a vision consistency check per panel (*Run check*) that also finds where faces are, so *Move bubbles off faces* can re-place a page's, chapter's or project's bubbles and captions and point each tail at its speaker.
 - **Generation**: live queue (SSE), cost/latency, retry/cancel, bulk page/scene/chapter with cost confirmation and progress, prompt & reference inspector showing exactly what was sent.
 - **Review at scale**: *Check all panels* runs the vision check over a page, chapter or project, priced first; the **Storyboard** shows a chapter's panels filtered to what needs attention (no artwork, failed, needs review, check mismatch, not checked), with keys to move, open, check and regenerate.
 - **Narration**: AI-written narration, segment split/merge, voices and preview, local synthesis, cache reuse, chapter playback, timeline manifest; delete a chapter's or the whole project's audio (the lines stay, ready to synthesize again).
-- **Exports**: PNG/JPG page sequences, PDF (page size, margin, bleed, DPI, RTL, or Amazon KDP trim sizes printed full bleed), CBZ with ComicInfo.xml, fixed-layout EPUB, webtoon strips with chunking, narrated MP4 video (page cut, including a continuous top-to-bottom scroll, or Ken Burns panel cut, with a near-full-screen browser preview whose narration keeps playing in a background tab; render only the first few minutes or a page range to check it; chapter timestamps for multi-chapter videos), a YouTube package (the video, subtitles, chapters, thumbnail and AI-written titles, description, tags and pinned comment), narration audio package (MP3/OGG/WAV + timeline), project JSON (`schemaVersion: 1`), full ZIP package, agent hand-off package. Finished exports can be deleted, files included.
+- **Exports**: PNG/JPG page sequences (a chapter or the whole project), PDF (page size, margin, bleed, DPI, RTL, or Amazon KDP trim sizes printed full bleed; a chapter or the whole project), CBZ with ComicInfo.xml, fixed-layout EPUB (each a chapter or the whole project), webtoon strips with chunking (a chapter or the whole project), narrated MP4 video (page cut, including a continuous top-to-bottom scroll, or Ken Burns panel cut with per-shot camera moves, scene-break fades, shots left out and narration spanning several shots, a logo watermark and intro and outro cards, in 16:9, vertical 9:16 or square, with a near-full-screen browser preview whose narration keeps playing in a background tab; render only the first few minutes or a page range to check it; chapter timestamps for multi-chapter videos), a Shorts cut (a vertical trailer of dramatic shots picked across the story, up to 3 minutes by default or longer if you choose, adjustable before rendering), a YouTube package (the video, subtitles, chapters, thumbnail and AI-written titles, description, tags and pinned comment), narration audio package (MP3/OGG/WAV + timeline), project JSON (`schemaVersion: 1`), full ZIP package, agent hand-off package. Finished exports can be deleted, files included.
 - **Covers and video thumbnails**: generate a cover, or text-free 16:9 thumbnail art with the headline composited by the app, so it can be reworded or moved for free and downloaded as a 1280×720 PNG.
+- **Project members**: invite people by username or email as editors or viewers; an emailed invitation can create the account even when sign-up is closed. Shared projects show on the dashboard; editors generate on their own provider keys within the owner's budget cap, viewers read. Members, roles and invitations update live.
+- **Panel comments**: threads on any panel for every member, viewers included — reply, edit, resolve, @mention — in the page editor (badges on panels and pages, readable on a phone), an open-comments list per project or chapter, and a header bell for mentions and replies. Agents read and post them too.
 - **Reader links**: share a project or one chapter as an unlisted, read-only link (`/app/read/<token>`) that anyone can read without an account, page by page or as one long scroll, or play a chapter as the video preview; revoke it to close it.
 - **Project overview**: pipeline state, spend against the budget, and the disk space the project's files take, including what is in the trash. Trashing a character, location or prop trashes its reference images with it, and restoring brings them back; a generation whose image was deleted keeps its row, cost and prompt.
-- **Experts**: chats with brainstorming specialists outside any chapter — topic scout, title doctor, thumbnail designer, story developer, character and world designers, hook editor, narration scriptwriter, beta reader, channel strategist — or experts you write yourself. Pick the model, attach images (upload, drop or paste), talk about a project, and tick *Generate image* for a picture with the reply. Chats are kept, and work without an API key by pasting answers from any chat.
-- **AI agents (MCP)**: connect ChatGPT or Claude (OAuth) or any MCP agent (personal access token) to build projects as you — story, analysis, chapter plans, panels, narration, exports — including the whole pipeline in paste mode with no API key, and `get_image` lets an agent look at artwork, pages and references. Each connection has its own scopes, projects and approval mode; spending, deleting and other sensitive actions can wait for your approval in the app. See [MCP](docs/MCP.md).
+- **Experts**: chats with brainstorming specialists outside any chapter — topic scout, title doctor, thumbnail designer, story developer, character and world designers, hook editor, narration scriptwriter, beta reader, channel strategist — or experts you write yourself. Pick the model, attach images (upload, drop or paste), talk about a project, and tick *Generate image* for a picture with the reply. Chats are kept, and work without an API key by pasting answers from any chat. A reply can be turned into a new project, the project's premise, an outline revision or its YouTube text: the app extracts it, you review and edit it, then apply.
+- **AI agents (MCP)**: connect ChatGPT or Claude (OAuth) or any MCP agent (personal access token) to build projects as you — story, analysis, chapter plans, panels, narration, exports, production runs and Update production — including the whole pipeline in paste mode with no API key, `get_image` lets an agent look at artwork, pages and references, and it can delete exports, narration audio and trashed assets. Each connection has its own scopes, projects and approval mode; spending, deleting and other sensitive actions can wait for your approval in the app. See [MCP](docs/MCP.md).
 - **Describe an image**: upload a reference — a frame from a video, a page you like — and extract its art style, character, outfit, location, lighting, composition, mood, props, era or technique, plus your own free-text question. Style, character and location results apply straight into the project; the upload stays in the library as a reference for later generation.
 - **Provider batches**: send image or text generation to OpenAI's or Google's batch API for **half price**, results within 24h, opt-in per run.
 - **Cost dashboard**: today/7d/30d/lifetime, provider and operation breakdowns, reference-size experiments, regeneration/acceptance rates. **Admin**: users, jobs, queues, Kokoro status, storage, errors, rate snapshots, maintenance.
@@ -169,15 +171,15 @@ instead of building locally, pin a tag in a compose override:
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
 services:
-  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0", build: !reset null }
-  api: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0" }
-  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0" }
-  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.12.0" }
-  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.12.0", build: !reset null }
-  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.12.0", build: !reset null }
+  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.13.0", build: !reset null }
+  api: { image: "ghcr.io/pr0h0/openmanga-app:0.13.0" }
+  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.13.0" }
+  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.13.0" }
+  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.13.0", build: !reset null }
+  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.13.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
-than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.12`). `!reset`
+than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.13`). `!reset`
 needs Compose v2.24 or newer; on older versions drop the `build:` keys and run `docker compose up -d --no-build`.
 
 ## Local development
@@ -198,8 +200,9 @@ All configuration is validated at startup by `packages/config` (Zod). Only three
 `DATABASE_URL`, `REDIS_URL`, `SESSION_SECRET` — everything else has a default. **There are no server-level
 provider keys**: AI keys belong to users (see below). Other useful variables: `IMAGE_QUALITY` (`low`),
 `IMAGE_SIZES` (~2 MP menu), `REFERENCE_MAX_WIDTH/HEIGHT` (192/288), `AI_TEXT_*`/`AI_IMAGE_*` timeouts and
-concurrency, `ASSET_ROOT`, `TTS_ENABLED`, `KOKORO_URL`, `APP/API/CDN_PUBLIC_URL`, `REGISTRATION_ENABLED`,
-`DEV_MAILBOX_ENABLED`, `IMPORT_*` limits, `MCP_*` (see [MCP](docs/MCP.md)), worker concurrency,
+concurrency, `ASSET_ROOT`, `STORAGE_DRIVER`/`S3_*` (assets in an S3-compatible bucket, see
+[Storage](docs/STORAGE.md)), `TTS_ENABLED`, `KOKORO_URL`, `APP/API/CDN_PUBLIC_URL`, `REGISTRATION_ENABLED`,
+`DEV_MAILBOX_ENABLED`, `IMPORT_*` limits, `MCP_*` (see [MCP](docs/MCP.md)), worker concurrency, `WORKER_QUEUES` (which queues a worker takes),
 `OPENAI_BATCH_MAX_ENQUEUED_TOKENS`/`BATCH_POLL_INTERVAL_SECONDS` (provider batches), `STALLED_JOB_TIMEOUT_MINUTES`. See [.env.example](.env.example).
 
 ## Database migration
@@ -298,7 +301,7 @@ tokens) costs about **$0.50–1.13** in text against **$11–17** in images.
 Measured figures and the controls that keep spend visible: [docs/COSTS.md](docs/COSTS.md). On a 50-project run,
 1,226 images for **$14.31**, 14–47 panels per chapter (the planner decides how many).
 The in-app cost dashboard reports spend per provider with an images/text split, and each project can set a budget
-cap that asks for confirmation before going over.
+cap that asks for confirmation before going over. An admin can also cap the whole server's spend per month.
 
 ### All supported providers
 

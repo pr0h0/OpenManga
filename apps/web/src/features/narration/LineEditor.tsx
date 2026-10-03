@@ -1,3 +1,4 @@
+import { NarrationLineVideo } from "@openmanga/schemas";
 import { Merge, Play, RefreshCw, Scissors, Split, Trash2, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { assetUrl, del, patch, post } from "../../api/client.ts";
@@ -89,6 +90,7 @@ export function LineEditor({
         onChange={(e) => setText(e.target.value)}
         aria-label="Narration text"
       />
+      <LineVideo line={line} panels={panels} onChange={(video) => update.mutate({ video })} />
       <div className="mt-2 space-y-1.5">
         {line.segments.map((s, i) => (
           <SegmentRow
@@ -102,6 +104,61 @@ export function LineEditor({
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The line in the video: stretched over the shots up to a later panel (they share one hold), with silence before
+ * and after it.
+ */
+function LineVideo({
+  line,
+  panels,
+  onChange,
+}: {
+  line: Line;
+  panels: PanelOption[];
+  onChange: (video: NarrationLineVideo) => void;
+}) {
+  const v = NarrationLineVideo.parse(line.video ?? {});
+  const from = panels.findIndex((p) => p.id === line.panelId);
+  const ms = (label: string, key: "startOffsetMs" | "endOffsetMs") => (
+    <label className="flex items-center gap-1">
+      {label}
+      <input
+        type="number"
+        className="input w-20 py-0.5 text-xs"
+        step={100}
+        min={0}
+        max={10000}
+        defaultValue={v[key]}
+        onBlur={(e) => {
+          const n = Math.min(10000, Math.max(0, Math.round(Number(e.target.value) || 0)));
+          if (n !== v[key]) onChange({ ...v, [key]: n });
+        }}
+      />
+      ms
+    </label>
+  );
+  return (
+    <div className="muted mt-2 flex flex-wrap items-center gap-2 text-xs">
+      <span>In the video:</span>
+      <select
+        className="input w-auto py-0.5 text-xs"
+        value={v.untilPanelId ?? ""}
+        onChange={(e) => onChange({ ...v, untilPanelId: e.target.value || null })}
+        aria-label="Spoken until panel"
+      >
+        <option value="">Over its own shot</option>
+        {panels.slice(from + 1).map((p) => (
+          <option key={p.id} value={p.id}>
+            Until {p.label}
+          </option>
+        ))}
+      </select>
+      {ms("Start after", "startOffsetMs")}
+      {ms("Hold after", "endOffsetMs")}
     </div>
   );
 }

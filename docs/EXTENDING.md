@@ -297,9 +297,11 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
    `{ data }` is in-memory bytes; `{ path }` is a file already on disk. **Large outputs stream to disk** — multi-file
    exports build through `ZipWriter` (`apps/worker/src/lib/zip.ts`, stored uncompressed, only the current entry in
    memory) and return `{ path: await zip.close() }`; video exports return the rendered file's path. An entry too large
-   for memory goes in with `zip.addStream(name, stream)` from `deps.assets.storage.stream(key)`, as `youtube_package`
-   does with the video it repackages. Single small
-   outputs (a PDF, a timeline JSON, an `.srt`) return `{ data }`. `AssetService.store` accepts the same
+   for memory goes in with `zip.addStream(name, stream, size)` from `deps.assets.storage.stream(key)`, as
+   `youtube_package` does with the video it repackages; past 4 GiB the archive switches to ZIP64 by itself. A PDF
+   is written page by page with `PdfWriter` (`apps/worker/src/lib/pdf.ts`), a CBZ or EPUB with `writeBook`
+   (`apps/worker/src/lib/ebook.ts`) from an async generator of rendered pages; both return `{ path }`. Single small
+   outputs (a timeline JSON, an `.srt`) return `{ data }`. `AssetService.store` accepts the same
    `{ data } | { filePath }` split, so either one is stored without a round trip through memory.
 
    Everything runs inside `withTempDir(deps.config.TEMP_ROOT, …)` and receives `dir`. A `{ path }` pointing outside
@@ -335,7 +337,8 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
      as a local `Opts` type and casts the job's `options` to it — the cast is unchecked, so an option added to the Zod
      schema but not to `Opts` is silently `undefined` in the worker.
    - There is a **hardcoded chapter-required list** in the POST handler
-     (`["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon", "narration_audio", "timeline"]`). A
+     (`["narration_audio", "timeline"]`; every page-based kind may cover the whole project, and the web app's
+     `WHOLE_PROJECT` set offers that option). A
      chapter-scoped kind missing from it is accepted with no `chapterId` (or `pageIds`), then fails in the worker with
      `UnrecoverableError("No pages to export")` — a 202 followed by a failed job instead of a 400.
    - MCP's `create_export` (`apps/api/src/mcp/tools/exports.ts`) takes this same schema, so agents can request the
@@ -344,7 +347,7 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
 
    The route returns `202 { job }`, never a file. Downloads go through the CDN asset route
    (`apps/api/src/routes/assets.ts`, `cdnRoutes.get("/a/:id")`), which authorizes, then hands off to nginx with
-   `X-Accel-Redirect` (invariant 10). Nothing to add there.
+   `X-Accel-Redirect`, or redirects to a signed URL with S3 storage (invariant 10). Nothing to add there.
 
 5. **`apps/web/src/features/exports/ExportsPage.tsx` — add an entry to `KINDS` (line 23).**
 
@@ -369,6 +372,9 @@ Exports are deterministic compositions — no AI (invariant 7). Six places name 
 6. **Optional but recommended:** add the kind to the integration loop in `tests/integration/flow.test.ts` (which
    asserts output magic bytes) and to `scripts/smoke.ts`. Neither fails if you skip it, so a new kind is untested
    until you do.
+
+7. **Only for a kind that runs for many minutes:** add it to `RENDER_KINDS` in `packages/services/src/jobs.ts` so it
+   takes the `render` queue instead of `export` and cannot hold up the quick exports.
 
 ---
 
@@ -511,8 +517,9 @@ receives it and invalidates nothing.
 
 ### Adding a whole queue (rarer, more work)
 
-Add the name to `QUEUES` in `packages/queue/src/index.ts`, add a processor in `apps/worker/src/processors.ts`, add a
-`createWorker(...)` call in `apps/worker/src/main.ts` with a concurrency setting in `packages/config`, add a
+Add the name to `QUEUES` in `packages/queue/src/index.ts`, add a processor in `apps/worker/src/processors.ts`, add an
+entry to the `start` map in `apps/worker/src/main.ts` (typed by `QueueName`, so the compiler asks for it) with a
+concurrency setting in `packages/config`, add the queue to the test harness (`tests/integration/harness.ts`), add a
 `createExportJob`-style creator that calls `addToOutbox`, and extend `JobService.reconcileQueue` — it only walks the
 three known job tables, so a fourth would not be recovered after a Redis flush.
 
@@ -877,7 +884,7 @@ use Redis DB 5, so your dev data is safe:
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis
 TEST_DATABASE_URL=postgres://<user>:<password>@postgres:5432/<db> \
-TEST_REDIS_URL=redis://redis:6379/5 \
+TEST_REDIS_URL=redis://redis:6379/5 OM_NETWORK=openmanga_internal \
   ./scripts/bunx.sh bun test tests/integration
 ```
 

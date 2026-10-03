@@ -287,3 +287,179 @@ test("a chat about a project gets its art style, and its images draw named chara
   );
   expect(usage!.refs).toBeGreaterThanOrEqual(1);
 });
+
+// ---------------------------------------------------------------- output actions
+
+type Extraction = {
+  id: string;
+  messageId: string;
+  projectId: string | null;
+  action: string;
+  status: string;
+  manual: boolean;
+  result: Record<string, unknown> | null;
+  applied: { at: string; count: number; projectId?: string; revisionId?: string } | null;
+  failureReason: string | null;
+};
+type Applied = { applied: { count: number; projectId?: string; revisionId?: string }; extraction: Extraction };
+const extract = (messageId: string, action: string, ai?: Record<string, unknown>) =>
+  alice.post<{ extraction: Extraction }>(`/api/expert-messages/${messageId}/extract`, { action, ai }, 202);
+/** The extraction once it has finished, or is waiting for a pasted answer. */
+const extracted = (chatId: string, id: string) =>
+  waitFor(
+    async () => {
+      const r = await alice.get<{ extractions: Extraction[] }>(`/api/expert-chats/${chatId}`);
+      const e = r.extractions.find((x) => x.id === id);
+      return e && ["completed", "failed", "awaiting_input"].includes(e.status) ? e : null;
+    },
+    { label: "expert extraction", timeoutMs: 30_000 },
+  );
+
+test("a concept in a reply becomes a new project, and only once it is applied", async () => {
+  const chat = await newChat("topic-scout");
+  await send(chat.id, { text: "A premise about a lighthouse that keeps its own hours" });
+  const [question, reply] = await settled(chat.id);
+  // The project actions need a chat about a project; a new project does not.
+  await alice.post(`/api/expert-messages/${reply!.id}/extract`, { action: "premise" }, 400);
+  // Only a finished reply from the expert can be used, and only by its owner.
+  await alice.post(`/api/expert-messages/${question!.id}/extract`, { action: "concept" }, 409);
+  await bob.post(`/api/expert-messages/${reply!.id}/extract`, { action: "concept" }, 404);
+
+  const before = (await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length;
+  const started = await extract(reply!.id, "concept");
+  expect(started.extraction.projectId).toBeNull();
+  const done = await extracted(chat.id, started.extraction.id);
+  expect(done.status).toBe("completed");
+  const concept = done.result as { title: string; logline: string; premise: string; storyIdea: string };
+  // What it read is the reply itself, copied onto the job when it was queued.
+  expect(concept.storyIdea).toContain("Mock expert reply to: A premise about a lighthouse");
+  expect(concept.title.length).toBeGreaterThan(0);
+  // Extracting changed nothing: the user has the same projects until they apply it.
+  expect((await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length).toBe(before);
+  // A job of no project is its owner's alone.
+  await alice.get(`/api/generations/${done.id}`);
+  await bob.get(`/api/generations/${done.id}`, 404);
+  await bob.get(`/api/jobs/${done.id}`, 404);
+  // Its usage is recorded outside any project, like the chat itself.
+  const usage = await h.deps.db.select().from(aiUsage).where(eq(aiUsage.generationJobId, done.id));
+  expect(usage.length).toBeGreaterThan(0);
+  expect(usage.every((u) => u.projectId === null)).toBe(true);
+
+  // Applying creates the project from what the user reviewed (edited here), and moves the chat to it.
+  const first = await alice.post<Applied>(`/api/expert-extractions/${done.id}/apply`, {
+    data: { ...concept, title: "The Lamp That Keeps Time" },
+    attachChat: true,
+  });
+  expect(first.applied.count).toBe(1);
+  const projectId2 = first.applied.projectId!;
+  const { project } = await alice.get<{ project: { title: string; description: string } }>(
+    `/api/projects/${projectId2}`,
+  );
+  expect(project.title).toBe("The Lamp That Keeps Time");
+  expect(project.description).toContain(concept.logline);
+  const story = await alice.get<{ latest: { content: string; inputKind: string } }>(
+    `/api/projects/${projectId2}/story`,
+  );
+  expect(story.latest.inputKind).toBe("idea");
+  expect(story.latest.content).toBe(concept.storyIdea);
+  const after = await alice.get<{ chat: Chat; extractions: Extraction[] }>(`/api/expert-chats/${chat.id}`);
+  expect(after.chat.projectId).toBe(projectId2);
+  // Recorded on the extraction: a reload shows it applied, with the project it made.
+  expect(after.extractions.find((x) => x.id === done.id)!.applied).toMatchObject({ count: 1, projectId: projectId2 });
+
+  // A second apply is refused, so a double click or a retry never makes a second project...
+  const again = await alice.raw("POST", `/api/expert-extractions/${done.id}/apply`, {});
+  expect(again.status).toBe(409);
+  const err = (await again.json()) as { error: { code: string; message: string } };
+  expect(err.error.code).toBe("already_applied");
+  expect(err.error.message).toContain("again=true");
+  const count = (await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length;
+  expect(count).toBe(before + 1);
+  // ...unless it is asked for on purpose.
+  const second = await alice.post<Applied>(`/api/expert-extractions/${done.id}/apply`, { again: true });
+  expect(second.applied.count).toBe(2);
+  expect(second.applied.projectId).not.toBe(projectId2);
+  expect((await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length).toBe(before + 2);
+  // Nobody else can apply it, and an invalid edit is refused before anything changes.
+  await bob.post(`/api/expert-extractions/${done.id}/apply`, { again: true }, 404);
+  await alice.post(`/api/expert-extractions/${done.id}/apply`, { again: true, data: { title: "" } }, 422);
+  expect((await alice.get<{ projects: unknown[] }>("/api/projects")).projects.length).toBe(before + 2);
+});
+
+test("premise, outline and YouTube text from a reply about a project, each in the project's Generation", async () => {
+  const chat = await newChat("story-developer", projectId);
+  await send(chat.id, { text: "An outline in three parts\n\nwith a premise and video copy" });
+  const reply = (await settled(chat.id)).at(-1)!;
+  const ids: string[] = [];
+  for (const action of ["premise", "outline", "youtube"]) {
+    const started = await extract(reply.id, action);
+    expect(started.extraction.projectId).toBe(projectId);
+    const done = await extracted(chat.id, started.extraction.id);
+    expect([action, done.status]).toEqual([action, "completed"]);
+    ids.push(done.id);
+  }
+  const chatView = await alice.get<{ extractions: Extraction[] }>(`/api/expert-chats/${chat.id}`);
+  expect(chatView.extractions.filter((e) => e.messageId === reply.id).map((e) => e.action)).toEqual([
+    "youtube",
+    "outline",
+    "premise",
+  ]);
+  const [premise, outline, youtube] = ids.map((id) => chatView.extractions.find((e) => e.id === id)!.result!);
+  // Shown in the project's Generation like any other text job.
+  const gen = await alice.get<{ jobs: { id: string; kind: string }[] }>(`/api/projects/${projectId}/generations`);
+  for (const id of ids) expect(gen.jobs.find((j) => j.id === id)?.kind).toBe("expert_extract");
+
+  // Applying goes through the same code as the project and story routes, and is recorded on each extraction.
+  const applied = async (id: string) => (await alice.post<Applied>(`/api/expert-extractions/${id}/apply`, {})).applied;
+  expect(await applied(ids[0]!)).toMatchObject({ count: 1, projectId });
+  const o = outline as { chapters: unknown[] };
+  expect(o.chapters.length).toBeGreaterThan(0);
+  const rev = await applied(ids[1]!);
+  expect(rev.revisionId).toBeTruthy();
+  await applied(ids[2]!);
+  const p = await alice.get<{ project: { description: string; settings: { youtubePackage: { titles: string[] } } } }>(
+    `/api/projects/${projectId}`,
+  );
+  expect(p.project.description).toContain(String(premise!.logline));
+  expect(p.project.settings.youtubePackage.titles).toEqual((youtube as { titles: string[] }).titles);
+  const story = await alice.get<{ latest: { id: string; inputKind: string; content: string } }>(
+    `/api/projects/${projectId}/story`,
+  );
+  expect(story.latest.id).toBe(rev.revisionId!);
+  expect(story.latest.inputKind).toBe("outline");
+  expect(story.latest.content).toStartWith("Chapter 1: ");
+  // Each is applied once unless asked again.
+  for (const id of ids) await alice.post(`/api/expert-extractions/${id}/apply`, {}, 409);
+});
+
+test("with no key, an extraction asks for its answer and holds it to the schema", async () => {
+  const chat = await newChat("story-developer", projectId);
+  await send(chat.id, { text: "Outline it" });
+  const reply = (await settled(chat.id)).at(-1)!;
+  const started = await extract(reply.id, "outline", { manual: true });
+  const waiting = await extracted(chat.id, started.extraction.id);
+  expect(waiting.status).toBe("awaiting_input");
+  expect(waiting.manual).toBe(true);
+  const m = await alice.get<{ prompt: string; format: { name: string } | null; example: string | null }>(
+    `/api/generations/${waiting.id}/manual`,
+  );
+  expect(m.format?.name).toBe("StoryOutline");
+  expect(m.prompt).toContain("<expert_reply>");
+  expect(m.prompt).toContain("Mock expert reply to: Outline it");
+  // A wrong answer is refused with its reason, and the job waits again.
+  await alice.post(`/api/generations/${waiting.id}/manual`, { text: '{"chapters": []}' });
+  const again = await waitFor(
+    async () => {
+      const r = await alice.get<{ awaitingAnswer: boolean; lastError: string | null }>(
+        `/api/generations/${waiting.id}/manual`,
+      );
+      return r.awaitingAnswer && r.lastError ? r : null;
+    },
+    { label: "rejected answer" },
+  );
+  expect(again.lastError).toContain("StoryOutline");
+  await alice.post(`/api/generations/${waiting.id}/manual`, { text: m.example! });
+  const done = await extracted(chat.id, waiting.id);
+  expect(done.status).toBe("completed");
+  expect((done.result as { chapters: unknown[] }).chapters.length).toBeGreaterThan(0);
+});

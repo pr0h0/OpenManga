@@ -1,6 +1,7 @@
 import type { GenerationKind } from "@openmanga/db";
 import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
+import { expertExtract } from "./handlers/expert-extract.ts";
 import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
 import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
@@ -18,13 +19,13 @@ import {
 import { textBatchSubmit } from "./handlers/text-batch.ts";
 import { TEXT_HANDLERS } from "./handlers/text-handlers.ts";
 import { processTts } from "./handlers/tts.ts";
-import { type GenerationJob, runGenerationJob } from "./lib/runner.ts";
+import { inProject, type ProjectJob, runGenerationJob } from "./lib/runner.ts";
 
-const GENERATION_HANDLERS: Record<
-  GenerationKind,
-  (deps: WorkerDeps, job: GenerationJob) => Promise<Record<string, unknown>>
-> = {
-  ...(TEXT_HANDLERS as Record<string, (deps: WorkerDeps, job: GenerationJob) => Promise<Record<string, unknown>>>),
+type ProjectHandler = (deps: WorkerDeps, job: ProjectJob) => Promise<Record<string, unknown>>;
+
+/** Every kind that runs inside a project. An expert extraction may have none, so it is dispatched on its own. */
+const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, ProjectHandler> = {
+  ...(TEXT_HANDLERS as Record<string, ProjectHandler>),
   story_analysis: storyAnalysis,
   story_rewrite: storyRewrite,
   chapter_plan: chapterPlan,
@@ -48,9 +49,10 @@ const GENERATION_HANDLERS: Record<
 export function generationProcessor(deps: WorkerDeps) {
   return (job: Job) =>
     runGenerationJob(deps, job, (g) => {
+      if (g.kind === "expert_extract") return expertExtract(deps, g);
       const handler = GENERATION_HANDLERS[g.kind];
       if (!handler) throw new Error(`No handler for ${g.kind}`);
-      return handler(deps, g);
+      return handler(deps, inProject(g));
     });
 }
 

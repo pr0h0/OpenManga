@@ -27,15 +27,19 @@ export type GenerationKind =
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
   | "image_batch_submit"
   /** The same for text jobs: harvests each job's request and submits them together. */
-  | "text_batch_submit";
+  | "text_batch_submit"
+  /** Turns an expert's reply into something to apply (a project concept, premise, outline or YouTube text). */
+  | "expert_extract";
 
 export const generationJobs = pgTable(
   "generation_jobs",
   {
     id: id(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    /**
+     * Every job belongs to a project, except an expert_extract from a chat about no project (a concept for a new
+     * one): that job is its user's alone, and access to it is checked by owner instead.
+     */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
     kind: text("kind").$type<GenerationKind>().notNull(),
     queue: text("queue").notNull(),
@@ -85,7 +89,16 @@ export const generationInputs = pgTable(
       .notNull()
       .references(() => generationJobs.id, { onDelete: "cascade" }),
     role: text("role")
-      .$type<"target" | "mask" | "character_ref" | "location_ref" | "prop_ref" | "style_ref" | "previous_panel">()
+      .$type<
+        | "target"
+        | "mask"
+        | "character_ref"
+        | "location_ref"
+        | "prop_ref"
+        | "style_ref"
+        | "layout_guide"
+        | "previous_panel"
+      >()
       .notNull(),
     order: integer("order").notNull(),
     assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
@@ -185,6 +198,8 @@ export type ExportKind =
   | "agent_package"
   | "video_pages"
   | "video_panels"
+  /** A trailer of picked panels (3 minutes by default, longer on request), vertical by default. */
+  | "video_shorts"
   /** The newest video of the scope, its thumbnail, subtitles, chapter timestamps and publishing text, zipped. */
   | "youtube_package"
   | "project_import";
@@ -321,6 +336,17 @@ export const errorEvents = pgTable(
   },
   (t) => [index("error_events_created_idx").on(t.createdAt)],
 );
+
+/**
+ * Server-wide settings an administrator changes at runtime, one row per key (`budget`: the monthly AI spend
+ * ceiling). No row means the env default applies.
+ */
+export const instanceSettings = pgTable("instance_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<Record<string, unknown>>().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: updatedAt(),
+});
 
 /**
  * One submission to a provider's async batch API, covering many generation jobs. A row is written before the

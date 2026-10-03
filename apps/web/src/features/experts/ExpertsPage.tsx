@@ -20,6 +20,7 @@ import { useAction } from "../../api/hooks.ts";
 import { Markdown } from "../../components/Markdown.tsx";
 import { AssetImage, ConfirmDialog, clsx, EmptyState, Field, Modal, Spinner, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
+import { ExpertActions, type Extraction, RUNNING } from "./ExpertActions.tsx";
 
 type Expert = {
   key?: string;
@@ -52,7 +53,12 @@ type Message = {
   model: string | null;
   createdAt: string;
 };
-type ChatDetail = { chat: ChatRow; project: { id: string; title: string } | null; messages: Message[] };
+type ChatDetail = {
+  chat: ChatRow;
+  project: { id: string; title: string } | null;
+  messages: Message[];
+  extractions: Extraction[];
+};
 
 const keys = {
   experts: ["experts"] as const,
@@ -360,8 +366,12 @@ function ChatView({ chatId }: { chatId: string }) {
   const detail = useQuery({
     queryKey: keys.chat(chatId),
     queryFn: () => get<ChatDetail>(`/expert-chats/${chatId}`),
-    // Replies are written in the background: look again until the last one is in.
-    refetchInterval: (q) => (q.state.data?.messages.at(-1)?.status === "pending" ? 1500 : false),
+    // Replies and extractions are written in the background: look again until they are in.
+    refetchInterval: (q) =>
+      q.state.data?.messages.at(-1)?.status === "pending" ||
+      q.state.data?.extractions.some((e) => RUNNING.has(e.status))
+        ? 1500
+        : false,
   });
   const experts = useExperts();
   const projects = useProjects();
@@ -382,7 +392,7 @@ function ChatView({ chatId }: { chatId: string }) {
   }, [count, lastStatus, live?.content.length]);
   if (detail.isLoading) return <Spinner className="m-6" />;
   if (!detail.data) return <EmptyState title="Chat not found" />;
-  const { chat, project, messages } = detail.data;
+  const { chat, project, messages, extractions } = detail.data;
   const all = [...(experts.data?.builtin ?? []), ...(experts.data?.custom ?? [])];
   const expert = all.find((e) => idOf(e) === chat.expert);
   return (
@@ -455,6 +465,8 @@ function ChatView({ chatId }: { chatId: string }) {
                   : m
               }
               last={i === messages.length - 1}
+              projectId={project?.id ?? null}
+              extractions={extractions.filter((e) => e.messageId === m.id)}
             />
           ))}
           <div ref={bottom} />
@@ -533,7 +545,19 @@ function PromptEditor({ value, onClose, onSave }: { value: string; onClose: () =
   );
 }
 
-function MessageItem({ chatId, message: m, last }: { chatId: string; message: Message; last: boolean }) {
+function MessageItem({
+  chatId,
+  message: m,
+  last,
+  projectId,
+  extractions,
+}: {
+  chatId: string;
+  message: Message;
+  last: boolean;
+  projectId: string | null;
+  extractions: Extraction[];
+}) {
   const qc = useQueryClient();
   const aiText = useAiBody("text");
   const aiImage = useAiBody("image");
@@ -605,6 +629,9 @@ function MessageItem({ chatId, message: m, last }: { chatId: string; message: Me
               </button>
             )}
           </div>
+        )}
+        {!mine && m.status === "done" && m.content && (
+          <ExpertActions chatId={chatId} messageId={m.id} projectId={projectId} extractions={extractions} />
         )}
       </div>
     </div>

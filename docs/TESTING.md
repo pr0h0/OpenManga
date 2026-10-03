@@ -12,8 +12,10 @@ service, which speaks the real provider wire formats.
 | Deployment smoke | `bun scripts/smoke.ts http://nginx` | a running stack |
 
 Run them inside a container to keep the host clean: `./scripts/bunx.sh <cmd>` mounts the repo into
-`oven/bun:1.4-debian`, joins the `openmanga_internal` network when it exists, and caches installs in the
-`openmanga-bun-cache` volume (`OM_ENV_FILE` and `OM_DOCKER_ARGS` are passed through).
+`oven/bun:1.4-debian` and caches installs in the `openmanga-bun-cache` volume (`OM_ENV_FILE` and `OM_DOCKER_ARGS`
+are passed through). It joins a Docker network only when you name one in `OM_NETWORK`, e.g.
+`OM_NETWORK=openmanga_internal` to reach the compose stack's `postgres` and `redis`; never point tests at a
+production stack's network.
 
 ## Unit
 
@@ -24,7 +26,7 @@ One `*.test.ts` next to the code it covers. What each package asserts:
 | `packages/config` | only three env vars are required, no provider keys; production boots with zero keys; mock mode refused in production; `PublicUrlService` same-domain and subdomain URLs |
 | `packages/auth` | Argon2id hash/verify/reject, opaque token generation and hashing, registration input normalisation |
 | `packages/logger` | secrets redacted by key and by value |
-| `packages/storage` | put/read/exists/metadata/delete, `putFile` sha256, path-traversal rejection, key opacity, temp cleanup on failure |
+| `packages/storage` | put/read/exists/metadata/delete, `putFile` sha256, path-traversal rejection, key opacity, temp cleanup on failure; S3: SigV4 multipart signing matches Bun's own presign (with and without a session token), path vs virtual-hosted addressing, public endpoint and response overrides; with `TEST_S3_ENDPOINT` (e.g. a MinIO with an `openmanga-test` bucket) a real round trip and a 70 MB multipart upload |
 | `packages/image-utils` | derivative sizing and aspect preservation, upscale disabled, deterministic cache key and byte-identical output, MIME sniffing, metadata stripping, crop selection, edit-mask transparency, size-menu selection |
 | `packages/schemas` | story/plan/panel-spec/editor validation, graceful enum degradation, narration v2 coverage rules, partial patches, every paste-mode answer schema documented with a valid example and `docs/ANSWER_FORMATS.md` up to date |
 | `packages/domain` | layout geometry (≥10 templates, no overlaps, RTL mirroring, split/swap/reading order), bubble geometry and tails, text wrap and bubble placement avoiding faces, narration segmentation and timeline, cost estimation and rate selection by date, permissions and approval transitions, retry classification and the concurrency limiter, content lint and distress grammar, video holds and Ken Burns direction, the continuous scroll framing (whole-page travel, sized like `width`), YouTube chapter timestamps (`0:00` first, hours only when needed, none for a single chapter), target-runtime budgets per chapter and words per panel within the shot bounds, webtoon strip seams (butt, gap, bleed, dissolve, fade), faces mapped through the panel crop and tails ending at the face, the build label |
@@ -33,7 +35,7 @@ One `*.test.ts` next to the code it covers. What each package asserts:
 | `packages/ai-image` | OpenAI, Gemini, Meta and OpenRouter providers: generation, multipart edits with references, full-res target plus mask ordering, aspect-ratio mapping, safety blocks as non-retryable, invalid image classification, 429 retry-after; batch chunking under the OpenAI enqueued-token ceiling and reference uploads |
 | `packages/audio` | WAV parse/concat with silence, `trimSilenceWav`, Kokoro states, OpenAI/Gemini/ElevenLabs PCM wrapped to 24 kHz mono WAV, voice lists |
 | `packages/services` | credential encryption and rotation (round trip, tamper rejection, `SESSION_SECRET`-derived key, dual-key window, legacy v1), custom-endpoint SSRF blocking, model listing, deterministic compositor (page/webtoon/cover), chapter slicing, no server provider fallback without a key |
-| `apps/worker` | video scroll capping, Ken Burns direction, even dimensions, SRT cue formatting, focus-aware pan; `ZipWriter` output, a streamed `addStream` entry landing whole, and `extractZip` zip-bomb refusal; CBZ `ComicInfo.xml` and fixed-layout EPUB |
+| `apps/worker` | video scroll capping, Ken Burns direction, even dimensions, SRT cue formatting, focus-aware pan; `ZipWriter` output, a streamed `addStream` entry landing whole, ZIP64 records (forced on small data, and an entry past a sparse 4 GiB offset) read back by fflate and, where installed, `unzip -t` and Python's `zipfile`, and `extractZip` zip-bomb refusal; `PdfWriter` pages, boxes and title read back by pdf-lib, and its memory staying flat over 40 large pages; CBZ `ComicInfo.xml` and fixed-layout EPUB; a streamed EPUB's structure (`mimetype` first, stored, no extra field; container, every manifest item present and every file listed, spine order and page images) and CBZ page order, `unzip -t` where installed, and `writeBook` memory staying flat over 100 large pages |
 | `apps/api` | MCP tool catalogue well-formed and `docs/MCP_TOOLS.md` up to date; uploaded non-images and undecodable PNGs rejected |
 | `apps/web` | editor crop store panning and clamping, update coalescing, page titles, AI key picker defaults, API client body encoding |
 
@@ -51,19 +53,27 @@ database and removes both directories. Config is fixed to `AI_MOCK_MODE=true`, `
 `app.request()` in-process via a cookie- and CSRF-jar client, so nothing listens on a port.
 
 ```bash
-./scripts/bunx.sh env TEST_DATABASE_URL=postgres://openmanga:<pw>@postgres:5432/openmanga bun test tests/integration
+OM_NETWORK=openmanga_internal ./scripts/bunx.sh env TEST_DATABASE_URL=postgres://openmanga:<pw>@postgres:5432/openmanga bun test tests/integration
 ```
+
+The suite runs against a bucket instead when the environment sets `STORAGE_DRIVER=s3` and the `S3_*` settings (for
+MinIO: `S3_ENDPOINT=http://<minio>:9000`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+`S3_FORCE_PATH_STYLE=true`); each run uses its database name as `S3_PREFIX`. The test client follows `/cdn`'s redirect
+to the signed URL as a browser does, and `flow.test.ts` checks the redirect itself (expiry, content type, cache
+lifetime). CI runs the whole suite this way too, in the `integration-s3` job of `.github/workflows/ci.yml`, in
+parallel with the local-storage run and after the storage unit tests, against a MinIO container (`pgsty/minio`, a
+community build: MinIO itself no longer publishes images).
 
 | Spec | Covers |
 | --- | --- |
-| `flow.test.ts` | auth (register, login by username and email, logout, reset via dev mailbox, CSRF and auth enforcement); the production flow — project + story, analysis → review → apply, reference generation → approval → small derivative, chapter planning, layout swap/duplicate/split/reorder, prompt inspector, panel generation using derivatives, regeneration with activate/revert, masked edit with full-res target and mask, zero-image-call lettering, bulk generation with estimate and progress, narration text → TTS → timeline, video preview shot plan, exports (page PNG, PDF with a KDP trim size, CBZ, EPUB, webtoon, narration, project JSON, zip and agent packages), readiness gate, narration languages and pauses, consistency check, BYOK credential encryption/ownership/per-run choice, budget cap with batch pause/resume and queue recovery, cross-user asset authorization, usage accounting, check all panels (priced first, one check per panel with art, already-checked panels skipped), the YouTube package text (written, editable) and its export failing without a rendered video, target runtime budgets and a chapter plan taking its page target from them, production presets and project templates seeding new projects, bulk character references under the "main only" reference policy, content-policy hardening (lint, stale references, migration guard, preflight), chapter delete, disk usage, deleting exports and narration audio, deleted images and trashed cast, bulk location references, video thumbnails, reader links (pages, video preview and its scoped media), moving bubbles off faces, duplicate/search/archive/trash; failure modes (non-retryable provider error, unrepairable vs repairable JSON, content-policy retry budget and the replacement-job pointer) |
+| `flow.test.ts` | auth (register, login by username and email, logout, reset via dev mailbox, CSRF and auth enforcement); the production flow — project + story, analysis → review → apply, reference generation → approval → small derivative, chapter planning, layout swap/duplicate/split/reorder, prompt inspector, panel generation using derivatives, regeneration with activate/revert, masked edit with full-res target and mask, zero-image-call lettering, bulk generation with estimate and progress, narration text → TTS → timeline, video preview shot plan, exports (page PNG, PDF with a KDP trim size, whole-project PDF, webtoon, page images (chapter-prefixed names), CBZ and EPUB; CBZ, EPUB, webtoon, narration, project JSON, zip and agent packages), readiness gate, narration languages and pauses, consistency check, BYOK credential encryption/ownership/per-run choice, budget cap with batch pause/resume and queue recovery, cross-user asset authorization, usage accounting, check all panels (priced first, one check per panel with art, already-checked panels skipped), the YouTube package text (written, editable) and its export failing without a rendered video, target runtime budgets and a chapter plan taking its page target from them, production presets and project templates seeding new projects, bulk character references under the "main only" reference policy, content-policy hardening (lint, stale references, migration guard, preflight), chapter delete, disk usage, deleting exports and narration audio, deleted images and trashed cast, bulk location references, video thumbnails, reader links (pages and their cached renders, video preview and its scoped media), moving bubbles off faces, duplicate/search/archive/trash; failure modes (non-retryable provider error, unrepairable vs repairable JSON, content-policy retry budget and the replacement-job pointer) |
 | `import.test.ts` | `zip_package` round trip into a new project owned by another user, a ZIP wrapped in one extra directory, `project_json` import with warnings, uploads over `IMPORT_MAX_UPLOAD_MB` refused, an archive with two projects, multipart uploads, garbage documents rejected |
 | `video.test.ts` | MP4 length matches narration, silent pages held for the minimum duration, a partial render (`maxDurationMs`) in the continuous scroll framing, a whole-project film with chapter timestamps bundled into a `youtube_package` ZIP, a page selection (`pageIds`) rendering shorter than its chapter, film projects plan full-frame 16:9 pages and export Ken Burns video. Skipped unless `ffmpeg` and `ffprobe` are on `PATH` |
 | `production.test.ts` | production runs: refused without a budget cap and while another run is active, pausing at each review gate, then running a story through to planned, drawn, narrated and voiced chapters with a thumbnail; a second run skips or finishes every step without spending again. The test advances the run itself (`advanceRun`) instead of waiting for the API's timer |
-| `mcp.test.ts` | MCP discovery and auth, tool listing, paste-mode pipeline over MCP, `get_image`, idempotency keys, scopes and project restrictions, approvals, token revocation, OAuth 2.1 (registration, PKCE, refresh rotation, CIMD) |
+| `mcp.test.ts` | MCP discovery and auth, tool listing, paste-mode pipeline over MCP, `get_image`, idempotency keys, scopes and project restrictions, approvals, token revocation, OAuth 2.1 (registration, PKCE, refresh rotation, CIMD), expert output actions |
 | `batch.test.ts`, `bulk-references.test.ts` | provider batches for panels, text and references: park, poll, ingest at the batch rate, partial failures, no double submit |
 | `manual-text.test.ts` | paste mode: prompts, schema rejection, per-scene chapter plans, image questions, the whole text pipeline with no key |
-| `experts.test.ts` | built-in and custom experts, project chats, images, paste-mode replies, streaming |
+| `experts.test.ts` | built-in and custom experts, project chats, images, paste-mode replies, streaming, output actions (a concept from a chat about no project, premise, outline and YouTube text in a project, a pasted extraction held to its schema) |
 | `recovery.test.ts`, `tts-race.test.ts` | job redelivery, the stalled-job sweep, a dead batch submitter, permanent project deletion, a segment deleted while voiced |
 | `continuity.test.ts`, `outfits.test.ts`, `letter-from-plan.test.ts`, `upload-art.test.ts`, `vertical.test.ts`, `vision.test.ts` | scene continuity, outfits over a chapter, lettering from the plan, uploaded artwork, vertical strips, image descriptions and character versions |
 
@@ -114,7 +124,25 @@ any failure.
 register → logout → login by username → wizard (analysis, review, apply) → reference generation and approval →
 chapter planning → page editor generation and a lettering bubble → every screen renders → generation inspector →
 page export completes, and asserts no page or console errors were collected (resource-load, EventSource and CSP noise
-is ignored).
+is ignored). `E2E_HTML_REPORT=<dir>` (passed through `E2E_EXTRA_ENV`) also writes Playwright's HTML report.
+
+The stack it runs against needs mock AI and plain-HTTP cookies: `AI_MOCK_MODE=true`, `AI_MOCK_ALLOW_IN_PRODUCTION=true`
+(compose runs `NODE_ENV=production`), `TTS_PROVIDER=fake`, `REGISTRATION_ENABLED=true` and `COOKIE_SECURE=false`.
+`docker-compose.yml` pins its network names (`openmanga_internal`, `openmanga_edge`), so do not start a second copy
+next to a running install: its `postgres`, `redis` and `worker` would share the install's networks and DNS names,
+and its worker could take the install's queued jobs. On such a host, use a compose override that renames both
+networks and the image tags, and point `E2E_NETWORK` at the renamed edge network.
+
+### E2E in CI
+
+`.github/workflows/e2e.yml` runs nightly (03:17 UTC, against `staging`), on pull requests that touch the test or how
+it runs (`tests/e2e/`, `scripts/e2e.sh`, the e2e Dockerfile, the workflow), and on demand: **Actions → E2E → Run
+workflow**, or `gh workflow run e2e.yml --ref <branch>`. GitHub offers the manual run and the nightly schedule only
+once the workflow is on the default branch (`master`). It builds the images, starts the stack with the settings
+above (`docker compose up -d --build --wait`), runs `./scripts/e2e.sh http://nginx`, and always tears the stack
+down. When it fails it uploads `playwright-<run id>`, which holds the HTML
+report, the trace and screenshots (`npx playwright show-trace trace.zip`), and `compose.log` with every service's
+log. A run takes a few minutes, about half of it building the images, so other pull requests skip it.
 
 ## CI
 
@@ -123,7 +151,7 @@ and `redis:7-alpine` services: install (`--frozen-lockfile`), `bunx biome ci .`,
 integration tests (`--timeout 300000`, ffmpeg and DejaVu/Comic Neue fonts installed first), web build, then a build of
 the app and nginx images. A second job checks every non-merge commit in a pull request carries a matching
 `Signed-off-by` line (bot commits are exempt, and so are GitHub's own squash commits in a `staging` → `master` release
-pull request). E2E and the smoke script are not run in CI.
+pull request). The smoke script is not run in CI; E2E runs in its own workflow (above).
 
 `.github/workflows/release.yml` builds and pushes `openmanga-app`, `openmanga-nginx` and `openmanga-kokoro` to
 `ghcr.io/pr0h0/` on a `v*` tag, or by hand for an existing tag (linux/amd64 only; arm64 is a self-build — see

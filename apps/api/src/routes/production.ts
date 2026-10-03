@@ -1,11 +1,11 @@
 import { and, desc, eq, inArray, productionRuns } from "@openmanga/db";
-import { recordAudit } from "@openmanga/services";
+import { pipelineStaleness, recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { AiChoiceInput } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
+import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { advanceRun, initialSteps, STEP_LABELS } from "../lib/production.ts";
 
@@ -21,6 +21,8 @@ const StartRun = z.object({
   /** Also write the YouTube text and export the package (defaults to on for film projects). */
   youtube: z.boolean().optional(),
   ai: z.object({ text: AiChoiceInput, image: AiChoiceInput }).default({ text: null, image: null }),
+  /** Update production: run only the out-of-date stages (see GET staleness) and what follows from them. */
+  update: z.boolean().default(false),
 });
 
 const view = (r: typeof productionRuns.$inferSelect) => ({
@@ -54,10 +56,16 @@ productionRoutes.post("/projects/:projectId/production-runs", async (c) => {
     render: input.render,
     youtube: input.youtube ?? p.settings.format === "film",
     ai: input.ai,
+    update: input.update,
   };
+  const stale = input.update
+    ? (await pipelineStaleness(db, p)).stages.filter((s) => s.count > 0).map((s) => s.key)
+    : [];
+  const steps = initialSteps(options, stale);
+  if (!steps.length) throw conflict("Nothing is out of date.");
   const [run] = await db
     .insert(productionRuns)
-    .values({ projectId: p.id, userId: user(c).id, options, steps: initialSteps(options) })
+    .values({ projectId: p.id, userId: user(c).id, options, steps })
     .returning();
   await recordAudit(db, {
     userId: user(c).id,
@@ -65,11 +73,24 @@ productionRoutes.post("/projects/:projectId/production-runs", async (c) => {
     action: "production_run.start",
     targetType: "production_run",
     targetId: run!.id,
-    metadata: { reviewGates: options.reviewGates, render: options.render },
+    metadata: { reviewGates: options.reviewGates, render: options.render, update: options.update },
     requestId: c.get("requestId"),
   });
   void advanceRun(c.get("deps"), run!.id);
   return c.json({ run: view(run!) }, 201);
+});
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/staleness",
+  summary:
+    "What is out of date along story → plan → prompts → art → narration → audio → render, stage by stage (count and a note). Start an update with POST production-runs { update: true }.",
+  tag: "production",
+});
+productionRoutes.get("/projects/:projectId/staleness", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const { stages, staleArt } = await pipelineStaleness(c.get("deps").db, p);
+  return c.json({ stages, staleArtPanels: staleArt.length });
 });
 
 doc({
@@ -90,12 +111,22 @@ productionRoutes.get("/projects/:projectId/production-runs", async (c) => {
   return c.json({ runs: rows.map(view) });
 });
 
-async function runWithAccess(c: Parameters<typeof uuidParam>[0], id: string) {
+async function runWithAccess(c: Parameters<typeof uuidParam>[0], id: string, action: "read" | "generate" = "generate") {
   const [run] = await c.get("deps").db.select().from(productionRuns).where(eq(productionRuns.id, id));
   if (!run) throw notFound("Run");
-  await projectAccess(c, run.projectId, "generate");
+  await projectAccess(c, run.projectId, action);
   return run;
 }
+
+doc({
+  method: "GET",
+  path: "/api/production-runs/:id",
+  summary: "One production run and its steps",
+  tag: "production",
+});
+productionRoutes.get("/production-runs/:id", async (c) =>
+  c.json({ run: view(await runWithAccess(c, uuidParam(c, "id"), "read")) }),
+);
 
 doc({
   method: "POST",
@@ -105,6 +136,10 @@ doc({
 });
 productionRoutes.post("/production-runs/:id/continue", async (c) => {
   const run = await runWithAccess(c, uuidParam(c, "id"));
+  // A run acts as the member who started it, on their keys: continuing it is theirs to do. Anyone who can generate
+  // may still cancel it.
+  if (run.userId !== user(c).id)
+    throw new ApiError(403, "not_your_run", "Another member started this run; only they can continue it.");
   if (run.status === "completed" || run.status === "cancelled") throw conflict(`The run is ${run.status}`);
   const steps = run.steps.map((s) => {
     if (s.status === "review") return { ...s, status: "done" as const, finishedAt: new Date().toISOString() };

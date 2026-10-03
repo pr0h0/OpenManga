@@ -20,7 +20,7 @@ import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { ApiError, body, clientIp, notFound, user, uuidParam } from "../lib/http.ts";
 import { approvalView, decideApproval, listApprovals } from "../mcp/approvals.ts";
-import { hashMcpToken, mcpUrls, newToken, TOKEN_PREFIX } from "../mcp/context.ts";
+import { declinedScopes, hashMcpToken, mcpUrls, newToken, TOKEN_PREFIX } from "../mcp/context.ts";
 import { approveAuthorization, denyAuthorization, openAuthorizationRequest, revokeTokens } from "../mcp/oauth.ts";
 import { McpToolError } from "../mcp/runtime.ts";
 import { ALL_SCOPES, MCP_SCOPES, normalizeScopes } from "../mcp/scopes.ts";
@@ -179,7 +179,16 @@ agentRoutes.patch("/connections/:id", async (c) => {
     .update(userServices)
     .set({
       ...(input.name ? { name: input.name } : {}),
-      ...(input.scopes ? { scopes: normalizeScopes(input.scopes) } : {}),
+      ...(input.scopes
+        ? {
+            scopes: normalizeScopes(input.scopes),
+            // Granting a scope here is the user changing their mind: it is no longer declined.
+            metadata: {
+              ...s.metadata,
+              declinedScopes: declinedScopes(s).filter((d) => !input.scopes!.includes(d)),
+            },
+          }
+        : {}),
       ...(input.projectAccess ? { projectAccess: input.projectAccess } : {}),
       ...(input.allowProjectCreate !== undefined ? { allowProjectCreate: input.allowProjectCreate } : {}),
       ...(input.approvalMode ? { approvalMode: input.approvalMode } : {}),
@@ -364,7 +373,7 @@ agentRoutes.post("/consent/:requestId", async (c) => {
     ? await approveAuthorization(deps, user(c).id, id, input.grant, (serviceId) =>
         setProjects(c, serviceId, input.grant.projectAccess, input.grant.projectIds),
       )
-    : await denyAuthorization(deps, id);
+    : await denyAuthorization(deps, user(c).id, id);
   if (!result) throw notFound("Authorization request (it may have expired or been answered already)");
   return c.json({ redirectTo: result.redirectTo });
 });

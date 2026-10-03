@@ -25,7 +25,7 @@ import {
   segmentNarration,
 } from "@openmanga/domain";
 import { narrationV5 } from "@openmanga/prompts";
-import { Bubble, type Frame, type ProjectSettings } from "@openmanga/schemas";
+import { Bubble, type Frame, NarrationLineVideo, type ProjectSettings } from "@openmanga/schemas";
 import { applyNarrationPauses, recordAudit } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { Context } from "hono";
@@ -292,6 +292,8 @@ export const PatchLine = z.object({
   showOnPage: z.boolean().optional(),
   box: Bubble.nullable().optional(),
   order: z.number().int().min(1).optional(),
+  /** Video: stretch the line over the shots up to `untilPanelId`, with silence before and after it. */
+  video: NarrationLineVideo.nullable().optional(),
 });
 doc({
   method: "PATCH",
@@ -315,6 +317,15 @@ audioRoutes.patch("/narration-lines/:id", async (c) => {
       if (!pn) throw notFound("Panel");
       pageId = pn.pageId;
     }
+  }
+  // A span stays inside the line's chapter, like the line itself.
+  if (input.video?.untilPanelId) {
+    const [pn] = await db
+      .select({ id: panels.id })
+      .from(panels)
+      .innerJoin(pages, eq(pages.id, panels.pageId))
+      .where(and(eq(panels.id, input.video.untilPanelId), eq(pages.chapterId, line.chapterId)));
+    if (!pn) throw badRequest("untilPanelId must be a panel in the line's chapter");
   }
   let box = input.box;
   if (input.showOnPage && !line.box && box === undefined && pageId) {

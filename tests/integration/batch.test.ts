@@ -15,7 +15,7 @@ import { mockImagePng } from "@openmanga/testing";
 import { imageBatchSubmit, pollProviderBatches } from "../../apps/worker/src/handlers/image-batch.ts";
 import { storyRewrite } from "../../apps/worker/src/handlers/text.ts";
 import { textBatchSubmit } from "../../apps/worker/src/handlers/text-batch.ts";
-import { runGenerationJob } from "../../apps/worker/src/lib/runner.ts";
+import { inProject, runGenerationJob } from "../../apps/worker/src/lib/runner.ts";
 import type {
   BatchHandle,
   BatchItemResult,
@@ -238,6 +238,11 @@ test("polling ingests the finished batch: art activated, failures reported, spen
   const ready = panelRows.filter((p) => panelIds.includes(p.id) && p.activeArtworkAssetId);
   expect(ready).toHaveLength(2);
   expect(ready.every((p) => p.status === "ready")).toBe(true);
+  // A batched first draw is a version of its panel like any other: the Versions tab lists it.
+  for (const p of ready) {
+    const v = await alice.get<{ versions: { assetId: string }[] }>(`/api/panels/${p.id}/versions`);
+    expect(v.versions.map((x) => x.assetId)).toContain(p.activeArtworkAssetId!);
+  }
 
   // Spend is recorded against the ":batch" model, which is seeded at half the interactive rate.
   const usage = await h.deps.db.select().from(aiUsage).where(eq(aiUsage.projectId, projectId));
@@ -349,7 +354,7 @@ test("a text job batches by collecting its own handler's request, then replaying
   await runGenerationJob(
     h.workerDeps,
     { data: { jobId: r.job.id }, queueName: "text-ai", attemptsMade: 1, opts: { attempts: 3 } } as never,
-    (job) => storyRewrite(h.workerDeps, job),
+    (job) => storyRewrite(h.workerDeps, inProject(job)),
   );
   const done = await waitFor(
     async () => {

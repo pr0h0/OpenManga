@@ -1,4 +1,5 @@
 import {
+  and,
   asc,
   assets,
   type Database,
@@ -9,6 +10,7 @@ import {
   pages,
   panels,
   soundEffects,
+  sql,
 } from "@openmanga/db";
 import {
   bubbleGeometry,
@@ -20,7 +22,8 @@ import {
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
 import type { Bubble, Frame, ImageTransform, PanelSeam, SfxStyle } from "@openmanga/schemas";
-import type { AssetStorage } from "@openmanga/storage";
+import { type AssetStorage, sha256Hex } from "@openmanga/storage";
+import type { AssetService } from "./assets.ts";
 
 export type RenderPanel = {
   id: string;
@@ -53,13 +56,22 @@ export async function loadRenderPage(
   pageId: string,
   readingDirection: "ltr" | "rtl" | "vertical",
 ): Promise<RenderPage> {
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  return withArt(render, art, storage);
+}
+
+/** Everything a page render is drawn from except the artwork bytes, which are read only when needed. */
+async function loadRenderRows(db: Database, pageId: string, readingDirection: "ltr" | "rtl" | "vertical") {
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error("Page not found");
   const pns = await db.select().from(panels).where(eq(panels.pageId, pageId)).orderBy(asc(panels.order));
   const artIds = pns.map((p) => p.activeArtworkAssetId).filter((x): x is string => Boolean(x));
-  const arts = artIds.length ? await db.select().from(assets).where(inArray(assets.id, artIds)) : [];
-  const artBytes = new Map<string, Uint8Array>();
-  for (const a of arts) artBytes.set(a.id, await storage.read(a.storageKey).catch(() => new Uint8Array()));
+  const arts = artIds.length
+    ? await db
+        .select({ id: assets.id, storageKey: assets.storageKey, sha256: assets.sha256 })
+        .from(assets)
+        .where(inArray(assets.id, artIds))
+    : [];
   const dialogue = await db
     .select()
     .from(dialogueLines)
@@ -71,23 +83,21 @@ export async function loadRenderPage(
     .where(eq(narrationLines.pageId, pageId))
     .orderBy(asc(narrationLines.order));
   const sfx = await db.select().from(soundEffects).where(eq(soundEffects.pageId, pageId));
-  return {
+  const byId = new Map(arts.map((a) => [a.id, a]));
+  const render: RenderPage = {
     id: page.id,
     order: page.order,
     width: page.width,
     height: page.height,
     readingDirection: page.readingDirection ?? readingDirection,
-    panels: pns.map((p) => {
-      const bytes = p.activeArtworkAssetId ? artBytes.get(p.activeArtworkAssetId) : undefined;
-      return {
-        id: p.id,
-        order: p.order,
-        frame: p.frame,
-        imageTransform: p.imageTransform,
-        art: bytes?.byteLength ? bytes : null,
-        seam: p.seam,
-      };
-    }),
+    panels: pns.map((p) => ({
+      id: p.id,
+      order: p.order,
+      frame: p.frame,
+      imageTransform: p.imageTransform,
+      art: null,
+      seam: p.seam,
+    })),
     bubbles: [
       ...dialogue.map((d) => ({ id: d.id, panelId: d.panelId, text: d.text, bubble: d.bubble })),
       ...narration
@@ -96,6 +106,89 @@ export async function loadRenderPage(
     ],
     sfx: sfx.map((s) => ({ id: s.id, panelId: s.panelId, text: s.text, style: s.style })),
   };
+  // Each panel's active artwork file, in panel order.
+  const art = pns.map((p) => (p.activeArtworkAssetId ? (byId.get(p.activeArtworkAssetId) ?? null) : null));
+  return { render, art };
+}
+
+async function withArt(
+  render: RenderPage,
+  art: ({ storageKey: string } | null)[],
+  storage: AssetStorage,
+): Promise<RenderPage> {
+  const withBytes: RenderPanel[] = [];
+  for (const [i, p] of render.panels.entries()) {
+    const a = art[i];
+    const bytes = a ? await storage.read(a.storageKey).catch(() => new Uint8Array()) : undefined;
+    withBytes.push({ ...p, art: bytes?.byteLength ? bytes : null });
+  }
+  return { ...render, panels: withBytes };
+}
+
+/** Bump when the compositor's output changes, so cached page renders are drawn again. */
+const PAGE_RENDER_VERSION = 1;
+
+type PageRenderMeta = { pageId: string; fingerprint: string; width: number };
+
+const renderFingerprint = (render: RenderPage, art: ({ sha256: string } | null)[]) =>
+  sha256Hex(JSON.stringify({ v: PAGE_RENDER_VERSION, render, art: art.map((a) => a?.sha256 ?? null) }));
+
+/** A hash of everything a lettered page is drawn from (see `cachedPageRender`): equal hashes draw equal pixels. */
+export async function pageRenderFingerprint(
+  db: Database,
+  pageId: string,
+  readingDirection: "ltr" | "rtl" | "vertical",
+) {
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  return renderFingerprint(render, art);
+}
+
+/**
+ * A reader link's lettered page as a cached PNG, stored as a project asset of type `thumbnail` (so the library
+ * list skips it and disk usage counts it as derived). The fingerprint covers everything the page is drawn from:
+ * the page, panel frames, transforms and seams, the active artwork's hash, bubbles and SFX. Any edit is therefore a
+ * miss, and writing the new render deletes the page's superseded ones. `rendered` is false on a cache hit.
+ */
+export async function cachedPageRender(
+  db: Database,
+  assetSvc: AssetService,
+  projectId: string,
+  pageId: string,
+  readingDirection: "ltr" | "rtl" | "vertical",
+  width: number,
+) {
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  const fingerprint = renderFingerprint(render, art);
+  const cached = await db
+    .select()
+    .from(assets)
+    .where(
+      and(
+        eq(assets.projectId, projectId),
+        eq(assets.type, "thumbnail"),
+        sql`${assets.metadata}->'pageRender'->>'pageId' = ${pageId}`,
+      ),
+    );
+  const meta = (a: (typeof cached)[number]) => a.metadata.pageRender as PageRenderMeta;
+  const hit = cached.find((a) => meta(a).fingerprint === fingerprint && meta(a).width === width);
+  if (hit && (await assetSvc.storage.exists(hit.storageKey))) return { asset: hit, rendered: false };
+  const img = await renderPageImage(await withArt(render, art, assetSvc.storage), "png", {
+    scale: Math.min(1, width / render.width),
+  });
+  const asset = await assetSvc.store({
+    projectId,
+    ownerUserId: null,
+    type: "thumbnail",
+    mimeType: img.mime,
+    width: img.width,
+    height: img.height,
+    data: img.data,
+    metadata: { pageRender: { pageId, fingerprint, width } satisfies PageRenderMeta },
+  });
+  // Older content goes; the same content at other widths stays for other screens.
+  for (const old of cached)
+    if (meta(old).fingerprint !== fingerprint || meta(old).width === width) await assetSvc.hardDelete(old);
+  return { asset, rendered: true };
 }
 
 function bubbleSvg(t: RenderText, W: number, H: number, fontScale: number) {
@@ -449,6 +542,61 @@ ${lines
   )
   .join("\n")}
 ${subtitle ? `<text x="${x}" y="${top + lines.length * size * 1.02 + size * 0.15}" text-anchor="${anchor}" font-family="'DejaVu Sans', sans-serif" font-weight="700" font-size="${Math.round(size * 0.4)}" fill="#fff" stroke="#000" stroke-width="${size / 30}" paint-order="stroke">${esc(subtitle)}</text>` : ""}
+</svg>`;
+  return new Uint8Array(
+    await sharp(bg)
+      .composite([{ input: Buffer.from(svg) }])
+      .png()
+      .toBuffer(),
+  );
+}
+
+/** Blurred, darkened full-frame backdrop. Blurring a small copy then scaling up is as good for a heavy wash and ~10x faster. */
+export async function backdrop(png: Uint8Array, frameW: number, frameH: number, brightness = 0.55) {
+  const small = await sharp(png)
+    .resize(Math.max(1, Math.round(frameW / 10)), Math.max(1, Math.round(frameH / 10)), { fit: "cover" })
+    .blur(2)
+    .modulate({ brightness })
+    .toBuffer();
+  return new Uint8Array(await sharp(small).resize(frameW, frameH, { kernel: "cubic" }).png().toBuffer());
+}
+
+/**
+ * An intro or outro card at `width`×`height`: the project's art as a dark wash behind the title and subtitle, set in
+ * the project's narration lettering font. Deterministic, so the preview shows the pixels the render encodes.
+ */
+export async function renderVideoCard(
+  card: { title: string; subtitle: string },
+  width: number,
+  height: number,
+  art: Uint8Array | null,
+  font: string,
+) {
+  const bg = art
+    ? await backdrop(art, width, height, 0.4)
+    : new Uint8Array(
+        await sharp({ create: { width, height, channels: 3, background: "#111111" } })
+          .png()
+          .toBuffer(),
+      );
+  const short = Math.min(width, height);
+  const title = card.title.trim();
+  const lines = wrapWords(title, Math.max(12, Math.round(width / short) * 14), 3);
+  const longest = Math.max(1, ...lines.map((l) => l.length));
+  const size = Math.round(Math.min(short / 8, (width * 0.84) / (longest * 0.6)));
+  const sub = card.subtitle.trim();
+  const subSize = Math.round(size * 0.42);
+  const blockH = lines.length * size * 1.1 + (sub ? subSize * 1.6 : 0);
+  const top = (height - blockH) / 2 + size * 0.85;
+  const family = esc(FONT_STACK(font));
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+${lines
+  .map(
+    (l, i) =>
+      `<text x="${width / 2}" y="${(top + i * size * 1.1).toFixed(1)}" text-anchor="middle" font-family="${family}" font-weight="700" font-size="${size}" fill="#fff" stroke="#000" stroke-width="${(size / 16).toFixed(1)}" paint-order="stroke">${esc(l)}</text>`,
+  )
+  .join("\n")}
+${sub ? `<text x="${width / 2}" y="${(top + lines.length * size * 1.1 + subSize * 0.6).toFixed(1)}" text-anchor="middle" font-family="${family}" font-size="${subSize}" fill="#ddd">${esc(sub)}</text>` : ""}
 </svg>`;
   return new Uint8Array(
     await sharp(bg)

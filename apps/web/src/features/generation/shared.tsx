@@ -17,6 +17,7 @@ export const KIND_LABELS: Record<string, string> = {
   cover: "Cover",
   thumbnail: "Video thumbnail",
   youtube_package: "YouTube package",
+  expert_extract: "Expert action",
 };
 
 export const JOB_STATUSES = [

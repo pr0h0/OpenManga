@@ -6,7 +6,7 @@ is synthesised locally. Nothing in this mode contacts a provider, and nothing is
 
 | Step | With a key | Without one |
 | --- | --- | --- |
-| Story analysis, rewrite, planning, panel prompts, narration text, consistency check, describe, YouTube package text | the provider answers | **you paste the answer** |
+| Story analysis, rewrite, planning, panel prompts, narration text, consistency check, describe, YouTube package text, expert output actions | the provider answers | **you paste the answer** |
 | Panel artwork, references | the provider draws | **you upload the image** |
 | Covers, video thumbnails, masked edits | the provider draws | not available without an image key |
 | Narration audio | a TTS key, or local Kokoro | local Kokoro, unchanged |

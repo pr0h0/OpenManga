@@ -46,6 +46,8 @@ assetRoutes.get("/projects/:projectId/assets", requireUser, async (c) => {
         eq(assets.projectId, p.id),
         q.type ? eq(assets.type, q.type as "panel_art") : sql`${assets.type} not in ('prompt_reference','thumbnail')`,
         q.trash === "1" ? isNotNull(assets.deletedAt) : isNull(assets.deletedAt),
+        // Cached video sections are the renderer's working files, not something to browse.
+        sql`not (${assets.metadata} ? 'renderSection')`,
       ),
     )
     .orderBy(desc(assets.createdAt))
@@ -156,8 +158,8 @@ assetRoutes.delete("/assets/:id", requireUser, async (c) => {
 
 /**
  * /cdn/a/:id[?v=thumbnail|prompt_ref|preview][&download=name][&trash=1]
- * The API authorizes, then hands the file to nginx via X-Accel-Redirect (internal location).
- * Without nginx (dev/tests) the bytes are streamed directly.
+ * The API authorizes, then hands the file to nginx via X-Accel-Redirect (internal location), or redirects to a signed
+ * bucket URL with S3 storage. Without nginx (dev/tests) local bytes are streamed directly.
  */
 export const cdnRoutes = new Hono<AppEnv>();
 const VARIANTS = new Set(["thumbnail", "prompt_ref", "preview", "web"]);
@@ -173,21 +175,27 @@ cdnRoutes.get("/a/:id", async (c) => {
   if (a.visibility !== "public") {
     const me = c.get("user");
     if (!me) throw new ApiError(401, "unauthenticated", "Please sign in");
-    // An image with no project (one attached to or drawn in an expert chat) is its owner's alone.
+    // An image with no project (one attached to or drawn in an expert chat) is its owner's alone. A project's file
+    // is the project's, whoever made it: someone who has left the project no longer sees it.
     if (!a.projectId) {
       if (a.ownerUserId !== me.id) throw notFound("Asset");
-    } else if (a.ownerUserId !== me.id) await projectAccess(c, a.projectId, "read");
+    } else await projectAccess(c, a.projectId, "read");
   }
   return sendAsset(c, a);
 });
 
 /**
  * Send an asset the caller may see (the access check is the caller's): `?v=` picks a display variant, `?download=`
- * names the file. Behind nginx the bytes go out through X-Accel-Redirect; otherwise they are streamed from here.
+ * names the file. From a bucket (STORAGE_DRIVER=s3) the answer is a redirect to a signed URL; from local disk behind
+ * nginx the bytes go out through X-Accel-Redirect; otherwise they are streamed from here.
  */
-export async function sendAsset(c: Context<AppEnv>, a: typeof assets.$inferSelect) {
+export async function sendAsset(
+  c: Context<AppEnv>,
+  a: typeof assets.$inferSelect,
+  opts: { cacheControl?: string; variants?: boolean } = {},
+) {
   const deps = c.get("deps");
-  const v = c.req.query("v");
+  const v = opts.variants === false ? undefined : c.req.query("v");
   let storageKey = a.storageKey;
   let mime = a.mimeType;
   // The ETag has to identify the bytes actually served: a variant's own hash, not the canonical asset's, or a
@@ -206,7 +214,9 @@ export async function sendAsset(c: Context<AppEnv>, a: typeof assets.$inferSelec
   const download = c.req.query("download");
   const headers: Record<string, string> = {
     "content-type": mime,
-    "cache-control": a.visibility === "public" ? "public, max-age=31536000, immutable" : "private, max-age=3600",
+    "cache-control":
+      opts.cacheControl ??
+      (a.visibility === "public" ? "public, max-age=31536000, immutable" : "private, max-age=3600"),
     etag: `"${etagSource.slice(0, 32)}${v ? `-${v}` : ""}"`,
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'",
@@ -214,10 +224,27 @@ export async function sendAsset(c: Context<AppEnv>, a: typeof assets.$inferSelec
   if (download)
     headers["content-disposition"] = `attachment; filename="${download.replace(/[^\w.\- ]/g, "_").slice(0, 120)}"`;
   if (c.req.header("if-none-match") === headers.etag) return c.body(null, 304, headers);
-  if (c.req.header("x-accel-enabled") === "1") {
+  const storage = deps.assets.storage;
+  if (storage.presign) {
+    // `?proxy=1` is for the app's own fetch() reads (the video preview's audio): through the API they stay
+    // same-origin, so the bucket needs no CORS rule.
+    if (c.req.query("proxy") === "1") return c.body(storage.stream(storageKey), 200, headers);
+    // A bucket: the browser fetches the bytes from a short-lived signed URL that carries the type and file name.
+    // The redirect itself may be cached, but never past the URL's own expiry.
+    const expiresIn = deps.config.S3_PRESIGN_EXPIRES_SECONDS;
+    const maxAge = Math.min(Number(/max-age=(\d+)/.exec(headers["cache-control"]!)?.[1] ?? 0), expiresIn - 60);
+    const url = storage.presign(storageKey, {
+      expiresIn,
+      contentType: mime,
+      contentDisposition: headers["content-disposition"],
+    });
+    const scope = headers["cache-control"]!.startsWith("public") ? "public" : "private";
+    return c.body(null, 302, { location: url, "cache-control": `${scope}, max-age=${Math.max(0, maxAge)}` });
+  }
+  if (c.req.header("x-accel-enabled") === "1" && storage.internalPath) {
     return c.body(null, 200, {
       ...headers,
-      "x-accel-redirect": `/_protected_assets/${deps.assets.storage.internalPath(storageKey)}`,
+      "x-accel-redirect": `/_protected_assets/${storage.internalPath(storageKey)}`,
     });
   }
   const data = await deps.assets.storage.read(storageKey);

@@ -13,11 +13,29 @@ export const QUEUES = [
   "asset-processing",
   "tts",
   "export",
+  /** Video renders and project imports: minutes to hours each, so they never wait behind (or hold up) other exports. */
+  "render",
   "maintenance",
   /** Submits provider batches: one job collects many panels into one submission, then parks them. */
   "image-batch",
 ] as const;
 export type QueueName = (typeof QUEUES)[number];
+
+/**
+ * The queues a worker consumes, from `WORKER_QUEUES` (comma-separated; empty means all). An unknown name throws, so a
+ * typo stops the container at start instead of leaving a queue that nothing consumes.
+ */
+export function parseWorkerQueues(value: string): QueueName[] {
+  const names = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!names.length) return [...QUEUES];
+  const unknown = names.filter((n) => !(QUEUES as readonly string[]).includes(n));
+  if (unknown.length)
+    throw new Error(`WORKER_QUEUES: unknown queue ${unknown.join(", ")} (known: ${QUEUES.join(", ")})`);
+  return QUEUES.filter((q) => names.includes(q));
+}
 
 export type EnqueueOptions = { jobId: string; priority?: number; attempts?: number; delayMs?: number };
 
@@ -212,14 +230,20 @@ export type AppEvent =
   | { type: "audio.updated"; segmentId: string; status: string; audioJobId: string; failureReason?: string | null }
   | { type: "export.updated"; exportJobId: string; status: string; progress: number; failureReason?: string | null }
   | { type: "narration.updated"; chapterId: string }
-  | { type: "production.updated"; runId: string; status: string };
+  | { type: "production.updated"; runId: string; status: string }
+  /** Membership changed: an invite, an accept, a role change or a removal. `removedUserId` loses access now. */
+  | { type: "members.updated"; removedUserId?: string }
+  /** A panel's comments changed: a post, reply, edit, delete, resolve or reopen. */
+  | { type: "comment.updated"; panelId: string; pageId: string | null };
 
 const channel = (projectId: string) => `om:events:project:${projectId}`;
 
 export class EventBus {
   constructor(private readonly pub: Redis) {}
 
-  async publish(projectId: string, event: AppEvent) {
+  /** Nothing is published for a job of no project (an expert extraction): no project page is listening for it. */
+  async publish(projectId: string | null, event: AppEvent) {
+    if (!projectId) return;
     await this.pub.publish(channel(projectId), JSON.stringify({ ...event, projectId, at: new Date().toISOString() }));
   }
 

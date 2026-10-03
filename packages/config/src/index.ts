@@ -25,6 +25,11 @@ const EnvSchema = z.object({
 
   AI_MOCK_MODE: bool.default(false),
   /**
+   * Default ceiling on the whole server's AI spend per calendar month (UTC), in USD. Empty means none. An admin can
+   * override it in Admin → Usage; the stored value wins over this one.
+   */
+  INSTANCE_BUDGET_USD_MONTHLY: z.preprocess((v) => (v === "" ? undefined : v), z.coerce.number().min(0).optional()),
+  /**
    * Development only: lets an `openai_compatible` credential point at a private address, which is how the bundled
    * `mock-ai` service is reached. Leave false on anything reachable from the internet — it is the check that stops
    * a saved endpoint from being aimed at cloud metadata or a neighbouring container.
@@ -54,7 +59,25 @@ const EnvSchema = z.object({
   REFERENCE_FORMAT: z.enum(["webp", "png", "jpeg"]).default("webp"),
   REFERENCE_QUALITY: int(85),
 
+  /** Where asset files live: `local` (ASSET_ROOT, served by nginx) or `s3` (any S3-compatible bucket). */
+  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   ASSET_ROOT: z.string().default("/data/assets"),
+  /** Empty for AWS; e.g. `http://minio:9000` or `https://<account>.r2.cloudflarestorage.com`. Without the bucket. */
+  S3_ENDPOINT: z.string().default(""),
+  /** The endpoint browsers download from, when the server reaches the bucket under another name. Default: S3_ENDPOINT. */
+  S3_PUBLIC_ENDPOINT: z.string().default(""),
+  S3_BUCKET: z.string().default(""),
+  S3_REGION: z.string().default("us-east-1"),
+  S3_ACCESS_KEY_ID: z.string().default(""),
+  S3_SECRET_ACCESS_KEY: z.string().default(""),
+  /** Only for temporary credentials (STS, an assumed IAM role); they stop working when the token expires. */
+  S3_SESSION_TOKEN: z.string().default(""),
+  /** `https://endpoint/bucket/key` instead of `https://bucket.endpoint/key`. MinIO usually needs true. */
+  S3_FORCE_PATH_STYLE: bool.default(false),
+  /** Prepended to every object key, e.g. `openmanga/`, to share a bucket. */
+  S3_PREFIX: z.string().default(""),
+  /** Lifetime of the signed download URLs `/cdn` redirects to. */
+  S3_PRESIGN_EXPIRES_SECONDS: z.coerce.number().int().min(60).max(604_800).default(900),
   TEMP_ROOT: z.string().default("/data/tmp"),
   UPLOAD_MAX_BYTES: int(15 * 1024 * 1024),
   /**
@@ -98,6 +121,13 @@ const EnvSchema = z.object({
   TTS_TRIM_THRESHOLD_DB: z.coerce.number().min(-90).max(-10).default(-45),
   TTS_TRIM_KEEP_MS: int(25),
   EXPORT_WORKER_CONCURRENCY: int(1),
+  /** Video renders and imports, on their own `render` queue. Each render already encodes VIDEO_ENCODE_CONCURRENCY clips. */
+  RENDER_WORKER_CONCURRENCY: int(1),
+  /**
+   * Comma-separated queues this worker consumes; empty means all. Lets a second worker container take only `render`
+   * (see docs/DEPLOYMENT.md). Every worker still runs the outbox publisher and the Redis reconcile loop.
+   */
+  WORKER_QUEUES: z.string().default(""),
   /** Page clips a video export renders/encodes in parallel (each ffmpeg is roughly one core at veryfast). */
   VIDEO_ENCODE_CONCURRENCY: int(4),
   /**
@@ -106,6 +136,13 @@ const EnvSchema = z.object({
    * submitter keeps 20% headroom under this figure.
    */
   OPENAI_BATCH_MAX_ENQUEUED_TOKENS: int(1_000_000),
+  /**
+   * Most provider batches one key may have in flight per model at once; more chunks wait as "waiting for room"
+   * and go as earlier ones finish, instead of being submitted and refused over the provider's enqueued limit.
+   * 0 = no limit. Images are the heavy ones (four 80%-of-limit chunks already overshoot a 1M-token queue).
+   */
+  BATCH_MAX_IN_FLIGHT_IMAGE: int(4),
+  BATCH_MAX_IN_FLIGHT_TEXT: int(16),
   /** Poll interval for submitted provider batches. They target 24h, so there is nothing to gain from seconds. */
   BATCH_POLL_INTERVAL_SECONDS: int(300),
   /**
@@ -135,14 +172,17 @@ const EnvSchema = z.object({
   MCP_APPROVAL_TTL_MINUTES: int(1440),
   /** A mutation expected to touch more entities than this needs approval under REQUIRE_APPROVAL, even if it is an ordinary write. */
   MCP_BULK_APPROVAL_THRESHOLD: int(25),
-  MCP_RATE_LIMIT_PER_MINUTE: int(240),
+  MCP_RATE_LIMIT_PER_MINUTE: int(750),
   /**
    * Allow Client ID Metadata Documents from private, loopback or link-local addresses. Only for local development:
    * the server fetches these URLs, so allowing private addresses in production is an SSRF hole.
    */
   MCP_CIMD_ALLOW_PRIVATE: bool.default(false),
 
-  RATE_LIMIT_PER_MINUTE: int(600),
+  /** Requests to /api per minute for a signed-in user. */
+  RATE_LIMIT_PER_MINUTE: int(2000),
+  /** Requests to /api per minute from one client address with no session: reader links, sign-in, probes. */
+  RATE_LIMIT_ANON_PER_MINUTE: int(300),
   LOGIN_MAX_ATTEMPTS: int(10),
 
   API_PORT: int(3000),
@@ -178,6 +218,13 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
     throw new ConfigError(
       "AI_MOCK_MODE=true is refused in production. Set AI_MOCK_ALLOW_IN_PRODUCTION=true to override explicitly.",
     );
+  }
+  if (c.STORAGE_DRIVER === "s3") {
+    const missing = (["S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"] as const).filter((k) => !c[k]);
+    if (missing.length) throw new ConfigError(`STORAGE_DRIVER=s3 needs ${missing.join(", ")}`);
+    for (const k of ["S3_ENDPOINT", "S3_PUBLIC_ENDPOINT"] as const)
+      if (c[k] && !(/^https?:\/\//.test(c[k]) && URL.canParse(c[k])))
+        throw new ConfigError(`${k} must be a URL, e.g. https://s3.example.com`);
   }
   const imageSizes = c.IMAGE_SIZES.split(",").map((s) => {
     const [w, h] = s.trim().split("x").map(Number);

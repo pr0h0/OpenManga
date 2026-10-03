@@ -1,4 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { sql } from "@openmanga/db";
+import { cardFrames, shotGroups, timeGroup, watermarkBox } from "@openmanga/domain";
+import { sharp } from "@openmanga/image-utils";
+import { advanceRun } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 // Needs ffmpeg/ffprobe (present in the app image, not in the plain bun test image).
@@ -17,6 +21,8 @@ let u: TestClient;
 beforeAll(async () => {
   h = await startHarness();
   u = h.client();
+  // Signed in for every test, so any one of them runs on its own (bun test -t).
+  await u.post("/api/auth/register", { username: "vid", email: "vid@example.com", password: "video password 1" }, 201);
 }, 60_000);
 afterAll(async () => {
   await h?.stop();
@@ -31,13 +37,128 @@ const waitJob = (id: string) =>
     { label: `job ${id}`, timeoutMs: 60_000 },
   );
 
+/** A planned, drawn, narrated and voiced first chapter of a new project. */
+async function narratedChapter(title: string, extra: Record<string, unknown> = {}) {
+  const p = await u.post<{ project: { id: string } }>(
+    "/api/projects",
+    { title, story: { content: STORY, inputKind: "story" }, ...extra },
+    201,
+  );
+  const projectId = p.project.id;
+  const story = await u.get<{ latest: { id: string } }>(`/api/projects/${projectId}/story`);
+  const a = await u.post<{ job: { id: string }; analysis: { id: string } }>(
+    `/api/story-revisions/${story.latest.id}/analyze`,
+    {},
+    202,
+  );
+  expect((await waitJob(a.job.id)).status).toBe("completed");
+  await u.post(`/api/story-analyses/${a.analysis.id}/apply`, {});
+  const chapterId = (await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`)).chapters[0]!
+    .id;
+  const plan = await u.post<{ job: { id: string } }>(`/api/chapters/${chapterId}/plan`, {}, 202);
+  expect((await waitJob(plan.job.id)).status).toBe("completed");
+  const bulk = await u.post<{ batchId: string }>(
+    `/api/projects/${projectId}/generations/bulk`,
+    { scope: { chapterId }, onlyMissing: true, confirm: true },
+    202,
+  );
+  await waitFor(
+    async () => {
+      const r = await u.get<{ progress: { total: number; completed: number } }>(
+        `/api/generations/batches/${bulk.batchId}`,
+      );
+      return r.progress.completed === r.progress.total ? r : null;
+    },
+    { label: "panels", timeoutMs: 90_000 },
+  );
+  const n = await u.post<{ job: { id: string } }>(`/api/chapters/${chapterId}/narration/generate`, {}, 202);
+  expect((await waitJob(n.job.id)).status).toBe("completed");
+  await u.post(`/api/chapters/${chapterId}/narration/synthesize`, { onlyMissing: true }, 202);
+  await waitFor(
+    async () => {
+      const r = await u.get<{ lines: { segments: { audio: unknown }[] }[] }>(`/api/chapters/${chapterId}/narration`);
+      return r.lines.length && r.lines.every((l) => l.segments.every((s) => s.audio)) ? r : null;
+    },
+    { label: "tts", timeoutMs: 60_000 },
+  );
+  return { projectId, chapterId };
+}
+
+type ExportFile = { assetId: string; fileName: string; mimeType: string };
+/** Starts an export and waits for it to finish; fails the test unless it completed. */
+async function runExport(projectId: string, body: Record<string, unknown>) {
+  const ex = await u.post<{ job: { id: string } }>(
+    `/api/projects/${projectId}/exports`,
+    { acknowledgeIssues: true, ...body },
+    202,
+  );
+  const done = await waitFor(
+    async () => {
+      const r = await u.get<{ job: { status: string; failureReason: string | null; files: ExportFile[] } }>(
+        `/api/jobs/${ex.job.id}`,
+      );
+      return ["completed", "failed"].includes(r.job.status) ? r.job : null;
+    },
+    { label: `${String(body.kind)} export`, timeoutMs: 240_000 },
+  );
+  expect(`${done.status}:${done.failureReason ?? ""}`).toBe("completed:");
+  return { id: ex.job.id, files: done.files };
+}
+
+/** What the preview's timing reads from a shot. */
+type PreviewTiming = {
+  joinNext: boolean;
+  lines: {
+    startOffsetMs: number;
+    endOffsetMs: number;
+    segments: { durationMs: number | null; pauseAfterMs: number }[];
+  }[];
+};
+/** The preview's length in frames, from the same shared helpers as the render (without cards). */
+function previewFrames(shots: PreviewTiming[], fps: number, minHoldMs: number) {
+  let frames = 0;
+  for (const g of shotGroups(shots.map((s) => s.joinNext))) {
+    const members = shots.slice(g.first, g.last + 1);
+    frames += timeGroup(
+      members.flatMap((s) =>
+        s.lines.map((l) => ({
+          ...l,
+          segments: l.segments
+            .filter((x) => x.durationMs)
+            .map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
+        })),
+      ),
+      members.length,
+      { minHoldMs, fps },
+    ).totalFrames;
+  }
+  return frames;
+}
+
+/** Duration and video size of an exported MP4. */
+async function probe(assetId: string) {
+  const path = `${process.env.TMPDIR ?? "/tmp"}/mf-probe-${assetId}.mp4`;
+  await Bun.write(path, new Uint8Array(await (await u.raw("GET", `/cdn/a/${assetId}`)).arrayBuffer()));
+  const info = JSON.parse(
+    Bun.spawnSync([
+      "ffprobe",
+      "-v",
+      "error",
+      "-show_entries",
+      "stream=codec_type,width,height",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "json",
+      path,
+    ]).stdout.toString(),
+  ) as { streams: { codec_type: string; width?: number; height?: number }[]; format: { duration: string } };
+  const video = info.streams.find((s) => s.codec_type === "video")!;
+  return { path, ms: Number(info.format.duration) * 1000, width: video.width!, height: video.height! };
+}
+
 describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
   test("renders an MP4 whose length matches the narration, holding silent pages for the minimum", async () => {
-    await u.post(
-      "/api/auth/register",
-      { username: "vid", email: "vid@example.com", password: "video password 1" },
-      201,
-    );
     const p = await u.post<{ project: { id: string } }>(
       "/api/projects",
       { title: "Video", story: { content: STORY, inputKind: "story" } },
@@ -447,4 +568,296 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     ) as { streams: { codec_type: string; width?: number; height?: number }[] };
     expect(probe.streams.find((x) => x.codec_type === "video")).toMatchObject({ width: 1280, height: 720 });
   }, 600_000);
+
+  test("shot settings: a disabled shot, a set move, a fade and a spanning line, with the preview timing the render", async () => {
+    const { projectId, chapterId } = await narratedChapter("Shots");
+    type Shot = {
+      key: string;
+      joinNext: boolean;
+      fade: { in: boolean; out: boolean };
+      motion: string | null;
+      lines: {
+        id: string;
+        startOffsetMs: number;
+        endOffsetMs: number;
+        segments: { durationMs: number | null; pauseAfterMs: number }[];
+      }[];
+    };
+    const preview = () =>
+      u.get<{ disabledPanels: number; shots: Shot[] }>(`/api/video-preview?chapterId=${chapterId}&cut=panel`);
+    const before = await preview();
+    const panelIds = before.shots.map((s) => s.key);
+    expect(panelIds.length).toBeGreaterThanOrEqual(4);
+    // No neighbouring auto moves repeat.
+    for (let i = 1; i < before.shots.length; i++) expect(before.shots[i]!.motion).not.toBe(before.shots[i - 1]!.motion);
+
+    await u.patch(`/api/panels/${panelIds[1]}`, { video: { disabled: true } });
+    await u.patch(`/api/panels/${panelIds[0]}`, { video: { motion: "pan-left" } });
+    await u.patch(`/api/panels/${panelIds[2]}`, { video: { fade: "on" } });
+    const spanning = before.shots[0]!.lines[0] ?? before.shots[2]!.lines[0];
+    expect(spanning).toBeTruthy();
+    // A span must end inside the line's chapter.
+    await u.patch(
+      `/api/narration-lines/${spanning!.id}`,
+      { video: { untilPanelId: crypto.randomUUID(), startOffsetMs: 0, endOffsetMs: 0 } },
+      400,
+    );
+    await u.patch(`/api/narration-lines/${spanning!.id}`, {
+      video: { untilPanelId: panelIds[3], startOffsetMs: 400, endOffsetMs: 600 },
+    });
+
+    const after = await preview();
+    expect(after.disabledPanels).toBe(1);
+    expect(after.shots.map((s) => s.key)).not.toContain(panelIds[1]);
+    expect(after.shots[0]!.motion).toBe("pan-left");
+    const fadeAt = after.shots.findIndex((s) => s.key === panelIds[2]);
+    expect(after.shots[fadeAt]!.fade.in).toBe(true);
+    expect(after.shots[fadeAt - 1]!.fade.out).toBe(true);
+    const from = after.shots.findIndex((s) => s.lines.some((l) => l.id === spanning!.id));
+    const to = after.shots.findIndex((s) => s.key === panelIds[3]);
+    expect(to).toBeGreaterThan(from);
+    for (let i = from; i < to; i++) expect(after.shots[i]!.joinNext).toBe(true);
+    expect(after.shots[to]!.joinNext).toBe(false);
+
+    // The preview's timeline, from the same shared helpers, is the render's length.
+    const fps = 24;
+    const minHoldMs = 1500;
+    const frames = previewFrames(after.shots, fps, minHoldMs);
+    const out = await runExport(projectId, { kind: "video_panels", chapterId, video: { height: 720, fps, minHoldMs } });
+    const mp4 = await probe(out.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect(Math.abs(mp4.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * after.shots.length);
+  }, 600_000);
+
+  test("branding: a logo watermark and intro and outro cards, in the preview and the render", async () => {
+    const { projectId, chapterId } = await narratedChapter("Branded");
+    // A solid red logo, twice as wide as tall.
+    const png = await sharp({ create: { width: 200, height: 100, channels: 4, background: "#ff0000ff" } })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(png)], "logo.png", { type: "image/png" }));
+    const logo = await u.json<{ asset: { id: string } }>("POST", `/api/projects/${projectId}/video-logo`, form, 201);
+    // Only this project's own images can be the watermark.
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { video: { fadeAtSceneBreaks: false, watermark: { assetId: crypto.randomUUID() } } } },
+      400,
+    );
+    await u.patch(`/api/projects/${projectId}`, {
+      settings: {
+        video: {
+          fadeAtSceneBreaks: false,
+          watermark: { assetId: logo.asset.id, corner: "bottom-right", opacity: 1, size: 0.12 },
+          intro: { title: "The Rooftop", subtitle: "Chapter one", durationMs: 2000 },
+          outro: { title: "Thanks for watching", subtitle: "", durationMs: 1500 },
+        },
+      },
+    });
+    const card = await u.raw("GET", `/api/projects/${projectId}/video-card/intro.png?height=720`);
+    expect(card.status).toBe(200);
+    expect(await sharp(new Uint8Array(await card.arrayBuffer())).metadata()).toMatchObject({
+      width: 1280,
+      height: 720,
+    });
+    const preview = await u.get<{
+      branding: { intro: { durationMs: number }; outro: { durationMs: number }; watermark: { width: number } };
+      shots: PreviewTiming[];
+    }>(`/api/video-preview?chapterId=${chapterId}&cut=panel`);
+    expect(preview.branding.watermark.width).toBe(200);
+
+    const fps = 24;
+    const minHoldMs = 1500;
+    const introFrames = cardFrames(2000, fps);
+    const frames = introFrames + previewFrames(preview.shots, fps, minHoldMs) + cardFrames(1500, fps);
+    const out = await runExport(projectId, { kind: "video_panels", chapterId, video: { height: 720, fps, minHoldMs } });
+    const mp4 = await probe(out.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect(Math.abs(mp4.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * (preview.shots.length + 2));
+    // Subtitles start after the intro.
+    const srt = await (
+      await u.raw("GET", `/cdn/a/${out.files.find((f) => f.fileName.endsWith(".srt"))!.assetId}`)
+    ).text();
+    const first = /(\d\d):(\d\d):(\d\d),(\d{3}) -->/.exec(srt)!;
+    const firstMs = ((Number(first[1]) * 60 + Number(first[2])) * 60 + Number(first[3])) * 1000 + Number(first[4]);
+    expect(firstMs).toBeGreaterThanOrEqual((introFrames * 1000) / fps - 1);
+    // The logo is composited where watermarkBox puts it, on a card and on a shot.
+    const box = watermarkBox(1280, 720, { width: 200, height: 100 }, "bottom-right", 0.12);
+    for (const at of [1, introFrames / fps + 0.5]) {
+      const raw = Bun.spawnSync([
+        "ffmpeg",
+        "-v",
+        "error",
+        "-ss",
+        String(at),
+        "-i",
+        mp4.path,
+        "-frames:v",
+        "1",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-",
+      ]).stdout;
+      const i = ((box.y + box.h / 2) * 1280 + box.x + box.w / 2) * 3;
+      expect(raw[i]!).toBeGreaterThan(180);
+      expect(raw[i + 1]!).toBeLessThan(80);
+    }
+  }, 600_000);
+  test("Shorts: an automatic pick, adjusted, rendered vertical from the existing art; a square panel cut", async () => {
+    const { projectId, chapterId } = await narratedChapter("Shorts");
+    type Pick = {
+      minMs: number;
+      maxMs: number;
+      pickedMs: number;
+      warning: string | null;
+      shots: { id: string; holdMs: number; hasArt: boolean; picked: boolean; score: number }[];
+    };
+    const pick = await u.get<Pick>(`/api/projects/${projectId}/shorts?chapterId=${chapterId}&minHoldMs=1500`);
+    // Three minutes by default: YouTube's Shorts limit.
+    expect(pick.maxMs).toBe(180_000);
+    expect(pick.warning).toBeNull();
+    const auto = pick.shots.filter((s) => s.picked);
+    expect(auto.length).toBeGreaterThan(0);
+    expect(auto.every((s) => s.hasArt)).toBe(true);
+    expect(auto.reduce((n, s) => n + s.holdMs, 0)).toBeLessThanOrEqual(180_000);
+    // The user drops the first pick; the render follows story order whatever order the ids come in.
+    const chosen = (auto.length > 1 ? auto.slice(1) : auto).map((s) => s.id).reverse();
+    await u.post(`/api/projects/${projectId}/exports`, { kind: "video_shorts", chapterId }, 400);
+    await u.post(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: [crypto.randomUUID()], acknowledgeIssues: true },
+      404,
+    );
+
+    const fps = 24;
+    const minHoldMs = 1500;
+    const preview = await u.get<{
+      aspect: string;
+      shots: (PreviewTiming & { key: string; panel: { fill: boolean } })[];
+    }>(`/api/video-preview?panelIds=${chosen.join(",")}&aspect=9:16`);
+    expect(preview.aspect).toBe("9:16");
+    expect(preview.shots.map((s) => s.key)).toEqual(pick.shots.filter((s) => chosen.includes(s.id)).map((s) => s.id));
+    expect(preview.shots.every((s) => s.panel.fill)).toBe(true);
+    const out = await runExport(projectId, {
+      kind: "video_shorts",
+      chapterId,
+      panelIds: chosen,
+      video: { height: 720, fps, minHoldMs },
+    });
+    const mp4 = out.files.find((f) => f.mimeType === "video/mp4")!;
+    expect(mp4.fileName).toContain("_shorts_9x16_720p.mp4");
+    const short = await probe(mp4.assetId);
+    expect({ width: short.width, height: short.height }).toEqual({ width: 720, height: 1280 });
+    expect(short.ms).toBeLessThanOrEqual(180_000 + 200);
+    const frames = previewFrames(preview.shots, fps, minHoldMs);
+    expect(Math.abs(short.ms - (frames * 1000) / fps)).toBeLessThan(80 + 10 * preview.shots.length);
+
+    // A longer cut than YouTube takes as a Short: allowed, with the warning, and the render keeps the chosen length.
+    const art = pick.shots.filter((s) => s.hasArt).map((s) => s.id);
+    const long = await u.get<Pick>(
+      `/api/projects/${projectId}/shorts?chapterId=${chapterId}&minHoldMs=30000&lengthSeconds=600`,
+    );
+    expect(long.maxMs).toBe(600_000);
+    expect(long.pickedMs).toBeGreaterThan(180_000);
+    expect(long.warning).toContain("YouTube doesn't accept Shorts over 3 minutes");
+    const queued = await u.post<{ job: { id: string }; warnings?: string[] }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 600 } },
+      202,
+    );
+    expect(queued.warnings?.[0]).toContain("this will upload as a regular video");
+    await u.post(`/api/exports/${queued.job.id}/cancel`);
+    // Within the limit there is no warning.
+    const ok = await u.post<{ job: { id: string }; warnings?: string[] }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 90 } },
+      202,
+    );
+    expect(ok.warnings).toBeUndefined();
+    await u.post(`/api/exports/${ok.job.id}/cancel`);
+    // The render honours the chosen length, whatever it is: 95 s of 30 s shots ends before the fourth, at 90 s.
+    const capped = await runExport(projectId, {
+      kind: "video_shorts",
+      panelIds: art,
+      video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 95 },
+    });
+    const cappedMs = (await probe(capped.files.find((f) => f.mimeType === "video/mp4")!.assetId)).ms;
+    expect(Math.abs(cappedMs - Math.min(3, art.length) * 30_000)).toBeLessThan(200);
+
+    // Any video can be square or vertical: a square panel cut of the chapter.
+    const sq = await runExport(projectId, {
+      kind: "video_panels",
+      chapterId,
+      video: { height: 720, fps, minHoldMs, aspect: "1:1", maxDurationMs: 10_000 },
+    });
+    const square = await probe(sq.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect({ width: square.width, height: square.height }).toEqual({ width: 720, height: 720 });
+  }, 600_000);
+  test("incremental rendering: one changed page re-encodes one section; staleness; update production; cleanup", async () => {
+    const { projectId, chapterId } = await narratedChapter("Incremental");
+    const pages = (await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`)).pages;
+    expect(pages.length).toBeGreaterThan(1);
+    const opts = { kind: "video_pages", video: { height: 720, fps: 24, minHoldMs: 1500 } };
+    type Stage = { key: string; count: number };
+    const stale = async () =>
+      Object.fromEntries(
+        (await u.get<{ stages: Stage[] }>(`/api/projects/${projectId}/staleness`)).stages.map((s) => [s.key, s.count]),
+      );
+    const sectionsOf = async (id: string) =>
+      (await u.get<{ job: { result: { sections: { reused: number; encoded: number } } } }>(`/api/jobs/${id}`)).job
+        .result.sections;
+    const cached = async () => {
+      const [r] = await h.deps.db.execute<{ n: number }>(
+        sql`select count(*)::int as n from assets where project_id = ${projectId} and metadata ? 'renderSection'`,
+      );
+      return r!.n;
+    };
+
+    expect((await stale()).render).toBe(1); // no video yet
+    const first = await runExport(projectId, opts);
+    expect(await sectionsOf(first.id)).toEqual({ reused: 0, encoded: pages.length });
+    expect(await cached()).toBe(pages.length);
+    expect(await stale()).toMatchObject({ plan: 0, art: 0, narration: 0, audio: 0, render: 0 });
+    const overview = await u.get<{ disk: { byCategory: { renderCache: number } } }>(`/api/projects/${projectId}`);
+    expect(overview.disk.byCategory.renderCache).toBeGreaterThan(0);
+
+    // Re-framing one panel changes one page's pixels: only that page's section is encoded again.
+    const page = await u.get<{ panels: { id: string }[] }>(`/api/pages/${pages[1]!.id}`);
+    await u.patch(`/api/panels/${page.panels[0]!.id}`, { imageTransform: { focalX: 0.3, focalY: 0.4, scale: 1.3 } });
+    expect((await stale()).render).toBe(1);
+    const second = await runExport(projectId, opts);
+    expect(await sectionsOf(second.id)).toEqual({ reused: pages.length - 1, encoded: 1 });
+    // The first render is superseded: its changed section is gone, the shared ones stay for the second.
+    const firstJob = await u.get<{ job: { result: Record<string, unknown> } }>(`/api/jobs/${first.id}`);
+    expect(firstJob.job.result.sectionKeys).toBeUndefined();
+    expect(await cached()).toBe(pages.length);
+
+    // "Update production" runs only what is stale: here just the video.
+    await u.patch(`/api/panels/${page.panels[0]!.id}`, { imageTransform: { focalX: 0.5, focalY: 0.5, scale: 1 } });
+    await u.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 50 } });
+    const started = await u.post<{ run: { id: string; steps: { key: string }[] } }>(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, youtube: false },
+      201,
+    );
+    expect(started.run.steps.map((s) => s.key)).toEqual(["render"]);
+    const run = await waitFor(
+      async () => {
+        await advanceRun(h.deps, started.run.id);
+        const { runs } = await u.get<{ runs: { id: string; status: string; reason: string | null }[] }>(
+          `/api/projects/${projectId}/production-runs`,
+        );
+        const r = runs.find((x) => x.id === started.run.id)!;
+        return ["completed", "failed"].includes(r.status) ? r : null;
+      },
+      { label: "update run", timeoutMs: 240_000 },
+    );
+    expect(`${run.status}:${run.reason ?? ""}`).toBe("completed:");
+    expect((await stale()).render).toBe(0);
+    await u.post(`/api/projects/${projectId}/production-runs`, { update: true, reviewGates: false }, 409);
+
+    // Deleting the exports deletes the sections they claimed.
+    await u.del(`/api/projects/${projectId}/exports`);
+    expect(await cached()).toBe(0);
+  }, 900_000);
 });

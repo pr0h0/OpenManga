@@ -52,6 +52,58 @@ jobs:
       - name: Build images
         run: docker build -f deploy/docker/app.Dockerfile -t openmanga-app:ci . && docker build -f deploy/docker/nginx.Dockerfile -t openmanga-nginx:ci .
 
+  # The same integration suite with assets in a bucket (STORAGE_DRIVER=s3 against MinIO), in parallel with `check`.
+  integration-s3:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: openmanga
+          POSTGRES_PASSWORD: openmanga
+          POSTGRES_DB: openmanga
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U openmanga" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      # Started by hand, not as a service: a service container cannot be given MinIO's `server /data` command.
+      # MinIO no longer publishes images; pgsty/minio is a maintained community build of the same server.
+      - name: MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            pgsty/minio:RELEASE.2026-08-04T00-00-00Z server /data
+          until curl -sf http://localhost:9000/minio/health/live; do sleep 1; done
+          # A top-level directory on a single-drive MinIO is a bucket.
+          docker exec minio mkdir -p /data/openmanga-test
+      - name: System packages (ffmpeg, fonts)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fonts-comic-neue
+      - name: Install
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Storage unit tests against MinIO
+        env:
+          TEST_S3_ENDPOINT: http://localhost:9000
+        run: bun test packages/storage
+      - name: Integration tests on S3
+        env:
+          TEST_DATABASE_URL: postgres://openmanga:openmanga@localhost:5432/openmanga
+          TEST_REDIS_URL: redis://localhost:6379/5
+          STORAGE_DRIVER: s3
+          S3_ENDPOINT: http://localhost:9000
+          S3_BUCKET: openmanga-test
+          S3_ACCESS_KEY_ID: minioadmin
+          S3_SECRET_ACCESS_KEY: minioadmin
+          S3_FORCE_PATH_STYLE: "true"
+        run: bun test tests/integration --timeout 300000
+
   dco:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

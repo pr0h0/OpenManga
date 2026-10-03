@@ -10,17 +10,25 @@ import {
   generationJobs,
   inArray,
   pages,
+  panels,
   sql,
 } from "@openmanga/db";
-import { providerSupports } from "@openmanga/domain";
-import { issuesForExport, projectReadiness, recordAudit } from "@openmanga/services";
+import { providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
+import {
+  exportQueuesFor,
+  issuesForExport,
+  projectReadiness,
+  recordAudit,
+  sweepRenderSections,
+} from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
-import { entityAccess, projectAccess } from "../lib/access.ts";
+import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
 import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
+import { shortsCandidates } from "./video.ts";
 
 export const exportRoutes = new Hono<AppEnv>();
 
@@ -39,10 +47,13 @@ export const ExportOptions = z.object({
     "agent_package",
     "video_pages",
     "video_panels",
+    "video_shorts",
     "youtube_package",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),
+  /** video_shorts: the picked panels (see GET /api/projects/:projectId/shorts), played in story order. */
+  panelIds: z.array(z.string().uuid()).min(1).max(100).optional(),
   scale: z.number().min(0.25).max(3).default(1),
   jpgQuality: z.number().int().min(40).max(100).default(90),
   pdf: z
@@ -89,7 +100,8 @@ export const ExportOptions = z.object({
       minHoldMs: z.number().int().min(500).max(30_000).default(2500),
       /** "scroll": 3/5 width, travelling the whole page top to bottom over its hold (the continuous scroll cut). */
       framing: z.enum(["width", "height", "scroll"]).default("width"),
-      pageWidthRatio: z.number().min(0.3).max(1).default(0.6),
+      /** Page cut share of the frame width; default 0.6 landscape, 1 vertical or square. */
+      pageWidthRatio: z.number().min(0.3).max(1).optional(),
       pageHeightRatio: z.number().min(0.5).max(1).default(0.96),
       maxScrollPxPerSec: z.number().min(10).max(400).default(60),
       /** Panel cut: Ken Burns travel over each hold, 0.06 = 6%. */
@@ -98,13 +110,19 @@ export const ExportOptions = z.object({
       breathMs: z.number().int().min(0).max(2000).default(150),
       /** A partial render for checking: stop after the shot that reaches this length (whole shots only). */
       maxDurationMs: z.number().int().min(10_000).max(86_400_000).optional(),
+      /** Frame shape: landscape, vertical (Shorts, Reels) or square. Default 16:9, and 9:16 for video_shorts. */
+      aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
+      /**
+       * video_shorts: the cut's length in seconds (default 180, YouTube's Shorts limit; up to 600). The film ends before
+       * the shot that would pass it. Over 180 the response carries a warning: YouTube uploads it as a regular video.
+       */
+      shortsSeconds: z.number().int().min(30).max(600).optional(),
     })
     .default({
       height: 1080,
       fps: 30,
       minHoldMs: 2500,
       framing: "width",
-      pageWidthRatio: 0.6,
       pageHeightRatio: 0.96,
       maxScrollPxPerSec: 60,
       zoom: 0.06,
@@ -125,16 +143,19 @@ doc({
   body: ExportOptions,
 });
 exportRoutes.post("/projects/:projectId/exports", async (c) => {
-  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  // Viewers download what exists; making a new export queues server work every member then sees, so it is an edit.
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const input = await body(c, ExportOptions);
   if (
-    ["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon", "narration_audio", "timeline"].includes(input.kind) &&
+    // Narration and its timeline are built per chapter; every page-based kind streams, so it can take the project.
+    ["narration_audio", "timeline"].includes(input.kind) &&
     !input.chapterId &&
     !input.pageIds?.length
   ) {
     throw badRequest("Choose a chapter (or pages) to export");
   }
-  if (input.chapterId) await entityAccess(c, "chapter", input.chapterId, "read");
+  if (input.chapterId && (await entityAccess(c, "chapter", input.chapterId, "read")).id !== p.id)
+    throw notFound("Chapter");
   const deps = c.get("deps");
   // Page ids come from the body, so they are checked here as well: without this an export could render pages
   // belonging to someone else's project and store the result as the caller's own file.
@@ -144,6 +165,14 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
       .from(pages)
       .where(and(eq(pages.projectId, p.id), inArray(pages.id, input.pageIds)));
     if (own.length !== new Set(input.pageIds).size) throw notFound("Page");
+  }
+  if (input.kind === "video_shorts") {
+    if (!input.panelIds?.length) throw badRequest("Pick the shots of the Short (panelIds)");
+    const own = await deps.db
+      .select({ id: panels.id })
+      .from(panels)
+      .where(and(eq(panels.projectId, p.id), inArray(panels.id, input.panelIds)));
+    if (own.length !== new Set(input.panelIds).size) throw notFound("Panel");
   }
   const active = await deps.db
     .select({ n: sql<number>`count(*)::int` })
@@ -175,7 +204,22 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
     metadata: { kind: input.kind },
     requestId: c.get("requestId"),
   });
-  return c.json({ job }, 202);
+  // A long Shorts cut is allowed, but YouTube will not take it as a Short: say so where the request was made. The film
+  // is the picked shots up to the chosen length.
+  let warning: string | null = null;
+  if (input.kind === "video_shorts") {
+    const picked = new Set(input.panelIds);
+    const shots = await shortsCandidates(
+      deps.db,
+      p,
+      { panelIds: input.panelIds },
+      input.language || p.language,
+      input.video.minHoldMs,
+    );
+    const pickMs = shots.filter((s) => picked.has(s.id)).reduce((n, s) => n + s.holdMs, 0);
+    warning = shortsLengthWarning(Math.min(pickMs, (input.video.shortsSeconds ?? SHORTS_DEFAULT_MS / 1000) * 1000));
+  }
+  return c.json({ job, ...(warning ? { warnings: [warning] } : {}) }, 202);
 });
 
 doc({
@@ -236,7 +280,7 @@ exportRoutes.get("/jobs/:id", async (c) => {
   const { db } = c.get("deps");
   const [gen] = await db.select().from(generationJobs).where(eq(generationJobs.id, id));
   if (gen) {
-    await projectAccess(c, gen.projectId, "read");
+    await jobAccess(c, gen, "read");
     return c.json({ type: "generation", job: gen });
   }
   const [audio] = await db.select().from(audioJobs).where(eq(audioJobs.id, id));
@@ -264,9 +308,9 @@ exportRoutes.post("/exports/:id/cancel", async (c) => {
   const deps = c.get("deps");
   const [job] = await deps.db.select().from(exportJobs).where(eq(exportJobs.id, id));
   if (!job) throw notFound("Export");
-  await projectAccess(c, job.projectId, "read");
+  await projectAccess(c, job.projectId, "write");
   if (job.status === "queued") {
-    await deps.queue.removeWaiting("export", job.id);
+    for (const q of exportQueuesFor(job.kind)) await deps.queue.removeWaiting(q, job.id);
     await deps.db.update(exportJobs).set({ status: "cancelled", finishedAt: new Date() }).where(eq(exportJobs.id, id));
     return c.json({ result: "cancelled" });
   }
@@ -321,6 +365,8 @@ async function deleteExportJobs(c: Context<AppEnv>, projectId: string, jobIds: s
     bytes += a.byteSize;
   }
   await deps.db.delete(exportJobs).where(and(eq(exportJobs.projectId, projectId), inArray(exportJobs.id, jobIds)));
+  // Cached video sections go with the last export that claimed them.
+  await sweepRenderSections(deps.db, deps.assets, projectId);
   await recordAudit(deps.db, {
     userId: user(c).id,
     projectId,

@@ -1,5 +1,15 @@
 import { z } from "zod";
-import { Bubble, Frame, ImageTransform, ProjectSettings, SfxStyle, StyleDefinition } from "./editor.ts";
+import {
+  Bubble,
+  Frame,
+  ImageTransform,
+  NarrationLineVideo,
+  PanelGuide,
+  ProjectSettings,
+  SfxStyle,
+  ShotVideo,
+  StyleDefinition,
+} from "./editor.ts";
 import { PanelSpec, PlannedLettering } from "./planning.ts";
 import { CharacterBible, LocationDescription, PropDescription } from "./story.ts";
 
@@ -51,6 +61,8 @@ export const ProjectInterchange = z.object({
     colorMode: z.string(),
     settings: ProjectSettings,
     cover: AssetRef.nullable().default(null),
+    /** The video watermark's image; `settings.video.watermark.assetId` is remapped to it on import. */
+    videoLogo: AssetRef.nullable().default(null),
   }),
   style: z
     .object({
@@ -165,6 +177,13 @@ export const ProjectInterchange = z.object({
               outfits: z
                 .array(z.object({ character: z.string(), outfit: z.string(), scope: z.enum(["onward", "panel"]) }))
                 .default([]),
+              /** The panel as a video shot (motion, fade, disabled). */
+              video: ShotVideo.nullable().default(null),
+              /** The panel's layout sketch; `asset` may also be another panel's artwork in the package. */
+              guide: z
+                .object({ asset: AssetRef, strength: PanelGuide.shape.strength, pose: PanelGuide.shape.pose })
+                .nullable()
+                .default(null),
             }),
           ),
         }),
@@ -176,6 +195,10 @@ export const ProjectInterchange = z.object({
           panel: z.string().nullable(),
           showOnPage: z.boolean(),
           box: Bubble.nullable(),
+          /** Video span and offsets; `untilPanelId` is a panel ref in the same chapter. */
+          video: NarrationLineVideo.extend({ untilPanelId: z.string().nullable().default(null) })
+            .nullable()
+            .default(null),
           segments: z.array(
             z.object({
               text: z.string(),

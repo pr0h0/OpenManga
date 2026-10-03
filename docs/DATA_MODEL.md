@@ -36,7 +36,12 @@ slot).
 
 - `projects` — owner, type, language, reading direction, colour mode, `status` (`active|archived`), soft delete via
   `deleted_at` (trash), current style, cover and thumbnail (dashboard card) assets, and a `settings` JSON validated by
-  `ProjectSettings` (`packages/schemas/src/editor.ts`). `project_members` carries the role.
+  `ProjectSettings` (`packages/schemas/src/editor.ts`). `project_members` carries the role (`owner|editor|viewer`;
+  the owner also has a row).
+- `project_invites` — an owner's invitation (migration `0024_project_invites`): project, role (`editor|viewer`), the
+  invited `user_id` and/or lower-cased `email`, `token_hash` (HMAC of the emailed one-time link, unique; email
+  invitations only), inviter, `expires_at` (7 days) and one of `accepted_at`, `declined_at`, `revoked_at`. Pending =
+  none of those set and not expired (`docs/AUTH.md`).
 - `settings` is where several important knobs live, not as columns:
 
   | Field | Meaning |
@@ -54,6 +59,7 @@ slot).
   | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
   | `batchPolicy` | `interactive` (default), `images` (text now, images through provider batches), `hybrid` (text in batches, images now) or `cheapest` (both through provider batches) — how a production run spends; only keys whose provider has a batch API are batched. |
   | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
+  | `video` | `{fadeAtSceneBreaks, watermark, intro, outro}` — video export settings: fade to black where the scene changes (each shot can override it), a logo watermark `{assetId, corner, opacity, size}` (an image of the project) and intro/outro cards `{title, subtitle, durationMs}`. |
 
 - `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
   `user_id` it acts as, `status` (`running|waiting|paused|completed|failed|cancelled`; `waiting` is a review step,
@@ -64,6 +70,13 @@ slot).
 - `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a
   random `token` (unique), creator, `revoked_at`. Served without a session under `/api/public/shares/:token`
   (`docs/SECURITY.md`).
+- `panel_comments` — comment threads on panels (migration `0025_panel_comments`): project, panel (cascade, so
+  re-planning a chapter's pages removes their comments with them), `thread_id` (null for a thread's first comment,
+  else that comment's id), author, plain-text `body`, `mentions` (member ids resolved when written), `resolved_at` /
+  `resolved_by_user_id` on the first comment, `edited_at`, and `deleted_at` for a first comment deleted while it has
+  replies (its body is blanked; any other deleted comment is removed).
+- `notifications` — one user's mention or reply notice: user, project, `kind` (`mention|reply`), comment, actor,
+  `read_at`.
 - `story_revisions` — immutable once `locked_at` is set (analyses reference them); editing a locked revision forks a
   new one. Unique per `(project, revision_number)`.
 - `story_analyses` — the validated `StoryAnalysis` JSON for one revision; `pending → completed → applied` (or
@@ -86,13 +99,17 @@ slot).
   `review` (JSON `{reason, message, at}`, set when the artwork needs a human look — for example because it came from the
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
-  plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it.
+  plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it. `video`
+  (JSON `ShotVideo`, migration `0021_video_shots`: `motion`, `fade`, `disabled`; null = defaults) is the panel as a
+  video shot (`docs/VIDEO_EXPORT_REFERENCE.md`). `guide` (JSON `{assetId, strength}`, migration `0026_panel_guide`) is
+  the layout sketch sent with its generation (`docs/IMAGE_REFERENCES.md`).
 - `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
   project) and `expert_messages` (role, text, status `done|pending|awaiting_input|failed`, attached and generated
   image asset ids, options such as `generateImage` and the reply's `imagePrompt`); see `docs/AI_PIPELINE.md`.
 - `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user.
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
-  can carry several narration tracks over the same artwork; optional on-page box) → `narration_segments` (TTS units:
+  can carry several narration tracks over the same artwork; optional on-page box; `video` JSON
+  `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
   text, `text_sha256`, voice/speed overrides, `pause_after_ms`, active audio asset).
 
 ## Cast & world (`projects.ts`)
@@ -126,22 +143,24 @@ slot).
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`),
-  queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
+  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`,
+  `expert_extract`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry
   created a replacement, so a poller can tell a handled failure apart.
 - `generation_inputs` — the exact asset and variant ids sent, with `role` (`target`, `mask`, `character_ref`,
-  `location_ref`, `prop_ref`, `style_ref`, `previous_panel`), order, label, sent dimensions and derivative metadata.
+  `location_ref`, `prop_ref`, `style_ref`, `layout_guide`, `previous_panel`), order, label, sent dimensions and derivative metadata.
   `generation_outputs` — produced assets with an `activated` flag.
 - `prompt_templates` / `prompt_versions` — synced from code on boot, body plus SHA-256 (`docs/PROMPT_SYSTEM.md`).
 - `audio_jobs` — one TTS request: segment target, options (including its `ai` choice), status, attempts, resulting
   audio asset and a `reused_cache` flag.
 - `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`,
-  `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**,
+  `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**, **`video_shorts`**,
   `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
   publishing text, zipped), and `project_import` (an import reuses the export job machinery and reports
-  `{projectId, warnings}` in `result`). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
+  `{projectId, warnings}` in `result`; a video render keeps its `series`, the `sectionKeys` of its cached sections and
+  `sections: {reused, encoded}` there). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
   job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made). Deleting an
   export removes its job row and file at once.
 - `ai_usage` — provider, model, operation, request id, token counts (text in/out, image in/out, cached), billable
@@ -156,6 +175,9 @@ slot).
 - `outbox` — transactional queue publication: queue, job name, job id (unique per queue), payload, priority, status
   `pending|published`, attempts, last error.
 - `error_events` — captured server errors for the admin view.
+- `instance_settings` — server-wide settings an admin changes at runtime, one jsonb `value` per `key`, with who
+  changed it and when. `budget` holds `{ monthlyUsd }`, the monthly AI spend ceiling (`null` for none). No row means
+  the env default applies.
 
 ## Agent access (`mcp.ts`)
 

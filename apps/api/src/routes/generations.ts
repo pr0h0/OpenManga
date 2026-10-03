@@ -35,7 +35,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
-import { entityAccess, projectAccess } from "../lib/access.ts";
+import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
 import {
   AiChoiceInput,
   assertBatchable,
@@ -43,10 +43,11 @@ import {
   BatchInput,
   batchParameters,
   checkImageChoice,
+  overBudgetAllowed,
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
 export const generationRoutes = new Hono<AppEnv>();
@@ -143,7 +144,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
 async function jobWithAccess(c: Context<AppEnv>, id: string, action: "read" | "generate") {
   const [job] = await c.get("deps").db.select().from(generationJobs).where(eq(generationJobs.id, id));
   if (!job) throw notFound("Job");
-  await projectAccess(c, job.projectId, action);
+  await jobAccess(c, job, action);
   return job;
 }
 
@@ -234,8 +235,16 @@ doc({
 generationRoutes.post("/generations/:id/retry", async (c) => {
   const job = await jobWithAccess(c, uuidParam(c, "id"), "generate");
   const deps = c.get("deps");
+  // The retry runs as the caller, and a key is usable only by its owner: another member's keyed job would be claimed
+  // here and then fail in the worker. Refused up front instead; the caller can run it again with their own key.
+  if (job.userId !== user(c).id && (job.parameters.ai as { credentialId?: string } | null | undefined)?.credentialId)
+    throw new ApiError(
+      403,
+      "not_your_job",
+      "Another member ran this with their own provider key. Run it again with yours instead of retrying it.",
+    );
   // A retry is a fresh paid call, so it goes through the same budget gate as the route that queued the original.
-  await assertBudget(c, job.projectId);
+  if (job.projectId) await assertBudget(c, job.projectId);
   const created = await deps.jobs.retryGeneration(job.id, user(c).id);
   if (!created)
     throw conflict(
@@ -485,7 +494,7 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
     });
   await assertBudget(c, p.id, estimate.estimatedUsd ?? 0);
   // Recorded on the jobs, so the worker honours the same confirmation instead of pausing the batch it queued.
-  const allowOverBudget = c.req.header("x-allow-over-budget") === "1";
+  const allowOverBudget = await overBudgetAllowed(c, p.id);
   if (!ids.length) return c.json({ batchId: null, jobs: [], ...estimate });
   const priority = scope.panelIds ? PRIORITY.single : scope.pageId ? PRIORITY.page : PRIORITY.chapter;
   const batchId = crypto.randomUUID();
@@ -667,7 +676,7 @@ async function bulkReferences(
       credentials: await credentialReadiness(c),
     });
   await assertBudget(c, projectId, estimate.estimatedUsd ?? 0);
-  const allowOverBudget = c.req.header("x-allow-over-budget") === "1";
+  const allowOverBudget = await overBudgetAllowed(c, projectId);
   if (!eligible.length) return c.json({ batchId: null, jobs: [], ...estimate });
   const batchId = crypto.randomUUID();
   const jobs: Awaited<ReturnType<typeof deps.planner.enqueueReference>>[] = [];
@@ -765,6 +774,7 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
     cancelled: number;
     paused: number;
     pause_reason: string | null;
+    queue_wait_until: string | null;
     kind: string | null;
   }>(sql`
     select batch_id, min(created_at) as created_at, max(finished_at) as finished_at,
@@ -780,6 +790,9 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
       count(*) filter (where status in ('cancelled', 'cancel_requested'))::int as cancelled,
       count(*) filter (where status = 'paused')::int as paused,
       max(failure_reason) filter (where status = 'paused') as pause_reason,
+      -- Refused by the provider for lack of room in its batch queue: waiting, with the time of the next try.
+      min(parameters->'queueWait'->>'nextAt') filter (where status = 'queued' and parameters->'queueWait' is not null)
+        as queue_wait_until,
       mode() within group (order by kind) filter (where kind not like '%batch_submit') as kind
     from generation_jobs
     where project_id = ${p.id} and batch_id is not null
@@ -849,11 +862,18 @@ generationRoutes.get("/projects/:projectId/generations/batches", async (c) => {
           ? "running"
           : b.submitted > 0
             ? "submitted"
-            : b.queued > 0
-              ? "queued"
-              : "paused"
+            : b.queue_wait_until
+              ? "waiting"
+              : b.queued > 0
+                ? "queued"
+                : "paused"
         : "finished",
       pauseReason: b.pause_reason,
+      /**
+       * When the provider's batch queue was full: the next time the waiting jobs are submitted. They stay queued
+       * meanwhile (the state reads "waiting" unless other work of the batch is running or at the provider).
+       */
+      queueWaitUntil: b.queue_wait_until,
       /** What the batch draws or writes (its most common job kind): panels, a kind of reference, chapter plans… */
       kind: b.kind,
       progress: {
@@ -893,7 +913,7 @@ generationRoutes.get("/generations/batches/:batchId", async (c) => {
     .from(generationJobs)
     .where(eq(generationJobs.batchId, batchId))
     .limit(1);
-  if (!first) throw notFound("Batch");
+  if (!first?.projectId) throw notFound("Batch");
   await projectAccess(c, first.projectId, "read");
   const [row] = await db.execute<Record<string, number>>(sql`select count(*)::int as total,
     count(*) filter (where status='completed')::int as completed, count(*) filter (where status='processing')::int as generating,
@@ -910,7 +930,7 @@ async function batchProject(c: Parameters<typeof projectAccess>[0], batchId: str
     .from(generationJobs)
     .where(eq(generationJobs.batchId, batchId))
     .limit(1);
-  if (!first) throw notFound("Batch");
+  if (!first?.projectId) throw notFound("Batch");
   return projectAccess(c, first.projectId, "generate");
 }
 
@@ -936,9 +956,28 @@ doc({
 generationRoutes.post("/generations/batches/:batchId/resume", async (c) => {
   const batchId = uuidParam(c, "batchId");
   const p = await batchProject(c, batchId);
+  // Paused jobs resume as whoever started them, on that member's key: only they may restart that spending.
+  const [other] = await c
+    .get("deps")
+    .db.select({ id: generationJobs.id })
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.batchId, batchId),
+        eq(generationJobs.status, "paused"),
+        sql`${generationJobs.userId} is distinct from ${user(c).id}`,
+      ),
+    )
+    .limit(1);
+  if (other)
+    throw new ApiError(
+      403,
+      "not_your_batch",
+      "Another member started this batch, and it runs on their provider key. Ask them to resume it, or start a new run.",
+    );
   await assertBudget(c, p.id);
   const resumed = await c.get("deps").jobs.resumeBatch(batchId, {
-    allowOverBudget: c.req.header("x-allow-over-budget") === "1",
+    allowOverBudget: await overBudgetAllowed(c, p.id),
   });
   return c.json({ resumed });
 });
@@ -984,7 +1023,7 @@ generationRoutes.post("/generations/batches/:batchId/cancel", async (c) => {
       ),
     );
   if (!jobs.length) return c.json({ cancelled: 0 });
-  await projectAccess(c, jobs[0]!.projectId, "generate");
+  await jobAccess(c, jobs[0]!, "generate");
   let cancelled = 0;
   for (const j of jobs) if ((await deps.jobs.cancelGeneration(j.id)) !== "not_cancellable") cancelled++;
   await deps.db.execute(sql`update panels set status = case when active_artwork_asset_id is null then 'planned'::panel_status else 'ready'::panel_status end

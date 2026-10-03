@@ -11,7 +11,7 @@ type AuthConfig = { registrationEnabled: boolean; devMailboxEnabled: boolean };
 const useAuthConfig = () =>
   useQuery({ queryKey: qk.authConfig, queryFn: () => get<AuthConfig>("/auth/config"), staleTime: 300_000 });
 
-function AuthCard({
+export function AuthCard({
   title,
   subtitle,
   children,

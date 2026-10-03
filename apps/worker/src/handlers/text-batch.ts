@@ -13,10 +13,9 @@ import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { withBatchClaim } from "../lib/batch-claim.ts";
-import type { GenerationJob } from "../lib/runner.ts";
-import { recordTextCalls } from "../lib/runner.ts";
+import { holdForSlot, inFlightBatches, isQueueFull, roundSuffix, waitForBatchRoom } from "../lib/batch-wait.ts";
+import { type GenerationJob, inProject, recordTextCalls } from "../lib/runner.ts";
 import { BatchCollector, ParkedForBatch } from "../lib/text-batch-provider.ts";
-
 import { TEXT_HANDLERS } from "./text-handlers.ts";
 
 type BatchRow = typeof providerBatches.$inferSelect;
@@ -24,9 +23,10 @@ type BatchRow = typeof providerBatches.$inferSelect;
 const choiceOf = (job: { parameters: Record<string, unknown> }) => (job.parameters.ai as AiChoice | undefined) ?? null;
 
 /** Runs a job's handler only far enough to capture the request it would have made. */
-async function collectFrom(deps: WorkerDeps, job: GenerationJob): Promise<TextBatchRequestSpec | null> {
-  const handler = TEXT_HANDLERS[job.kind];
+async function collectFrom(deps: WorkerDeps, row: GenerationJob): Promise<TextBatchRequestSpec | null> {
+  const handler = TEXT_HANDLERS[row.kind];
   if (!handler) return null;
+  const job = inProject(row);
   const collector = new BatchCollector();
   try {
     await handler({ ...deps, batchCollector: collector }, job);
@@ -75,6 +75,11 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
     return { submitted: 0, batches: 0, fellBack: pending.length };
   }
 
+  // Checked before collecting: collecting runs every job's handler up to its provider call.
+  const limit = deps.config.BATCH_MAX_IN_FLIGHT_TEXT;
+  const free = limit ? limit - (await inFlightBatches(deps, job.userId, provider.provider, provider.model)) : Infinity;
+  if (free <= 0) return { submitted: 0, batches: 0, fellBack: 0, ...(await holdForSlot(deps, pending, limit)) };
+
   const specs: TextBatchRequestSpec[] = [];
   const byKey = new Map<string, GenerationJob>();
   for (const p of pending) {
@@ -93,67 +98,86 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
   }
 
   let submitted = 0;
+  let accepted = 0;
+  let refused: unknown = null;
   const chunks = provider.chunk(specs);
   for (const chunk of chunks) {
+    if (accepted >= free) break;
     const keys = chunk.map((c) => c.key);
-    const idempotencyKey = `${batchId}:text:${hashOf([...keys].sort()).slice(0, 16)}`;
-    await withBatchClaim(deps, idempotencyKey, async () => {
-      const [known] = await deps.db
-        .select()
-        .from(providerBatches)
-        .where(eq(providerBatches.idempotencyKey, idempotencyKey));
-      let handle = known
-        ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
-        : ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
-      if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
+    const idempotencyKey = `${batchId}:text:${hashOf([...keys].sort()).slice(0, 16)}${roundSuffix(keys.map((k) => byKey.get(k)!))}`;
+    try {
+      await withBatchClaim(deps, idempotencyKey, async () => {
+        const [known] = await deps.db
+          .select()
+          .from(providerBatches)
+          .where(eq(providerBatches.idempotencyKey, idempotencyKey));
+        let handle = known
+          ? { handle: known.handle, keys, idempotencyKey, ownedFileIds: known.ownedFileIds }
+          : ((await provider.findByIdempotencyKey(idempotencyKey).catch(() => null)) ?? null);
+        if (!handle) handle = await provider.submitBatch(chunk, idempotencyKey);
 
-      await deps.db.transaction(async (tx) => {
-        const [row] = await tx
-          .insert(providerBatches)
-          .values({
-            projectId: job.projectId,
-            userId: job.userId,
-            batchId,
-            capability: "text",
-            provider: provider.provider,
-            model: provider.model,
-            handle: handle.handle,
-            idempotencyKey,
-            state: "pending",
-            requestCount: keys.length,
-            ownedFileIds: handle.ownedFileIds ?? [],
-            submittedAt: new Date(),
-          })
-          .onConflictDoNothing({ target: providerBatches.idempotencyKey })
-          .returning();
-        const batchRowId =
-          row?.id ??
-          (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
-        await tx
-          .update(generationJobs)
-          .set({
-            status: "submitted",
-            parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
-          })
-          .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+        await deps.db.transaction(async (tx) => {
+          const [row] = await tx
+            .insert(providerBatches)
+            .values({
+              projectId: inProject(job).projectId,
+              userId: job.userId,
+              batchId,
+              capability: "text",
+              provider: provider.provider,
+              model: provider.model,
+              handle: handle.handle,
+              idempotencyKey,
+              state: "pending",
+              requestCount: keys.length,
+              ownedFileIds: handle.ownedFileIds ?? [],
+              submittedAt: new Date(),
+            })
+            .onConflictDoNothing({ target: providerBatches.idempotencyKey })
+            .returning();
+          const batchRowId =
+            row?.id ??
+            (await tx.select().from(providerBatches).where(eq(providerBatches.idempotencyKey, idempotencyKey)))[0]!.id;
+          await tx
+            .update(generationJobs)
+            .set({
+              status: "submitted",
+              parameters: sql`${generationJobs.parameters} || ${JSON.stringify({ providerBatchId: batchRowId })}::jsonb`,
+            })
+            .where(and(inArray(generationJobs.id, keys), eq(generationJobs.status, "queued")));
+        });
+        submitted += keys.length;
+        for (const key of keys) {
+          const target = byKey.get(key);
+          if (target)
+            await deps.events.publish(job.projectId, {
+              type: "job.updated",
+              jobId: key,
+              kind: target.kind,
+              status: "submitted",
+              targetType: target.targetType,
+              targetId: target.targetId,
+              batchId,
+            });
+        }
       });
-      submitted += keys.length;
-      for (const key of keys) {
-        const target = byKey.get(key);
-        if (target)
-          await deps.events.publish(job.projectId, {
-            type: "job.updated",
-            jobId: key,
-            kind: target.kind,
-            status: "submitted",
-            targetType: target.targetType,
-            targetId: target.targetId,
-            batchId,
-          });
-      }
-    });
+      accepted++;
+    } catch (e) {
+      if (!isQueueFull(e)) throw e;
+      // The rest would be refused the same way: stop here, and keep what was already accepted.
+      refused = e;
+      break;
+    }
   }
-  deps.logger.info("submitted text batches", { batchId, jobs: submitted, batches: chunks.length });
+  deps.logger.info("submitted text batches", { batchId, jobs: submitted, batches: accepted });
+  if (accepted < chunks.length) {
+    const done = new Set(chunks.slice(0, accepted).flatMap((c) => c.map((r) => r.key)));
+    const left = [...byKey.values()].filter((j) => !done.has(j.id));
+    const wait = refused
+      ? await waitForBatchRoom(deps, left, refused instanceof Error ? refused.message : String(refused))
+      : await holdForSlot(deps, left, limit);
+    return { submitted, batches: accepted, fellBack: 0, ...wait };
+  }
   return { submitted, batches: chunks.length, fellBack: 0 };
 }
 
@@ -161,7 +185,11 @@ export async function textBatchSubmit(deps: WorkerDeps, job: GenerationJob) {
  * Hands a finished text batch back to the ordinary pipeline: the answer is stored on the job, the job goes back
  * to `queued`, and its own handler replays it.
  */
-export async function ingestTextBatch(deps: WorkerDeps, row: BatchRow, jobs: GenerationJob[]) {
+export async function ingestTextBatch(
+  deps: WorkerDeps,
+  row: BatchRow,
+  jobs: GenerationJob[],
+): Promise<{ ingested: number; failed: number; refused?: string }> {
   const provider = await deps.resolver.textBatch(choiceOf(jobs[0]!), jobs[0]!.userId);
   if (!provider) throw new Error(`no text batch provider for ${row.provider}/${row.model}`);
   const status = await provider.pollBatch({
@@ -181,6 +209,18 @@ export async function ingestTextBatch(deps: WorkerDeps, row: BatchRow, jobs: Gen
     })
     .where(eq(providerBatches.id, row.id));
   if (status.state === "pending" || status.state === "running") return { ingested: 0, failed: 0 };
+  if (status.queueFull) {
+    // Nothing ran: the caller puts the jobs back to wait for room instead of failing them.
+    await provider
+      .releaseBatch({
+        handle: row.handle,
+        keys: [],
+        idempotencyKey: row.idempotencyKey,
+        ownedFileIds: row.ownedFileIds,
+      })
+      .catch(() => {});
+    return { ingested: 0, failed: 0, refused: status.error ?? "batch queue full" };
+  }
 
   const byId = new Map(jobs.map((j) => [j.id, j]));
   let ingested = 0;

@@ -1,6 +1,6 @@
 import { assets, eq, referenceAssets } from "@openmanga/db";
 import { z } from "zod";
-import { defineMcpTool, type ToolContext } from "../registry.ts";
+import { defineMcpTool, Passthrough, type ToolContext } from "../registry.ts";
 import { toolError } from "../runtime.ts";
 import { cls, projectOf, Uuid } from "./common.ts";
 
@@ -115,6 +115,82 @@ export const imageTools = [
           bytes: img.data.byteLength,
         },
         content: [{ type: "image", data: Buffer.from(img.data).toString("base64"), mimeType: img.mimeType }],
+      };
+    },
+  }),
+
+  defineMcpTool({
+    name: "manage_assets",
+    title: "Asset library and trash",
+    description:
+      "The project's stored images and files, as the app's Assets and Trash pages show them. list: newest first (trash=true lists the trash instead; type filters, e.g. panel_art, reference, cover, audio). trash: move an asset to trash (not one that is a panel's active artwork or locked; delete class). restore: bring it back from trash. delete: PERMANENTLY delete an asset that is already in trash, with its file (not a locked reference; cannot be undone; delete class). Panel artwork versions and reference images also have their own trash actions (manage_panel_artwork, manage_references).",
+    input: z.object({
+      action: z.enum(["list", "trash", "restore", "delete"]),
+      projectId: Uuid.optional().describe("For list."),
+      assetId: Uuid.optional().describe("For trash, restore, delete."),
+      trash: z.boolean().default(false).describe("list: the trash instead of live assets."),
+      type: z.string().max(40).optional().describe("list: only this asset type."),
+      limit: z.number().int().min(1).max(200).default(50),
+    }),
+    output: Passthrough,
+    scopes: ["projects:read", "projects:write"],
+    scopesFor: (a) => (a.action === "list" ? ["projects:read"] : ["projects:write"]),
+    sensitivity: "delete",
+    idempotent: false,
+    routes: [
+      "GET /api/projects/:projectId/assets",
+      "POST /api/assets/:id/trash",
+      "POST /api/assets/:id/restore",
+      "DELETE /api/assets/:id",
+    ],
+    actionKeys: ["asset.trash", "asset.restore", "asset.delete"],
+    classify: async (a, ctx) => {
+      if (a.action === "list") {
+        if (!a.projectId) throw toolError(400, "bad_request", "projectId is required");
+        return cls("read", "asset.list", a.projectId, "List assets");
+      }
+      if (!a.assetId) throw toolError(400, "bad_request", "assetId is required");
+      const [row] = await ctx.deps.db
+        .select({ p: assets.projectId, type: assets.type, status: assets.status, deletedAt: assets.deletedAt })
+        .from(assets)
+        .where(eq(assets.id, a.assetId));
+      if (!row?.p) throw toolError(404, "not_found", "Asset not found");
+      const target = { status: row.status, deletedAt: row.deletedAt?.toISOString() ?? null };
+      if (a.action === "restore") return cls("write", "asset.restore", row.p, `Restore a ${row.type} asset from trash`);
+      return a.action === "trash"
+        ? cls("delete", "asset.trash", row.p, `Move a ${row.type} asset to trash`, { target })
+        : cls("delete", "asset.delete", row.p, `Permanently delete a trashed ${row.type} asset and its file`, {
+            target,
+          });
+    },
+    handler: async (a, ctx) => {
+      if (a.action === "list") {
+        const r = await ctx.invoke<{ assets: Record<string, unknown>[]; storage: unknown }>(
+          "GET",
+          `/api/projects/${a.projectId}/assets`,
+          { query: { trash: a.trash ? "1" : "0", type: a.type, limit: a.limit } },
+        );
+        return {
+          data: {
+            storage: r.storage,
+            assets: r.assets.map(({ id, type, mimeType, width, height, byteSize, status, deletedAt, createdAt }) => ({
+              id,
+              type,
+              mimeType,
+              width,
+              height,
+              byteSize,
+              status,
+              deletedAt,
+              createdAt,
+            })),
+          },
+        };
+      }
+      const path = `/api/assets/${a.assetId}`;
+      return {
+        data:
+          a.action === "delete" ? await ctx.invoke("DELETE", path) : await ctx.invoke("POST", `${path}/${a.action}`),
       };
     },
   }),
