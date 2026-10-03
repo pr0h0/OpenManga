@@ -73,7 +73,8 @@ export function PromptInspector({ panelId, open, onClose }: { panelId: string; o
               <p className="muted mb-2 text-xs">
                 Canonical references stay full resolution. Requests send small cached derivatives (≈
                 {meta?.referenceDefaults.maxWidth ?? 192}×{meta?.referenceDefaults.maxHeight ?? 288}, fit{" "}
-                {meta?.referenceDefaults.fit ?? "inside"}).
+                {meta?.referenceDefaults.fit ?? "inside"}). A layout guide is the exception: it goes as a lossless PNG
+                up to 1024 px, so the pose's thin strokes survive.
               </p>
               <ul className="space-y-2">
                 {d.references.map((r) => (

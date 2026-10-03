@@ -38,7 +38,7 @@ Self-hosted AI manhwa/webtoon/video studio: story → analysis → cast/world �
 
 ## Invariants (do not break)
 1. Only `packages/ai-image` knows image request formats and only `packages/ai-text` knows text ones; a run's provider comes from the credential it names, never from server config. There are no server-held provider keys: outside `AI_MOCK_MODE` a provider run without a usable credential is refused with 422 `credentials_required` (paste-mode text runs need none). Image quality defaults to `low`.
-2. Canonical references are full resolution and never modified. Requests send **small cached derivatives** (default fit inside 192×288). Edit targets and masks are sent **full resolution**.
+2. Canonical references are full resolution and never modified. Requests send **small cached derivatives** (default fit inside 192×288). Edit targets and masks are sent **full resolution**. The one exception is a panel's layout guide, sent as a cached lossless PNG fitting 1024 px: its pose lives in thin strokes that the small box erases.
 3. Identity comes from approved canonical character references; previous panels are continuity-only and attached last.
 4. Approved/locked versions are immutable; changes create new versions. Panels keep their character version until explicitly migrated.
 5. Every regeneration/edit creates a new asset; nothing is overwritten. Cancelled output is never activated.

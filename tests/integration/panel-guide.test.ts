@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { eq, panels, sql } from "@openmanga/db";
+import { assetVariants, eq, panels, sql } from "@openmanga/db";
+import { sharp } from "@openmanga/image-utils";
 import { mockImagePng } from "@openmanga/testing";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -14,12 +15,12 @@ type Guide = { assetId: string; strength: "loose" | "strict" } | null;
 type Preview = { compiledPrompt: string; references: { index: number; role: string; assetId: string }[] };
 type JobDetail = {
   job: { status: string; templateVersion: number; compiledPrompt: string };
-  inputs: { role: string; assetId: string; sentAs: string; width: number; height: number }[];
+  inputs: { role: string; assetId: string; variantId: string; sentAs: string; width: number; height: number }[];
 };
 
 const form = async (label: string, strength?: string) => {
   const f = new FormData();
-  f.set("file", new File([(await mockImagePng({ width: 300, height: 200, prompt: label })) as BlobPart], "s.png"));
+  f.set("file", new File([(await mockImagePng({ width: 1600, height: 900, prompt: label })) as BlobPart], "s.png"));
   if (strength) f.set("strength", strength);
   return f;
 };
@@ -79,7 +80,7 @@ test("an uploaded guide is stored as a sanitised project image and set on the pa
   const res = await alice.raw("POST", `/api/panels/${panelIds[0]}/guide`, await form("pose"));
   expect(res.status).toBe(201);
   const out = (await res.json()) as { panel: { guide: Guide }; asset: { id: string; width: number } };
-  expect(out.asset.width).toBe(300);
+  expect(out.asset.width).toBe(1600);
   expect(out.panel.guide).toEqual({ assetId: out.asset.id, strength: "loose" });
   expect(await guideOf(panelIds[0]!)).toEqual({ assetId: out.asset.id, strength: "loose" });
 
@@ -103,19 +104,25 @@ test("the planner sends the guide after the identity reference, with its layout-
   expect(strict.compiledPrompt).toContain("Reference image 2 is a rough layout/pose sketch: follow its composition");
 });
 
-test("generation records the guide as a small derivative input, and so does a regeneration", async () => {
+test("generation sends the guide large and lossless (the identity reference stays small), and so does a regeneration", async () => {
   const guide = (await guideOf(panelIds[0]!))!;
   for (const body of [{}, { operation: "change_pose", instruction: "arms crossed" }]) {
     const r = await alice.post<{ job: { id: string } }>(`/api/panels/${panelIds[0]}/generate`, body, 202);
     const done = await waitJob(r.job.id);
     expect(done.job.status).toBe("completed");
-    expect(done.job.templateVersion).toBe(9);
+    expect(done.job.templateVersion).toBe(10);
     expect(done.job.compiledPrompt).toContain("layout/pose sketch");
+    expect(done.job.compiledPrompt).toContain("POSE / LAYOUT:\nCopy the pose of every figure");
     expect(done.inputs.map((i) => i.role)).toEqual(["character_ref", "layout_guide"]);
     const g = done.inputs[1]!;
     expect(g.assetId).toBe(guide.assetId);
     expect(g.sentAs).toBe("prompt_ref_derivative");
-    expect(g.width).toBeLessThanOrEqual(192);
+    // What the provider gets: the stored variant the worker reads, not just the recorded numbers.
+    const [variant] = await h.deps.db.select().from(assetVariants).where(eq(assetVariants.id, g.variantId));
+    const sent = await sharp(Buffer.from(await h.deps.assets.readVariant(variant!))).metadata();
+    expect(Math.max(sent.width!, sent.height!)).toBeGreaterThanOrEqual(768);
+    expect(sent.format).toBe("png");
+    expect(Math.max(done.inputs[0]!.width, done.inputs[0]!.height)).toBeLessThanOrEqual(288);
   }
 });
 
@@ -185,4 +192,30 @@ test("a duplicated project's guides are its own copies", async () => {
     { same: true, art: false },
     { same: true, art: true },
   ]);
+});
+
+test("describe pose reads the guide in a queued vision job and changes nothing on the panel", async () => {
+  const p = panelIds[1]!;
+  const spec = async () =>
+    (await alice.get<{ specs: { spec: { composition?: string } }[] }>(`/api/panels/${p}`)).specs[0]?.spec.composition;
+  const before = await spec();
+  const r = await alice.post<{ job: { id: string; kind: string; targetId: string } }>(
+    `/api/panels/${p}/guide/describe`,
+    {},
+    202,
+  );
+  expect(r.job.kind).toBe("image_describe");
+  expect(r.job.targetId).toBe((await guideOf(p))!.assetId);
+  const done = (await waitJob(r.job.id)) as unknown as {
+    job: { status: string; templateName: string; templateVersion: number; result: { description: unknown } };
+  };
+  expect(done.job.status).toBe("completed");
+  expect(done.job.templateName).toBe("image-describe");
+  expect(done.job.templateVersion).toBe(2);
+  expect((done.job.result.description as { pose: { summary: string } }).pose.summary).toContain("hands on hips");
+  // Review first: the composition is only written when the user saves it.
+  expect(await spec()).toBe(before);
+
+  // A panel without a guide has nothing to describe.
+  await alice.post(`/api/panels/${panelIds[3]}/guide/describe`, {}, 400);
 });

@@ -26,6 +26,7 @@ import {
   stylePresets,
 } from "@openmanga/db";
 import { aspectRatioOf, COLOR_MODE_DIRECTIVES } from "@openmanga/domain";
+import type { ReferenceParams } from "@openmanga/image-utils";
 import {
   characterReferenceV1,
   coverV1,
@@ -89,6 +90,19 @@ export const REFERENCE_ASPECT: Record<string, number> = {
 
 type RefSubject = "character" | "location" | "prop" | "style";
 const MAX_REFERENCES = 8;
+/**
+ * The layout guide is the one reference sent large (the exception to the small-derivative rule): a sketch's pose
+ * lives in thin strokes, and at the usual 192 px box a stick figure's hands-on-hips became an unreadable smudge the
+ * written description out-voted. Lossless PNG keeps the strokes; a sketch compresses to a few kB anyway.
+ */
+export const GUIDE_REFERENCE: ReferenceParams = {
+  maxWidth: 1024,
+  maxHeight: 1024,
+  fit: "inside",
+  allowUpscale: false,
+  format: "png",
+  quality: 100,
+};
 
 export class GenerationPlanner {
   constructor(
@@ -189,11 +203,14 @@ export class GenerationPlanner {
     settings: ProjectSettings,
     provider: string | null = null,
   ): Promise<NewGenerationInput> {
-    const params = this.assetsSvc.referenceParams({
-      maxWidth: settings.referenceMaxWidth,
-      maxHeight: settings.referenceMaxHeight,
-      provider,
-    });
+    const params =
+      role === "layout_guide"
+        ? GUIDE_REFERENCE
+        : this.assetsSvc.referenceParams({
+            maxWidth: settings.referenceMaxWidth,
+            maxHeight: settings.referenceMaxHeight,
+            provider,
+          });
     const v = await this.assetsSvc.ensurePromptReference(asset, params);
     return {
       role,

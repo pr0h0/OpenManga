@@ -568,6 +568,7 @@ const IMAGE_ASPECT_PROMPTS: Record<string, string> = {
   mood: "mood: the feeling the image carries and the specific visual choices that create it.",
   props: "props: notable objects, weapons, furniture and set dressing, and how they are used or worn.",
   era: "era: the period and cultural setting the image suggests, and the concrete visual cues that place it.",
+  pose: 'pose: the layout of a rough sketch or pose drawing, ignoring its line quality, style and any text. In `summary`, ONE plain sentence a comic panel\'s composition can use as is: how many figures, where each stands in the frame, which way each faces, the pose of body, arms, hands and legs, and the shot type and camera angle (for example "one figure standing centred, full body, facing the viewer, hands on hips, feet shoulder-width apart, eye-level medium-wide shot"). In `figures`, one entry per figure from left to right. In `framing`, the shot type, camera angle and how much of each figure is in frame.',
   technique:
     "technique: the apparent medium and process — ink, paint, digital brushwork, cel shading, 3D render, halftone or screen tone, grain, and any print or camera artefacts.",
 };
@@ -579,10 +580,10 @@ export const imageDescribeV1 = defineTextTemplate<{
   note: string;
 }>({
   name: "image-describe",
-  version: 1,
+  version: 2,
   description: "Describe a reference image as reusable style / character / location / setting descriptions",
   system: [
-    templateHeader("image-describe", 1),
+    templateHeader("image-describe", 2),
     "You describe a single reference image so its qualities can be reused in new artwork. You are given the image and a list of aspects to report on.",
     "Report only the aspects you were asked for; leave every other field of the schema absent.",
     "Describe what is actually visible. Where the image does not show something, leave the field empty and name it in `uncertain` — a confident guess is worse than an admitted gap.",

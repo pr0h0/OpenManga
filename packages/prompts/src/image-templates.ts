@@ -415,10 +415,10 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 9,
+  version: 10,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
-  body: "ROLE / GOAL, PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
+  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
   compile(i) {
     const s = i.panel.spec;
     const d = i.draft ?? {};
@@ -477,6 +477,14 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
       i.film
         ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
         : `Create one clean ${i.style.definition?.photoreal ? "photorealistic live-action film still" : `${kindLabel(i.style)} panel`}, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
+      // Up front, because the written composition further down otherwise out-votes a sketch the model only skims.
+      i.guide
+        ? section("POSE / LAYOUT", [
+            i.guide.strength === "strict"
+              ? `Copy the pose of every figure, where each figure stands in the frame, and the framing from the sketch in reference image ${i.guide.imageIndex}. Where the written composition, action or story beat below disagrees with the sketch on pose, figure placement or framing, the sketch wins. Identity, outfits and the look of everything still come from the character references and the descriptions, never from the sketch.`
+              : `Start from the sketch in reference image ${i.guide.imageIndex} for the poses, where the figures stand and the framing; the written description below may adjust it.`,
+          ])
+        : "",
       styleSection(i.style),
       i.scene
         ? section("SCENE CONTEXT", [
