@@ -13,6 +13,7 @@
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
+| Narration timing | `narration_retime` / text-ai | `narration-retime` v1 | `NarrationRetime`: the chosen lines rewritten to a word budget each, kept on the job until the user applies them (`docs/VIDEO_EXPORT_REFERENCE.md`, timing pass) |
 | Narration QA | `narration_lint` / text-ai | `narration-lint` v1 | `NarrationLintReport` stored as `narration_findings` (source `ai`) for the chapter |
 | Narration fixes | `narration_fix` / text-ai | `narration-fix` v1 | `NarrationFix` checked against the flagged lines, returned as before/after proposals in the job result; applied only when the user confirms |
 | Story coverage | `story_coverage` / text-ai | `story-coverage` v1 | one `StoryCoverageMap` per part of the source; the findings and shares are computed from them and kept in the job result |

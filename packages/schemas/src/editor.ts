@@ -177,6 +177,11 @@ export const ShotVideo = z.object({
   motion: ShotMotion.default("auto"),
   fade: z.enum(["auto", "on", "off"]).default("auto"),
   disabled: z.boolean().default(false),
+  /**
+   * This shot's own minimum hold in ms, in place of the export's: a short beat held longer, or a padded one held less
+   * (never below its narration). Null = the export's minimum. Set by the timing pass's rebalance or by hand.
+   */
+  holdMs: z.number().int().min(500).max(60_000).nullable().default(null),
 });
 export type ShotVideo = z.infer<typeof ShotVideo>;
 

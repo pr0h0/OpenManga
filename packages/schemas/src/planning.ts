@@ -246,6 +246,15 @@ export function narrationDraftFor(panels: { id: string; beat?: string }[], words
 
 export const StoryRewrite = z.object({ content: str.min(1), notes: optStr });
 
+/** Chosen narration lines rewritten to a word budget each (the timing pass's trim or expand). */
+export const NarrationRetime = z.object({
+  lines: z
+    .array(z.object({ lineId: str.min(1), text: str.min(1).max(4000) }))
+    .min(1)
+    .max(200),
+});
+export type NarrationRetime = z.infer<typeof NarrationRetime>;
+
 /** Text for publishing a narrated video on YouTube, written once and edited by hand afterwards. */
 export const YoutubePackage = z.object({
   titles: z.array(str.min(1).max(100)).min(1).max(8),

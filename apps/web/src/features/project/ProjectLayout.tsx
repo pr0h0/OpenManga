@@ -19,6 +19,7 @@ import {
   ScrollText,
   Search,
   Settings,
+  Timer,
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -54,6 +55,7 @@ const NAV = [
   { to: "/projects/$projectId/comments", label: "Comments", icon: MessageSquare },
   { to: "/projects/$projectId/generation", label: "Generation", icon: Cpu },
   { to: "/projects/$projectId/narration", label: "Narration", icon: Mic },
+  { to: "/projects/$projectId/timing", label: "Timing", icon: Timer },
   { to: "/projects/$projectId/describe", label: "Describe", icon: ScanEye },
   { to: "/projects/$projectId/assets", label: "Assets", icon: Images },
   { to: "/projects/$projectId/exports", label: "Exports", icon: Download },

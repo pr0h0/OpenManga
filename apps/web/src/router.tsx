@@ -327,6 +327,13 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/timing",
+    validateSearch: chapterSearch,
+    staticData: { title: "Timing" },
+    component: lazyRouteComponent(() => import("./features/narration/TimingPage.tsx"), "TimingPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/describe",
     staticData: { title: "Describe image" },
     component: lazyRouteComponent(() => import("./features/vision/DescribeImagePage.tsx"), "DescribeImagePage"),

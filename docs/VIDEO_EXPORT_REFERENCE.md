@@ -122,6 +122,7 @@ Each panel carries its settings as a video shot in `panels.video` (`ShotVideo`; 
 | `motion` | `auto` (default), `static`, `pan-left`, `pan-right`, `pan-up`, `pan-down`, `push-in`, `pull-out` | Panel cut camera move (below) |
 | `fade` | `auto` (default), `on`, `off` | The cut *into* this shot: follow the project's scene-break fade, always fade through black, or always a hard cut |
 | `disabled` | `false` (default) | Leave the shot and its narration out of every video; the panel stays on the page |
+| `holdMs` | `null` (default) | The shot's own minimum hold in ms (500–60 000), in place of the export's `minHoldMs`; never shorter than its narration. Set by hand or by the timing pass |
 
 A disabled panel is left out of the panel cut, and its narration out of both cuts; a page whose panels are all
 disabled leaves the page cut too. Disabled panels are reported as `disabledPanels`, not as unplaced lines. Scoping
@@ -345,6 +346,38 @@ every export alongside `clips`, `subtitleCues` and the per-shot reports.
 Cues are accumulated during pass 1 from the same segment durations that drive the holds, so they cannot drift from
 the audio. `toSrt` emits standard `HH:MM:SS,mmm` timing and the file ships next to the MP4 as
 `application/x-subrip`. Subtitles are never burned in.
+
+## Timing pass
+
+Once a chapter's narration is voiced, its real lengths decide the pacing. `GET /api/chapters/:id/timing` (and
+`GET /api/projects/:projectId/timing` for every chapter; the *Timing* page; MCP `get_timing`) times the panel cut with
+the same `timeShots` the preview and the render use, and reports (`timingIssues` in `packages/domain/src/timing.ts`):
+
+| Kind | When |
+| --- | --- |
+| `long` | A shot holds past the longest-shot setting (the target runtime's `maxShotSeconds`, else 8 s) |
+| `flash` | A shot holds under the shortest (`minShotSeconds`, else 4 s) |
+| `still` | One picture on screen for more than 12 s |
+| `silence` | Dead air: a gap between narration segments, or a silent tail after the narration (a shot padded to the minimum), over 3 s |
+
+with the chapter's length against its share of the target runtime (`runtimeBudget`, in words, at the target's words
+per minute). Segments without audio count as silent. It offers three fixes (`timingFixes`), each with its effect —
+every hold it changes before and after, and the chapter's change in length — computed on the same timeline before
+anything is applied:
+
+- **Spread** a shot's longest line, when its narration is longer than the longest-shot setting, over the next shots of
+  the same scene (the line's `video.untilPanelId`; see spanning narration). Existing art only.
+- **Holds**: a shot's own minimum hold (`ShotVideo.holdMs`) within the min/max settings, never below its narration: a
+  flash held to the shortest length, a shot padded past its narration (or a silent one past the longest length) held
+  only as long as needed.
+- **Trim or expand**: when the chapter misses its target by more than a tenth, each voiced line with the word budget
+  that lands it on target. A text job (`narration_retime`, prompt `narration-retime` v1, answer `NarrationRetime`)
+  rewrites only the lines the user picks; its result is the before and after of each, nothing changes until
+  `POST /api/chapters/:id/narration/retime/:jobId/apply` keeps the chosen ones (re-segmented, unchanged segments keep
+  their audio), and `narration/synthesize { lineIds }` re-voices only those lines.
+
+Spread and holds are applied with `POST /api/chapters/:id/timing/apply` (MCP `apply_timing_fix`), the rewrite with MCP
+`retime_narration`. No fix generates an image.
 
 ## Partial renders
 

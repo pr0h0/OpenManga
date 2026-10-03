@@ -46,6 +46,7 @@ import {
   chapterPlanningV7,
   imageDescribeV1,
   jsonRepairV1,
+  narrationRetimeV1,
   narrationV6,
   panelPromptsV5,
   scenePagesV3,
@@ -64,6 +65,7 @@ import {
   ChapterOutline,
   ChapterPlan,
   ImageDescription,
+  NarrationRetime,
   narrationDraftFor,
   PanelPromptDraft,
   type PanelSpec,
@@ -263,6 +265,55 @@ export async function youtubePackage(deps: WorkerDeps, job: ProjectJob) {
     })
     .where(eq(projects.id, p.id));
   return { titles: pkg.titles.length, tags: pkg.tags.length };
+}
+
+/**
+ * The timing pass's trim or expand: the chosen lines rewritten to their word budgets. Nothing is changed here; the
+ * proposal is the job's result, shown as a diff, and applying it (only the lines the user keeps) is a separate step.
+ */
+export async function narrationRetime(deps: WorkerDeps, job: ProjectJob) {
+  const want = (job.input.lines ?? []) as { lineId: string; words: number }[];
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  const rows = want.length
+    ? await deps.db
+        .select({ id: narrationLines.id, text: narrationLines.text, language: narrationLines.language })
+        .from(narrationLines)
+        .where(
+          and(
+            eq(narrationLines.chapterId, String(job.input.chapterId)),
+            inArray(
+              narrationLines.id,
+              want.map((w) => w.lineId),
+            ),
+          ),
+        )
+    : [];
+  if (!rows.length || !p) throw new InputError("None of those narration lines exist any more");
+  const count = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  const lines = rows.map((r) => ({
+    lineId: r.id,
+    text: r.text,
+    words: count(r.text),
+    budget: want.find((w) => w.lineId === r.id)!.words,
+  }));
+  const r = await structured(
+    deps,
+    job,
+    narrationRetimeV1.build({
+      language: languageName(rows[0]!.language),
+      style: p.settings.narrationStyle ?? "",
+      lines,
+    }),
+    NarrationRetime,
+    "NarrationRetime",
+    16_000,
+  );
+  // Only the lines that were asked for, each once: anything else the model returned is dropped.
+  const proposals = lines.flatMap((l) => {
+    const next = r.data.lines.find((x) => x.lineId === l.lineId)?.text.trim();
+    return next && next !== l.text ? [{ ...l, after: next, afterWords: count(next) }] : [];
+  });
+  return { chapterId: String(job.input.chapterId), lines: proposals, repaired: r.repaired };
 }
 
 /** With a target runtime, the words per panel that land this chapter on its share of it; otherwise null. */

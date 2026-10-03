@@ -7,6 +7,7 @@ import {
   NarrationDraftV2,
   NarrationFix,
   NarrationLintReport,
+  NarrationRetime,
   PanelCheck,
   PanelPromptDraft,
   ScenePages,
@@ -31,6 +32,7 @@ export const ANSWER_SCHEMAS = {
   NarrationLintReport,
   NarrationFix,
   StoryCoverageMap,
+  NarrationRetime,
   ImageDescription,
   PanelCheck,
   YoutubePackage,
@@ -363,6 +365,16 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     thumbnailHeadlines: [
       "Short thumbnail headlines (two to five words) to choose from.",
       ["HE NEVER LEFT", "THE LAST KEEPER"],
+    ],
+  },
+
+  NarrationRetime: {
+    "": "The narration lines you were given, each rewritten to its word budget. Only these lines change.",
+    lines: ["One entry per line you were given, in the same order.", undefined],
+    "lines[].lineId": ["The line's id, exactly as given.", "line-1"],
+    "lines[].text": [
+      "The rewritten line: the same meaning, voice and facts, close to its word budget (within about 15%).",
+      "The lamp turned at three in the morning, and Ines wrote the hour down.",
     ],
   },
 

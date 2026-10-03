@@ -23,6 +23,7 @@ const OPERATION_LABELS: Record<string, string> = {
   narration_lint: "Narration QA",
   narration_fix: "Narration fixes",
   story_coverage: "Story coverage",
+  narration_retime: "Narration timing",
   expert_chat: "Expert chat",
   expert_image: "Expert chat image",
   expert_extract: "Expert actions",

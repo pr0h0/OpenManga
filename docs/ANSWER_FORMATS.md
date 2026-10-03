@@ -20,6 +20,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [NarrationLintReport](#narrationlintreport)
 - [NarrationFix](#narrationfix)
 - [StoryCoverageMap](#storycoveragemap)
+- [NarrationRetime](#narrationretime)
 - [ImageDescription](#imagedescription)
 - [PanelCheck](#panelcheck)
 - [YoutubePackage](#youtubepackage)
@@ -1659,6 +1660,49 @@ interface StoryCoverageMap {
       "coveredBy": [
         "C2.S1"
       ]
+    }
+  ]
+}
+```
+
+</details>
+
+## NarrationRetime
+
+Asked by **Timing: trim or expand narration** — the lines you picked in a chapter's Timing view, rewritten to their word budgets.
+
+```ts
+/** The narration lines you were given, each rewritten to its word budget. Only these lines change. */
+interface NarrationRetime {
+  /**
+   * One entry per line you were given, in the same order.
+   * Between 1 and 200 items.
+   */
+  lines: {
+    /**
+     * The line's id, exactly as given.
+     * At least 1 characters.
+     * @example "line-1"
+     */
+    lineId: string;
+    /**
+     * The rewritten line: the same meaning, voice and facts, close to its word budget (within about 15%).
+     * Between 1 and 4000 characters.
+     * @example "The lamp turned at three in the morning, and Ines wrote the hour down."
+     */
+    text: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "lines": [
+    {
+      "lineId": "line-1",
+      "text": "The lamp turned at three in the morning, and Ines wrote the hour down."
     }
   ]
 }
