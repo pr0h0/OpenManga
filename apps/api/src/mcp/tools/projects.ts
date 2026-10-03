@@ -98,7 +98,7 @@ export const projectTools = [
     name: "update_project",
     title: "Update project",
     description:
-      "Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.",
+      "Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.",
     input: UpdateProject.extend({ projectId: Uuid }),
     output: z.object({ project: Passthrough }),
     scopes: ["projects:write"],

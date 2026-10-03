@@ -36,6 +36,7 @@ import {
   type RuntimeTarget,
   runtimeBudget,
   segmentNarration,
+  segmentTextSha,
   wordsPerPanelFor,
 } from "@openmanga/domain";
 import {
@@ -799,7 +800,7 @@ export async function narrationText(deps: WorkerDeps, job: ProjectJob) {
             narrationLineId: nl!.id,
             order: i,
             text: s.text,
-            textSha256: sha256Hex(s.text),
+            textSha256: segmentTextSha(s.text, project?.settings.pronunciation),
             pauseAfterMs: s.pauseAfterMs,
           })),
         );

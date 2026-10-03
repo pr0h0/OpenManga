@@ -1,6 +1,6 @@
 import { trimSilenceWav } from "@openmanga/audio";
 import { and, audioAssets, audioJobs, desc, eq, narrationLines, narrationSegments, projects, sql } from "@openmanga/db";
-import { ProviderError } from "@openmanga/domain";
+import { ProviderError, spokenText } from "@openmanga/domain";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import type { WorkerDeps } from "../context.ts";
 import { userFacingError } from "../lib/runner.ts";
@@ -110,7 +110,10 @@ export async function processTts(deps: WorkerDeps, bullJob: Job) {
   }
 
   try {
-    const raw = await tts.synthesize({ text: seg.s.text, voice: job.voice, speed: job.speed, language });
+    // The voice says the dictionary's spoken forms; the segment's text (shown, subtitled, lettered) keeps the written
+    // ones. Its textSha256 is already the hash of this spoken text, so the cache above is keyed on what is said.
+    const spoken = spokenText(seg.s.text, project?.settings.pronunciation);
+    const raw = await tts.synthesize({ text: spoken, voice: job.voice, speed: job.speed, language });
     // Voices pad every segment with silence; trimming here keeps pauseAfterMs and the video breath honest.
     const trimmed = deps.config.TTS_TRIM_SILENCE
       ? trimSilenceWav(raw.wav, {
@@ -200,7 +203,7 @@ export async function processTts(deps: WorkerDeps, bullJob: Job) {
       projectId: job.projectId,
       userId: job.userId,
       latencyMs: 0,
-      characters: seg.s.text.length,
+      characters: spoken.length,
       metadata: { local: r.provider === "kokoro", durationMs: r.durationMs },
     });
     await publish("completed");

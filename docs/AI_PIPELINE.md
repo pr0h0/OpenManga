@@ -276,6 +276,16 @@ Segments get `narrationPauseMs` (default 350 ms) after them; the last segment of
 re-applies the settings without touching audio. `narrationStyle` is stored in project settings and used when a
 narration request has no explicit style, so every chapter is written in the same voice.
 
+## Pronunciation dictionary
+
+`settings.pronunciation` is a list of `{ term, spoken, caseSensitive (false), wholeWord (true) }` ("Qi" → "chee").
+The TTS worker replaces each term with its spoken form (`spokenText` in `packages/domain`, one pass, earlier then
+longer match first) in the text it sends to the voice, for every provider; narration, subtitles and lettering keep the
+written text. A segment's `text_sha256` is the hash of that spoken text, so the audio cache is keyed on what is said.
+Saving a different dictionary re-hashes the project's segments (`rehashNarrationSegments`): only those whose spoken
+text changed read as stale, and *Synthesize missing* or a production run's audio step re-voices just those. Project
+templates carry the dictionary like any other setting, so a new project made from one starts with it.
+
 ## Narration languages
 
 Narration lines carry `language`, so a chapter can hold one track per language over the same artwork. `narration` v3

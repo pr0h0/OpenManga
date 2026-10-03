@@ -113,7 +113,8 @@ slot).
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
   can carry several narration tracks over the same artwork; optional on-page box; `video` JSON
   `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
-  text, `text_sha256`, voice/speed overrides, `pause_after_ms`, active audio asset).
+  text, `text_sha256` (of the spoken text: the text with the project's pronunciation dictionary applied), voice/speed
+  overrides, `pause_after_ms`, active audio asset).
 
 ## Cast & world (`projects.ts`)
 

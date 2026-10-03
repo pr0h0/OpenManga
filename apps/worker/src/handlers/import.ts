@@ -38,6 +38,7 @@ import {
   stylePresets,
   type Tx,
 } from "@openmanga/db";
+import { segmentTextSha } from "@openmanga/domain";
 import { probeImage } from "@openmanga/image-utils";
 import { UnrecoverableError } from "@openmanga/queue";
 import { type PanelSpec, ProjectInterchange } from "@openmanga/schemas";
@@ -740,7 +741,7 @@ async function restore(
         .returning({ id: narrationLines.id });
       counts.narrationLines!++;
       for (const [order, seg] of nl.segments.entries()) {
-        const textSha256 = sha256Hex(seg.text);
+        const textSha256 = segmentTextSha(seg.text, p.settings.pronunciation);
         const audio = await importAsset(seg.audio, "audio");
         const [segment] = await tx
           .insert(narrationSegments)

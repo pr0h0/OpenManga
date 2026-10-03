@@ -1,6 +1,7 @@
 export * from "./browser.ts";
 
 import { createHash } from "node:crypto";
+import { type Pronunciation, spokenText } from "./narration.ts";
 
 /** Stable JSON (sorted keys) for hashing. */
 export function stableStringify(v: unknown): string {
@@ -19,3 +20,10 @@ export const hashOf = (v: unknown) =>
   createHash("sha256")
     .update(typeof v === "string" ? v : stableStringify(v))
     .digest("hex");
+
+/**
+ * A narration segment's text hash: of what the voice says, so audio goes stale when a pronunciation entry changes
+ * how the segment is spoken, and not otherwise. With no dictionary entry matching it is the hash of the text itself.
+ */
+export const segmentTextSha = (text: string, dictionary?: readonly Pronunciation[]) =>
+  hashOf(spokenText(text, dictionary));

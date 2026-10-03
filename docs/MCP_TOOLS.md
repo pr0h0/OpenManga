@@ -679,7 +679,7 @@ Create a new project (optionally with its first story revision in `story`). Need
 
 ### update_project
 
-Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
+Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
 
 - **Scopes:** `projects:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -1363,6 +1363,37 @@ Change a project's title, description, type, language, reading direction, colour
         "narrationStyle": {
           "type": "string",
           "maxLength": 500
+        },
+        "pronunciation": {
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "term": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "spoken": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "caseSensitive": {
+                "default": false,
+                "type": "boolean"
+              },
+              "wholeWord": {
+                "default": true,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "term",
+              "spoken"
+            ]
+          }
         },
         "video": {
           "type": "object",

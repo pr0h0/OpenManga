@@ -23,6 +23,7 @@ import {
   placeBubble,
   resolveLettering,
   segmentNarration,
+  segmentTextSha,
 } from "@openmanga/domain";
 import { narrationV5 } from "@openmanga/prompts";
 import { Bubble, type Frame, NarrationLineVideo, type ProjectSettings } from "@openmanga/schemas";
@@ -90,7 +91,7 @@ async function resegment(c: Context<AppEnv>, lineId: string, projectId: string, 
           narrationLineId: lineId,
           order: i,
           text: s.text,
-          textSha256: sha256Hex(s.text),
+          textSha256: segmentTextSha(s.text, proj?.settings.pronunciation),
           pauseAfterMs: s.pauseAfterMs,
           voice: prior?.voice ?? null,
           speed: prior?.speed ?? null,
@@ -459,11 +460,11 @@ doc({
   body: PatchSegment,
 });
 audioRoutes.patch("/narration-segments/:id", async (c) => {
-  const { segment } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
+  const { segment, project } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
   const input = await body(c, PatchSegment);
   const set: Partial<typeof narrationSegments.$inferInsert> = { ...input };
   if (input.text && input.text !== segment.text) {
-    set.textSha256 = sha256Hex(input.text);
+    set.textSha256 = segmentTextSha(input.text, project.settings.pronunciation);
     // Detach the old audio: it speaks the previous text, and every export reader joins on this pointer alone.
     set.activeAudioAssetId = null;
   }
@@ -505,7 +506,7 @@ audioRoutes.post("/narration-segments/:id/split", async (c) => {
       .update(narrationSegments)
       .set({
         text: a,
-        textSha256: sha256Hex(a),
+        textSha256: segmentTextSha(a, project.settings.pronunciation),
         activeAudioAssetId: null,
         pauseAfterMs: project.settings.narrationPauseMs ?? DEFAULT_NARRATION_PAUSE_MS,
       })
@@ -518,7 +519,7 @@ audioRoutes.post("/narration-segments/:id/split", async (c) => {
         narrationLineId: segment.narrationLineId,
         order: segment.order + 1,
         text: b,
-        textSha256: sha256Hex(b),
+        textSha256: segmentTextSha(b, project.settings.pronunciation),
         voice: segment.voice,
         speed: segment.speed,
         pauseAfterMs: segment.pauseAfterMs,
@@ -536,7 +537,7 @@ doc({
   tag: "narration",
 });
 audioRoutes.post("/narration-segments/:id/merge-next", async (c) => {
-  const { segment } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
+  const { segment, project } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
   const { db } = c.get("deps");
   const [next] = await db
     .select()
@@ -555,7 +556,12 @@ audioRoutes.post("/narration-segments/:id/merge-next", async (c) => {
     await tx.delete(narrationSegments).where(eq(narrationSegments.id, next.id));
     return tx
       .update(narrationSegments)
-      .set({ text, textSha256: sha256Hex(text), activeAudioAssetId: null, pauseAfterMs: next.pauseAfterMs })
+      .set({
+        text,
+        textSha256: segmentTextSha(text, project.settings.pronunciation),
+        activeAudioAssetId: null,
+        pauseAfterMs: next.pauseAfterMs,
+      })
       .where(eq(narrationSegments.id, segment.id))
       .returning();
   });
