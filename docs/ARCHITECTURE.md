@@ -146,7 +146,7 @@ when nothing is out of date.
 
 Agents drive the same machinery through MCP (`apps/api/src/mcp/tools/production.ts`): `get_staleness`,
 `start_production_run`, `update_production`, `get_production_run`, `continue_production_run`,
-`cancel_production_run` and `keep_stale_chapter` call these routes in-process. Starting, updating and continuing are `spend` actions, so on an
+`cancel_production_run`, `keep_stale_chapter` and `keep_publishing_text` call these routes in-process. Starting, updating and continuing are `spend` actions, so on an
 "Ask me first" connection they wait for the user's approval; stopping a run is a plain write.
 
 ## Code layout

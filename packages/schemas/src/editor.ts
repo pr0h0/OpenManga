@@ -341,6 +341,18 @@ export const ProjectSettings = z.object({
       thumbnailHeadlines: z.array(z.string().max(60)).max(8).default([]),
     })
     .optional(),
+  /**
+   * What the YouTube text and the thumbnail headline were made from, so staleness can tell when that changed: the
+   * project title and chapter list when the YouTube text was written (`youtubeText`, with `youtubeTextAt`), and the
+   * project title when the headline was set (`thumbnailTitle`). Written by the app, not by settings forms.
+   */
+  publishingSources: z
+    .object({
+      youtubeText: z.string().optional(),
+      youtubeTextAt: z.string().optional(),
+      thumbnailTitle: z.string().optional(),
+    })
+    .optional(),
   /** The YouTube thumbnail: text-free 16:9 art, with the headline composited by the app whenever it is rendered. */
   thumbnail: z
     .object({

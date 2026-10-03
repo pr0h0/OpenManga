@@ -85,6 +85,13 @@ nothing becomes out of date on upgrade.
 
 ### Fixed
 
+- **The YouTube text and thumbnail headline show when they may be out of date.** Renaming the project, changing its
+  chapters or rendering the video again left them looking current. *What is out of date* now flags the YouTube text
+  (title or chapters changed since it was written, or the video re-rendered after the package was exported) and the
+  thumbnail headline (title changed since it was set). They are never regenerated on their own: Update production
+  ends with "YouTube text may be out of date" / "thumbnail headline may be out of date", and the card offers
+  **Regenerate** and **Keep current** (`POST /api/projects/:projectId/keep-current`; MCP `keep_publishing_text`).
+
 - **Plans and narration go out of date when what they were made from changes.** A chapter whose text changed after it
   was planned counted as up to date (staleness only looked for chapters without pages), so Update production skipped
   it; the same for narration whose panels changed. Chapters now record a fingerprint of what their plan and narration

@@ -480,6 +480,72 @@ describe("production runs", () => {
     expect((await staleness()).stalePlans).toEqual([]);
   }, 400_000);
 
+  test("the YouTube text and thumbnail headline are flagged when the title changes, and only regenerated when asked", async () => {
+    const p = await u.post<{ project: { id: string } }>(
+      "/api/projects",
+      { title: "Publishing", story: { content: STORY, inputKind: "story" } },
+      201,
+    );
+    const projectId = p.project.id;
+    await u.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 50 } });
+    await u.post(
+      `/api/projects/${projectId}/production-runs`,
+      { reviewGates: false, render: false, youtube: true },
+      201,
+    );
+    await until(projectId, ["completed"]);
+    type Flag = { key: string; stale: boolean; reasons: string[] };
+    const flags = async () =>
+      Object.fromEntries(
+        (await u.get<{ publishing: Flag[] }>(`/api/projects/${projectId}/staleness`)).publishing.map((f) => [
+          f.key,
+          f.stale,
+        ]),
+      );
+    expect(await flags()).toEqual({ youtube_text: false, thumbnail: false });
+
+    // Renaming the project: both were written for the old title.
+    await u.patch(`/api/projects/${projectId}`, { title: "Publishing, renamed" });
+    expect(await flags()).toEqual({ youtube_text: true, thumbnail: true });
+    await u.post(`/api/projects/${projectId}/keep-current`, { item: "thumbnail" });
+    expect(await flags()).toEqual({ youtube_text: true, thumbnail: false });
+
+    // An update leaves them alone and says so at the end.
+    const { chapters } = await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`);
+    const { lines } = await u.get<{ lines: { id: string }[] }>(`/api/chapters/${chapters[0]!.id}/narration`);
+    await u.patch(`/api/narration-lines/${lines[0]!.id}`, { text: "The rain kept falling on the roof." });
+    const yt = async () =>
+      (await u.get<{ project: { settings: { youtubePackage?: { titles: string[] } } } }>(`/api/projects/${projectId}`))
+        .project.settings.youtubePackage;
+    const before = await yt();
+    await u.post(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, render: false, youtube: true },
+      201,
+    );
+    const done = await until(projectId, ["completed"]);
+    expect(done.reason).toBe("YouTube text may be out of date");
+    expect(await yt()).toEqual(before);
+
+    // Regenerating it on request writes it for the current title and chapters.
+    const job = await u.post<{ job: { id: string } }>(`/api/projects/${projectId}/youtube-package`, {}, 202);
+    await waitFor(
+      async () =>
+        (await u.get<{ job: { status: string } }>(`/api/generations/${job.job.id}`)).job.status === "completed",
+      { label: "youtube text" },
+    );
+    expect(await flags()).toEqual({ youtube_text: false, thumbnail: false });
+    // A headline the person sets is set for the title as it is then.
+    await u.patch(`/api/projects/${projectId}`, { title: "Publishing, again" });
+    const { project } = await u.get<{ project: { settings: { thumbnail: Record<string, unknown> } } }>(
+      `/api/projects/${projectId}`,
+    );
+    await u.patch(`/api/projects/${projectId}`, {
+      settings: { thumbnail: { ...project.settings.thumbnail, title: "A new headline" } },
+    });
+    expect((await flags()).thumbnail).toBe(false);
+  }, 400_000);
+
   test("the batch policy only batches keys whose provider has a batch API", async () => {
     const key = async (kind: string) =>
       (

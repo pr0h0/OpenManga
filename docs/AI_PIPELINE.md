@@ -689,6 +689,14 @@ chapter → prepare panel prompts → generate missing artwork → changed narra
   Segments it never queued (a refused or capped chapter request) are queued once more, through
   `POST /api/chapters/:id/narration/synthesize` with `segmentIds`; segments whose synthesis failed are not retried
   in a loop but noted on the step and listed in the run's warnings.
+- **YouTube text and thumbnail headline.** *What is out of date* also flags (as `publishing`, not as stages) the
+  YouTube text when the project title or the chapter list changed after it was written, or the whole-project video
+  was rendered again after the YouTube package was exported (its chapter timestamps come from the video), and the
+  thumbnail headline when the project title changed after it was set. What they were made from is recorded in
+  `settings.publishingSources` by the writer, the thumbnail job and a headline edit. An update never regenerates them:
+  it finishes with the note "YouTube text may be out of date" / "thumbnail headline may be out of date", and the run
+  card offers **Regenerate** (the YouTube package route, or the headline set to the current title) and **Keep
+  current** (`POST /api/projects/:projectId/keep-current`).
 - **Completed with warnings.** A run that reaches the end with anything unresolved finishes as
   `completed_with_warnings` instead of `completed`, with a `warnings` summary: the failed jobs it queued that nobody
   retried, its failed exports, and the project's panels without artwork, narration segments without current audio

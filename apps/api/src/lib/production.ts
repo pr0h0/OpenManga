@@ -23,6 +23,7 @@ import {
   PIPELINE_STAGES,
   type PipelineStage,
   pipelineStaleness,
+  publishingStaleness,
   revisedStory,
   staleAudioFrom,
   staleChapters,
@@ -602,6 +603,24 @@ export async function runWarnings(deps: Deps, run: Run): Promise<ProductionWarni
   return any ? w : null;
 }
 
+/**
+ * An update leaves the YouTube text and the thumbnail headline to a person; when what they were written from changed,
+ * its end says so (the run card offers Regenerate and Keep current).
+ */
+async function publishingNote(deps: Deps, run: Run) {
+  if (!(run.options as RunOptions).update) return null;
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, run.projectId));
+  if (!project) return null;
+  const stale = (await publishingStaleness(deps.db, project)).filter((p) => p.stale);
+  if (!stale.length) return null;
+  return stale
+    .map((p) =>
+      p.key === "youtube_text" ? "YouTube text may be out of date" : "thumbnail headline may be out of date",
+    )
+    .join("; ")
+    .replace(/^./, (ch) => ch.toUpperCase());
+}
+
 // ---------------------------------------------------------------- advancing
 
 /** This process; every advance adds its own suffix, so two advances in one process exclude each other too. */
@@ -668,8 +687,8 @@ export async function advanceRun(deps: Deps, runId: string, owner = `${PROCESS_I
         const warnings = await runWarnings(deps, run);
         await save(
           warnings
-            ? { status: "completed_with_warnings", reason: null, warnings }
-            : { status: "completed", reason: null, warnings: null },
+            ? { status: "completed_with_warnings", reason: await publishingNote(deps, run), warnings }
+            : { status: "completed", reason: await publishingNote(deps, run), warnings: null },
         );
         return;
       }

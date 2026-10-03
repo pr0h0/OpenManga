@@ -79,6 +79,7 @@ import {
   bibleFor,
   loadBible,
   recordNarrationFingerprint,
+  youtubeSourceFingerprint,
 } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
@@ -248,10 +249,17 @@ export async function youtubePackage(deps: WorkerDeps, job: ProjectJob) {
   const own = rules?.tags ?? [];
   const seen = new Set(own.map((t) => t.toLowerCase()));
   const pkg = { ...r.data, tags: [...own, ...r.data.tags.filter((t) => !seen.has(t.toLowerCase()))].slice(0, 30) };
+  // Written from the title and chapters as they are now: staleness compares this when either changes.
+  const sources = {
+    ...p.settings.publishingSources,
+    youtubeText: await youtubeSourceFingerprint(deps.db, p),
+    youtubeTextAt: new Date().toISOString(),
+  };
   await deps.db
     .update(projects)
     .set({
-      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(pkg)}::jsonb)`,
+      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(pkg)}::jsonb,
+        'publishingSources', ${JSON.stringify(sources)}::jsonb)`,
     })
     .where(eq(projects.id, p.id));
   return { titles: pkg.titles.length, tags: pkg.tags.length };

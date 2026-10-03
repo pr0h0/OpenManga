@@ -227,7 +227,7 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
 | Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio`, `run_narration_lint`, `get_narration_qa`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix` |
 | Exports | `create_export`, `suggest_shorts`, `list_exports`, `delete_exports` |
-| Production runs | `get_staleness` (what is out of date, story to video), `start_production_run`, `update_production` (only the stale steps), `get_production_run`, `continue_production_run`, `cancel_production_run`, `keep_stale_chapter` (keep a chapter's plan or narration made from text that changed since) |
+| Production runs | `get_staleness` (what is out of date, story to video), `start_production_run`, `update_production` (only the stale steps), `get_production_run`, `continue_production_run`, `cancel_production_run`, `keep_stale_chapter` (keep a chapter's plan or narration made from text that changed since), `keep_publishing_text` (keep the YouTube text or thumbnail headline flagged as possibly out of date) |
 | Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` (extract a concept, premise, outline or YouTube text from a reply, then apply it; applying is sensitive) |
 
 Not exposed (UI/REST only): multipart uploads (project import, own artwork, masks, own references, expert image
