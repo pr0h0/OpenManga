@@ -14,13 +14,7 @@ import {
   sql,
 } from "@openmanga/db";
 import { providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
-import {
-  exportQueuesFor,
-  issuesForExport,
-  projectReadiness,
-  recordAudit,
-  sweepRenderSections,
-} from "@openmanga/services";
+import { issuesForExport, projectReadiness, recordAudit, sweepRenderSections } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -309,16 +303,9 @@ exportRoutes.post("/exports/:id/cancel", async (c) => {
   const [job] = await deps.db.select().from(exportJobs).where(eq(exportJobs.id, id));
   if (!job) throw notFound("Export");
   await projectAccess(c, job.projectId, "write");
-  if (job.status === "queued") {
-    for (const q of exportQueuesFor(job.kind)) await deps.queue.removeWaiting(q, job.id);
-    await deps.db.update(exportJobs).set({ status: "cancelled", finishedAt: new Date() }).where(eq(exportJobs.id, id));
-    return c.json({ result: "cancelled" });
-  }
-  if (job.status === "processing") {
-    await deps.db.update(exportJobs).set({ status: "cancel_requested" }).where(eq(exportJobs.id, id));
-    return c.json({ result: "cancel_requested" });
-  }
-  throw conflict(`Export is already ${job.status}`);
+  const result = await deps.jobs.cancelExport(id);
+  if (result === "not_cancellable") throw conflict(`Export is already ${job.status}`);
+  return c.json({ result });
 });
 
 doc({

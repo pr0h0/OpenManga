@@ -1,6 +1,7 @@
 import { toSessionUser } from "@openmanga/auth";
 import {
   and,
+  audioJobs,
   chapters,
   eq,
   exportJobs,
@@ -187,7 +188,7 @@ type Ctx = {
   step: ProductionStep;
   batch: { text: boolean; image: boolean };
 };
-type Started = Pick<ProductionStep, "status" | "jobIds" | "exportJobId" | "note"> & { ref?: string };
+type Started = Pick<ProductionStep, "status" | "jobIds" | "exportJobId" | "audioBatchIds" | "note"> & { ref?: string };
 
 /**
  * Whether the run's text and image steps go through provider batches: the project's policy asks for it, and the
@@ -358,10 +359,15 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
   async audio(x) {
     const todo = (await chapterRows(x)).filter((c) => c.lines > 0);
     const out = await each(todo, async (c) => {
-      await x.call("POST", `/api/chapters/${c.id}/narration/synthesize`, { onlyMissing: true });
-      return [];
+      const r = await x.call<{ batchId: string; queued: number }>(
+        "POST",
+        `/api/chapters/${c.id}/narration/synthesize`,
+        { onlyMissing: true },
+      );
+      return r.queued ? [r.batchId] : [];
     });
-    return { status: "running", note: out.note };
+    // Synthesis is not a generation job: the batches are kept so stopping the run can cancel what is still queued.
+    return { status: "running", audioBatchIds: out.jobIds, note: out.note };
   },
   async thumbnail(x) {
     if (x.project.settings.thumbnail) return { status: "skipped", note: "Already has one" };
@@ -540,6 +546,60 @@ export async function advanceRun(deps: Deps, runId: string) {
   } finally {
     busy.delete(runId);
   }
+}
+
+/**
+ * What a run started that is still waiting to be worked on: generation jobs not yet taken by a worker (queued, waiting
+ * in a provider batch, paused at the budget or waiting for a pasted answer), queued narration audio, and its export
+ * if it has not finished. Work already running at a provider is left to finish: it is paid for, and a stopped run
+ * acts on nothing it returns.
+ */
+export async function pendingWork(deps: Deps, run: Run) {
+  const jobIds = run.steps.flatMap((s) => s.jobIds ?? []);
+  const batchIds = run.steps.flatMap((s) => s.audioBatchIds ?? []);
+  const exportIds = run.steps.flatMap((s) => (s.exportJobId ? [s.exportJobId] : []));
+  const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
+  return {
+    generation: jobIds.length
+      ? ids(
+          await deps.db
+            .select({ id: generationJobs.id })
+            .from(generationJobs)
+            .where(
+              and(
+                inArray(generationJobs.id, jobIds),
+                inArray(generationJobs.status, ["queued", "submitted", "paused", "awaiting_input"]),
+              ),
+            ),
+        )
+      : [],
+    audio: batchIds.length
+      ? ids(
+          await deps.db
+            .select({ id: audioJobs.id })
+            .from(audioJobs)
+            .where(and(inArray(audioJobs.batchId, batchIds), eq(audioJobs.status, "queued"))),
+        )
+      : [],
+    exports: exportIds.length
+      ? ids(
+          await deps.db
+            .select({ id: exportJobs.id })
+            .from(exportJobs)
+            .where(and(inArray(exportJobs.id, exportIds), inArray(exportJobs.status, ["queued", "processing"]))),
+        )
+      : [],
+  };
+}
+
+/** Cancel what `pendingWork` lists, through the same cancel paths as Generation, Narration and Exports. */
+export async function cancelRunWork(deps: Deps, run: Run) {
+  const work = await pendingWork(deps, run);
+  let cancelled = 0;
+  for (const id of work.generation) if ((await deps.jobs.cancelGeneration(id)) !== "not_cancellable") cancelled++;
+  for (const id of work.audio) if ((await deps.jobs.cancelAudio(id)) === "cancelled") cancelled++;
+  for (const id of work.exports) if ((await deps.jobs.cancelExport(id)) !== "not_cancellable") cancelled++;
+  return cancelled;
 }
 
 /** Advance every running run; called on a timer by the API process. */

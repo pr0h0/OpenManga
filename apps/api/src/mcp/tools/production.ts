@@ -113,7 +113,7 @@ export const productionTools = [
     name: "get_production_run",
     title: "Production runs",
     description:
-      "A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, and every step with its status and note. Read-only.",
+      "A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, every step with its status and note, and pendingJobs (how many queued jobs stopping it would cancel). Read-only.",
     input: z.object({ projectId: Uuid.optional(), runId: Uuid.optional() }),
     output: Passthrough,
     scopes: ["generations:read"],
@@ -161,18 +161,31 @@ export const productionTools = [
     name: "cancel_production_run",
     title: "Stop a production run",
     description:
-      "Stop a production run. Jobs it already queued finish on their own (cancel them with control_job if needed); nothing made so far is removed.",
-    input: z.object({ runId: Uuid }),
+      "Stop a production run. By default it also cancels what the run queued that has not started (generation jobs that are queued, in a provider batch, paused or waiting for an answer; queued narration audio; its export); get_production_run's pendingJobs says how many. Jobs already running at a provider finish, and the stopped run acts on nothing they return. jobs=false stops the run only and leaves its queued jobs to finish. Nothing made so far is removed.",
+    input: z.object({
+      runId: Uuid,
+      jobs: z
+        .boolean()
+        .default(true)
+        .describe("Also cancel the run's queued jobs (default). false stops the orchestration only."),
+    }),
     output: Passthrough,
     scopes: ["generations:run"],
     sensitivity: "write",
     idempotent: true,
     routes: ["POST /api/production-runs/:id/cancel"],
     actionKeys: ["production.cancel"],
-    classify: async ({ runId }, ctx) =>
-      cls("write", "production.cancel", (await runProject(ctx, runId)).projectId, "Stop the production run"),
-    handler: async ({ runId }, ctx) => ({
-      data: await ctx.invoke<Record<string, unknown>>("POST", `/api/production-runs/${runId}/cancel`),
+    classify: async ({ runId, jobs }, ctx) =>
+      cls(
+        "write",
+        "production.cancel",
+        (await runProject(ctx, runId)).projectId,
+        jobs ? "Stop the production run and cancel its queued jobs" : "Stop the production run",
+      ),
+    handler: async ({ runId, jobs }, ctx) => ({
+      data: await ctx.invoke<Record<string, unknown>>("POST", `/api/production-runs/${runId}/cancel`, {
+        body: { jobs },
+      }),
     }),
   }),
 ];

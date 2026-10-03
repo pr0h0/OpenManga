@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **Stopping a production run cancels its queued jobs.** Stop used to end only the orchestration while the jobs the
+  run had queued kept running and spending. It now also cancels its generation jobs that have not started (queued,
+  in a provider batch, paused or waiting for an answer), its queued narration audio and an unfinished export; jobs
+  already running at a provider finish and nothing further happens with them. The Stop dialog shows how many jobs
+  would be cancelled and offers *Stop the run only* (`{ "jobs": false }` on the API, `jobs: false` on the
+  `cancel_production_run` MCP tool).
+
 ## [0.13.0] — 2026-10-03
 
 Upgrading: pull the new images and restart. Seven migrations (`0021`–`0027`) run on start through the migrate service;

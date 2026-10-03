@@ -499,6 +499,11 @@ prompts → generate missing artwork → write narration → synthesize narratio
   [WITHOUT_API_KEYS](WITHOUT_API_KEYS.md#production-runs)).
 - **Failures.** A failed analysis, or a step whose jobs all failed, fails the run; elsewhere a partial failure is
   noted on the step and the run carries on. Continue retries the failed step, reusing whatever it already made.
-  Stop (`POST /api/production-runs/:id/cancel`) ends the run; jobs it already queued still finish.
+- **Stop** (`POST /api/production-runs/:id/cancel`) ends the run and, by default, cancels what it queued that has
+  not started, through the usual cancel paths: its generation jobs that are queued, waiting in a provider batch,
+  paused at the budget or waiting for a pasted answer; narration audio still queued from the batches the audio step
+  started (`audioBatchIds` on the step); and its export if it has not finished. Jobs already running at a provider
+  finish, and the stopped run acts on nothing they return. `{ "jobs": false }` stops the run only. An active run's
+  `pendingJobs` says how many jobs stopping it would cancel; the card's Stop dialog shows it.
 
 The API process advances running runs every 10 seconds; one project has at most one active run.

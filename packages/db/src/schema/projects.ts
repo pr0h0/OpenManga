@@ -398,6 +398,8 @@ export type ProductionStep = {
   note?: string;
   jobIds?: string[];
   exportJobId?: string;
+  /** Narration synthesis batches the step queued (`audio_jobs.batch_id`), so stopping the run can cancel them. */
+  audioBatchIds?: string[];
   /** What a later step needs from this one, e.g. the analysis the apply step applies. */
   ref?: string;
   startedAt?: string;
