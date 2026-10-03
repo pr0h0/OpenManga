@@ -40,14 +40,23 @@ import {
   storyRevisions,
   stylePresets,
 } from "@openmanga/db";
-import { buildTimeline, chunkStrip, type SeamedBlock, SHORTS_DEFAULT_MS, youtubeChapters } from "@openmanga/domain";
-import { extForMime, sharp } from "@openmanga/image-utils";
+import {
+  buildTimeline,
+  chunkStrip,
+  type SeamedBlock,
+  SHORTS_DEFAULT_MS,
+  stillSize,
+  youtubeChapters,
+} from "@openmanga/domain";
+import { extForMime, renderPanelArt, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
 import {
   loadRenderPage,
+  planVideoShots,
   renderCover,
   renderPageImage,
+  renderQuoteImage,
   renderStrip,
   renderThumbnail,
   renderWebtoonBlocks,
@@ -67,8 +76,11 @@ type Opts = {
   kind: ExportJob["kind"];
   chapterId: string | null;
   pageIds?: string[];
-  /** video_shorts: the picked panels. */
+  /** video_shorts, carousel, quote_image: the picked panels. */
   panelIds?: string[];
+  label?: string;
+  social?: { title: string; caption: string };
+  still?: { aspect: "1:1" | "4:5"; text: string };
   scale: number;
   jpgQuality: number;
   pdf: {
@@ -518,7 +530,13 @@ async function buildExport(
         loudness: undefined,
       });
       await progress(1);
-      const cut = shorts ? "shorts" : job.kind === "video_panels" ? "panel-cut" : "page-cut";
+      const cut = shorts
+        ? opts.label
+          ? safeName(opts.label).toLowerCase()
+          : "shorts"
+        : job.kind === "video_panels"
+          ? "panel-cut"
+          : "page-cut";
       const shape = aspect === "16:9" ? "" : `_${aspect.replace(":", "x")}`;
       const name = `${prefix}_${out.report.language}_${cut}${shape}_${v.height}p`;
       return [
@@ -532,7 +550,41 @@ async function buildExport(
         },
         { name: `${name}.srt`, data: new TextEncoder().encode(out.srt), mime: "application/x-subrip" },
         ...(await chapterFile(deps, out.chapterStarts, name)),
+        ...captionFile(opts, name),
       ];
+    }
+    case "carousel":
+    case "quote_image": {
+      // The picked panels' own artwork, cropped to the image's shape around each panel's focal point.
+      const { width, height } = stillSize(opts.still?.aspect ?? "4:5");
+      const planned = await planVideoShots(
+        deps.db,
+        project,
+        { panelIds: opts.panelIds ?? [] },
+        "panel",
+        opts.language || project.language,
+      );
+      const shots = planned.shots.filter((s) => s.art && s.panel);
+      if (!shots.length) throw new UnrecoverableError("None of the picked panels has artwork");
+      const name = `${prefix}_${safeName(opts.label || (job.kind === "carousel" ? "carousel" : "quote")).toLowerCase()}_${width}x${height}`;
+      if (job.kind === "quote_image") {
+        const s = shots[0]!;
+        const art = await renderPanelArt(await deps.assets.read(s.art!), width, height, s.panel!.imageTransform);
+        const lettering = project.settings.lettering?.types;
+        const font = lettering?.narration?.font ?? lettering?.normal?.font ?? "DejaVu Sans";
+        const png = await renderQuoteImage(art, width, height, opts.still?.text ?? "", project.title, font);
+        await progress(1);
+        return [{ name: `${name}.png`, data: png, mime: "image/png", width, height }, ...captionFile(opts, name)];
+      }
+      const zip = new ZipWriter(join(dir, "carousel.zip"));
+      for (const [i, s] of shots.entries()) {
+        const png = await renderPanelArt(await deps.assets.read(s.art!), width, height, s.panel!.imageTransform);
+        await zip.add(`${name}_${String(i + 1).padStart(2, "0")}.png`, png);
+        await progress((i + 1) / shots.length);
+      }
+      const caption = captionFile(opts, name)[0];
+      if (caption) await zip.add(caption.name, caption.data);
+      return [{ name: `${name}.zip`, path: await zip.close(), mime: "application/zip" }];
     }
     case "youtube_package": {
       // Packs what already exists (exports make no AI calls): the newest finished video of the same scope, with
@@ -687,6 +739,14 @@ async function buildExport(
 }
 
 /** "0:00 Chapter 1: …" lines for a video description, when the film spans more than one chapter. */
+/** The social title and caption chosen for a repurposed item, as a text file next to it. */
+function captionFile(opts: Opts, name: string) {
+  const s = opts.social;
+  if (!s?.title && !s?.caption) return [];
+  const text = [s.title, s.caption].filter(Boolean).join("\n\n");
+  return [{ name: `${name}_caption.txt`, data: new TextEncoder().encode(`${text}\n`), mime: "text/plain" }];
+}
+
 async function chapterFile(deps: WorkerDeps, starts: { chapterId: string; startMs: number }[], name: string) {
   if (starts.length < 2) return [];
   const rows = await deps.db

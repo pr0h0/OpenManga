@@ -11,6 +11,7 @@ import {
   PanelCheck,
   PanelPromptDraft,
   ScenePages,
+  SocialCopy,
   StoryCoverageMap,
   StoryRewrite,
   YoutubePackage,
@@ -33,6 +34,7 @@ export const ANSWER_SCHEMAS = {
   NarrationFix,
   StoryCoverageMap,
   NarrationRetime,
+  SocialCopy,
   ImageDescription,
   PanelCheck,
   YoutubePackage,
@@ -365,6 +367,20 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     thumbnailHeadlines: [
       "Short thumbnail headlines (two to five words) to choose from.",
       ["HE NEVER LEFT", "THE LAST KEEPER"],
+    ],
+  },
+
+  SocialCopy: {
+    "": "A social title and caption for each piece of the repurposing plan you were given, matched by id.",
+    items: ["One entry per item you were given.", undefined],
+    "items[].id": ["The item's id, exactly as given.", "short-1"],
+    "items[].title": [
+      "A short, curious title for the post (under 100 characters).",
+      "She came to switch off the last lamp",
+    ],
+    "items[].caption": [
+      "The post caption: a hook line, one or two lines about this moment without spoiling the ending, and a few hashtags.",
+      "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics",
     ],
   },
 

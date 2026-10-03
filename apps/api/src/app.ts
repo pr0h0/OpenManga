@@ -26,6 +26,7 @@ import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { referenceRoutes } from "./routes/references.ts";
+import { repurposeRoutes } from "./routes/repurpose.ts";
 import { publicShareRoutes, shareRoutes } from "./routes/shares.ts";
 import { storyRoutes } from "./routes/stories.ts";
 import { healthRoutes, miscRoutes } from "./routes/system.ts";
@@ -59,6 +60,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     narrationQaRoutes,
     exportRoutes,
     videoRoutes,
+    repurposeRoutes,
     importRoutes,
     visionRoutes,
     miscRoutes,

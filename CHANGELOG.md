@@ -145,6 +145,16 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Added
 
+- **Repurposing.** A *Repurpose* page plans what one finished project is cut into, from its own panel art: several
+  Shorts that never share a shot (each from its own part of the story), a 60–90 s trailer, a 15–30 s teaser, a
+  10-panel Instagram carousel and quote images (a panel with a line of its narration or dialogue). Review and adjust
+  every pick, length, frame and quote, preview the videos, then render each item or all of them as exports: the
+  videos as Shorts cuts named after the item, the carousel as a ZIP of 1:1 or 4:5 images cropped with each panel's
+  framing, a quote image as a PNG with the line in the lettering font. *Write titles and captions* is a text job
+  (`social-copy` v1, paste mode works) that writes a social title and caption for each item, shipped as a caption
+  file with its export. Agents use `suggest_repurpose`, `write_social_copy` and `create_export` (`carousel`,
+  `quote_image`, `label`, `social`). Hook lines per Short are not included yet (on the roadmap). A Shorts cut can now
+  be as short as 15 s.
 - **Timing pass.** Once a chapter's narration is voiced, a *Timing* page times it with the real audio lengths (the
   same timeline as the preview and the render): shots past the longest-shot setting or under the shortest, one
   picture held too long, dead air, and the chapter's length against its target. Each fix shows the holds it changes

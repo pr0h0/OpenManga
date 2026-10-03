@@ -54,6 +54,7 @@ import {
   sceneStripV3,
   shotOutlineV3,
   shotPlanningV4,
+  socialCopyV1,
   storyAnalysisV3,
   storyRewriteV1,
   stripOutlineV3,
@@ -71,6 +72,7 @@ import {
   type PanelSpec,
   type ProjectFormat,
   ScenePages,
+  SocialCopy,
   StoryAnalysis,
   StoryRewrite,
   YoutubePackage,
@@ -314,6 +316,42 @@ export async function narrationRetime(deps: WorkerDeps, job: ProjectJob) {
     return next && next !== l.text ? [{ ...l, after: next, afterWords: count(next) }] : [];
   });
   return { chapterId: String(job.input.chapterId), lines: proposals, repaired: r.repaired };
+}
+
+/**
+ * Social titles and captions for the repurposing plan, written into its saved items. Only the items the job was asked
+ * for change, and only their title and caption; an item removed from the plan since is skipped.
+ */
+export async function socialCopy(deps: WorkerDeps, job: ProjectJob) {
+  const items = (job.input.items ?? []) as { id: string; kind: string; label: string; narration: string }[];
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!p || !items.length) throw new InputError("Nothing to write social copy for");
+  const r = await structured(
+    deps,
+    job,
+    socialCopyV1.build({
+      project: { title: p.title, description: p.description, language: languageName(p.language) },
+      items,
+    }),
+    SocialCopy,
+    "SocialCopy",
+    8_000,
+  );
+  const asked = new Set(items.map((i) => i.id));
+  const copy = new Map(r.data.items.filter((x) => asked.has(x.id)).map((x) => [x.id, x]));
+  // ponytail: read-modify-write of one settings key; a plan saved between these two statements loses to this write.
+  const [now] = await deps.db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, p.id));
+  const next = (now?.settings.repurpose?.items ?? []).map((it) => {
+    const c = copy.get(it.id);
+    return c ? { ...it, title: c.title, caption: c.caption } : it;
+  });
+  await deps.db
+    .update(projects)
+    .set({
+      settings: sql`${projects.settings} || jsonb_build_object('repurpose', ${JSON.stringify({ items: next })}::jsonb)`,
+    })
+    .where(eq(projects.id, p.id));
+  return { items: copy.size, repaired: r.repaired };
 }
 
 /** With a target runtime, the words per panel that land this chapter on its share of it; otherwise null. */

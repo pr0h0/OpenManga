@@ -334,6 +334,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/repurpose",
+    staticData: { title: "Repurpose" },
+    component: lazyRouteComponent(() => import("./features/exports/RepurposePage.tsx"), "RepurposePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/describe",
     staticData: { title: "Describe image" },
     component: lazyRouteComponent(() => import("./features/vision/DescribeImagePage.tsx"), "DescribeImagePage"),

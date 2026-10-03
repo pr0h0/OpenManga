@@ -43,11 +43,24 @@ export const ExportOptions = z.object({
     "video_panels",
     "video_shorts",
     "youtube_package",
+    "carousel",
+    "quote_image",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),
-  /** video_shorts: the picked panels (see GET /api/projects/:projectId/shorts), played in story order. */
+  /**
+   * video_shorts, carousel, quote_image: the picked panels (see GET /api/projects/:projectId/shorts and .../repurpose),
+   * in story order. A quote image uses the first.
+   */
   panelIds: z.array(z.string().uuid()).min(1).max(100).optional(),
+  /** A name for this cut or set ("Trailer", "Short 2"), used in the file names. */
+  label: z.string().trim().max(60).optional(),
+  /** Social copy shipped next to the file as caption.txt. */
+  social: z.object({ title: z.string().max(150).default(""), caption: z.string().max(2200).default("") }).optional(),
+  /** carousel and quote_image: the image shape (1080×1080 or 1080×1350), and the quote image's line. */
+  still: z
+    .object({ aspect: z.enum(["1:1", "4:5"]).default("4:5"), text: z.string().trim().max(300).default("") })
+    .default({ aspect: "4:5", text: "" }),
   scale: z.number().min(0.25).max(3).default(1),
   jpgQuality: z.number().int().min(40).max(100).default(90),
   pdf: z
@@ -114,7 +127,7 @@ export const ExportOptions = z.object({
        * video_shorts: the cut's length in seconds (default 180, YouTube's Shorts limit; up to 600). The film ends before
        * the shot that would pass it. Over 180 the response carries a warning: YouTube uploads it as a regular video.
        */
-      shortsSeconds: z.number().int().min(30).max(600).optional(),
+      shortsSeconds: z.number().int().min(15).max(600).optional(),
     })
     .default({
       fps: 30,
@@ -167,8 +180,9 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
       .where(and(eq(pages.projectId, p.id), inArray(pages.id, input.pageIds)));
     if (own.length !== new Set(input.pageIds).size) throw notFound("Page");
   }
-  if (input.kind === "video_shorts") {
-    if (!input.panelIds?.length) throw badRequest("Pick the shots of the Short (panelIds)");
+  if (input.kind === "quote_image" && !input.still.text) throw badRequest("Write the quote (still.text)");
+  if (["video_shorts", "carousel", "quote_image"].includes(input.kind)) {
+    if (!input.panelIds?.length) throw badRequest("Pick the panels (panelIds)");
     const own = await deps.db
       .select({ id: panels.id })
       .from(panels)

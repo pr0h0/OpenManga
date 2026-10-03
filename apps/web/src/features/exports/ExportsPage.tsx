@@ -693,7 +693,11 @@ export function ExportsPage() {
                     <span className="font-medium">
                       {j.kind === "project_import"
                         ? "Project import"
-                        : (KINDS.find((k) => k.value === j.kind)?.label ?? j.kind)}
+                        : j.kind === "carousel"
+                          ? "Carousel images (ZIP)"
+                          : j.kind === "quote_image"
+                            ? "Quote image"
+                            : (KINDS.find((k) => k.value === j.kind)?.label ?? j.kind)}
                     </span>
                     {j.chapter && (
                       <span className="rounded bg-[var(--panel-2)] px-1.5 py-0.5 text-xs" title={j.chapter.title}>

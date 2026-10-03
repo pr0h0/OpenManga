@@ -64,6 +64,7 @@ slot).
   | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
   | `batchPolicy` | `interactive` (default), `images` (text now, images through provider batches), `hybrid` (text in batches, images now) or `cheapest` (both through provider batches) — how a production run spends; only keys whose provider has a batch API are batched. |
   | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
+  | `repurpose` | `{items: [{id, kind, label, panelIds, lengthSeconds?, aspect?, text, title, caption}]}` — the repurposing plan: Shorts, trailer, teaser (`short`/`trailer`/`teaser`, rendered as `video_shorts`), a `carousel` and `quote` images, each with its social title and caption (written by a `social_copy` job or by hand). Not carried by templates. |
   | `publishingSources` | `{youtubeText, youtubeTextAt, thumbnailTitle}` — written by the app: a fingerprint of the title and chapters the YouTube text was written from, and the project title the thumbnail headline was set for; staleness compares them (`docs/AI_PIPELINE.md`). |
   | `video` | `{fadeAtSceneBreaks, watermark, intro, outro}` — video export settings: fade to black where the scene changes (each shot can override it), a logo watermark `{assetId, corner, opacity, size}` (an image of the project) and intro/outro cards `{title, subtitle, durationMs}`. |
 
@@ -184,7 +185,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
   `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`, `bible_extract`, `continuity_check`, `narration_retime`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `expert_extract`, `bible_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry
@@ -198,7 +199,8 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 - `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`,
   `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**, **`video_shorts`**,
   `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
-  publishing text, zipped), and `project_import` (an import reuses the export job machinery and reports
+  publishing text, zipped), `carousel` and `quote_image` (repurposed stills, see `docs/VIDEO_EXPORT_REFERENCE.md`),
+  and `project_import` (an import reuses the export job machinery and reports
   `{projectId, warnings}` in `result`; a video render keeps its `series`, the `sectionKeys` of its cached sections and
   `sections: {reused, encoded}` there). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
   job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made). Deleting an

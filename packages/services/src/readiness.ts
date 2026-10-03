@@ -57,6 +57,9 @@ export const EXPORT_AREAS: Record<Exclude<ExportKind, "project_import">, ("art" 
   video_panels: ["art", "narration"],
   // A Shorts cut is its picked shots, which the picker only takes with artwork; the chapter's gaps do not matter.
   video_shorts: [],
+  // Repurposed images are their picked panels' artwork only.
+  carousel: [],
+  quote_image: [],
 };
 
 /**

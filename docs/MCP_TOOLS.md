@@ -14,7 +14,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | Scope | Consent description | Tools |
 | --- | --- | --- |
 | `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness`, `get_project_health` |
-| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `keep_publishing_text`, `use_expert_reply` |
+| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `use_expert_reply` |
@@ -25,10 +25,10 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
-| `exports:read` | Read export status and files. | `suggest_shorts`, `list_exports` |
+| `exports:read` | Read export status and files. | `suggest_shorts`, `suggest_repurpose`, `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
@@ -127,6 +127,8 @@ requests) need no scope.
 | [`retime_narration`](#retime_narration) | spend | `narration:write` `generations:run` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
+| [`suggest_repurpose`](#suggest_repurpose) | read | `exports:read` |
+| [`write_social_copy`](#write_social_copy) | spend | `generations:run` `projects:write` |
 | [`list_exports`](#list_exports) | read | `exports:read` |
 | [`delete_exports`](#delete_exports) | delete | `exports:create` |
 | [`get_staleness`](#get_staleness) | read | `projects:read` |
@@ -210,6 +212,7 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "NarrationFix",
         "StoryCoverageMap",
         "NarrationRetime",
+        "SocialCopy",
         "ImageDescription",
         "PanelCheck",
         "YoutubePackage",
@@ -1683,6 +1686,84 @@ Change a project's title, description, type, language, reading direction, colour
                     }
                   ]
                 }
+              }
+            }
+          }
+        },
+        "repurpose": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "default": [],
+              "maxItems": 40,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "short",
+                      "trailer",
+                      "teaser",
+                      "carousel",
+                      "quote"
+                    ]
+                  },
+                  "label": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "panelIds": {
+                    "default": [],
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "lengthSeconds": {
+                    "type": "integer",
+                    "minimum": 15,
+                    "maximum": 600
+                  },
+                  "aspect": {
+                    "type": "string",
+                    "enum": [
+                      "16:9",
+                      "9:16",
+                      "1:1",
+                      "4:5"
+                    ]
+                  },
+                  "text": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  "title": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 150
+                  },
+                  "caption": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 2200
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind"
+                ]
               }
             }
           }
@@ -9703,7 +9784,7 @@ The timing pass's trim or expand. start: a text job rewrites only the given line
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts: 30–60 s, vertical by default). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -9736,7 +9817,9 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "video_pages",
         "video_panels",
         "video_shorts",
-        "youtube_package"
+        "youtube_package",
+        "carousel",
+        "quote_image"
       ]
     },
     "chapterId": {
@@ -9769,6 +9852,47 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "type": "string",
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "label": {
+      "type": "string",
+      "maxLength": 60
+    },
+    "social": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "default": "",
+          "type": "string",
+          "maxLength": 150
+        },
+        "caption": {
+          "default": "",
+          "type": "string",
+          "maxLength": 2200
+        }
+      }
+    },
+    "still": {
+      "default": {
+        "aspect": "4:5",
+        "text": ""
+      },
+      "type": "object",
+      "properties": {
+        "aspect": {
+          "default": "4:5",
+          "type": "string",
+          "enum": [
+            "1:1",
+            "4:5"
+          ]
+        },
+        "text": {
+          "default": "",
+          "type": "string",
+          "maxLength": 300
+        }
       }
     },
     "scale": {
@@ -9992,7 +10116,7 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         },
         "shortsSeconds": {
           "type": "integer",
-          "minimum": 30,
+          "minimum": 15,
           "maximum": 600
         }
       }
@@ -10119,6 +10243,160 @@ Candidate shots for a Shorts cut (a trailer of key shots) of a chapter or the wh
   },
   "required": [
     "shots"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### suggest_repurpose
+
+Repurposing a finished project: `items` is the saved plan (settings.repurpose), `suggestion` a fresh one (`shorts` non-overlapping Shorts of 30–60 s from distinct parts of the story, a 60–90 s trailer, a 15–30 s teaser, a 10-panel carousel and 3 quote images with their lines), `candidates` every panel with its hold, narration, art and quotable lines. Save an edited plan with update_project settings.repurpose.items, write titles and captions with write_social_copy, then render each item with create_export (short/trailer/teaser: video_shorts with panelIds, label, video.shortsSeconds and video.aspect; carousel; quote_image), passing its title and caption as `social`. Read-only.
+
+- **Scopes:** `exports:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/repurpose`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "shorts": {
+      "description": "How many Shorts to suggest (default 3).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 16
+    },
+    "minHoldMs": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 30000
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### write_social_copy
+
+A text job that writes a social title and caption for each saved repurposing item (itemIds, default all), from its narration; they replace the items' current title and caption in settings.repurpose when the job completes (poll get_job). Spends text-provider credits unless ai.manual; may need approval.
+
+- **Scopes:** `generations:run`, `projects:write`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `repurpose.copy`
+- **Wraps:** `POST /api/projects/:projectId/repurpose/copy`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "itemIds": {
+      "maxItems": 40,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 40
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
   ],
   "additionalProperties": {}
 }

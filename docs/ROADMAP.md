@@ -114,9 +114,8 @@ Grouped by area, roughly most useful first within each.
   privately.)
 - **Title and thumbnail variants.** Several titles and thumbnail headlines from the same art, to compare or A/B test;
   the headline is already composited apart from the art, so variants cost no images.
-- **Repurposing.** From one finished project: several non-overlapping Shorts and TikToks, a trailer and a teaser,
-  still quote images and an Instagram carousel (1:1 and 4:5), each with its own hook and caption, picking distinct
-  moments rather than one scene several times.
+- **Hook lines for repurposed Shorts.** An optional opening line per Short of the repurposing plan, written by a text
+  job and voiced before its first shot.
 - **Export targets.** Presets that check a platform's limits before export (YouTube, Shorts, TikTok, Reels, carousels,
   WEBTOON, Tapas, KDP, generic PDF): size, aspect, file size, strip height, page count, safe areas, naming, codecs.
 - **Public series reader.** An optional public or unlisted series page: cover, description, chapters with publish and
