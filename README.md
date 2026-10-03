@@ -79,6 +79,9 @@ Work made with OpenManga. Click to watch on YouTube.
 More: [*Every Push-Up Pays Me $100, So I Became The Richest Athlete Alive*](https://www.youtube.com/watch?v=1AP6CExnX9E)
 — a narrated manhwa recap.
 
+More: [*A Mysterious Iron Box Gives Him A Random Item Every Week… Then One Drop Makes Him Filthy Rich!*](https://www.youtube.com/watch?v=fSANwLfYI0E)
+— a narrated manhwa recap.
+
 ## Screenshots
 
 From a live instance, with real projects. Click any image for full size.
