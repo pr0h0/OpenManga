@@ -501,6 +501,11 @@ prompts → generate missing artwork → write narration → synthesize narratio
   noted on the step and the run carries on. Continue retries the failed step, reusing whatever it already made. A
   failed render or YouTube package export is noted the same way (the package is skipped when the video did not
   render).
+- **Audio is verified.** The synthesis step is done only when no narration job is queued or running *and* no
+  segment lacks current audio (the audio stage's definition: no audio, or audio of other text, voice or speed).
+  Segments it never queued (a refused or capped chapter request) are queued once more, through
+  `POST /api/chapters/:id/narration/synthesize` with `segmentIds`; segments whose synthesis failed are not retried
+  in a loop but noted on the step and listed in the run's warnings.
 - **Completed with warnings.** A run that reaches the end with anything unresolved finishes as
   `completed_with_warnings` instead of `completed`, with a `warnings` summary: the failed jobs it queued that nobody
   retried, its failed exports, and the project's panels without artwork, narration segments without current audio

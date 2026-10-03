@@ -672,6 +672,8 @@ export const SynthAll = z.object({
   voice: z.string().max(128).optional(),
   language: z.string().trim().min(2).max(16).optional(),
   ai: AiChoiceInput,
+  /** Only these segments of the chapter (others are left alone). */
+  segmentIds: z.array(z.string().uuid()).max(5000).optional(),
 });
 doc({
   method: "POST",
@@ -683,7 +685,7 @@ doc({
 audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
   const chapterId = uuidParam(c, "id");
   const project = await entityAccess(c, "chapter", chapterId, "generate");
-  const { onlyMissing, voice: voiceOverride, ai, language: lang } = await body(c, SynthAll);
+  const { onlyMissing, voice: voiceOverride, ai, language: lang, segmentIds } = await body(c, SynthAll);
   const language = lang || project.language;
   const deps = c.get("deps");
   const voiceRun = await ttsRun(c, ai, voiceOverride);
@@ -692,7 +694,13 @@ audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
     .from(narrationSegments)
     .innerJoin(narrationLines, eq(narrationLines.id, narrationSegments.narrationLineId))
     .leftJoin(audioAssets, eq(audioAssets.assetId, narrationSegments.activeAudioAssetId))
-    .where(and(eq(narrationLines.chapterId, chapterId), eq(narrationLines.language, language)))
+    .where(
+      and(
+        eq(narrationLines.chapterId, chapterId),
+        eq(narrationLines.language, language),
+        segmentIds ? (segmentIds.length ? inArray(narrationSegments.id, segmentIds) : sql`false`) : undefined,
+      ),
+    )
     .orderBy(asc(narrationLines.order), asc(narrationSegments.order));
   const batchId = crypto.randomUUID();
   const pending = await deps.db
