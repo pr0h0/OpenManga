@@ -1,5 +1,7 @@
+import { eq, generationJobs, narrationFindings } from "@openmanga/db";
 import { z } from "zod";
 import { GenerateNarration, NewLine, PatchLine, PatchSegment } from "../../routes/audio.ts";
+import { ApplyFixInput, FixInput, LintInput } from "../../routes/narration-qa.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
 import { toolError } from "../runtime.ts";
 import { AiInput, aiLabel, cls, jobView, links, projectOf, restAi, textSpend, Uuid } from "./common.ts";
@@ -254,6 +256,163 @@ export const narrationTools = [
         }),
       };
     },
+  }),
+
+  defineMcpTool({
+    name: "run_narration_lint",
+    title: "Check narration (QA)",
+    description:
+      "Narration QA for a chapter (chapterId) or every chapter with narration (projectId). The deterministic checks (repeated sentence openings, flat rhythm, a name used too often, near-duplicate lines, narration restating the panel's dialogue, chapters that open or end alike, crowded shots, silent stretches, pace from real audio) run at once and are stored as findings; the answer says how many were found, are new, remain and were resolved since the last run. semantic=true also queues the AI check per chapter (meaning repeated in other words, facts explained again, lines that only describe the frame) as narration_lint jobs: manual mode (ai.manual=true) asks you for a NarrationLintReport; a provider run spends credits (may need approval). Read findings with get_narration_qa.",
+    input: LintInput.omit({ ai: true }).extend({
+      chapterId: Uuid.optional(),
+      projectId: Uuid.optional(),
+      ai: AiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["narration:write", "generations:run"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/chapters/:id/narration/lint", "POST /api/projects/:projectId/narration/lint"],
+    actionKeys: ["narration.lint"],
+    classify: async ({ chapterId, projectId, semantic, ai }, ctx) => {
+      if (!chapterId === !projectId) throw toolError(400, "bad_request", "Pass either chapterId or projectId");
+      return cls(
+        semantic ? textSpend(ai, "write") : "write",
+        "narration.lint",
+        chapterId ? await projectOf(ctx, "chapter", chapterId) : projectId!,
+        `Check the narration of ${chapterId ? "a chapter" : "every chapter"}${semantic ? ` with the AI check ${aiLabel(ai)}` : ""}`,
+      );
+    },
+    handler: async ({ chapterId, projectId, ai, idempotencyKey: _k, ...body }, ctx) => {
+      const path = chapterId
+        ? `/api/chapters/${chapterId}/narration/lint`
+        : `/api/projects/${projectId}/narration/lint`;
+      const r = await ctx.invoke<Record<string, unknown>>("POST", path, {
+        body: { ...body, ai: body.semantic ? await restAi(ctx, ai) : undefined },
+      });
+      return {
+        data: {
+          ...r,
+          ...(r.job ? { job: jobView(r.job as Record<string, unknown>) } : {}),
+          ...(Array.isArray(r.jobs) ? { jobs: (r.jobs as Record<string, unknown>[]).map(jobView) } : {}),
+        },
+      };
+    },
+  }),
+
+  defineMcpTool({
+    name: "get_narration_qa",
+    title: "Narration QA findings and density",
+    description:
+      "view=findings: a project's narration QA findings (type, chapter, line ids, severity, explanation, status open/ignored/fixed, whether a rewrite can fix it) with counts by status, type and chapter and the text of the flagged lines; filter by chapterId, status or kind. view=density: words, words per shot, silent shots and words per minute (from current audio) per chapter, and shot by shot with chapterId. Read-only.",
+    input: z.object({
+      projectId: Uuid,
+      view: z.enum(["findings", "density"]).default("findings"),
+      chapterId: Uuid.optional(),
+      status: z.enum(["open", "ignored", "fixed"]).optional(),
+      kind: z.string().max(40).optional(),
+      language: z.string().max(16).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["narration:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/narration/findings", "GET /api/projects/:projectId/narration/density"],
+    actionKeys: [],
+    handler: async ({ projectId, view, chapterId, status, kind, language }, ctx) => ({
+      data:
+        view === "density"
+          ? await ctx.invoke("GET", `/api/projects/${projectId}/narration/density`, { query: { chapterId, language } })
+          : await ctx.invoke("GET", `/api/projects/${projectId}/narration/findings`, {
+              query: { chapterId, status, kind, language },
+            }),
+    }),
+  }),
+
+  defineMcpTool({
+    name: "update_narration_finding",
+    title: "Ignore or reopen a narration finding",
+    description:
+      "status=ignored: dismiss a narration QA finding; it stays ignored while later checks find the same problem on the same lines. status=open reopens it.",
+    input: z.object({ findingId: Uuid, status: z.enum(["open", "ignored"]) }),
+    output: Passthrough,
+    scopes: ["narration:write"],
+    sensitivity: "write",
+    idempotent: true,
+    routes: ["PATCH /api/narration-findings/:id"],
+    actionKeys: ["narration.finding"],
+    classify: async ({ findingId, status }, ctx) => {
+      const [f] = await ctx.deps.db
+        .select({ p: narrationFindings.projectId })
+        .from(narrationFindings)
+        .where(eq(narrationFindings.id, findingId));
+      if (!f) throw toolError(404, "not_found", "Finding not found");
+      return cls("write", "narration.finding", f.p, `Mark a narration finding ${status}`);
+    },
+    handler: async ({ findingId, status }, ctx) => ({
+      data: await ctx.invoke("PATCH", `/api/narration-findings/${findingId}`, { body: { status } }),
+    }),
+  }),
+
+  defineMcpTool({
+    name: "propose_narration_fix",
+    title: "Propose narration fixes",
+    description:
+      "Queue a narration_fix job that rewrites only the lines the chosen findings (from get_narration_qa, all on this chapter) flag, keeping every other line. The job result holds proposals as { lineId, before, after }; nothing changes until apply_narration_fix. Silences and pace cannot be fixed by rewriting and are refused. Manual mode (ai.manual=true) asks you for a NarrationFix; a provider run spends credits (may need approval).",
+    input: FixInput.omit({ ai: true }).extend({ chapterId: Uuid, ai: AiInput, idempotencyKey: IdempotencyKey }),
+    output: z.object({ job: Passthrough }).passthrough(),
+    scopes: ["narration:write", "generations:run"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/chapters/:id/narration/fix"],
+    actionKeys: ["narration.fix"],
+    classify: async ({ chapterId, findingIds, ai }, ctx) =>
+      cls(
+        textSpend(ai, "write"),
+        "narration.fix",
+        await projectOf(ctx, "chapter", chapterId),
+        `Propose rewrites for ${findingIds.length} narration finding(s) ${aiLabel(ai)}`,
+      ),
+    handler: async ({ chapterId, ai, idempotencyKey: _k, ...body }, ctx) => {
+      const r = await ctx.invoke<{ job: Record<string, unknown> }>("POST", `/api/chapters/${chapterId}/narration/fix`, {
+        body: { ...body, ai: await restAi(ctx, ai) },
+      });
+      return { data: { ...r, job: jobView(r.job) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "apply_narration_fix",
+    title: "Apply narration fixes",
+    description:
+      "Apply a completed propose_narration_fix job (jobId): rewrites its lines (or only lineIds), skipping any line edited since; marks its findings fixed; re-voices only the changed segments of lines that had audio (revoice, default true: the local voice unless ai names a speech key, which spends); and re-runs the deterministic checks on the chapter, returning how they compare (found, introduced, remaining, resolved). recheck=true also queues the AI check again on the model the fix used.",
+    input: ApplyFixInput.omit({ ai: true }).extend({ chapterId: Uuid, ai: TtsAi }),
+    output: Passthrough,
+    scopes: ["narration:write"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/chapters/:id/narration/fix/apply"],
+    actionKeys: ["narration.fix_apply"],
+    classify: async ({ chapterId, jobId, revoice, recheck, ai }, ctx) => {
+      const [job] = await ctx.deps.db
+        .select({ parameters: generationJobs.parameters })
+        .from(generationJobs)
+        .where(eq(generationJobs.id, jobId));
+      const paidVoice = revoice && Boolean(ai?.credentialId || ai?.provider);
+      const paidCheck = recheck && job?.parameters.manual !== true;
+      return cls(
+        paidVoice || paidCheck ? "spend" : "write",
+        "narration.fix_apply",
+        await projectOf(ctx, "chapter", chapterId),
+        `Apply narration fixes${paidVoice ? ", re-voicing with a speech provider" : ""}${paidCheck ? ", and re-check with the AI model (spends credits)" : ""}`,
+      );
+    },
+    handler: async ({ chapterId, ai, ...body }, ctx) => ({
+      data: await ctx.invoke("POST", `/api/chapters/${chapterId}/narration/fix/apply`, {
+        body: { ...body, ai: ai ? await restAi(ctx, ai) : undefined },
+      }),
+    }),
   }),
 
   defineMcpTool({

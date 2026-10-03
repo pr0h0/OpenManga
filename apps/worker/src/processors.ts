@@ -7,6 +7,7 @@ import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
 import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
 import { runMaintenance } from "./handlers/maintenance.ts";
+import { narrationFix, narrationLint } from "./handlers/narration-qa.ts";
 import { panelCheck } from "./handlers/qa.ts";
 import {
   bibleExtract,
@@ -44,6 +45,8 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   youtube_package: youtubePackage,
   bible_extract: bibleExtract,
   continuity_check: continuityCheck,
+  narration_lint: narrationLint,
+  narration_fix: narrationFix,
   cover: coverGeneration,
   thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,

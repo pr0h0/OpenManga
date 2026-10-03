@@ -384,6 +384,8 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "expert-premise": "expert-premise-v1",
     "expert-outline": "expert-outline-v1",
     "expert-youtube": "expert-youtube-v1",
+    "narration-lint": "narration-lint-v1",
+    "narration-fix": "narration-fix-v1",
     "bible-extract": "bible-extract-v1",
     "continuity-check": "continuity-check-v1",
   };
@@ -555,6 +557,33 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
           verdict: i === 0 && bad.length ? "fail" : "pass",
           note: i === 0 && bad.length ? "broken in this chapter" : "",
         })),
+      };
+    }
+    case "narration-lint-v1": {
+      // [[mock:lint]] in a line flags it, with every other line carrying the marker, as one repeated meaning.
+      const d = (data[0] ?? {}) as { lines?: { key: string; text: string }[] };
+      const marked = (d.lines ?? []).filter((l) => l.text.includes("[[mock:lint]]")).map((l) => l.key);
+      return {
+        findings: marked.length
+          ? [
+              {
+                type: "repeated_meaning",
+                lines: marked,
+                severity: "medium",
+                explanation: "These lines say the same thing.",
+              },
+            ]
+          : [],
+      };
+    }
+    case "narration-fix-v1": {
+      // Rewrites each flagged line without the marker, so a lint run afterwards finds it fixed.
+      const d = (data[0] ?? {}) as { findings?: { lines: string[] }[]; lines?: { key: string; text: string }[] };
+      const flagged = new Set((d.findings ?? []).flatMap((f) => f.lines));
+      return {
+        lines: (d.lines ?? [])
+          .filter((l) => flagged.has(l.key))
+          .map((l) => ({ line: l.key, text: `${l.text.replace("[[mock:lint]]", "").trim()} (revised)` })),
       };
     }
     case "story-rewrite-v1":

@@ -368,3 +368,36 @@ export const audioAssets = pgTable(
   },
   (t) => [index("audio_assets_cache_idx").on(t.projectId, t.textSha256, t.voice, t.speed)],
 );
+
+/**
+ * Narration QA findings for one chapter track: from the deterministic checks (`source = rule`) or the semantic lint
+ * job (`ai`). A re-run replaces a source's findings, keeping the status of those still found (by `fingerprint`), so
+ * an ignored finding stays ignored and a fixed one that is found again reopens.
+ */
+export const narrationFindings = pgTable(
+  "narration_findings",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    chapterId: uuid("chapter_id")
+      .notNull()
+      .references(() => chapters.id, { onDelete: "cascade" }),
+    language: text("language").notNull(),
+    source: text("source").$type<"rule" | "ai">().notNull(),
+    kind: text("kind").notNull(),
+    severity: text("severity").$type<"low" | "medium" | "high">().notNull(),
+    lineIds: jsonb("line_ids").$type<string[]>().notNull().default([]),
+    relatedChapterIds: jsonb("related_chapter_ids").$type<string[]>().notNull().default([]),
+    message: text("message").notNull(),
+    status: text("status").$type<"open" | "ignored" | "fixed">().notNull().default("open"),
+    fingerprint: text("fingerprint").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("narration_findings_fingerprint_uq").on(t.chapterId, t.language, t.source, t.fingerprint),
+    index("narration_findings_project_idx").on(t.projectId, t.language),
+  ],
+);

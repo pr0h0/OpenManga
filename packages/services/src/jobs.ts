@@ -35,6 +35,8 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   panel_check: "text-ai",
   youtube_package: "text-ai",
   image_describe: "text-ai",
+  narration_lint: "text-ai",
+  narration_fix: "text-ai",
   cover: "image-generation",
   thumbnail: "image-generation",
   image_batch_submit: "image-batch",

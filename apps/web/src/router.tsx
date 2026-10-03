@@ -306,6 +306,13 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/narration/qa",
+    validateSearch: chapterSearch,
+    staticData: { title: "Narration QA" },
+    component: lazyRouteComponent(() => import("./features/narration/NarrationQaPage.tsx"), "NarrationQaPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/describe",
     staticData: { title: "Describe image" },
     component: lazyRouteComponent(() => import("./features/vision/DescribeImagePage.tsx"), "DescribeImagePage"),

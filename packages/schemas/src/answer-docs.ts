@@ -5,6 +5,8 @@ import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
   NarrationDraftV2,
+  NarrationFix,
+  NarrationLintReport,
   PanelCheck,
   PanelPromptDraft,
   ScenePages,
@@ -25,6 +27,8 @@ export const ANSWER_SCHEMAS = {
   ScenePages,
   PanelPromptDraft,
   NarrationDraft: NarrationDraftV2,
+  NarrationLintReport,
+  NarrationFix,
   ImageDescription,
   PanelCheck,
   YoutubePackage,
@@ -284,6 +288,41 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "chapters[].beats": [
       "The chapter's main beats, in order, one per item.",
       ["Ines lands at Vell", "Tomas refuses to leave", "the storm comes in"],
+    ],
+  },
+
+  NarrationLintReport: {
+    "": "Problems a listener would notice in one chapter's narration. An empty findings list is a good answer.",
+    findings:
+      "Each problem found, worst first. Report only real problems, not style preferences or deliberate refrains.",
+    "findings[].type": [
+      "repeated_meaning: lines of this chapter that say the same thing in other words; cross_chapter_repeat: a line " +
+        "that re-tells what an earlier chapter's narration told; fact_overexplained: a fact explained again after the " +
+        "listener has heard it twice; describes_frame: a line that only describes what its frame already shows.",
+      "repeated_meaning",
+    ],
+    "findings[].lines": [
+      "The keys of the lines involved (L1, L2, … as the prompt lists them), the line that should change first.",
+      ["L7", "L3"],
+    ],
+    "findings[].relatedChapters": [
+      "For cross_chapter_repeat and fact_overexplained: the numbers of the earlier chapters that already said it.",
+      [],
+    ],
+    "findings[].severity": ["How much the listener would notice: low, medium or high.", "medium"],
+    "findings[].explanation": [
+      "One or two sentences a writer can act on: what repeats or what the frame already shows.",
+      "L7 tells again that Tomas never left the light, which L3 already said in nearly the same way.",
+    ],
+  },
+
+  NarrationFix: {
+    "": "Rewrites of the flagged narration lines only. Every line left out stays exactly as it is.",
+    lines: "One entry per flagged line you rewrite. Lines no finding names are refused.",
+    "lines[].line": ["The key of the flagged line (L1, L2, …) as the prompt lists it.", "L7"],
+    "lines[].text": [
+      "The new line: same meaning, facts, names, tense and roughly the same length, without the problem.",
+      "By the time the storm reached Vell, the lamp was the only light left on the coast.",
     ],
   },
 

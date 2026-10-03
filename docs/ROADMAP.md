@@ -33,16 +33,6 @@ Grouped by area, roughly most useful first within each.
 - **Rules checked in the artwork.** The continuity check tests fixed rules against what the plan, dialogue and
   narration say; checking them in the finished panels by vision ("system windows are blue") is still to do.
 
-### Narration quality
-
-- **Narration lint.** Find meaning repeated in other words (within and across chapters), facts explained a third time,
-  repeated sentence openings and rhythm, a name used too often, narration that restates the dialogue or what the frame
-  already shows, and repetitive chapter openings and endings.
-- **Fix only what was flagged.** Rewrite the flagged ranges and keep everything else, then check again and compare,
-  so a fix does not bring a new set of findings.
-- **Narration density view.** Words per shot and per minute, silences and stretches with no narration, chapter by
-  chapter.
-
 ### Series and shared libraries
 
 - **Series.** A level above projects: episodes or seasons that share cast, places, props, style, approved references,

@@ -7,6 +7,7 @@ export * from "./budget.ts";
 export * from "./compose.ts";
 export * from "./credentials.ts";
 export * from "./jobs.ts";
+export * from "./narration-lint.ts";
 export * from "./narration-pauses.ts";
 export * from "./outfits.ts";
 export * from "./planner.ts";
