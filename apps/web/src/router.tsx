@@ -131,8 +131,16 @@ const dashboard = createRoute({
 const newProject = createRoute({
   getParentRoute: () => shell,
   path: "/projects/new",
+  /** `profile`: a channel profile to start from (Profiles → New project). */
+  validateSearch: z.object({ profile: z.string().optional() }),
   staticData: { title: "New project" },
   component: lazyRouteComponent(() => import("./features/dashboard/NewProjectWizard.tsx"), "NewProjectWizard"),
+});
+const profiles = createRoute({
+  getParentRoute: () => shell,
+  path: "/profiles",
+  staticData: { title: "Channel profiles" },
+  component: lazyRouteComponent(() => import("./features/profiles/ChannelProfilesPage.tsx"), "ChannelProfilesPage"),
 });
 const usage = createRoute({
   getParentRoute: () => shell,
@@ -354,6 +362,7 @@ const routeTree = rootRoute.addChildren([
   shell.addChildren([
     dashboard,
     newProject,
+    profiles,
     usage,
     experts,
     agents,

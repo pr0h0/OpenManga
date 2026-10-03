@@ -122,10 +122,6 @@ Grouped by area, roughly most useful first within each.
   optional scheduling, playlist, language and category, the altered-or-synthetic content declaration, processing
   status, retry without re-rendering, and the video id kept on the export. (Unaudited API projects can only upload
   privately.)
-- **Channel profiles.** One step above project templates: a channel's default preset, target runtime, narrator voice
-  and speed, pronunciation dictionary, image and batch policy, branding (logo, intro and outro, fonts, colours, title
-  cards), thumbnail style, title rules, description template and tags, music defaults, output shape, and upload
-  account and visibility, so a new project is an idea plus a profile.
 - **Title and thumbnail variants.** Several titles and thumbnail headlines from the same art, to compare or A/B test;
   the headline is already composited apart from the art, so variants cost no images.
 - **Repurposing.** From one finished project: several non-overlapping Shorts and TikToks, a trailer and a teaser,

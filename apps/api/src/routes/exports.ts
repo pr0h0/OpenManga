@@ -89,7 +89,8 @@ export const ExportOptions = z.object({
   includeAssets: z.boolean().default(true),
   video: z
     .object({
-      height: z.union([z.literal(720), z.literal(1080), z.literal(1440)]).default(1080),
+      /** The frame's short side. Default: the project's video output setting, else 1080. */
+      height: z.union([z.literal(720), z.literal(1080), z.literal(1440)]).optional(),
       fps: z.number().int().min(12).max(60).default(30),
       minHoldMs: z.number().int().min(500).max(30_000).default(2500),
       /** "scroll": 3/5 width, travelling the whole page top to bottom over its hold (the continuous scroll cut). */
@@ -104,7 +105,10 @@ export const ExportOptions = z.object({
       breathMs: z.number().int().min(0).max(2000).default(150),
       /** A partial render for checking: stop after the shot that reaches this length (whole shots only). */
       maxDurationMs: z.number().int().min(10_000).max(86_400_000).optional(),
-      /** Frame shape: landscape, vertical (Shorts, Reels) or square. Default 16:9, and 9:16 for video_shorts. */
+      /**
+       * Frame shape: landscape, vertical (Shorts, Reels) or square. Default: the project's video output setting, else
+       * 16:9; video_shorts always defaults to 9:16.
+       */
       aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
       /**
        * video_shorts: the cut's length in seconds (default 180, YouTube's Shorts limit; up to 600). The film ends before
@@ -113,7 +117,6 @@ export const ExportOptions = z.object({
       shortsSeconds: z.number().int().min(30).max(600).optional(),
     })
     .default({
-      height: 1080,
       fps: 30,
       minHoldMs: 2500,
       framing: "width",
@@ -140,6 +143,10 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
   // Viewers download what exists; making a new export queues server work every member then sees, so it is an edit.
   const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const input = await body(c, ExportOptions);
+  // Filled here, so the stored options say what was rendered whoever asked: the app, an agent or a production run.
+  const output = p.settings.video?.output;
+  input.video.height ??= output?.height ?? 1080;
+  if (input.kind !== "video_shorts") input.video.aspect ??= output?.aspect;
   if (
     // Narration and its timeline are built per chapter; every page-based kind streams, so it can take the project.
     ["narration_audio", "timeline"].includes(input.kind) &&

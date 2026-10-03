@@ -18,6 +18,7 @@ import {
   toast,
 } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
+import { ProfileCard } from "../profiles/ApplyProfile.tsx";
 import { MembersDialog } from "./MembersDialog.tsx";
 import { ProductionRunCard } from "./ProductionRun.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
@@ -204,6 +205,7 @@ export function OverviewPage() {
               Cover artwork is generated without text; titles are composited on export.
             </div>
           </div>
+          <ProfileCard projectId={projectId} from={p.settings.channelProfile} />
           <div className="card p-4">
             <h3 className="mb-2 text-sm font-medium">Project</h3>
             <KeyValue
@@ -241,6 +243,7 @@ export function OverviewPage() {
         onClose={() => setThumbOpen(false)}
         projectId={projectId}
         title={p.settings.thumbnail?.title || p.title}
+        side={p.settings.thumbnailStyle?.side}
         cast={cast.data?.characters ?? []}
       />
     </div>
@@ -334,10 +337,13 @@ function CoverModal({
   onClose,
   projectId,
   title,
+  side: defaultSide = "left",
   cast,
 }: {
   /** A 16:9 video thumbnail instead of the portrait cover. */
   thumbnail?: boolean;
+  /** The headline side a new thumbnail starts with: the project's thumbnail style. */
+  side?: "left" | "right";
   open: boolean;
   onClose: () => void;
   projectId: string;
@@ -346,7 +352,7 @@ function CoverModal({
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({ title, subtitle: "", composition: "", characterIds: [] as string[] });
-  const [side, setSide] = useState<"left" | "right">("left");
+  const [side, setSide] = useState<"left" | "right">(defaultSide);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const aiImage = useAiBody("image");

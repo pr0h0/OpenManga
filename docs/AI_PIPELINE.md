@@ -15,7 +15,7 @@
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
 | Narration QA | `narration_lint` / text-ai | `narration-lint` v1 | `NarrationLintReport` stored as `narration_findings` (source `ai`) for the chapter |
 | Narration fixes | `narration_fix` / text-ai | `narration-fix` v1 | `NarrationFix` checked against the flagged lines, returned as before/after proposals in the job result; applied only when the user confirms |
-| YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
+| YouTube package | `youtube_package` / text-ai | `youtube-package` v2 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
 | Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
 | Continuity check | `continuity_check` / text-ai | `continuity-check` v1 | `ContinuityReport` → `continuity_findings` (the chapter's open findings replaced) and each fixed rule's verdict on the job result |
 | Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
@@ -44,7 +44,10 @@ the headline or moving it to the other side costs nothing. It never replaces the
 The YouTube package (`POST /api/projects/:projectId/youtube-package`, `ai` and `batch` like any text step; Exports →
 YouTube package in the app) writes the publishing text from the project's title, description, chapter summaries and
 cast, and the current thumbnail headline. The result is saved to `settings.youtubePackage` and edited there; the job
-keeps no copy. A video render that spans more than one chapter also writes `<name>.chapters.txt`, one
+keeps no copy. A project's `settings.youtubeRules` (Settings → Thumbnail & YouTube text, usually from its channel
+profile) go along as `<channel_rules>`: `titleRules` the titles follow, a `descriptionTemplate` whose fixed text is
+kept and whose `{hook}` and `{summary}` the model writes (`{title}` and `{author}` are filled in by the worker first),
+and `tags`, which the worker puts first on every package as written. A video render that spans more than one chapter also writes `<name>.chapters.txt`, one
 `m:ss Chapter N: title` line per chapter with the first pinned at `0:00`. The `youtube_package` export makes no AI
 call: it zips the newest full video of the same scope (never a partial or page-selection render; with its `.srt` and
 `.chapters.txt`), the composited
@@ -579,6 +582,31 @@ all references, no batching) and *Economy draft*. **Save as template** (`POST /a
 stores a project's type, format, colour mode, language, style and settings in the user's settings
 (`projectTemplates`, at most 50; the thumbnail, YouTube text and page size are left out); story, cast and files are
 never copied. Templates are listed and deleted (`DELETE /api/auth/templates/:id`) in Account.
+
+**Channel profiles** sit one level above: a template is a kind of project, a profile is who publishes it. A profile
+(Profiles in the top bar; `GET/POST /api/channel-profiles`, `PATCH`/`DELETE /api/channel-profiles/:id`) names a
+`preset` (a preset key or `template:<id>`) and carries the settings in `PROFILE_SETTING_KEYS`
+(`packages/schemas/src/editor.ts`): image quality, reference and batch policy, target runtime, narrator voice and
+speed, the pronunciation dictionary (replaced as a whole; applying it re-hashes the narration segments it changes,
+so only their audio goes stale), lettering (the font the video cards use), `video` (scene-break fades, logo watermark, intro and outro cards,
+`output` aspect and resolution), `thumbnailStyle` (headline side) and `youtubeRules`. A key the profile leaves out
+stays as the preset or project has it. `profileId` on `POST /api/projects` (the wizard's *Channel profile*, MCP
+`create_project`) uses the profile's preset when `preset` is not given, then copies its settings on top and records
+`settings.channelProfile` `{id, name, appliedAt}`. Nothing stays linked: **Re-apply profile** on the overview calls
+`POST /api/projects/:projectId/apply-profile`, which lists the changes (`from` → `to`, `video` per part) and copies
+them only with `confirm: true`; format, type and style are never changed. **Save as channel profile** in Project
+settings (`POST /api/projects/:projectId/channel-profile`) makes one from a project. Profiles live in the owner's
+`users.settings.channelProfiles` (at most 50), so another user's profile id is simply not found.
+
+The logo: assets belong to a project, so a profile's logo is an account asset instead (`project_id` null, owned by
+the user, `metadata.role = "profile_logo"`, uploaded with `POST /api/channel-profiles/logo`), served only to its
+owner like an expert chat's images. Applying the profile copies it into the project as a new asset of the project, so
+the video renderer's "a watermark is an image of this project" rule holds and either can be deleted on its own;
+re-applying compares the logos by hash and copies nothing when it is unchanged. Saving a profile from a project
+copies the project's logo out the same way, and deleting a profile (or replacing its logo) removes the account copy.
+
+A video export with no `video.height` or `video.aspect` uses the project's `settings.video.output` (else 1080 and
+16:9; Shorts stay 9:16), and a thumbnail with no `side` uses `settings.thumbnailStyle.side`.
 
 Two settings, under Project settings → Production:
 

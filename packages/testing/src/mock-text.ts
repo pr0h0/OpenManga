@@ -388,6 +388,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "narration-fix": "narration-fix-v1",
     "bible-extract": "bible-extract-v1",
     "continuity-check": "continuity-check-v1",
+    "youtube-package": "youtube-package-v1",
   };
   const route = tpl === "narration-v1" ? tpl : name === "narration" ? "narration-v2" : (byName[name] ?? tpl);
   switch (route) {
@@ -430,9 +431,14 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     case "youtube-package-v1": {
       const d = (data[0] ?? {}) as { project?: { title?: string }; chapters?: { title: string }[] };
       const title = d.project?.title ?? "Untitled";
+      const summary = `A narrated telling of ${title}.\n\nChapters: ${(d.chapters ?? []).map((c) => c.title).join(", ")}.`;
+      // v2: a channel's description template is filled the way a model is asked to, so tests see it arrive.
+      const rules = JSON.parse(extractTagged(user, "channel_rules")[0] ?? "{}") as { descriptionTemplate?: string };
       return {
         titles: [`${title}: The Full Story`, `What Really Happened in ${title}`],
-        description: `A narrated telling of ${title}.\n\nChapters: ${(d.chapters ?? []).map((c) => c.title).join(", ")}.`,
+        description: rules.descriptionTemplate
+          ? rules.descriptionTemplate.replace("{hook}", `The whole story of ${title}.`).replace("{summary}", summary)
+          : summary,
         tags: [title.toLowerCase(), "narrated story"],
         pinnedComment: "Which chapter surprised you most?",
         thumbnailHeadlines: ["NOBODY SAW IT COMING", "THE LAST NIGHT"],

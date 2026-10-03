@@ -33,7 +33,6 @@ findings.
   them again) or explain them with a new bible fact. *Rule checks* lists every fixed rule as pass, warn or fail per
   chapter from the latest check. Checked by text only; the artwork is not looked at. MCP: `run_continuity_check`,
   `get_continuity_report`.
-
 - **Pronunciation dictionary.** Project settings → Pronunciation maps names and terms to how the narrator says them
   ("Qi" → "chee", "Seo Jinhyeok" → "suh jin-hyuk"), with match-case and whole-word options and a preview in the
   project's voice. It applies only to the text sent to the voice, for every TTS provider: narration, subtitles and
@@ -52,9 +51,24 @@ findings.
   the checks again, reporting what is new and what was resolved (optionally the AI check too). Works in paste mode;
   over MCP as `run_narration_lint`, `get_narration_qa`, `update_narration_finding`, `propose_narration_fix` and
   `apply_narration_fix`, with spending behind approval.
+- **Channel profiles.** A publication identity one level above templates (Profiles in the top bar): a default preset
+  or template, target runtime, narrator voice and speed, pronunciation dictionary, image quality, reference and batch policy, logo watermark,
+  scene fades and intro/outro cards, lettering (the cards' font), thumbnail headline side, YouTube title rules, a
+  description template with `{hook}`, `{summary}`, `{title}` and `{author}`, default tags, and the shape and resolution
+  video exports default to. Create one from scratch or with *Save as channel profile* in a project's settings; the
+  new-project wizard's *Channel profile* copies it in, and the project records where it came from. *Re-apply profile*
+  on the overview lists what would change before applying. A profile's logo belongs to the account and each project
+  gets its own copy. MCP: `list_channel_profiles`, and `profileId` on `create_project`.
 
 ### Changed
 
+- **The YouTube package follows the channel's rules** (`youtube-package` v2): title rules and the description template
+  go to the model as the owner's instructions, and the default tags lead every package.
+- **Video exports default to the project's output setting** (Settings → Video: frame and resolution) when the request
+  names no `video.aspect` or `video.height`; thumbnails default to the project's headline side.
+- **`POST /api/projects` with a `preset` fills the type, format, colour mode, language and style from it** when the
+  request leaves them out, as the wizard already did; a template's own lettering is no longer replaced on a vertical
+  project.
 - **Stopping a production run cancels its queued jobs.** Stop used to end only the orchestration while the jobs the
   run had queued kept running and spending. It now also cancels its generation jobs that have not started (queued,
   in a provider batch, paused or waiting for an answer), its queued narration audio and an unfinished export; jobs

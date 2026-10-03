@@ -13,7 +13,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
@@ -46,6 +46,7 @@ requests) need no scope.
 | [`get_approval_request`](#get_approval_request) | read | — |
 | [`list_projects`](#list_projects) | read | `projects:read` |
 | [`get_project`](#get_project) | read | `projects:read` |
+| [`list_channel_profiles`](#list_channel_profiles) | read | `projects:read` |
 | [`create_project`](#create_project) | write | `projects:create` |
 | [`update_project`](#update_project) | sensitive-write | `projects:write` |
 | [`set_project_status`](#set_project_status) | delete | `projects:write` |
@@ -542,9 +543,56 @@ One project's overview: settings (format, language, budget, narration, lettering
 
 </details>
 
+### list_channel_profiles
+
+The user's channel profiles: publication identities (default preset, target runtime, narrator voice and speed, image quality, reference and batch policy, branding, thumbnail style, YouTube title rules, description template and tags, video output). Pass a profile's id as create_project's profileId. Read-only.
+
+- **Scopes:** `projects:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/channel-profiles`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {}
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "profiles"
+  ]
+}
+```
+
+</details>
+
 ### create_project
 
-Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
+Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
 
 - **Scopes:** `projects:create`
 - **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
@@ -571,7 +619,6 @@ Create a new project (optionally with its first story revision in `story`). Need
       "maxLength": 5000
     },
     "projectType": {
-      "default": "manhwa",
       "type": "string",
       "enum": [
         "manga",
@@ -582,7 +629,6 @@ Create a new project (optionally with its first story revision in `story`). Need
       ]
     },
     "language": {
-      "default": "en",
       "type": "string",
       "minLength": 2,
       "maxLength": 16
@@ -596,7 +642,6 @@ Create a new project (optionally with its first story revision in `story`). Need
       ]
     },
     "colorMode": {
-      "default": "full_color",
       "type": "string",
       "enum": [
         "full_color",
@@ -609,12 +654,10 @@ Create a new project (optionally with its first story revision in `story`). Need
       "maxLength": 64
     },
     "customStyle": {
-      "default": "",
       "type": "string",
       "maxLength": 4000
     },
     "format": {
-      "default": "comic",
       "type": "string",
       "enum": [
         "comic",
@@ -625,6 +668,11 @@ Create a new project (optionally with its first story revision in `story`). Need
     "preset": {
       "type": "string",
       "maxLength": 80
+    },
+    "profileId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
     },
     "story": {
       "type": "object",
@@ -958,6 +1006,73 @@ Change a project's title, description, type, language, reading direction, colour
           },
           "required": [
             "assetId"
+          ]
+        },
+        "thumbnailStyle": {
+          "type": "object",
+          "properties": {
+            "side": {
+              "default": "left",
+              "type": "string",
+              "enum": [
+                "left",
+                "right"
+              ]
+            }
+          }
+        },
+        "youtubeRules": {
+          "type": "object",
+          "properties": {
+            "titleRules": {
+              "default": "",
+              "type": "string",
+              "maxLength": 1000
+            },
+            "descriptionTemplate": {
+              "default": "",
+              "type": "string",
+              "maxLength": 4000
+            },
+            "tags": {
+              "default": [],
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            }
+          }
+        },
+        "channelProfile": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "appliedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "appliedAt"
+              ]
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "lettering": {
@@ -1514,6 +1629,37 @@ Change a project's title, description, type, language, reading direction, colour
                   "type": "null"
                 }
               ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "aspect": {
+                  "default": "16:9",
+                  "type": "string",
+                  "enum": [
+                    "16:9",
+                    "9:16",
+                    "1:1"
+                  ]
+                },
+                "height": {
+                  "default": 1080,
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 720
+                    },
+                    {
+                      "type": "number",
+                      "const": 1080
+                    },
+                    {
+                      "type": "number",
+                      "const": 1440
+                    }
+                  ]
+                }
+              }
             }
           }
         },
@@ -9286,7 +9432,6 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
     },
     "video": {
       "default": {
-        "height": 1080,
         "fps": 30,
         "minHoldMs": 2500,
         "framing": "width",
@@ -9298,7 +9443,6 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
       "type": "object",
       "properties": {
         "height": {
-          "default": 1080,
           "anyOf": [
             {
               "type": "number",

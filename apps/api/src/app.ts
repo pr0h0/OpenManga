@@ -11,6 +11,7 @@ import { assetRoutes, cdnRoutes } from "./routes/assets.ts";
 import { audioRoutes } from "./routes/audio.ts";
 import { authRoutes, devMailRoutes } from "./routes/auth.ts";
 import { bibleRoutes } from "./routes/bible.ts";
+import { channelProfileRoutes } from "./routes/channel-profiles.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
 import { commentRoutes } from "./routes/comments.ts";
@@ -69,6 +70,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     productionRoutes,
     bibleRoutes,
     continuityRoutes,
+    channelProfileRoutes,
   ])
     api.route("/", r);
 }

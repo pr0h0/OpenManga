@@ -34,7 +34,7 @@ versions stay in the array so old jobs remain reproducible.
 | `panel-check` | 2 | 2 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/qa.ts` (vision QA; v2 also asks for face boxes) |
 | `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
 | `narration-lint`, `narration-fix` | 1 | 1 | `apps/api/src/routes/narration-qa.ts`, `apps/worker/src/handlers/narration-qa.ts` (narration QA: semantic findings, and rewrites of only the flagged lines) |
-| `youtube-package` | 1 | 1 | `apps/api/src/routes/generations.ts`, `apps/worker/src/handlers/text.ts` (video publishing text: titles, description, tags, pinned comment, thumbnail headlines) |
+| `youtube-package` | 1, 2 | 2 | `apps/api/src/routes/generations.ts`, `apps/worker/src/handlers/text.ts` (video publishing text: titles, description, tags, pinned comment, thumbnail headlines; v2 adds the channel's `<channel_rules>`: title rules, description template, tags) |
 | `image-describe` | 1, 2 | 2 | `apps/api/src/routes/vision.ts`, `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` | 1 | 1 | `apps/api/src/routes/experts.ts`, `apps/worker/src/handlers/expert-extract.ts` (expert output actions, defined in `packages/prompts/src/expert-actions.ts`) |

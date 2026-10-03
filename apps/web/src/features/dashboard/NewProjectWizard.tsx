@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { get, post } from "../../api/client.ts";
 import type { JobDetail, StoryAnalysisRow, StylePresetRow } from "../../api/types.ts";
 import { clsx, ErrorBox, Field, PageHeader, Spinner } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
+import { useProfiles } from "../profiles/ApplyProfile.tsx";
 import { AnalysisReview } from "../story/AnalysisReview.tsx";
 
 const TYPES = [
@@ -73,6 +74,45 @@ export function NewProjectWizard() {
       }>("/production-presets"),
   });
   const [preset, setPreset] = useState<string | null>(null);
+  /** Selects a preset or "template:<id>" and fills the fields it sets; unknown keys (a deleted template) do nothing. */
+  const choosePreset = (key: string | null) => {
+    setPreset(key);
+    const p = production.data?.presets.find((x) => x.key === key);
+    const t = production.data?.templates.find((x) => `template:${x.id}` === key);
+    if (p)
+      setDetails((d) => ({
+        ...d,
+        projectType: p.projectType,
+        format: p.format,
+        stylePresetKey: p.stylePresetKey,
+        colorMode: p.colorMode,
+      }));
+    else if (t)
+      setDetails((d) => ({
+        ...d,
+        projectType: t.projectType,
+        format: t.format,
+        stylePresetKey: t.stylePresetKey ?? d.stylePresetKey,
+        customStyle: t.customStyle,
+        colorMode: t.colorMode,
+        language: t.language,
+        readingDirection: t.readingDirection ?? "",
+      }));
+    else setPreset(null);
+  };
+  // A channel profile goes on top: its voice, branding and rules are copied in at creation, after its preset.
+  const profiles = useProfiles();
+  const search = useSearch({ strict: false }) as { profile?: string };
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const chooseProfile = (id: string | null) => {
+    const pr = profiles.data?.profiles.find((x) => x.id === id);
+    setProfileId(pr?.id ?? null);
+    if (pr?.preset) choosePreset(pr.preset);
+  };
+  // Profiles → New project arrives with ?profile=; it is chosen once both lists have loaded.
+  useEffect(() => {
+    if (search.profile && profiles.data && production.data && profileId === null) chooseProfile(search.profile);
+  }, [profiles.data, production.data]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
@@ -104,6 +144,7 @@ export function NewProjectWizard() {
         const r = await post<{ project: { id: string } }>("/projects", {
           ...details,
           ...(preset ? { preset } : {}),
+          ...(profileId ? { profileId } : {}),
           readingDirection: details.readingDirection || undefined,
           story: story.content.trim()
             ? { content: story.content, inputKind: story.inputKind, title: story.title }
@@ -157,6 +198,29 @@ export function NewProjectWizard() {
 
       {step === 0 && (
         <div className="card space-y-4 p-5">
+          {profiles.data && (
+            <Field
+              label="Channel profile"
+              hint={
+                <>
+                  Who publishes it: narrator, branding and logo, thumbnail and YouTube rules, export shape, copied into
+                  the project. A preset or template below is the kind of project.{" "}
+                  <Link to="/profiles" className="text-accent-500 hover:underline">
+                    Manage profiles
+                  </Link>
+                </>
+              }
+            >
+              <select className="input" value={profileId ?? ""} onChange={(e) => chooseProfile(e.target.value || null)}>
+                <option value="">None</option>
+                {profiles.data.profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           {production.data && (
             <fieldset>
               <legend className="label">Start from</legend>
@@ -165,7 +229,7 @@ export function NewProjectWizard() {
                   type="button"
                   aria-pressed={!preset}
                   className={clsx("card p-3 text-left text-sm", !preset && "ring-2 ring-accent-500")}
-                  onClick={() => setPreset(null)}
+                  onClick={() => choosePreset(null)}
                 >
                   <div className="font-medium">Blank</div>
                   <div className="muted text-xs">Choose everything below yourself.</div>
@@ -176,16 +240,7 @@ export function NewProjectWizard() {
                     type="button"
                     aria-pressed={preset === p.key}
                     className={clsx("card p-3 text-left text-sm", preset === p.key && "ring-2 ring-accent-500")}
-                    onClick={() => {
-                      setPreset(p.key);
-                      setDetails((d) => ({
-                        ...d,
-                        projectType: p.projectType,
-                        format: p.format,
-                        stylePresetKey: p.stylePresetKey,
-                        colorMode: p.colorMode,
-                      }));
-                    }}
+                    onClick={() => choosePreset(p.key)}
                   >
                     <div className="font-medium">{p.name}</div>
                     <div className="muted text-xs">{p.description}</div>
@@ -200,19 +255,7 @@ export function NewProjectWizard() {
                       "card p-3 text-left text-sm",
                       preset === `template:${t.id}` && "ring-2 ring-accent-500",
                     )}
-                    onClick={() => {
-                      setPreset(`template:${t.id}`);
-                      setDetails((d) => ({
-                        ...d,
-                        projectType: t.projectType,
-                        format: t.format,
-                        stylePresetKey: t.stylePresetKey ?? d.stylePresetKey,
-                        customStyle: t.customStyle,
-                        colorMode: t.colorMode,
-                        language: t.language,
-                        readingDirection: t.readingDirection ?? "",
-                      }));
-                    }}
+                    onClick={() => choosePreset(`template:${t.id}`)}
                   >
                     <div className="font-medium">{t.name}</div>
                     <div className="muted text-xs">

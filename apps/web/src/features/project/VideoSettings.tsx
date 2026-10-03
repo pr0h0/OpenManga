@@ -2,7 +2,7 @@ import type { ProjectSettings, VideoCard, VideoWatermark } from "@openmanga/sche
 import { ImagePlus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api, assetUrl } from "../../api/client.ts";
-import { clsx, Field, Spinner, toast } from "../../components/ui.tsx";
+import { clsx, Field, Spinner, TagInput, toast } from "../../components/ui.tsx";
 
 type Video = NonNullable<ProjectSettings["video"]>;
 
@@ -14,16 +14,17 @@ const CORNERS: [VideoWatermark["corner"], string][] = [
 ];
 
 /**
- * Project video settings, applied to every render and shown in the preview: scene-break fades, a logo watermark,
- * and intro and outro cards.
+ * Video settings, applied to every render and shown in the preview: scene-break fades, a logo watermark, intro and
+ * outro cards, and the shape and resolution exports default to. A project's, or a channel profile's: `logoUpload`
+ * is where a new logo goes (the project's own files, or the account's for a profile).
  */
 export function VideoSection({
-  projectId,
+  logoUpload,
   projectTitle,
   value,
   onChange,
 }: {
-  projectId: string;
+  logoUpload: string;
   projectTitle: string;
   value: ProjectSettings["video"];
   onChange: (v: Video) => void;
@@ -37,7 +38,7 @@ export function VideoSection({
     try {
       const form = new FormData();
       form.set("file", file);
-      const r = await api<{ asset: { id: string } }>(`/projects/${projectId}/video-logo`, {
+      const r = await api<{ asset: { id: string } }>(logoUpload, {
         method: "POST",
         body: form,
       });
@@ -149,6 +150,91 @@ export function VideoSection({
         />
         <CardFields label="Outro card" value={v.outro ?? null} fallbackTitle="" onChange={(outro) => set({ outro })} />
       </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="Export frame"
+          hint="What a video export uses unless you choose otherwise. Shorts are always 9:16."
+        >
+          <select
+            className="input"
+            value={v.output?.aspect ?? "16:9"}
+            onChange={(e) => set({ output: { height: 1080, ...v.output, aspect: e.target.value as Output["aspect"] } })}
+          >
+            <option value="16:9">16:9 landscape</option>
+            <option value="9:16">9:16 vertical</option>
+            <option value="1:1">1:1 square</option>
+          </select>
+        </Field>
+        <Field label="Export resolution">
+          <select
+            className="input"
+            value={v.output?.height ?? 1080}
+            onChange={(e) =>
+              set({ output: { aspect: "16:9", ...v.output, height: Number(e.target.value) as Output["height"] } })
+            }
+          >
+            <option value={720}>720p</option>
+            <option value={1080}>1080p</option>
+            <option value={1440}>1440p</option>
+          </select>
+        </Field>
+      </div>
+    </section>
+  );
+}
+type Output = NonNullable<Video["output"]>;
+
+type Publishing = Pick<ProjectSettings, "thumbnailStyle" | "youtubeRules">;
+type Rules = NonNullable<ProjectSettings["youtubeRules"]>;
+
+/** Thumbnail layout and the channel's rules for the YouTube package text: a project's, or a channel profile's. */
+export function PublishingSection({ value, onChange }: { value: Publishing; onChange: (v: Publishing) => void }) {
+  const rules: Rules = { titleRules: "", descriptionTemplate: "", tags: [], ...value.youtubeRules };
+  const setRules = (p: Partial<Rules>) => onChange({ ...value, youtubeRules: { ...rules, ...p } });
+  return (
+    <section className="card space-y-3 p-4">
+      <div>
+        <h2 className="font-medium">Thumbnail & YouTube text</h2>
+        <p className="muted text-xs">
+          The YouTube package text job follows these rules as your own instructions. Your tags are added to every
+          package as written.
+        </p>
+      </div>
+      <Field label="Thumbnail headline side" hint="New thumbnails keep this side of the art clear for the headline.">
+        <select
+          className="input"
+          value={value.thumbnailStyle?.side ?? "left"}
+          onChange={(e) => onChange({ ...value, thumbnailStyle: { side: e.target.value as "left" | "right" } })}
+        >
+          <option value="left">Left</option>
+          <option value="right">Right</option>
+        </select>
+      </Field>
+      <Field label="Title rules">
+        <textarea
+          className="input min-h-16"
+          maxLength={1000}
+          placeholder="e.g. Start with the main character's name. No question marks. Under 60 characters."
+          value={rules.titleRules}
+          onChange={(e) => setRules({ titleRules: e.target.value })}
+        />
+      </Field>
+      <Field
+        label="Description template"
+        hint="{title} and {author} are filled in exactly; the model writes {hook} (two lines) and {summary} (no spoilers). Other text stays as written. Chapter timestamps are added after it."
+      >
+        <textarea
+          className="input min-h-24 font-mono text-sm"
+          maxLength={4000}
+          placeholder={"{hook}\n\n{summary}\n\nNew recaps every Friday."}
+          value={rules.descriptionTemplate}
+          onChange={(e) => setRules({ descriptionTemplate: e.target.value })}
+        />
+      </Field>
+      <Field label="Default tags" hint="Enter or comma after each.">
+        <TagInput value={rules.tags} onChange={(tags) => setRules({ tags: tags.slice(0, 30) })} />
+      </Field>
     </section>
   );
 }

@@ -74,10 +74,25 @@ export const projectTools = [
   }),
 
   defineMcpTool({
+    name: "list_channel_profiles",
+    title: "List channel profiles",
+    description:
+      "The user's channel profiles: publication identities (default preset, target runtime, narrator voice and speed, image quality, reference and batch policy, branding, thumbnail style, YouTube title rules, description template and tags, video output). Pass a profile's id as create_project's profileId. Read-only.",
+    input: z.object({}),
+    output: z.object({ profiles: z.array(Passthrough) }),
+    scopes: ["projects:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/channel-profiles"],
+    actionKeys: [],
+    handler: async (_a, ctx) => ({ data: await ctx.invoke("GET", "/api/channel-profiles") }),
+  }),
+
+  defineMcpTool({
     name: "create_project",
     title: "Create project",
     description:
-      "Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.",
+      "Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.",
     input: CreateProject.extend({ idempotencyKey: IdempotencyKey }),
     output: z.object({ project: Passthrough }),
     scopes: ["projects:create"],
