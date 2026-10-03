@@ -450,7 +450,31 @@ async function ingestOne(deps: WorkerDeps, row: GenerationJob, item: Extract<Bat
     const { asset, cancelled } = await attachReference(deps, job, item.result);
     return finishIngested(deps, job, asset.id, item.result, cancelled);
   }
-  const { asset, cancelled } = await finalizeOutput(deps, job, item.result, "panel_art", { batch: true }, null);
+  // The same panel metadata a direct run records: the Versions tab finds a panel's artwork by `panelId`, so without it
+  // a batched first draw never showed up there.
+  const [panel] = job.targetId
+    ? await deps.db.select({ pageId: panels.pageId }).from(panels).where(eq(panels.id, job.targetId))
+    : [];
+  const { asset, cancelled } = await finalizeOutput(
+    deps,
+    job,
+    item.result,
+    "panel_art",
+    {
+      batch: true,
+      panelId: job.targetId,
+      pageId: panel?.pageId ?? null,
+      operation: job.parameters.operation ?? null,
+      referenceInputs: inputs.map((i) => ({
+        role: i.role,
+        assetId: i.assetId,
+        variantId: i.variantId,
+        width: i.width,
+        height: i.height,
+      })),
+    },
+    (job.parameters.parentAssetId as string | null) ?? null,
+  );
   await usage();
   if (!cancelled && job.targetId) {
     await activatePanelArt(deps, job, job.targetId, asset.id, null);

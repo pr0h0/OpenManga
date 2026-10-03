@@ -148,6 +148,10 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Fixed
 
+- **Batched artwork is in Versions.** A panel drawn by a batched *Generate all missing* stored its artwork without
+  the panel id, so the page editor's Versions tab listed only later regenerations, never the first draw. Batched
+  artwork now records the panel, page and references like a direct run, and migration `0027_batch_art_panel_ids`
+  fills them in for artwork already drawn.
 - **Layout guides are sent at a size that keeps the pose.** The guide went out as the usual 192 px reference
   derivative, where a stick figure's hands on hips became an 806-byte smudge and the written composition won. It now
   has its own cached variant, a lossless PNG fitting 1024 px (single and batched generation alike); every other

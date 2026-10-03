@@ -238,6 +238,11 @@ test("polling ingests the finished batch: art activated, failures reported, spen
   const ready = panelRows.filter((p) => panelIds.includes(p.id) && p.activeArtworkAssetId);
   expect(ready).toHaveLength(2);
   expect(ready.every((p) => p.status === "ready")).toBe(true);
+  // A batched first draw is a version of its panel like any other: the Versions tab lists it.
+  for (const p of ready) {
+    const v = await alice.get<{ versions: { assetId: string }[] }>(`/api/panels/${p.id}/versions`);
+    expect(v.versions.map((x) => x.assetId)).toContain(p.activeArtworkAssetId!);
+  }
 
   // Spend is recorded against the ":batch" model, which is seeded at half the interactive rate.
   const usage = await h.deps.db.select().from(aiUsage).where(eq(aiUsage.projectId, projectId));

@@ -190,6 +190,13 @@
       "when": 1790958614318,
       "tag": "0026_panel_guide",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791025658163,
+      "tag": "0027_batch_art_panel_ids",
+      "breakpoints": true
     }
   ]
 }
