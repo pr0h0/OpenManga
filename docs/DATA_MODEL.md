@@ -114,7 +114,7 @@ slot).
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
   plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it. `video`
-  (JSON `ShotVideo`, migration `0021_video_shots`: `motion`, `fade`, `disabled`; null = defaults) is the panel as a
+  (JSON `ShotVideo`, migration `0021_video_shots`: `motion`, `fade`, `disabled`, `holdMs`; null = defaults) is the panel as a
   video shot (`docs/VIDEO_EXPORT_REFERENCE.md`). `guide` (JSON `{assetId, strength}`, migration `0026_panel_guide`) is
   the layout sketch sent with its generation (`docs/IMAGE_REFERENCES.md`).
 - `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
@@ -184,7 +184,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
   `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`, `bible_extract`, `continuity_check`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `expert_extract`, `bible_extract`, `continuity_check`, `narration_retime`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry

@@ -39,7 +39,9 @@ export type GenerationKind =
   /** Proposes story bible facts and character states from the chapters, for the user to review and apply. */
   | "bible_extract"
   /** Compares one chapter with the story bible and its neighbours; findings go to continuity_findings. */
-  | "continuity_check";
+  | "continuity_check"
+  /** The timing pass: chosen narration lines rewritten to a word budget, kept on the job until the user applies them. */
+  | "narration_retime";
 
 export const generationJobs = pgTable(
   "generation_jobs",

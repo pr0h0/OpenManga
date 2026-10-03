@@ -145,6 +145,13 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Added
 
+- **Timing pass.** Once a chapter's narration is voiced, a *Timing* page times it with the real audio lengths (the
+  same timeline as the preview and the render): shots past the longest-shot setting or under the shortest, one
+  picture held too long, dead air, and the chapter's length against its target. Each fix shows the holds it changes
+  and the new length before it is applied: spread a long line over the next shots of its scene, give a shot its own
+  minimum hold (also in the panel's *Video shot* settings), or have a text job rewrite chosen lines to a word budget,
+  read as a diff, with only the kept lines voiced again. Nothing generates new images. Agents use `get_timing`,
+  `apply_timing_fix` and `retime_narration`.
 - **Type a pose for a layout guide.** *Pose, in words* under a panel's guide takes the pose as text (e.g. "standing
   centred, hands on hips"), no AI needed. `panel-generation` v11 puts it in the `POSE / LAYOUT` section beside the
   sketch, so it outranks the written composition like a strict sketch does. *Describe pose* now fills this text

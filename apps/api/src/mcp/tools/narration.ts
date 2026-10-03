@@ -446,4 +446,131 @@ export const narrationTools = [
         : await ctx.invoke("DELETE", `/api/projects/${projectId}/narration/audio`),
     }),
   }),
+  defineMcpTool({
+    name: "get_timing",
+    title: "Timing pass",
+    description:
+      "The timing pass, from the real narration audio (panel cut). chapterId: each shot's hold, what is off (long: past the longest-shot setting; flash: under the shortest; still: one picture too long; silence: dead air), the chapter's length against its share of the target runtime, and the fixes on offer, each with its effect on the holds and the length: spread (a long line over the next shots of its scene), holds (a shot's own minimum hold) and trim (word budgets to land on target). projectId: every chapter's length, target and issue counts. Apply with apply_timing_fix and retime_narration. Read-only.",
+    input: z.object({
+      chapterId: Uuid.optional(),
+      projectId: Uuid.optional(),
+      minHoldMs: z.number().int().min(500).max(30_000).optional().describe("The export minimum hold to time against."),
+      language: z.string().max(16).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["narration:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/chapters/:id/timing", "GET /api/projects/:projectId/timing"],
+    actionKeys: [],
+    handler: async ({ chapterId, projectId, ...query }, ctx) => {
+      if (chapterId) return { data: await ctx.invoke("GET", `/api/chapters/${chapterId}/timing`, { query }) };
+      if (projectId) return { data: await ctx.invoke("GET", `/api/projects/${projectId}/timing`, { query }) };
+      throw toolError(400, "bad_request", "chapterId or projectId is required");
+    },
+  }),
+
+  defineMcpTool({
+    name: "apply_timing_fix",
+    title: "Apply a timing fix",
+    description:
+      "Apply a fix get_timing offered, in a chapter. spread: stretch a narration line over the shots up to untilPanelId (null undoes it). hold: set a panel's own minimum hold as a video shot, in ms (null back to the export's). Existing art only; nothing is generated or spent.",
+    input: z.object({
+      chapterId: Uuid,
+      spread: z.object({ lineId: Uuid, untilPanelId: Uuid.nullable() }).optional(),
+      hold: z.object({ panelId: Uuid, holdMs: z.number().int().min(500).max(60_000).nullable() }).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["narration:write", "panels:write"],
+    sensitivity: "write",
+    idempotent: true,
+    routes: ["POST /api/chapters/:id/timing/apply"],
+    actionKeys: ["timing.apply"],
+    classify: async ({ chapterId, spread }, ctx) =>
+      cls(
+        "write",
+        "timing.apply",
+        await projectOf(ctx, "chapter", chapterId),
+        spread ? "Spread a narration line over the next shots" : "Set a shot's own hold",
+      ),
+    handler: async ({ chapterId, spread, hold }, ctx) => {
+      if (Boolean(spread) === Boolean(hold)) throw toolError(400, "bad_request", "Give exactly one of spread or hold");
+      return {
+        data: await ctx.invoke("POST", `/api/chapters/${chapterId}/timing/apply`, {
+          body: spread ? { spread } : { hold },
+        }),
+      };
+    },
+  }),
+
+  defineMcpTool({
+    name: "retime_narration",
+    title: "Trim or expand narration",
+    description:
+      "The timing pass's trim or expand. start: a text job rewrites only the given lines, each to its word budget (get_timing fixes.trim suggests them); nothing changes until applied, and the job's result (get_job) lists each line before and after. apply: keep the rewrites for lineIds from that job, then only those lines are re-voiced (their unchanged segments keep their audio). start spends text-provider credits unless ai.manual; apply re-voices with the local voice for free, or spends with a speech key (ttsAi). Either may need approval.",
+    input: z.object({
+      action: z.enum(["start", "apply"]),
+      chapterId: Uuid,
+      lines: z
+        .array(z.object({ lineId: Uuid, words: z.number().int().min(3).max(400) }))
+        .optional()
+        .describe("start: the lines and their word budgets."),
+      ai: AiInput,
+      jobId: Uuid.optional().describe("apply: the finished start job."),
+      lineIds: z.array(Uuid).optional().describe("apply: the rewrites to keep."),
+      ttsAi: TtsAi,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["narration:write", "generations:run"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: [
+      "POST /api/chapters/:id/narration/retime",
+      "POST /api/chapters/:id/narration/retime/:jobId/apply",
+      "POST /api/chapters/:id/narration/synthesize",
+    ],
+    actionKeys: ["narration.retime", "narration.retime_apply"],
+    classify: async (a, ctx) => {
+      const p = await projectOf(ctx, "chapter", a.chapterId);
+      if (a.action === "start")
+        return cls(
+          textSpend(a.ai, "write"),
+          "narration.retime",
+          p,
+          `Rewrite ${a.lines?.length ?? 0} narration line(s) to a word budget ${aiLabel(a.ai)}`,
+        );
+      const paid = Boolean(a.ttsAi?.credentialId || a.ttsAi?.provider);
+      return cls(
+        paid ? "spend" : "write",
+        "narration.retime_apply",
+        p,
+        `Replace ${a.lineIds?.length ?? 0} narration line(s) with their rewrites and re-voice them ${paid ? "with a speech provider; spends credits" : "with the local voice (free)"}`,
+      );
+    },
+    handler: async (a, ctx) => {
+      if (a.action === "start") {
+        if (!a.lines?.length) throw toolError(400, "bad_request", "start needs lines");
+        const r = await ctx.invoke<{ job: Record<string, unknown> }>(
+          "POST",
+          `/api/chapters/${a.chapterId}/narration/retime`,
+          { body: { lines: a.lines, ai: await restAi(ctx, a.ai) } },
+        );
+        return { data: { job: jobView(r.job) } };
+      }
+      if (!a.jobId || !a.lineIds?.length) throw toolError(400, "bad_request", "apply needs jobId and lineIds");
+      const applied = await ctx.invoke<{ applied: { lineId: string }[] }>(
+        "POST",
+        `/api/chapters/${a.chapterId}/narration/retime/${a.jobId}/apply`,
+        { body: { lineIds: a.lineIds } },
+      );
+      const lineIds = applied.applied.map((x) => x.lineId);
+      const voice = lineIds.length
+        ? await ctx.invoke("POST", `/api/chapters/${a.chapterId}/narration/synthesize`, {
+            body: { lineIds, onlyMissing: true, ai: a.ttsAi ? await restAi(ctx, a.ttsAi) : undefined },
+          })
+        : null;
+      return { data: { ...applied, synthesis: voice } };
+    },
+  }),
 ];

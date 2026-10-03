@@ -376,6 +376,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "scene-strip": "scene-pages-v1",
     "panel-prompts": "panel-prompts-v1",
     "story-rewrite": "story-rewrite-v1",
+    "narration-retime": "narration-retime-v1",
     "json-repair": "json-repair-v1",
     "panel-check": "panel-check-v1",
     "image-describe": "image-describe-v1",
@@ -612,6 +613,21 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
                 ? [first]
                 : [],
         })),
+      };
+    }
+    case "narration-retime-v1": {
+      // Each line cut or padded to its budget, so a test sees the lengths move.
+      const d = (data[0] ?? {}) as { lines?: { lineId: string; text: string; budget: number }[] };
+      return {
+        lines: (d.lines ?? []).map((l) => {
+          const w = l.text
+            .replace(/[.!?]+$/, "")
+            .split(/\s+/)
+            .filter(Boolean);
+          const pad = ["slowly", "in", "the", "grey", "light"];
+          while (w.length < l.budget) w.push(pad[w.length % pad.length]!);
+          return { lineId: l.lineId, text: `${w.slice(0, l.budget).join(" ")}.` };
+        }),
       };
     }
     case "story-rewrite-v1":

@@ -186,6 +186,8 @@ type Shot = {
   lineIds: string[];
   /** Shares one hold with the next shot (a narration line spans the cut). */
   joinNext: boolean;
+  /** This shot's own minimum hold, in place of the export's (`ShotVideo.holdMs`). */
+  minHoldMs?: number | null;
   fade: { in: boolean; out: boolean };
   report: Record<string, unknown>;
   label: string;
@@ -300,7 +302,12 @@ async function buildFilm<S extends Shot>(
           segments: parts,
         })),
         members.length,
-        { minHoldMs: opts.minHoldMs, fps: opts.fps, breathMs: opts.breathMs },
+        {
+          minHoldMs: opts.minHoldMs,
+          fps: opts.fps,
+          breathMs: opts.breathMs,
+          minHolds: members.map((s) => s.minHoldMs),
+        },
       );
       // A capped film (a Shorts cut) ends before the first shot that would run past the limit.
       if (opts.capMs && gi > 0 && ((totalFrames + timing.totalFrames) * 1000) / opts.fps > opts.capMs) {
@@ -572,6 +579,7 @@ async function plan(deps: WorkerDeps, project: Project, chapterId: string | null
   );
   const shots = planned.shots.map((s) => ({
     ...s,
+    minHoldMs: s.panel?.video?.holdMs ?? null,
     report: {
       chapter: s.page.chapterOrder,
       page: s.page.order,

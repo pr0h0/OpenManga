@@ -75,10 +75,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Video
 
-- **Timing pass after narration is voiced.** Once the audio exists, its real lengths (not words-per-minute estimates)
-  decide the pacing: flag shots that hold far past the longest-shot setting or flash by too fast, long stretches with
-  no visual change and awkward silences, rebalance holds within a chapter, and suggest splitting narration across
-  shots, reusing nearby art, or trimming to land on the target runtime, re-voicing only what the user picks.
 - **Video shots as their own layer.** Panels stay the story and comic units; a video shot list on top of them (a
   shot drawn from a panel, a crop of one, or a title card, with its narration, length, move and transition). Today a
   shot is a panel with video settings, which is enough until one panel needs to become several shots.

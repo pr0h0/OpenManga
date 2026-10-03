@@ -8,6 +8,7 @@ import {
   NarrationDraftV2,
   NarrationFix,
   NarrationLintReport,
+  NarrationRetime,
   PanelCheck,
   PanelPromptDraft,
   type SceneOutline,
@@ -497,6 +498,31 @@ export const storyRewriteV1 = defineTextTemplate<{ story: string; instruction: s
       {
         role: "user",
         content: `${untrusted("editor_instruction", i.instruction)}\n\n${untrusted("story_content", i.story)}`,
+      },
+    ];
+  },
+});
+
+export const narrationRetimeV1 = defineTextTemplate<{
+  language: string;
+  style: string;
+  lines: { lineId: string; text: string; words: number; budget: number }[];
+}>({
+  name: "narration-retime",
+  version: 1,
+  description: "Rewrite chosen narration lines to a word budget each, so a chapter lands on its target length.",
+  system: [
+    templateHeader("narration-retime", 1),
+    "You edit narration for a narrated comic video. Each line comes with its current word count and a word budget: rewrite it to about that many words (within 15%), keeping its meaning, facts, names, tense and voice. Shortening drops what the picture already shows; lengthening adds sensory or emotional detail the story supports, never new events. Write in the given language and keep the given narration style. Return every line you were given, with its lineId unchanged, and nothing else.",
+    DATA_RULE,
+    schemaInstructions("NarrationRetime", NarrationRetime),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: untrusted("project_data", JSON.stringify({ language: i.language, style: i.style, lines: i.lines })),
       },
     ];
   },
@@ -1092,6 +1118,7 @@ export const TEXT_TEMPLATES = [
   storyRewriteV1,
   youtubePackageV1,
   youtubePackageV2,
+  narrationRetimeV1,
   jsonRepairV1,
   imageDescribeV1,
   stripPlanningV1,

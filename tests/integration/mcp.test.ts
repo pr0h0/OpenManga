@@ -1035,6 +1035,37 @@ describe("production run tools", () => {
     expect(after.structured.data.run.status).toBe("cancelled");
   });
 
+  test("the timing pass: a read, a free fix, and a rewrite that spends parks for approval", async () => {
+    const list = await gated.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    const chapterId = list.structured.data.chapters[0]!.id;
+    const t = await gated.call<{ data: { shots: { panelId: string; lines: { id: string }[] }[]; fixes: unknown } }>(
+      "get_timing",
+      { chapterId },
+    );
+    expect(t.isError).toBe(false);
+    expect(t.structured.data.fixes).toBeTruthy();
+    const project = await gated.call<{ data: { chapters: { id: string }[] } }>("get_timing", { projectId });
+    expect(project.structured.data.chapters.map((c) => c.id)).toContain(chapterId);
+    expect((await gated.call("get_timing", {})).error?.code).toBe("bad_request");
+    const shot = t.structured.data.shots.find((x) => x.panelId)!;
+    const hold = await gated.call<{ data: { ok: boolean } }>("apply_timing_fix", {
+      chapterId,
+      hold: { panelId: shot.panelId, holdMs: 4000 },
+    });
+    expect(hold.structured.data.ok).toBe(true);
+    const line = t.structured.data.shots.flatMap((x) => x.lines)[0];
+    if (line) {
+      const parked = await gated.call("retime_narration", {
+        action: "start",
+        chapterId,
+        lines: [{ lineId: line.id, words: 12 }],
+        ai: { provider: "openai" },
+      });
+      expect(parked.structured.status).toBe("pending_approval");
+      expect(parked.structured.approval!.sensitivity).toBe("spend");
+    }
+  });
+
   test("update production runs the out-of-date steps only, or says nothing is out of date", async () => {
     const stale = (
       await allowAll.call<{ data: { stages: { key: string; count: number }[] } }>("get_staleness", { projectId })
