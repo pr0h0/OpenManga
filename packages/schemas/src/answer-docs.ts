@@ -671,6 +671,18 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
         "paraffin lamp in the lantern room",
       ]),
     ),
+    pose: "The layout of a sketch or pose drawing: each figure's pose and place in the frame, and the framing.",
+    ...under("pose", {
+      summary: [
+        "One plain sentence a comic panel's composition can use as is: figures, placement, facing, pose, shot and angle.",
+        "one figure standing centred, full body, facing the viewer, hands on hips, feet shoulder-width apart, eye-level medium-wide shot",
+      ],
+      figures: ["One entry per figure, left to right.", ["standing centred, facing the viewer, hands on hips"]],
+      framing: [
+        "Shot type, camera angle and how much of each figure is in frame.",
+        "eye-level medium-wide shot, whole figure in frame",
+      ],
+    }),
     technique: "The apparent medium and process.",
     ...under(
       "technique",

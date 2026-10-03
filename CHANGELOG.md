@@ -11,10 +11,15 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Added
 
+- **Describe pose from a sketch.** *Describe pose* beside a panel's layout guide runs a vision job (the new `pose`
+  aspect of `image-describe` v2, also on the Describe page) that puts the sketch's poses, placement and framing into
+  one sentence. You review and edit it, then it is added after the panel's composition or replaces it; nothing is
+  written before you confirm. It is a normal queued text job: in Generation, priced, budget-gated, paste mode
+  included. `POST /api/panels/:id/guide/describe`; agents use `run_panel_check` with `action: "describe_guide"`.
 - **Pose and sketch guides.** A panel can carry a layout guide: upload a rough sketch, stick-figure pose or
   composition thumbnail in the panel inspector, or draw one there (pen in three widths, straight lines, eraser,
   undo/redo, posable stick figures, the panel's art faintly underneath for tracing; mouse, pen or touch). Generate
-  and Regenerate attach it as a small reference after the identity, location, prop and style references and before
+  and Regenerate attach it as a reference after the identity, location, prop and style references and before
   the previous panel, and the prompt (`panel-generation` v9) tells the model to take its composition, framing and
   poses only, loosely or strictly, never its drawing style or any text. Masked edits leave it out. Duplicating a
   panel or project keeps it, the interchange export and import carry it, and agents set or clear it with
@@ -139,6 +144,14 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Fixed
 
+- **Layout guides are sent at a size that keeps the pose.** The guide went out as the usual 192 px reference
+  derivative, where a stick figure's hands on hips became an 806-byte smudge and the written composition won. It now
+  has its own cached variant, a lossless PNG fitting 1024 px (single and batched generation alike); every other
+  reference stays small.
+- **A strict guide outranks the written pose.** `panel-generation` v10 puts a `POSE / LAYOUT` section right after the
+  goal line; in strict mode it says the sketch wins over the written composition, action or story beat on pose,
+  figure placement and framing, while identity, outfits and look still come from the references. Loose mode only
+  starts from the sketch.
 - **A full provider batch queue no longer fails the run.** OpenAI refuses batches past its enqueued-token limit per
   model (`token_limit_exceeded`), and a big run used to mark every panel in the refused batches failed. The
   refused work now stays queued and is resubmitted as earlier batches finish: after 5, 10 and 20 minutes, then every

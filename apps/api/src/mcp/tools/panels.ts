@@ -470,10 +470,10 @@ export const panelTools = [
     name: "run_panel_check",
     title: "Check panel artwork",
     description:
-      "Queue a vision consistency check of a panel's active artwork (expected cast and headcount; a PanelCheck). Asynchronous: returns a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the PanelCheck answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.",
+      "check: queue a vision consistency check of a panel's active artwork (expected cast and headcount; a PanelCheck). describe_guide: queue a vision description of the panel's layout guide (pose, figure placement, framing); the job's result.description.pose.summary is one sentence you can put into the panel's composition with update_panel `spec` once the user agrees. Both are asynchronous: they return a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.",
     input: z.object({
       panelId: Uuid,
-      action: z.enum(["check", "dismiss_review"]).default("check"),
+      action: z.enum(["check", "describe_guide", "dismiss_review"]).default("check"),
       ai: AiInput,
       batch: z.boolean().optional(),
     }),
@@ -482,18 +482,25 @@ export const panelTools = [
     scopesFor: (a) => (a.action === "dismiss_review" ? ["panels:write"] : ["generations:run"]),
     sensitivity: "spend",
     idempotent: false,
-    routes: ["POST /api/panels/:id/check", "POST /api/panels/:id/review/dismiss"],
-    actionKeys: ["panel.check", "panel.review_dismiss"],
+    routes: [
+      "POST /api/panels/:id/check",
+      "POST /api/panels/:id/guide/describe",
+      "POST /api/panels/:id/review/dismiss",
+    ],
+    actionKeys: ["panel.check", "panel.describe_guide", "panel.review_dismiss"],
     classify: async ({ panelId, action, ai }, ctx) => {
       const p = await projectOf(ctx, "panel", panelId);
       return action === "dismiss_review"
         ? cls("write", "panel.review_dismiss", p, "Clear the panel's review flag")
-        : cls(textSpend(ai, "write"), "panel.check", p, `Check the panel's artwork ${aiLabel(ai)}`);
+        : action === "describe_guide"
+          ? cls(textSpend(ai, "write"), "panel.describe_guide", p, `Describe the panel's layout guide ${aiLabel(ai)}`)
+          : cls(textSpend(ai, "write"), "panel.check", p, `Check the panel's artwork ${aiLabel(ai)}`);
     },
     handler: async ({ panelId, action, ai, batch }, ctx) => {
       if (action === "dismiss_review")
         return { data: await ctx.invoke("POST", `/api/panels/${panelId}/review/dismiss`) };
-      const r = await ctx.invoke<Jobbed>("POST", `/api/panels/${panelId}/check`, {
+      const path = action === "describe_guide" ? "guide/describe" : "check";
+      const r = await ctx.invoke<Jobbed>("POST", `/api/panels/${panelId}/${path}`, {
         body: { ai: await restAi(ctx, ai), batch },
       });
       return { data: { job: jobView(r.job) } };

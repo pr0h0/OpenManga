@@ -68,6 +68,13 @@ export const IMAGE_ASPECTS = [
     applies: null,
   },
   {
+    key: "pose",
+    label: "Pose & layout",
+    hint: "Each figure's pose and place in the frame, and the framing — from a sketch, in words a panel can use",
+    /** Applies to: a panel's composition (the layout guide's "Describe pose"). */
+    applies: null,
+  },
+  {
     key: "technique",
     label: "Medium & technique",
     hint: "Ink, watercolour, 3D, cel shading, screen tones, grain",
@@ -81,6 +88,10 @@ export const ImageAspect = z.enum(IMAGE_ASPECTS.map((a) => a.key) as [ImageAspec
 /** Free-standing aspects that have no entity to become; prose the user copies or pastes into a prompt. */
 const Prose = z.object({ summary: optStr, details: strList });
 export type Prose = z.infer<typeof Prose>;
+
+/** A sketch's layout in words: `summary` is the one line a panel's composition field takes as is. */
+export const PoseDescription = z.object({ summary: optStr, figures: strList, framing: optStr });
+export type PoseDescription = z.infer<typeof PoseDescription>;
 
 /**
  * Every field optional: the model is asked only for the aspects that were ticked, and a partial answer must
@@ -98,6 +109,7 @@ export const ImageDescription = z.object({
   mood: Prose.optional(),
   props: Prose.optional(),
   era: Prose.optional(),
+  pose: PoseDescription.optional(),
   technique: Prose.optional(),
   /** Answer to the caller's own instruction, when one was given. */
   custom: optStr,

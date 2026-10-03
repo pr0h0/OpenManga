@@ -5954,14 +5954,14 @@ list: a panel's artwork versions. activate: make an earlier version the panel's 
 
 ### run_panel_check
 
-Queue a vision consistency check of a panel's active artwork (expected cast and headcount; a PanelCheck). Asynchronous: returns a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the PanelCheck answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.
+check: queue a vision consistency check of a panel's active artwork (expected cast and headcount; a PanelCheck). describe_guide: queue a vision description of the panel's layout guide (pose, figure placement, framing); the job's result.description.pose.summary is one sentence you can put into the panel's composition with update_panel `spec` once the user agrees. Both are asynchronous: they return a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.
 
 - **Scopes:** `panels:write`, `generations:run` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** no
 - **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
-- **Approval action keys:** `panel.check`, `panel.review_dismiss`
-- **Wraps:** `POST /api/panels/:id/check`, `POST /api/panels/:id/review/dismiss`
+- **Approval action keys:** `panel.check`, `panel.describe_guide`, `panel.review_dismiss`
+- **Wraps:** `POST /api/panels/:id/check`, `POST /api/panels/:id/guide/describe`, `POST /api/panels/:id/review/dismiss`
 
 <details><summary>Input schema</summary>
 
@@ -5980,6 +5980,7 @@ Queue a vision consistency check of a panel's active artwork (expected cast and 
       "type": "string",
       "enum": [
         "check",
+        "describe_guide",
         "dismiss_review"
       ]
     },

@@ -90,7 +90,7 @@ Each is one image, in the kind picked on the location or prop page:
 | Prop | `prop_multi_angle` | Front, side, back and top views of the object in a row. |
 
 Panels send the primary (starred) approved reference, whatever its kind. When it is a panorama, a sheet or a
-multi-angle turnaround, the panel prompt (`panel-generation` v9) says so: use it for where things are and what they
+multi-angle turnaround, the panel prompt (`panel-generation` v10) says so: use it for where things are and what they
 look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
 
 **Generate all locations / props**, and **Generate all character references** on the Cast page, draw one reference
@@ -151,11 +151,25 @@ figures, the panel's art faintly underneath for tracing; the drawing is saved th
 (`null`).
 
 The guide goes after every identity, location, prop and style reference, so it never outranks them (identity comes
-from the character references), and before the previous panel, which stays last. It is sent as the same small
-derivative as the other references: a layout only needs shapes. The prompt says what it is ("Reference image N is a
-rough layout/pose sketch: …"): `loose` uses it as a guide and lets the panel description win where they differ,
-`strict` follows its composition, framing, camera angle and poses closely; both say to ignore its drawing style, line
-quality and any text in it. Generate and every Regenerate send it; masked edits do not (they keep the existing
+from the character references), and before the previous panel, which stays last.
+
+It is the one reference **not** sent as the small derivative: it gets its own cached variant, a lossless PNG fitting
+inside 1024 px (`GUIDE_REFERENCE` in `planner.ts`; never upscaled). A pose lives in thin strokes, and at the usual
+192 px box a stick figure's hands on hips shrank to an 806-byte smudge the written composition out-voted; a sketch
+compresses to a few kB as PNG anyway. Batch requests read the same recorded input, so they send it at the same size.
+
+The prompt says what it is twice. Right after the goal line, a `POSE / LAYOUT` section points at the sketch: in
+`strict` mode it says to copy each figure's pose, placement and the framing from it, and that where the written
+composition, action or story beat disagrees with it on those, the sketch wins (identity, outfits and the look still
+come from the references and descriptions); in `loose` mode it only says to start from the sketch, which the
+description may adjust. The reference list then repeats it ("Reference image N is a rough layout/pose sketch: …") with
+the instruction to ignore its drawing style, line quality and any text in it.
+
+**Describe pose** (`POST /api/panels/:id/guide/describe`, or `run_panel_check` with `action: "describe_guide"` over
+MCP) runs an `image_describe` job with the `pose` aspect on the guide: a vision model writes one plain sentence of
+poses, placement and framing (`description.pose.summary`). It is an ordinary queued text job (Generation lists it,
+it is priced and budget-gated, and paste mode works); the inspector shows the sentence for review and writes it into
+the panel's composition only when the user confirms, appended or replacing. Generate and every Regenerate send it; masked edits do not (they keep the existing
 composition). With a prompt override the image is still attached, but only the override's own text describes it.
 Every supported image provider accepts reference images, so no provider ignores it. Duplicating a panel or a project
 keeps it, and the interchange export and import carry it.

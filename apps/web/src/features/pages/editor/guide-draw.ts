@@ -113,4 +113,9 @@ export const commit = (h: History, d: Drawing): History => ({
 });
 export const undo = (h: History): History => ({ ...h, at: Math.max(0, h.at - 1) });
 export const redo = (h: History): History => ({ ...h, at: Math.min(h.stack.length - 1, h.at + 1) });
+/** A panel's composition after "Describe pose": the pose line added after what is there, or put in its place. */
+export const withPose = (composition: string, pose: string, mode: "append" | "replace") => {
+  const before = composition.trim().replace(/[.\s]+$/, "");
+  return mode === "replace" || !before ? pose.trim() : `${before}. ${pose.trim()}`;
+};
 export const isEmpty = (d: Drawing) => !d.base && !d.figures.length && !d.marks.some((m) => m.tool !== "eraser");

@@ -12,7 +12,14 @@ import {
   standingFigure,
   torso,
   undo,
+  withPose,
 } from "./guide-draw.ts";
+
+test("a described pose is appended after the composition or replaces it", () => {
+  expect(withPose("low angle, rain.", " hands on hips ", "append")).toBe("low angle, rain. hands on hips");
+  expect(withPose("", "hands on hips", "append")).toBe("hands on hips");
+  expect(withPose("low angle", "hands on hips", "replace")).toBe("hands on hips");
+});
 
 test("the canvas has the panel's shape with a 1024 px long side", () => {
   expect(canvasSize(2)).toEqual({ width: 1024, height: 512 });

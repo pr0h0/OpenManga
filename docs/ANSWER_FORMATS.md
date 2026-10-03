@@ -1920,6 +1920,30 @@ interface ImageDescription {
     details?: string[];
   };
   /**
+   * The layout of a sketch or pose drawing: each figure's pose and place in the frame, and the framing.
+   * Optional — may be left out.
+   */
+  pose?: {
+    /**
+     * One plain sentence a comic panel's composition can use as is: figures, placement, facing, pose, shot and angle.
+     * Optional — defaults to "" when left out.
+     * @example "one figure standing centred, full body, facing the viewer, hands on hips, feet shoulder-width apart, eye-level medium-wide shot"
+     */
+    summary?: string;
+    /**
+     * One entry per figure, left to right.
+     * Optional — defaults to [] when left out.
+     * @example ["standing centred, facing the viewer, hands on hips"]
+     */
+    figures?: string[];
+    /**
+     * Shot type, camera angle and how much of each figure is in frame.
+     * Optional — defaults to "" when left out.
+     * @example "eye-level medium-wide shot, whole figure in frame"
+     */
+    framing?: string;
+  };
+  /**
    * The apparent medium and process.
    * Optional — may be left out.
    */
@@ -2078,6 +2102,13 @@ interface ImageDescription {
       "oilskin workwear",
       "paraffin lamp in the lantern room"
     ]
+  },
+  "pose": {
+    "summary": "one figure standing centred, full body, facing the viewer, hands on hips, feet shoulder-width apart, eye-level medium-wide shot",
+    "figures": [
+      "standing centred, facing the viewer, hands on hips"
+    ],
+    "framing": "eye-level medium-wide shot, whole figure in frame"
   },
   "technique": {
     "summary": "Digital ink with flat colour and a light paper grain.",

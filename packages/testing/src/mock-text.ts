@@ -378,6 +378,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "story-rewrite": "story-rewrite-v1",
     "json-repair": "json-repair-v1",
     "panel-check": "panel-check-v1",
+    "image-describe": "image-describe-v1",
     "expert-chat": "expert-chat-v1",
     "expert-concept": "expert-concept-v1",
     "expert-premise": "expert-premise-v1",
@@ -505,6 +506,21 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     }
     case "story-rewrite-v1":
       return mockRewrite(story, extractTagged(user, "editor_instruction")[0] ?? "");
+    case "image-describe-v1":
+      // The overview always; a pose only when it was asked for, so a test sees the aspect reach the prompt.
+      return {
+        overview: "A mock description of the image.",
+        ...(/^\d+\. pose:/m.test(user)
+          ? {
+              pose: {
+                summary:
+                  "one figure standing centred, full body, facing the viewer, hands on hips, feet shoulder-width apart, eye-level medium-wide shot",
+                figures: ["standing centred, facing the viewer, hands on hips"],
+                framing: "eye-level medium-wide shot, whole figure in frame",
+              },
+            }
+          : {}),
+      };
     case "json-repair-v1": {
       const raw = data[0] as unknown;
       return raw ?? {};

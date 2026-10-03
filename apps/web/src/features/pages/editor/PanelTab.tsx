@@ -23,6 +23,7 @@ import { useAiBody } from "../../ai/AiPicker.tsx";
 import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
+import { DescribePose } from "./DescribePose.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
 import { useEditor } from "./store.ts";
@@ -166,6 +167,11 @@ export function PanelTab({
   const saveSpec = useAction(() => put(`/panels/${panel.id}/spec`, { spec }), {
     invalidate: inv,
     success: "Panel spec saved",
+  });
+  // The pose line from the layout guide: saved with the spec as it now stands, once the user confirmed it.
+  const saveSpecAs = useAction((s: PanelSpec) => put(`/panels/${panel.id}/spec`, { spec: s }), {
+    invalidate: [...inv, ["prompt-preview", panel.id]],
+    success: "Composition updated from the sketch",
   });
   const patchPanel = useAction((body: Record<string, unknown>) => patch(`/panels/${panel.id}`, body), {
     invalidate: inv,
@@ -594,6 +600,12 @@ export function PanelTab({
         locked={locked}
         aspect={(panel.frame.width * data.page.width) / (panel.frame.height * data.page.height)}
         invalidate={[...inv, ["prompt-preview", panel.id]]}
+        composition={spec.composition ?? ""}
+        onComposition={(composition) => {
+          const next = { ...spec, composition };
+          setSpec(next);
+          saveSpecAs.mutate(next);
+        }}
       />
 
       <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
@@ -657,11 +669,15 @@ function LayoutGuide({
   locked,
   aspect,
   invalidate,
+  composition,
+  onComposition,
 }: {
   panel: EditorPanel;
   locked: boolean;
   aspect: number;
   invalidate: readonly (readonly unknown[])[];
+  composition: string;
+  onComposition: (composition: string) => void;
 }) {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
@@ -756,6 +772,7 @@ function LayoutGuide({
           </select>
         </Field>
       )}
+      {g && <DescribePose panelId={panel.id} composition={composition} disabled={locked} onApply={onComposition} />}
       {drawing && (
         <GuideDrawer
           panelId={panel.id}

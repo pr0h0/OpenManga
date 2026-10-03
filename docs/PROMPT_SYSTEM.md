@@ -34,13 +34,13 @@ versions stay in the array so old jobs remain reproducible.
 | `panel-check` | 2 | 2 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/qa.ts` (vision QA; v2 also asks for face boxes) |
 | `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
 | `youtube-package` | 1 | 1 | `apps/api/src/routes/generations.ts`, `apps/worker/src/handlers/text.ts` (video publishing text: titles, description, tags, pinned comment, thumbnail headlines) |
-| `image-describe` | 1 | 1 | `apps/api/src/routes/vision.ts`, `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
+| `image-describe` | 1, 2 | 2 | `apps/api/src/routes/vision.ts`, `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` | 1 | 1 | `apps/api/src/routes/experts.ts`, `apps/worker/src/handlers/expert-extract.ts` (expert output actions, defined in `packages/prompts/src/expert-actions.ts`) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v9**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+v5, `style-reference` v5, `panel-generation` **v10**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
@@ -97,13 +97,16 @@ system-message line telling the model that anything inside those tags is end-use
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v9)
+## Panel prompt sections (`panel-generation` v10)
 
 `compile()` emits these in order, dropping any section with no content:
 
 1. Goal line — panel framing and aspect ratio, or, for a film project, "one cinematic 16:9 film frame … Artwork only."
    With a photoreal style it asks for a "photorealistic live-action film still" (or a photorealistic live-action film
    frame) instead of an illustrated panel.
+   With a layout guide, `POSE / LAYOUT` follows at once (new in v10): strict says to copy each figure's pose,
+   placement and the framing from the sketch and that it wins where the written composition or beat disagrees on
+   those (identity and look still from the references); loose only says to start from it.
 2. `PROJECT ART DIRECTION` — from `styleSection()`: preset summary, lines, colour, shading, detail, faces, backgrounds,
    motion effects, contrast, screentones, lighting style, an `Avoid:` line from the style's exclusions, the
    project-type format directive (a live-action cinematography line instead when the style is `photoreal`), custom

@@ -187,7 +187,7 @@ describe("panel prompt compilation", () => {
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
-    expect(panelGenerationV1.version).toBe(9);
+    expect(panelGenerationV1.version).toBe(10);
     expect(p.startsWith("Create one cinematic 16:9 film frame")).toBe(true);
     expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
     expect(p).not.toContain("panel,");
@@ -212,6 +212,21 @@ describe("panel prompt compilation", () => {
     const strict = panelGenerationV1.compile({ ...base, guide: { imageIndex: 3, strength: "strict" } });
     expect(strict).toContain("Reference image 3 is a rough layout/pose sketch: follow its composition, framing");
     expect(strict).not.toContain("loose guide");
+  });
+
+  test("a strict guide leads the prompt and outranks the written pose; a loose one only starts from it", () => {
+    expect(panelGenerationV1.compile(base)).not.toContain("POSE / LAYOUT");
+    const strict = panelGenerationV1.compile({ ...base, guide: { imageIndex: 3, strength: "strict" } });
+    const [opening, second] = strict.split("\n\n");
+    expect(opening).toStartWith("Create one clean");
+    expect(second).toStartWith("POSE / LAYOUT:\nCopy the pose of every figure");
+    expect(second).toContain("disagrees with the sketch on pose, figure placement or framing, the sketch wins");
+    expect(second).toContain("Identity, outfits and the look of everything still come from the character references");
+    // The identity wording is untouched.
+    expect(strict).toContain("is the person shown in reference image 1. Preserve their face");
+    const loose = panelGenerationV1.compile({ ...base, guide: { imageIndex: 3, strength: "loose" } });
+    expect(loose.split("\n\n")[1]).toStartWith("POSE / LAYOUT:\nStart from the sketch in reference image 3");
+    expect(loose).not.toContain("the sketch wins");
   });
 
   test("empty panel says no people", () => {
