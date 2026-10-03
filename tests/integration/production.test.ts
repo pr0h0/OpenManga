@@ -1,5 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { audioJobs, eq, exportJobs, narrationSegments, productionRuns, users } from "@openmanga/db";
+import {
+  and,
+  audioJobs,
+  eq,
+  exportJobs,
+  generationJobs,
+  narrationSegments,
+  productionRuns,
+  sql,
+  users,
+} from "@openmanga/db";
 import { advanceRun, batchModes } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -323,6 +333,62 @@ describe("production runs", () => {
     );
     expect(progress.totals.withAudio).toBe(progress.totals.segments);
   }, 400_000);
+
+  test("a run is advanced by one holder of its lease at a time, and an expired lease is taken over", async () => {
+    const p = await u.post<{ project: { id: string } }>("/api/projects", { title: "Lease" }, 201);
+    const projectId = p.project.id;
+    const { db } = h.deps;
+    const [me] = await db.select().from(users).where(eq(users.username, "prod"));
+    const newRun = async () =>
+      (
+        await db
+          .insert(productionRuns)
+          .values({
+            projectId,
+            userId: me!.id,
+            options: { reviewGates: false, preparePrompts: false, render: false, youtube: false },
+            steps: [{ key: "thumbnail", status: "pending" }],
+          })
+          .returning()
+      )[0]!;
+    const thumbnailJobs = async () =>
+      (
+        await db
+          .select({ id: generationJobs.id })
+          .from(generationJobs)
+          .where(and(eq(generationJobs.projectId, projectId), eq(generationJobs.kind, "thumbnail")))
+      ).length;
+
+    // Two processes advance the same run at once: the thumbnail is queued once, and the lease is released after.
+    const run = await newRun();
+    await Promise.all([advanceRun(h.deps, run.id, "process-a"), advanceRun(h.deps, run.id, "process-b")]);
+    expect(await thumbnailJobs()).toBe(1);
+    const [after] = await db.select().from(productionRuns).where(eq(productionRuns.id, run.id));
+    expect(after!.steps[0]!.status).toBe("running");
+    expect(after!.leaseOwner).toBeNull();
+    await u.post(`/api/production-runs/${run.id}/cancel`, {});
+
+    // A live lease held elsewhere keeps others out; once it has expired (its holder died), another takes over.
+    const second = await newRun();
+    await db
+      .update(productionRuns)
+      .set({ leaseOwner: "process-a", leaseUntil: sql`now() + interval '1 minute'` })
+      .where(eq(productionRuns.id, second.id));
+    await advanceRun(h.deps, second.id, "process-b");
+    const [held] = await db.select().from(productionRuns).where(eq(productionRuns.id, second.id));
+    expect(held!.steps[0]!.status).toBe("pending");
+    expect(held!.leaseOwner).toBe("process-a");
+    await db
+      .update(productionRuns)
+      .set({ leaseUntil: sql`now() - interval '1 second'` })
+      .where(eq(productionRuns.id, second.id));
+    await advanceRun(h.deps, second.id, "process-b");
+    const [taken] = await db.select().from(productionRuns).where(eq(productionRuns.id, second.id));
+    // Started (or skipped, if the first run's thumbnail has landed by now): either way, advanced.
+    expect(["running", "skipped"]).toContain(taken!.steps[0]!.status);
+    expect(taken!.leaseOwner).toBeNull();
+    await u.post(`/api/production-runs/${second.id}/cancel`, {});
+  });
 
   test("the batch policy only batches keys whose provider has a batch API", async () => {
     const key = async (kind: string) =>

@@ -569,4 +569,6 @@ prompts → generate missing artwork → write narration → synthesize narratio
   finish, and the stopped run acts on nothing they return. `{ "jobs": false }` stops the run only. An active run's
   `pendingJobs` says how many jobs stopping it would cancel; the card's Stop dialog shows it.
 
-The API process advances running runs every 10 seconds; one project has at most one active run.
+The API process advances running runs every 10 seconds; one project has at most one active run. A pass holds a
+lease on the run's row (`lease_owner`, `lease_until`), so two API processes never advance the same run at once, and an
+expired lease (its holder died) is taken over.
