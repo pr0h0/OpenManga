@@ -158,6 +158,13 @@ export const chapters = pgTable(
     beats: jsonb("beats").$type<string[]>().notNull().default([]),
     lastPlan: jsonb("last_plan").$type<ChapterPlan>(),
     planStatus: approvalStatus("plan_status").notNull().default("draft"),
+    /**
+     * md5 of the chapter text its plan was made from, and of the text and panels its narration was written from
+     * (`planSourceFingerprint` / `narrationSourceFingerprint` in packages/services): a current fingerprint that
+     * differs means the plan or narration is out of date. Null: never planned or written by the pipeline.
+     */
+    planFingerprint: text("plan_fingerprint"),
+    narrationFingerprint: text("narration_fingerprint"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

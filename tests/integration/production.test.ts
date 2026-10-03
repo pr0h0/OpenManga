@@ -48,6 +48,7 @@ const until = (projectId: string, want: string[]) =>
       const run = runs[0]!;
       if (want.includes(run.status)) return run;
       if (run.status === "failed") throw new Error(`run failed: ${run.reason}`);
+      if (run.status === "waiting") throw new Error(`run waiting unexpectedly: ${run.reason}`);
       await advanceRun(h.deps, run.id);
       return null;
     },
@@ -101,9 +102,11 @@ describe("production runs", () => {
       "apply",
       "references",
       "review_references",
+      "review_plans",
       "plan",
       "prompts",
       "art",
+      "review_narration",
       "narration",
       "audio",
       "thumbnail",
@@ -187,7 +190,7 @@ describe("production runs", () => {
     type Diff = {
       hasExisting: boolean;
       chapters: {
-        kept: { id: string; pages: number }[];
+        kept: { id: string; pages: number; textChanged: boolean }[];
         added: { title: string; position: number }[];
         renamed: unknown[];
         removed: unknown[];
@@ -201,6 +204,15 @@ describe("production runs", () => {
     expect(diff.chapters.removed).toEqual([]);
 
     // Continue: the analysis is applied keeping everything, and the run carries on to plan and draw the new chapter.
+    await u.post(`/api/production-runs/${run.id}/continue`);
+    // The analysis moved the next chapter's heading into this chapter's text (the diff said so: textChanged), so the
+    // run asks whether to keep its pages or re-plan it rather than re-planning it on its own.
+    expect(diff.chapters.kept[0]).toMatchObject({ textChanged: true });
+    const asked = await until(projectId, ["waiting"]);
+    expect(asked.steps.find((s) => s.status === "review")?.key).toBe("review_plans");
+    const { stalePlans } = await u.get<{ stalePlans: { chapterId: string }[] }>(`/api/projects/${projectId}/staleness`);
+    expect(stalePlans.map((c) => c.chapterId)).toEqual([first.id]);
+    await u.post(`/api/chapters/${first.id}/keep`, { stage: "plan" });
     await u.post(`/api/production-runs/${run.id}/continue`);
     const done = await until(projectId, ["completed"]);
     expect(done.id).toBe(run.id);
@@ -251,6 +263,9 @@ describe("production runs", () => {
     const { chapters } = await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`);
     const { panels } = await u.get<{ panels: { id: string }[] }>(`/api/chapters/${chapters[0]!.id}/panels`);
     expect(panels.length).toBeGreaterThan(1);
+    // The re-analyses above changed chapter texts; keep their plans, this test is about the art.
+    const { stalePlans } = await u.get<{ stalePlans: { chapterId: string }[] }>(`/api/projects/${projectId}/staleness`);
+    for (const c of stalePlans) await u.post(`/api/chapters/${c.chapterId}/keep`, { stage: "plan" });
     // Two panels edited after they were drawn; the provider refuses one of them.
     for (const [i, pn] of panels.slice(0, 2).entries()) {
       const { specs } = await u.get<{ specs: { spec: Record<string, unknown> }[] }>(`/api/panels/${pn.id}`);
@@ -389,6 +404,81 @@ describe("production runs", () => {
     expect(taken!.leaseOwner).toBeNull();
     await u.post(`/api/production-runs/${second.id}/cancel`, {});
   });
+
+  test("a chapter whose text changed after planning is never re-planned on its own: the run asks, keep or re-plan", async () => {
+    const projectId = await produce("Changed text");
+    type Stale = { chapterId: string; pages: number; drawnPanels: number };
+    const staleness = () =>
+      u.get<{ stages: { key: string; count: number }[]; stalePlans: Stale[]; staleNarration: Stale[] }>(
+        `/api/projects/${projectId}/staleness`,
+      );
+    const count = async (key: string) => (await staleness()).stages.find((s) => s.key === key)!.count;
+    // Planned and narrated by the run: up to date.
+    expect(await count("plan")).toBe(0);
+    expect(await count("narration")).toBe(0);
+    const { chapters } = await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`);
+    const chapterId = chapters[0]!.id;
+    const pageIds = async () =>
+      (await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`)).pages.map((p) => p.id);
+    const before = await pageIds();
+
+    // The writer edits the chapter's text: its plan is now out of date (the narration is written from the panels).
+    await u.patch(`/api/chapters/${chapterId}`, {
+      sourceExcerpt: `${STORY}\nWoo Jin sheathed the sword and walked to the edge of the roof.`,
+    });
+    const s1 = await staleness();
+    expect(s1.stalePlans).toMatchObject([{ chapterId, pages: before.length }]);
+    expect(s1.staleNarration).toEqual([]);
+    expect(await count("plan")).toBe(1);
+
+    // Update production stops at a review listing it instead of re-planning it.
+    const { run } = await u.post<{ run: Run }>(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, render: false, youtube: false },
+      201,
+    );
+    expect(run.steps[0]!.key).toBe("review_plans");
+    let r = await until(projectId, ["waiting"]);
+    expect(r.steps.find((s) => s.status === "review")?.key).toBe("review_plans");
+    // Keep: the plan is current again, and nothing was replaced.
+    await u.post(`/api/chapters/${chapterId}/keep`, { stage: "plan" });
+    expect((await staleness()).stalePlans).toEqual([]);
+    await u.post(`/api/production-runs/${run.id}/continue`);
+    r = await until(projectId, ["completed"]);
+    expect(await pageIds()).toEqual(before);
+    expect(await count("plan")).toBe(0);
+
+    // A panel edited after the narration was written: the narration is out of date, and an update asks the same way.
+    const { panels } = await u.get<{ panels: { id: string }[] }>(`/api/chapters/${chapterId}/panels`);
+    const { specs } = await u.get<{ specs: { spec: Record<string, unknown> }[] }>(`/api/panels/${panels[0]!.id}`);
+    await u.put(`/api/panels/${panels[0]!.id}/spec`, { spec: { ...specs[0]!.spec, beat: "Woo Jin turns away." } });
+    expect((await staleness()).staleNarration).toMatchObject([{ chapterId }]);
+    const again = await u.post<{ run: Run }>(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, preparePrompts: false, render: false, youtube: false },
+      201,
+    );
+    r = await until(projectId, ["waiting"]);
+    expect(r.steps.find((s) => s.status === "review")?.key).toBe("review_narration");
+    await u.post(`/api/chapters/${chapterId}/keep`, { stage: "narration" });
+    expect(await count("narration")).toBe(0);
+    await u.post(`/api/production-runs/${again.run.id}/continue`);
+    await until(projectId, ["completed"]);
+
+    // Re-plan: the chapter plan route with replace=true replaces the pages and records the new fingerprint.
+    await u.patch(`/api/chapters/${chapterId}`, { sourceExcerpt: `${STORY}\nThe rain stopped.` });
+    expect((await staleness()).stalePlans).toHaveLength(1);
+    const plan = await u.post<{ job: { id: string } }>(`/api/chapters/${chapterId}/plan`, { replace: true }, 202);
+    await waitFor(
+      async () =>
+        (await u.get<{ job: { status: string } }>(`/api/generations/${plan.job.id}`)).job.status === "completed",
+      { label: "re-plan", timeoutMs: 60_000 },
+    );
+    const after = await pageIds();
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.some((id) => before.includes(id))).toBe(false);
+    expect((await staleness()).stalePlans).toEqual([]);
+  }, 400_000);
 
   test("the batch policy only batches keys whose provider has a batch API", async () => {
     const key = async (kind: string) =>

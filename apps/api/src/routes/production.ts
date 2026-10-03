@@ -89,13 +89,13 @@ doc({
   method: "GET",
   path: "/api/projects/:projectId/staleness",
   summary:
-    "What is out of date along story → plan → prompts → art → narration → audio → render, stage by stage (count and a note). Start an update with POST production-runs { update: true }.",
+    "What is out of date along story → plan → prompts → art → narration → audio → render, stage by stage (count and a note), plus stalePlans (chapters with pages whose text changed after planning) and staleNarration (chapters whose text or panels changed after their narration was written), each with its page, panel, drawn-panel and narration-line counts. Start an update with POST production-runs { update: true }; resolve a chapter with POST /api/chapters/:id/keep or by re-planning it.",
   tag: "production",
 });
 productionRoutes.get("/projects/:projectId/staleness", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
-  const { stages, staleArt } = await pipelineStaleness(c.get("deps").db, p);
-  return c.json({ stages, staleArtPanels: staleArt.length });
+  const { stages, staleArt, stale } = await pipelineStaleness(c.get("deps").db, p);
+  return c.json({ stages, staleArtPanels: staleArt.length, stalePlans: stale.plans, staleNarration: stale.narration });
 });
 
 doc({

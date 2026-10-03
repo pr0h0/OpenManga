@@ -25,6 +25,7 @@ import {
   pipelineStaleness,
   revisedStory,
   staleAudioFrom,
+  staleChapters,
 } from "@openmanga/services";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
@@ -55,9 +56,11 @@ const STAGE_OF: Partial<Record<(typeof STEPS)[number], PipelineStage>> = {
   apply: "story",
   references: "story",
   review_references: "story",
+  review_plans: "plan",
   plan: "plan",
   prompts: "prompts",
   art: "art",
+  review_narration: "narration",
   narration: "narration",
   audio: "audio",
   review_render: "render",
@@ -72,9 +75,11 @@ const STEPS = [
   "apply",
   "references",
   "review_references",
+  "review_plans",
   "plan",
   "prompts",
   "art",
+  "review_narration",
   "narration",
   "audio",
   "thumbnail",
@@ -90,9 +95,11 @@ export const STEP_LABELS: Record<(typeof STEPS)[number], string> = {
   apply: "Apply the analysis",
   references: "Draw references",
   review_references: "Review the references",
+  review_plans: "Chapters changed since they were planned",
   plan: "Plan every chapter",
   prompts: "Prepare panel prompts",
   art: "Generate missing artwork",
+  review_narration: "Narration written before its chapter changed",
   narration: "Write narration",
   audio: "Synthesize narration",
   thumbnail: "Video thumbnail",
@@ -114,7 +121,9 @@ export function initialSteps(o: RunOptions, stale: PipelineStage[] = []): Produc
       const stage = STAGE_OF[k];
       if (!stage || PIPELINE_STAGES.indexOf(stage) < from) return false;
     }
-    if (k === "review_analysis") return true;
+    // Decisions only a person can make: a re-analysis to apply, and plans or narration made from text that has
+    // changed since (redoing them replaces pages and artwork, or the narration). Skipped when there is nothing to decide.
+    if (k === "review_analysis" || k === "review_plans" || k === "review_narration") return true;
     if (k.startsWith("review_")) return o.reviewGates && (k !== "review_render" || o.render);
     if (k === "prompts") return o.preparePrompts;
     if (k === "render") return o.render;
@@ -308,12 +317,23 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
       note: "Approve the references you want kept (Cast and World pages); unapproved ones do not pin identity.",
     };
   },
+  async review_plans(x) {
+    const { plans } = await staleChapters(x.deps.db, x.project);
+    if (!plans.length) return { status: "skipped" };
+    return {
+      status: "review",
+      note: `${plans.length} chapter(s) changed after they were planned. For each, keep the current pages or re-plan it (re-planning replaces its pages and artwork); continue when done. Chapters left undecided keep their pages.`,
+    };
+  },
   async plan(x) {
     const todo = (await chapterRows(x)).filter((c) => c.pages === 0);
     const out = await each(todo, async (c) => {
       const r = await x.call<{ job: { id: string } }>("POST", `/api/chapters/${c.id}/plan`, text(x));
       return [r.job.id];
     });
+    // Re-plans the person asked for at the review are waited for like the run's own, so nothing is drawn on pages
+    // that are about to be replaced.
+    out.jobIds.push(...(await inFlight(x, "chapter_plan")));
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
   async prompts(x) {
@@ -355,12 +375,21 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     }
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
+  async review_narration(x) {
+    const { narration } = await staleChapters(x.deps.db, x.project);
+    if (!narration.length) return { status: "skipped" };
+    return {
+      status: "review",
+      note: `${narration.length} chapter(s) changed after their narration was written. For each, keep the narration or write it again (which replaces it); continue when done.`,
+    };
+  },
   async narration(x) {
     const todo = (await chapterRows(x)).filter((c) => c.panels > 0 && c.lines === 0);
     const out = await each(todo, async (c) => {
       const r = await x.call<{ job: { id: string } }>("POST", `/api/chapters/${c.id}/narration/generate`, text(x));
       return [r.job.id];
     });
+    out.jobIds.push(...(await inFlight(x, "narration_text")));
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
   async audio(x) {
@@ -415,6 +444,21 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     return { status: "running", exportJobId: r.job.id };
   },
 };
+
+/** The project's jobs of this kind still in flight (e.g. a re-plan the person started at a review). */
+async function inFlight(x: Ctx, kind: "chapter_plan" | "narration_text") {
+  const rows = await x.deps.db
+    .select({ id: generationJobs.id })
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.projectId, x.project.id),
+        eq(generationJobs.kind, kind),
+        inArray(generationJobs.status, ["queued", "submitted", "processing", "paused", "awaiting_input"]),
+      ),
+    );
+  return rows.map((r) => r.id);
+}
 
 async function hasChapters(x: Ctx) {
   const [n] = await x.deps.db

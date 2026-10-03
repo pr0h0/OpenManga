@@ -54,6 +54,7 @@ import {
   stripPageHeight,
 } from "@openmanga/schemas";
 import { outfitNamedIn, outfitTimeline } from "./outfits.ts";
+import { recordNarrationFingerprint, recordPlanFingerprint } from "./staleness.ts";
 
 const slug = (s: string) =>
   s
@@ -800,6 +801,10 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
         planStatus: "draft",
       })
       .where(eq(chapters.id, chapterId));
+    // After the update: with no source excerpt the plan's summary is what a later plan would read. The plan writes
+    // the panels' narration with them, so that is current too.
+    await recordPlanFingerprint(tx, chapterId);
+    await recordNarrationFingerprint(tx, chapterId);
     return { applied: true, pages: pageOrder, panels: panelCount };
   });
 }

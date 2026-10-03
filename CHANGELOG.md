@@ -7,10 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: five migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
+Upgrading: six migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
 story bible's two tables, `0030_production_run_lease` two nullable columns to `production_runs`,
-`0031_continuity_findings` the continuity findings, and `0032_narration_findings` a table for narration QA
-findings.
+`0031_continuity_findings` the continuity findings, `0032_narration_findings` a table for narration QA findings, and
+`0033_chapter_source_fingerprints` two columns to `chapters`, filled for chapters already planned or narrated so
+nothing becomes out of date on upgrade.
 
 ### Added
 
@@ -83,6 +84,15 @@ findings.
   `cancel_production_run` MCP tool).
 
 ### Fixed
+
+- **Plans and narration go out of date when what they were made from changes.** A chapter whose text changed after it
+  was planned counted as up to date (staleness only looked for chapters without pages), so Update production skipped
+  it; the same for narration whose panels changed. Chapters now record a fingerprint of what their plan and narration
+  were made from, and *What is out of date* counts the ones that differ. Update production never re-plans a chapter
+  that has pages on its own: it stops at a review listing them, where each is kept (**Keep current**) or redone
+  (**Re-plan** / **Write again**, saying how many pages, drawn panels or lines that replaces), and the Story page offers
+  the same choice after a revised story is applied. Agents get `stalePlans` / `staleNarration` from `get_staleness`
+  and the new `keep_stale_chapter` tool; `POST /api/chapters/:id/keep` is the route.
 
 - **Production runs are safe with several API processes.** A run was guarded against two passes at once by an
   in-memory set, so two `api` replicas (or a stale process) could advance the same run twice and queue its work

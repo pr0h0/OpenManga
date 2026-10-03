@@ -2,7 +2,7 @@ import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes,
 import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
 import { chapterPlanningV7, shotPlanningV4, stripPlanningV3 } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
-import { recordAudit } from "@openmanga/services";
+import { recordAudit, recordNarrationFingerprint, recordPlanFingerprint } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -385,6 +385,33 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
   if (batchId) await queueTextBatchSubmit(c, { projectId: p.id, batchId, ai: input.ai });
   await deps.jobs.kick();
   return c.json({ job }, 202);
+});
+
+const KeepInput = z.object({ stage: z.enum(["plan", "narration"]) });
+doc({
+  method: "POST",
+  path: "/api/chapters/:id/keep",
+  summary:
+    "Keep a chapter's plan (stage=plan) or narration (stage=narration) as it is although what it was made from changed: records the current source fingerprint, so it is no longer out of date. Re-planning instead is POST /api/chapters/:id/plan { replace: true }, and rewriting narration POST /api/chapters/:id/narration/generate { replace: true }.",
+  tag: "chapters",
+  body: KeepInput,
+});
+chapterRoutes.post("/chapters/:id/keep", async (c) => {
+  const id = uuidParam(c, "id");
+  const p = await entityAccess(c, "chapter", id, "write");
+  const { stage } = await body(c, KeepInput);
+  const { db } = c.get("deps");
+  await (stage === "plan" ? recordPlanFingerprint(db, id) : recordNarrationFingerprint(db, id));
+  await recordAudit(db, {
+    userId: user(c).id,
+    projectId: p.id,
+    action: `chapter.keep_${stage}`,
+    targetType: "chapter",
+    targetId: id,
+    metadata: {},
+    requestId: c.get("requestId"),
+  });
+  return c.json({ ok: true });
 });
 
 export const SceneInput = z.object({
