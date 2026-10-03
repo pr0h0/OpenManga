@@ -1,5 +1,11 @@
 import { and, desc, eq, inArray, productionRuns, projects, sql } from "@openmanga/db";
-import { pipelineStaleness, publishingStaleness, recordAudit, youtubeSourceFingerprint } from "@openmanga/services";
+import {
+  pipelineStaleness,
+  projectReadiness,
+  publishingStaleness,
+  recordAudit,
+  youtubeSourceFingerprint,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv, Deps } from "../context.ts";
@@ -7,7 +13,7 @@ import { projectAccess } from "../lib/access.ts";
 import { AiChoiceInput } from "../lib/ai.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
-import { advanceRun, cancelRunWork, initialSteps, pendingWork, STEP_LABELS } from "../lib/production.ts";
+import { advanceRun, cancelRunWork, FAILED_CHECK, initialSteps, pendingWork, STEP_LABELS } from "../lib/production.ts";
 
 export const productionRoutes = new Hono<AppEnv>();
 
@@ -102,6 +108,132 @@ productionRoutes.get("/projects/:projectId/staleness", async (c) => {
     stalePlans: stale.plans,
     staleNarration: stale.narration,
     publishing: await publishingStaleness(db, p),
+  });
+});
+
+/** One line of the health report: what, how many, whether it stops the project being ready, and where it is fixed. */
+type HealthItem = {
+  key: string;
+  label: string;
+  count: number;
+  /** "block": the project is not ready to publish while it stands; "info": worth knowing. The label says how many. */
+  severity: "block" | "info";
+  /** An in-app path under the project (and search params) where it is dealt with. */
+  link: { to: string; search?: Record<string, string> };
+};
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/health",
+  summary:
+    "Project health in one report: a verdict (ready to publish, or how many blocking issues), and items each with a count, a severity (block or info) and where to fix it: export readiness (artwork, narration, audio), the video, failed visual checks, what is out of date (stages, changed chapters, YouTube text and thumbnail), unfinished and failed generation, open comments, spend against the budget and disk use.",
+  tag: "production",
+});
+productionRoutes.get("/projects/:projectId/health", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const { db } = c.get("deps");
+  const [staleness, readiness, publishing] = await Promise.all([
+    pipelineStaleness(db, p),
+    projectReadiness(db, p.id),
+    publishingStaleness(db, p),
+  ]);
+  const [n] = await db.execute<{
+    active: number;
+    failed: number;
+    audio_active: number;
+    exports_active: number;
+    comments: number;
+    checks: number;
+    spend: number;
+    disk: number;
+  }>(sql`select
+    (select count(*)::int from generation_jobs where project_id = ${p.id}
+      and status in ('queued', 'submitted', 'processing', 'paused', 'awaiting_input')) as active,
+    (select count(*)::int from generation_jobs where project_id = ${p.id} and status = 'failed'
+      and retried_by_job_id is null) as failed,
+    (select count(*)::int from audio_jobs where project_id = ${p.id} and status in ('queued', 'processing')) as audio_active,
+    (select count(*)::int from export_jobs where project_id = ${p.id} and status in ('queued', 'processing')) as exports_active,
+    (select count(*)::int from panel_comments where project_id = ${p.id} and thread_id is null
+      and resolved_at is null and deleted_at is null) as comments,
+    (select count(*)::int from panels pn where pn.project_id = ${p.id} and ${FAILED_CHECK}) as checks,
+    (select coalesce(sum(estimated_cost_usd), 0)::float from ai_usage where project_id = ${p.id}) as spend,
+    (select coalesce(sum(a.byte_size), 0)::float8 from assets a where a.project_id = ${p.id})
+      + (select coalesce(sum(v.byte_size), 0)::float8 from asset_variants v join assets a on a.id = v.asset_id
+        where a.project_id = ${p.id}) as disk`);
+  const stage = (k: string) => staleness.stages.find((s) => s.key === k)!;
+  const items: HealthItem[] = [
+    // What an export would ship incomplete: the same checks as Exports' readiness, blocking ones first.
+    ...readiness.issues.map((i) => ({
+      key: `readiness.${i.code}${i.chapterId ? `.${i.chapterId}` : ""}`,
+      label: `${i.chapterLabel ? `${i.chapterLabel}: ` : ""}${i.message}`,
+      count: i.count,
+      severity: i.severity,
+      link:
+        i.area === "art"
+          ? {
+              to: "/projects/$projectId/storyboard",
+              search: { ...(i.chapterId ? { chapterId: i.chapterId } : {}), filter: "noArt" },
+            }
+          : { to: "/projects/$projectId/narration", search: i.chapterId ? { chapterId: i.chapterId } : undefined },
+    })),
+    {
+      key: "video",
+      label: stage("render").note,
+      count: stage("render").count,
+      severity: "block",
+      link: { to: "/projects/$projectId/exports" },
+    },
+    {
+      key: "checks",
+      label: `${n?.checks ?? 0} panel(s) whose artwork failed a visual check`,
+      count: n?.checks ?? 0,
+      severity: "block",
+      link: { to: "/projects/$projectId/storyboard", search: { filter: "mismatch" } },
+    },
+    ...staleness.stages
+      .filter((s) => s.key !== "render")
+      .map((s) => ({
+        key: `stale.${s.key}`,
+        label: `Out of date (${s.key}): ${s.key === "story" ? s.note : `${s.count} — ${s.note}`}`,
+        count: s.count,
+        severity: "info" as const,
+        link: { to: s.key === "story" ? "/projects/$projectId/story" : "/projects/$projectId" },
+      })),
+    ...publishing.map((f) => ({
+      key: `publishing.${f.key}`,
+      label: `${f.key === "youtube_text" ? "YouTube text" : "Thumbnail headline"} may be out of date: ${f.reasons.join("; ")}`,
+      count: f.stale ? 1 : 0,
+      severity: "info" as const,
+      link: { to: "/projects/$projectId" },
+    })),
+    {
+      key: "generation.active",
+      label: `${(n?.active ?? 0) + (n?.audio_active ?? 0) + (n?.exports_active ?? 0)} job(s) still queued or running (generation, narration audio, exports)`,
+      count: (n?.active ?? 0) + (n?.audio_active ?? 0) + (n?.exports_active ?? 0),
+      severity: "info",
+      link: { to: "/projects/$projectId/generation" },
+    },
+    {
+      key: "generation.failed",
+      label: `${n?.failed ?? 0} failed generation job(s) not retried`,
+      count: n?.failed ?? 0,
+      severity: "info",
+      link: { to: "/projects/$projectId/generation" },
+    },
+    {
+      key: "comments",
+      label: `${n?.comments ?? 0} open comment thread(s)`,
+      count: n?.comments ?? 0,
+      severity: "info",
+      link: { to: "/projects/$projectId/comments" },
+    },
+  ];
+  const blocking = items.filter((i) => i.severity === "block" && i.count > 0).length;
+  return c.json({
+    verdict: { ready: blocking === 0, blocking },
+    items: items.filter((i) => i.count > 0),
+    spend: { usd: n?.spend ?? 0, budgetUsd: p.settings.budgetUsd ?? null },
+    disk: { totalBytes: n?.disk ?? 0 },
   });
 });
 

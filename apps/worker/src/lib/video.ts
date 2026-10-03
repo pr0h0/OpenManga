@@ -17,6 +17,7 @@ import {
   shotGroups,
   timeGroup,
   type VideoAspect,
+  videoDriftToleranceMs,
   watermarkBox,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
@@ -519,10 +520,8 @@ async function buildFilm<S extends Shot>(
     "ffprobe",
   );
   const videoMs = Math.round(Number(probe.stdout.trim()) * 1000);
-  // Frame-exact holds leave only encoder rounding (AAC priming, last-frame duration): a few ms per clip is fine,
-  // anything larger is a real mapping defect.
   const drift = Math.abs(videoMs - audioMs);
-  const tolerance = 80 + 10 * clips.length;
+  const tolerance = videoDriftToleranceMs(clips.length);
   if (!Number.isFinite(videoMs) || drift > tolerance)
     throw new Error(
       `Rendered video is ${videoMs} ms but the narration is ${audioMs} ms (drift ${drift} ms > ${tolerance} ms)`,

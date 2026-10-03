@@ -34,6 +34,15 @@ nothing becomes out of date on upgrade.
   them again) or explain them with a new bible fact. *Rule checks* lists every fixed rule as pass, warn or fail per
   chapter from the latest check. Checked by text only; the artwork is not looked at. MCP: `run_continuity_check`,
   `get_continuity_report`.
+- **Project health.** A **Health** page (and a card on the overview) says whether the project is ready to publish or
+  how many blocking issues it has, and lists them with where each is fixed: panels without artwork, chapters without
+  or with patchy narration, segments without audio, a missing or out-of-date video, panels that failed a visual
+  check; then what is out of date, the YouTube text and thumbnail headline, unfinished and failed generation, open
+  comments, spend against the budget and disk use. `GET /api/projects/:projectId/health`; MCP `get_project_health`.
+- **Final-output gate for production runs.** Before a run reports success it now also checks that every chapter is
+  narrated, that no panel's artwork failed a visual check and, when it renders, that the video exists and is not
+  shorter than its narration beyond the render's drift tolerance. Anything found is listed in its unresolved items
+  (`completed_with_warnings`) instead of passing silently.
 - **Pronunciation dictionary.** Project settings → Pronunciation maps names and terms to how the narrator says them
   ("Qi" → "chee", "Seo Jinhyeok" → "suh jin-hyuk"), with match-case and whole-word options and a preview in the
   project's voice. It applies only to the text sent to the voice, for every TTS provider: narration, subtitles and

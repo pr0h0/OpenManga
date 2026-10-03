@@ -295,6 +295,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/health",
+    staticData: { title: "Health" },
+    component: lazyRouteComponent(() => import("./features/project/HealthPage.tsx"), "HealthPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/generation",
     staticData: { title: "Generation" },
     component: lazyRouteComponent(() => import("./features/generation/GenerationPage.tsx"), "GenerationPage"),

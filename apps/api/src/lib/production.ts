@@ -18,7 +18,7 @@ import {
   sql,
   users,
 } from "@openmanga/db";
-import { BATCH_CAPABLE_PROVIDERS } from "@openmanga/domain";
+import { BATCH_CAPABLE_PROVIDERS, videoDriftToleranceMs } from "@openmanga/domain";
 import {
   PIPELINE_STAGES,
   type PipelineStage,
@@ -584,12 +584,25 @@ export async function runWarnings(deps: Deps, run: Run): Promise<ProductionWarni
         .from(exportJobs)
         .where(and(inArray(exportJobs.id, exportIds), inArray(exportJobs.status, ["failed", "cancelled"])))
     : [];
-  const [counts] = await deps.db.execute<{ no_art: number; review: number; audio: number }>(sql`
+  const [counts] = await deps.db.execute<{
+    no_art: number;
+    review: number;
+    audio: number;
+    unnarrated: number;
+    checks: number;
+    panels: number;
+  }>(sql`
     select
       (select count(*)::int from panels pn where pn.project_id = ${project.id} and pn.active_artwork_asset_id is null)
         as no_art,
       (select count(*)::int from panels pn where pn.project_id = ${project.id} and pn.review is not null) as review,
-      (select count(*)::int ${staleAudioFrom(project)}) as audio`);
+      (select count(*)::int ${staleAudioFrom(project)}) as audio,
+      (select count(*)::int from chapters c where c.project_id = ${project.id}
+        and exists (select 1 from panels pn join pages p on p.id = pn.page_id where p.chapter_id = c.id)
+        and not exists (select 1 from narration_lines nl where nl.chapter_id = c.id and nl.language = ${project.language}))
+        as unnarrated,
+      (select count(*)::int from panels pn where pn.project_id = ${project.id} and ${FAILED_CHECK}) as checks,
+      (select count(*)::int from panels pn where pn.project_id = ${project.id}) as panels`);
   const w: ProductionWarnings = {
     failedJobs: failed.slice(0, 500).map((j) => ({ ...j, step: stepOf.get(j.id)! })),
     failedJobCount: failed.length,
@@ -597,10 +610,51 @@ export async function runWarnings(deps: Deps, run: Run): Promise<ProductionWarni
     segmentsWithoutAudio: counts?.audio ?? 0,
     panelsNeedingReview: counts?.review ?? 0,
     failedExports,
+    chaptersWithoutNarration: counts?.unnarrated ?? 0,
+    failedChecks: counts?.checks ?? 0,
+    video: (run.options as RunOptions).render ? await videoProblem(deps, run, project, counts?.panels ?? 0) : null,
   };
-  const any =
-    w.failedJobCount + w.panelsWithoutArt + w.segmentsWithoutAudio + w.panelsNeedingReview + w.failedExports.length;
-  return any ? w : null;
+  return unresolvedCount(w) ? w : null;
+}
+
+/** How many things a run's warnings list. */
+export const unresolvedCount = (w: ProductionWarnings) =>
+  w.failedJobCount +
+  w.panelsWithoutArt +
+  w.segmentsWithoutAudio +
+  w.panelsNeedingReview +
+  w.failedExports.length +
+  (w.chaptersWithoutNarration ?? 0) +
+  (w.failedChecks ?? 0) +
+  (w.video ? 1 : 0);
+
+/** A panel whose current artwork a visual check found not to match (what the storyboard's "Check mismatch" shows). */
+export const FAILED_CHECK =
+  sql.raw(`pn.qa ->> 'verdict' = 'mismatch' and coalesce((pn.qa ->> 'stale')::boolean, false) = false
+  and pn.qa ->> 'assetId' = pn.active_artwork_asset_id::text`);
+
+/**
+ * The final output check for a run that renders: the video exists, and it is not shorter than the narration it
+ * carries (the voiced segments laid end to end) by more than the render's own drift tolerance. A failed render is
+ * already listed with the failed exports.
+ */
+async function videoProblem(deps: Deps, run: Run, project: Project, panels: number) {
+  const render = run.steps.find((s) => s.key === "render");
+  if (!render?.exportJobId) return "The video was not rendered";
+  const [r] = await deps.db.execute<{ status: string; video_ms: number | null; narration_ms: number }>(sql`
+    select j.status,
+      (select max(a.duration_ms) from exports e join assets a on a.id = e.asset_id
+        where e.export_job_id = j.id and a.mime_type = 'video/mp4') as video_ms,
+      (select coalesce(sum(au.duration_ms), 0)::int from narration_segments s
+        join narration_lines nl on nl.id = s.narration_line_id
+        join audio_assets au on au.asset_id = s.active_audio_asset_id
+        where nl.project_id = ${project.id} and nl.language = ${project.language}) as narration_ms
+    from export_jobs j where j.id = ${render.exportJobId}`);
+  if (r?.status !== "completed") return null;
+  if (r.video_ms == null) return "The rendered video has no length recorded";
+  if (r.video_ms + videoDriftToleranceMs(panels) < r.narration_ms)
+    return `The video runs ${Math.round(r.video_ms / 1000)} s but its narration takes ${Math.round(r.narration_ms / 1000)} s: it is too short`;
+  return null;
 }
 
 /**

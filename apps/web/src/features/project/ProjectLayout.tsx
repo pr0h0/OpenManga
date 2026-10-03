@@ -8,6 +8,7 @@ import {
   FileText,
   GalleryVertical,
   Globe2,
+  HeartPulse,
   Images,
   LayoutDashboard,
   LayoutGrid,
@@ -42,6 +43,7 @@ export function useProject() {
 
 const NAV = [
   { to: "/projects/$projectId", label: "Overview", icon: LayoutDashboard, exact: true },
+  { to: "/projects/$projectId/health", label: "Health", icon: HeartPulse },
   { to: "/projects/$projectId/story", label: "Story", icon: BookText },
   { to: "/projects/$projectId/cast", label: "Cast", icon: Users },
   { to: "/projects/$projectId/world", label: "World", icon: Globe2 },

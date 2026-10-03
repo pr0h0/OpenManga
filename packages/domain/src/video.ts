@@ -9,6 +9,12 @@ import type { ShotMotion } from "@openmanga/schemas";
  */
 export const VIDEO_BREATH_MS = 150;
 
+/**
+ * How far a rendered video may run from its narration: frame-exact holds leave only encoder rounding (AAC priming,
+ * last-frame duration), a few ms per clip. Anything larger is a real mapping defect.
+ */
+export const videoDriftToleranceMs = (clips: number) => 80 + 10 * clips;
+
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 /**

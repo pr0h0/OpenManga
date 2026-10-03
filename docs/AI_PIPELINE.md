@@ -697,10 +697,13 @@ chapter → prepare panel prompts → generate missing artwork → changed narra
   it finishes with the note "YouTube text may be out of date" / "thumbnail headline may be out of date", and the run
   card offers **Regenerate** (the YouTube package route, or the headline set to the current title) and **Keep
   current** (`POST /api/projects/:projectId/keep-current`).
-- **Completed with warnings.** A run that reaches the end with anything unresolved finishes as
-  `completed_with_warnings` instead of `completed`, with a `warnings` summary: the failed jobs it queued that nobody
-  retried, its failed exports, and the project's panels without artwork, narration segments without current audio
-  (the audio stage's definition) and panels flagged for review. The run card shows "Finished with N unresolved
+- **Completed with warnings (the final-output gate).** Before a run reports success it checks the output: every
+  panel has artwork, every chapter with panels is narrated, every segment has current audio (the audio stage's
+  definition), when the run renders the whole-project video exists and is not shorter than its narration (the voiced
+  segments end to end) by more than the render's own drift tolerance (`videoDriftToleranceMs`), and nothing is known
+  to be broken: failed jobs it queued that nobody retried, failed exports, panels flagged for review, panels whose
+  artwork failed a visual check. Anything found finishes the run as `completed_with_warnings` instead of `completed`,
+  with a `warnings` summary. The run card shows "Finished with N unresolved
   items", each linking to where it is fixed (Generation, the storyboard on its *No artwork* or *Needs review* filter,
   Narration, Exports), with **Retry failed** (the usual `POST /api/generations/:id/retry` for each listed job),
   **Review** and, when the video failed, **Render anyway**. A finished run cannot be continued.
@@ -710,6 +713,14 @@ chapter → prepare panel prompts → generate missing artwork → changed narra
   started (`audioBatchIds` on the step); and its export if it has not finished. Jobs already running at a provider
   finish, and the stopped run acts on nothing they return. `{ "jobs": false }` stops the run only. An active run's
   `pendingJobs` says how many jobs stopping it would cancel; the card's Stop dialog shows it.
+
+**Project health** (`GET /api/projects/:projectId/health`, the **Health** page and the overview's Health card, MCP
+`get_project_health`) puts it all in one report: a verdict (*ready to publish*, or *N blocking issues*) and items,
+each with a severity and a link to where it is fixed. Blocking: export readiness (panels without artwork, chapters
+without or with patchy narration, segments without audio, superseded versions), a missing or out-of-date
+whole-project video, panels that failed a visual check. Worth knowing: every stale stage and changed chapter, the
+YouTube text and thumbnail headline, jobs still running and failed ones not retried, open comment threads. It also
+shows spend against the budget and disk use.
 
 The API process advances running runs every 10 seconds; one project has at most one active run. A pass holds a
 lease on the run's row (`lease_owner`, `lease_until`), so two API processes never advance the same run at once, and an

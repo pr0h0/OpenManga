@@ -13,10 +13,6 @@ Grouped by area, roughly most useful first within each.
   it came from, so a revised paragraph points at exactly what it affects.
 - **Why is this stale.** A dependency view behind the staleness list: story revision → chapter plan → panel →
   artwork, so it is clear what changed and what an update would redo.
-- **Final-output gate.** Before a run reports success: every panel drawn, every line narrated and voiced, the video
-  rendered at the expected length, nothing known to be broken.
-- **Project health page.** One page for stale items, unfinished generation, open comments, failed checks, disk use,
-  spend and how ready the project is to publish.
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Fork a chapter.** Keep a chapter's current production as one version and re-plan a copy, once snapshots exist.
 - **Production cost planner.** Before a run spends anything: text, references, panels, checks and thumbnail priced
