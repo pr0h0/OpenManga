@@ -439,7 +439,37 @@ async function check(x: Ctx): Promise<"running" | "done" | { failed: string }> {
       join narration_segments ns on ns.id = aj.segment_id
       join narration_lines nl on nl.id = ns.narration_line_id
       where nl.project_id = ${x.project.id} and aj.status in ('queued', 'processing')`);
-    return (r?.busy ?? 0) > 0 ? "running" : "done";
+    if ((r?.busy ?? 0) > 0) return "running";
+    // Idle is not the same as voiced: check every segment has current audio, by the audio stage's own definition.
+    const since = s.startedAt ?? new Date(0).toISOString();
+    const stale = await x.deps.db.execute<{ id: string; chapter_id: string; tried: boolean; failed: boolean }>(sql`
+      select s.id, nl.chapter_id,
+        exists (select 1 from audio_jobs j where j.segment_id = s.id and j.created_at >= ${since}) as tried,
+        (select j.status from audio_jobs j where j.segment_id = s.id order by j.created_at desc limit 1) = 'failed'
+          as failed
+      ${staleAudioFrom(x.project)}`);
+    if (!stale.length) return "done";
+    // Segments this step never queued (a chapter's request was refused or capped) are queued once more; failures
+    // are not retried here, or a segment the voice provider always refuses would loop the run forever.
+    const untried = stale.filter((r) => !r.tried);
+    if (untried.length && !s.requeued) {
+      s.requeued = true;
+      const byChapter = new Map<string, string[]>();
+      for (const r of untried) byChapter.set(r.chapter_id, [...(byChapter.get(r.chapter_id) ?? []), r.id]);
+      for (const [chapterId, segmentIds] of byChapter) {
+        const q = await x.call<{ batchId: string; queued: number }>(
+          "POST",
+          `/api/chapters/${chapterId}/narration/synthesize`,
+          { onlyMissing: true, segmentIds },
+        );
+        if (q.queued) s.audioBatchIds = [...(s.audioBatchIds ?? []), q.batchId];
+      }
+      return "running";
+    }
+    // Left for the person: listed in the run's warnings at the end, and here on the step.
+    const failed = stale.filter((r) => r.failed).length;
+    s.note = `${stale.length} segment(s) without current audio${failed ? `, ${failed} failed` : ""}; see Narration`;
+    return "done";
   }
   if (s.exportJobId) {
     const [e] = await x.deps.db
@@ -586,8 +616,13 @@ export async function advanceRun(deps: Deps, runId: string) {
           await save({});
           continue;
         }
+        const before = JSON.stringify(step);
         const r = await check(x);
-        if (r === "running") return;
+        if (r === "running") {
+          // Waiting can still change the step (the audio step queuing what it missed); keep that.
+          if (JSON.stringify(step) !== before) await save({});
+          return;
+        }
         if (typeof r === "object") {
           step.status = "failed";
           step.note = r.failed;

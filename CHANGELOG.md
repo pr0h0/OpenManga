@@ -26,6 +26,11 @@ Upgrading: one migration, `0028_production_run_warnings`, adds a nullable JSON c
   current audio, panels needing review and failed exports. The run card shows "Finished with N unresolved items"
   with links and **Retry failed**, **Review** and **Render anyway**; `get_production_run` returns the `warnings`. A
   failed render no longer fails the whole run: it is listed with the rest.
+- **A production run's audio step checks the audio.** It used to finish as soon as no narration job was queued or
+  running, so a segment whose synthesis failed passed silently. It now also checks every segment has current audio
+  (the same definition as the audio stage of *What is out of date*): segments it never queued are queued once more,
+  and failed ones are noted on the step and listed in the run's warnings instead of being retried forever. The
+  chapter synthesize route takes an optional `segmentIds`.
 
 ## [0.13.0] — 2026-10-03
 

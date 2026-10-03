@@ -44,6 +44,23 @@ const until = (projectId: string, want: string[]) =>
     { label: `run ${want.join("/")}`, timeoutMs: 180_000 },
   );
 
+/** A new project produced end to end (no reviews, no video). */
+async function produce(title: string) {
+  const p = await u.post<{ project: { id: string } }>(
+    "/api/projects",
+    { title, story: { content: STORY, inputKind: "story" } },
+    201,
+  );
+  await u.patch(`/api/projects/${p.project.id}`, { settings: { budgetUsd: 50 } });
+  await u.post(
+    `/api/projects/${p.project.id}/production-runs`,
+    { reviewGates: false, render: false, youtube: false },
+    201,
+  );
+  await until(p.project.id, ["completed"]);
+  return p.project.id;
+}
+
 describe("production runs", () => {
   test("one run takes a story to planned, drawn, narrated and voiced chapters, pausing at each review", async () => {
     await u.post(
@@ -259,6 +276,52 @@ describe("production runs", () => {
     expect(retried.job.id).toBeTruthy();
     // A finished run cannot be continued.
     expect((await u.raw("POST", `/api/production-runs/${run.id}/continue`, {})).status).toBe(409);
+  }, 400_000);
+
+  test("the audio step checks every segment has current audio: a failed one is a warning, a missed one is queued", async () => {
+    const projectId = await produce("Audio check");
+    const { chapters } = await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`);
+    const { lines } = await u.get<{ lines: { id: string; text: string }[] }>(
+      `/api/chapters/${chapters[0]!.id}/narration`,
+    );
+    expect(lines.length).toBeGreaterThan(0);
+    // The voice provider refuses this line's new text.
+    await u.patch(`/api/narration-lines/${lines[0]!.id}`, { text: "[[mock:500]] The rain would not stop." });
+    const { run } = await u.post<{ run: Run }>(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, render: false, youtube: false },
+      201,
+    );
+    expect(run.steps.map((s) => s.key)).toEqual(["audio"]);
+    const done = (await until(projectId, ["completed", "completed_with_warnings"])) as Run & {
+      warnings: { segmentsWithoutAudio: number } | null;
+    };
+    expect(done.status).toBe("completed_with_warnings");
+    expect(done.warnings?.segmentsWithoutAudio).toBe(1);
+    expect(done.steps[0]!.note).toBe("1 segment(s) without current audio, 1 failed; see Narration");
+
+    // A segment the step never queued (here: changed while the step was already waiting) is queued once more.
+    await u.patch(`/api/narration-lines/${lines[0]!.id}`, { text: "The rain stopped at last." });
+    const [me] = await h.deps.db.select().from(users).where(eq(users.username, "prod"));
+    const [waiting] = await h.deps.db
+      .insert(productionRuns)
+      .values({
+        projectId,
+        userId: me!.id,
+        options: { reviewGates: false, preparePrompts: false, render: false, youtube: false },
+        steps: [{ key: "audio", status: "running", startedAt: new Date().toISOString() }],
+      })
+      .returning();
+    await advanceRun(h.deps, waiting!.id);
+    const [requeued] = await h.deps.db.select().from(productionRuns).where(eq(productionRuns.id, waiting!.id));
+    expect(requeued!.steps[0]).toMatchObject({ status: "running", requeued: true });
+    expect(requeued!.steps[0]!.audioBatchIds).toHaveLength(1);
+    const finished = await until(projectId, ["completed", "completed_with_warnings"]);
+    expect(finished.status).toBe("completed");
+    const progress = await u.get<{ totals: { segments: number; withAudio: number } }>(
+      `/api/projects/${projectId}/narration/progress`,
+    );
+    expect(progress.totals.withAudio).toBe(progress.totals.segments);
   }, 400_000);
 
   test("the batch policy only batches keys whose provider has a batch API", async () => {
