@@ -8815,7 +8815,7 @@ Run only what is out of date (see get_staleness), from the first stale stage on:
 
 ### get_production_run
 
-A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, and every step with its status and note. Read-only.
+A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, every step with its status and note, and pendingJobs (how many queued jobs stopping it would cancel). Read-only.
 
 - **Scopes:** `generations:read`
 - **Sensitivity:** read
@@ -8914,7 +8914,7 @@ Continue a run: past the review step it is waiting at (only after the user has r
 
 ### cancel_production_run
 
-Stop a production run. Jobs it already queued finish on their own (cancel them with control_job if needed); nothing made so far is removed.
+Stop a production run. By default it also cancels what the run queued that has not started (generation jobs that are queued, in a provider batch, paused or waiting for an answer; queued narration audio; its export); get_production_run's pendingJobs says how many. Jobs already running at a provider finish, and the stopped run acts on nothing they return. jobs=false stops the run only and leaves its queued jobs to finish. Nothing made so far is removed.
 
 - **Scopes:** `generations:run`
 - **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
@@ -8934,6 +8934,11 @@ Stop a production run. Jobs it already queued finish on their own (cancel them w
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "jobs": {
+      "default": true,
+      "description": "Also cancel the run's queued jobs (default). false stops the orchestration only.",
+      "type": "boolean"
     }
   },
   "required": [

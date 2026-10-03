@@ -490,6 +490,24 @@ export class JobService {
     return "cancelled";
   }
 
+  /** A queued export is taken off its queue; a running one is asked to stop (the worker checks between steps). */
+  async cancelExport(jobId: string): Promise<"cancelled" | "cancel_requested" | "not_cancellable"> {
+    const [job] = await this.db.select().from(exportJobs).where(eq(exportJobs.id, jobId));
+    if (job?.status === "queued") {
+      for (const q of exportQueuesFor(job.kind)) await this.opts.queue?.removeWaiting(q, job.id);
+      await this.db
+        .update(exportJobs)
+        .set({ status: "cancelled", finishedAt: new Date() })
+        .where(eq(exportJobs.id, jobId));
+      return "cancelled";
+    }
+    if (job?.status === "processing") {
+      await this.db.update(exportJobs).set({ status: "cancel_requested" }).where(eq(exportJobs.id, jobId));
+      return "cancel_requested";
+    }
+    return "not_cancellable";
+  }
+
   /** Retry creates a NEW job (history preserved) with the same compiled prompt and inputs. */
   async retryGeneration(jobId: string, userId: string | null) {
     const [job] = await this.db.select().from(generationJobs).where(eq(generationJobs.id, jobId));

@@ -8,7 +8,15 @@ import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { AnalysisDiff } from "../story/AnalysisDiff.tsx";
 
 type Step = { key: string; label: string; status: string; note?: string; ref?: string };
-type Run = { id: string; status: string; reason: string | null; steps: Step[]; createdAt: string };
+type Run = {
+  id: string;
+  status: string;
+  reason: string | null;
+  steps: Step[];
+  createdAt: string;
+  /** Jobs it queued that have not started: what Stop cancels by default. */
+  pendingJobs: number;
+};
 type Stage = { key: string; count: number; note: string };
 
 const STAGE_LABEL: Record<string, string> = {
@@ -54,6 +62,8 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
   const [open, setOpen] = useState(false);
   const [o, setO] = useState({ reviewGates: true, preparePrompts: true, render: true, youtube: format === "film" });
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [cancelJobs, setCancelJobs] = useState(true);
   const act = async (path: string, body?: unknown) => {
     setBusy(true);
     try {
@@ -194,13 +204,65 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
                 type="button"
                 className="btn-secondary"
                 disabled={busy}
-                onClick={() => act(`/production-runs/${run.id}/cancel`)}
+                onClick={() => {
+                  setCancelJobs(true);
+                  setStopping(true);
+                }}
               >
                 Stop
               </button>
             </div>
           )}
         </>
+      )}
+      {run && (
+        <ConfirmDialog
+          open={stopping}
+          title="Stop the production run"
+          confirmLabel="Stop"
+          danger
+          busy={busy}
+          onClose={() => setStopping(false)}
+          onConfirm={async () => {
+            await act(`/production-runs/${run.id}/cancel`, { jobs: cancelJobs });
+            setStopping(false);
+          }}
+        >
+          <fieldset className="space-y-2">
+            <legend className="sr-only">What to stop</legend>
+            <label className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="stop-run"
+                className="mt-0.5"
+                checked={cancelJobs}
+                onChange={() => setCancelJobs(true)}
+              />
+              <span>
+                Stop and cancel its queued jobs (recommended)
+                <span className="muted block text-xs">
+                  {run.pendingJobs === 1 ? "1 job" : `${run.pendingJobs} jobs`} not started yet would be cancelled. Jobs
+                  already running at a provider finish, and nothing further happens with them.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="stop-run"
+                className="mt-0.5"
+                checked={!cancelJobs}
+                onChange={() => setCancelJobs(false)}
+              />
+              <span>
+                Stop the run only
+                <span className="muted block text-xs">
+                  Its queued jobs still run and spend; cancel them in Generation.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+        </ConfirmDialog>
       )}
       <ConfirmDialog
         open={open}

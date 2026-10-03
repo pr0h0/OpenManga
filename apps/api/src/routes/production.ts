@@ -2,12 +2,12 @@ import { and, desc, eq, inArray, productionRuns } from "@openmanga/db";
 import { pipelineStaleness, recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
-import type { AppEnv } from "../context.ts";
+import type { AppEnv, Deps } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { AiChoiceInput } from "../lib/ai.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
-import { advanceRun, initialSteps, STEP_LABELS } from "../lib/production.ts";
+import { advanceRun, cancelRunWork, initialSteps, pendingWork, STEP_LABELS } from "../lib/production.ts";
 
 export const productionRoutes = new Hono<AppEnv>();
 
@@ -25,10 +25,15 @@ const StartRun = z.object({
   update: z.boolean().default(false),
 });
 
-const view = (r: typeof productionRuns.$inferSelect) => ({
-  ...r,
-  steps: r.steps.map((s) => ({ ...s, label: STEP_LABELS[s.key as keyof typeof STEP_LABELS] ?? s.key })),
-});
+/** A run as the API shows it; an active one also says how many jobs stopping it would cancel (`pendingJobs`). */
+const view = async (deps: Deps, r: typeof productionRuns.$inferSelect) => {
+  const work = (ACTIVE as readonly string[]).includes(r.status) ? await pendingWork(deps, r) : null;
+  return {
+    ...r,
+    steps: r.steps.map((s) => ({ ...s, label: STEP_LABELS[s.key as keyof typeof STEP_LABELS] ?? s.key })),
+    pendingJobs: work ? work.generation.length + work.audio.length + work.exports.length : 0,
+  };
+};
 
 doc({
   method: "POST",
@@ -77,7 +82,7 @@ productionRoutes.post("/projects/:projectId/production-runs", async (c) => {
     requestId: c.get("requestId"),
   });
   void advanceRun(c.get("deps"), run!.id);
-  return c.json({ run: view(run!) }, 201);
+  return c.json({ run: await view(c.get("deps"), run!) }, 201);
 });
 
 doc({
@@ -108,7 +113,7 @@ productionRoutes.get("/projects/:projectId/production-runs", async (c) => {
     .where(eq(productionRuns.projectId, p.id))
     .orderBy(desc(productionRuns.createdAt))
     .limit(10);
-  return c.json({ runs: rows.map(view) });
+  return c.json({ runs: await Promise.all(rows.map((r) => view(c.get("deps"), r))) });
 });
 
 async function runWithAccess(c: Parameters<typeof uuidParam>[0], id: string, action: "read" | "generate" = "generate") {
@@ -125,7 +130,7 @@ doc({
   tag: "production",
 });
 productionRoutes.get("/production-runs/:id", async (c) =>
-  c.json({ run: view(await runWithAccess(c, uuidParam(c, "id"), "read")) }),
+  c.json({ run: await view(c.get("deps"), await runWithAccess(c, uuidParam(c, "id"), "read")) }),
 );
 
 doc({
@@ -156,19 +161,30 @@ productionRoutes.post("/production-runs/:id/continue", async (c) => {
   return c.json({ ok: true });
 });
 
+const CancelRun = z.object({
+  /** Also cancel the jobs the run queued that have not started (default). False stops the orchestration only. */
+  jobs: z.boolean().default(true),
+});
+
 doc({
   method: "POST",
   path: "/api/production-runs/:id/cancel",
-  summary: "Stop a run. Jobs it already queued finish on their own; cancel them in Generation if needed.",
+  summary:
+    "Stop a run, and by default cancel what it queued that has not started: generation jobs (queued, in a provider batch, paused or waiting for an answer), queued narration audio and its export. Jobs already running at a provider finish, and the stopped run acts on nothing they return. { jobs: false } stops the run only.",
   tag: "production",
+  body: CancelRun,
 });
 productionRoutes.post("/production-runs/:id/cancel", async (c) => {
   const run = await runWithAccess(c, uuidParam(c, "id"));
-  const { db, events } = c.get("deps");
-  await db
+  // An empty body is the default: stop and cancel.
+  const input = CancelRun.parse(await c.req.json().catch(() => ({})));
+  const deps = c.get("deps");
+  // Stopped first, so the runner starts nothing new while the jobs are being cancelled.
+  await deps.db
     .update(productionRuns)
     .set({ status: "cancelled", reason: "Cancelled", updatedAt: new Date() })
     .where(eq(productionRuns.id, run.id));
-  await events.publish(run.projectId, { type: "production.updated", runId: run.id, status: "cancelled" });
-  return c.json({ ok: true });
+  const cancelled = input.jobs ? await cancelRunWork(deps, run) : 0;
+  await deps.events.publish(run.projectId, { type: "production.updated", runId: run.id, status: "cancelled" });
+  return c.json({ ok: true, cancelled });
 });

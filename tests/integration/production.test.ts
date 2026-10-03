@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { audioJobs, eq, exportJobs, narrationSegments, productionRuns, users } from "@openmanga/db";
 import { advanceRun, batchModes } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -308,7 +309,13 @@ describe("production runs", () => {
       { label: "analysis queued", timeoutMs: 30_000 },
     );
     expect(waiting.status).toBe("running");
-    await u.post(`/api/production-runs/${run.id}/cancel`);
+    // Stopping the run (default) cancels the analysis job it left waiting for an answer.
+    const analysisJob = (waiting as { jobIds?: string[] }).jobIds![0]!;
+    expect(
+      (await u.get<{ run: Run & { pendingJobs: number } }>(`/api/production-runs/${run.id}`)).run.pendingJobs,
+    ).toBe(1);
+    expect((await u.post<{ cancelled: number }>(`/api/production-runs/${run.id}/cancel`)).cancelled).toBe(1);
+    expect((await u.get<{ job: { status: string } }>(`/api/generations/${analysisJob}`)).job.status).toBe("cancelled");
 
     // Nothing is planned yet, so the main-only policy cannot tell recurring places from one-offs: all are drawn.
     const story = await u.get<{ latest: { id: string } }>(`/api/projects/${projectId}/story`);
@@ -332,4 +339,56 @@ describe("production runs", () => {
     expect(est.total).toBeGreaterThan(0);
     expect(est.skippedReasons.minor).toBe(0);
   }, 120_000);
+
+  test("stopping a run cancels its queued audio and export, or only the run with jobs: false", async () => {
+    const projectId = builtProjectId;
+    const { db } = h.deps;
+    const [me] = await db.select().from(users).where(eq(users.username, "prod"));
+    const [seg] = await db.select().from(narrationSegments).where(eq(narrationSegments.projectId, projectId)).limit(1);
+    // A run part-way through: synthesis it queued and a render, neither started (rows only, nothing on the queue).
+    const queue = async () => {
+      const batchId = crypto.randomUUID();
+      const [audio] = await db
+        .insert(audioJobs)
+        .values({ projectId, segmentId: seg!.id, batchId, voice: "af_heart", speed: 1 })
+        .returning();
+      const [render] = await db.insert(exportJobs).values({ projectId, kind: "video_pages" }).returning();
+      const [run] = await db
+        .insert(productionRuns)
+        .values({
+          projectId,
+          userId: me!.id,
+          status: "waiting",
+          options: { reviewGates: true, preparePrompts: false, render: true, youtube: false },
+          steps: [
+            { key: "audio", status: "running", audioBatchIds: [batchId] },
+            { key: "render", status: "running", exportJobId: render!.id },
+          ],
+        })
+        .returning();
+      return { run: run!, audio: audio!, render: render! };
+    };
+    const status = async (a: { id: string }, r: { id: string }) => [
+      (await db.select().from(audioJobs).where(eq(audioJobs.id, a.id)))[0]!.status,
+      (await db.select().from(exportJobs).where(eq(exportJobs.id, r.id)))[0]!.status,
+    ];
+
+    const first = await queue();
+    expect(
+      (await u.get<{ run: { pendingJobs: number } }>(`/api/production-runs/${first.run.id}`)).run.pendingJobs,
+    ).toBe(2);
+    expect((await u.post<{ cancelled: number }>(`/api/production-runs/${first.run.id}/cancel`, {})).cancelled).toBe(2);
+    expect(await status(first.audio, first.render)).toEqual(["cancelled", "cancelled"]);
+
+    const second = await queue();
+    expect(
+      (await u.post<{ cancelled: number }>(`/api/production-runs/${second.run.id}/cancel`, { jobs: false })).cancelled,
+    ).toBe(0);
+    expect((await u.get<{ run: { status: string } }>(`/api/production-runs/${second.run.id}`)).run.status).toBe(
+      "cancelled",
+    );
+    expect(await status(second.audio, second.render)).toEqual(["queued", "queued"]);
+    await db.update(audioJobs).set({ status: "cancelled" }).where(eq(audioJobs.id, second.audio.id));
+    await db.update(exportJobs).set({ status: "cancelled" }).where(eq(exportJobs.id, second.render.id));
+  });
 });
