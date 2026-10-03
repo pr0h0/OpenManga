@@ -6,7 +6,7 @@ import { get, post } from "../../api/client.ts";
 import { ConfirmDialog, fmt, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { AnalysisDiff } from "../story/AnalysisDiff.tsx";
-import { StaleChapters, useStaleness } from "./StaleChapters.tsx";
+import { PublishingFlags, StaleChapters, useStaleness } from "./StaleChapters.tsx";
 
 type Step = { key: string; label: string; status: string; note?: string; ref?: string };
 type Run = {
@@ -140,6 +140,15 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
               </span>
             </li>
           ))}
+          {staleness.data.publishing
+            .filter((f) => f.stale)
+            .map((f) => (
+              <li key={f.key}>
+                <span className="chip bg-amber-500/15 text-amber-700 dark:text-amber-300" title={f.reasons.join("; ")}>
+                  {f.key === "youtube_text" ? "YouTube text !" : "Thumbnail !"}
+                </span>
+              </li>
+            ))}
         </ol>
       )}
       {!run && (
@@ -201,6 +210,7 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
           {deciding === "review_narration" && staleness.data && (
             <StaleChapters projectId={projectId} stage="narration" chapters={staleness.data.staleNarration} />
           )}
+          {!active && staleness.data && <PublishingFlags projectId={projectId} flags={staleness.data.publishing} />}
           {run.status === "completed_with_warnings" && run.warnings && (
             <RunWarnings
               projectId={projectId}

@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { get, post } from "../../api/client.ts";
+import { get, patch, post } from "../../api/client.ts";
 import { ConfirmDialog, toast } from "../../components/ui.tsx";
 import { useAiBody } from "../ai/AiPicker.tsx";
+import { useProject } from "./ProjectLayout.tsx";
 
 export type StaleChapter = {
   chapterId: string;
@@ -16,6 +17,8 @@ export type Staleness = {
   stages: { key: string; count: number; note: string }[];
   stalePlans: StaleChapter[];
   staleNarration: StaleChapter[];
+  /** The YouTube text and the thumbnail headline: flagged, never regenerated on their own. */
+  publishing: { key: "youtube_text" | "thumbnail"; stale: boolean; reasons: string[] }[];
 };
 
 /** The project's staleness report; every query under this key prefix is refreshed after a decision. */
@@ -131,6 +134,75 @@ export function StaleChapters({
             </p>
           ))}
       </ConfirmDialog>
+    </div>
+  );
+}
+
+/**
+ * The YouTube text and thumbnail headline when what they were written from changed: regenerate them (the YouTube
+ * package route, or the headline set to the current title) or keep them. Nothing here happens on its own.
+ */
+export function PublishingFlags({ projectId, flags }: { projectId: string; flags: Staleness["publishing"] }) {
+  const qc = useQueryClient();
+  const project = useProject();
+  const aiText = useAiBody("text");
+  const [busy, setBusy] = useState(false);
+  const stale = flags.filter((f) => f.stale);
+  if (!stale.length) return null;
+  const act = async (fn: () => Promise<unknown>, done: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast.success(done);
+      await qc.invalidateQueries({ queryKey: ["project", projectId] });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const thumb = project.data?.project.settings.thumbnail;
+  return (
+    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+      {stale.map((f) => (
+        <div key={f.key} className="flex flex-wrap items-center gap-2">
+          <span className="mr-auto min-w-0">
+            <span className="font-medium text-amber-800 dark:text-amber-200">
+              {f.key === "youtube_text" ? "YouTube text may be out of date" : "Thumbnail headline may be out of date"}
+            </span>
+            <span className="muted"> · {f.reasons.join("; ")}</span>
+          </span>
+          <button
+            type="button"
+            className="btn-secondary px-2 py-1 text-xs"
+            disabled={busy || (f.key === "thumbnail" && !thumb)}
+            onClick={() =>
+              f.key === "youtube_text"
+                ? act(
+                    () => post(`/projects/${projectId}/youtube-package`, { ai: aiText().ai ?? null }),
+                    "Writing the YouTube text again",
+                  )
+                : act(
+                    () =>
+                      patch(`/projects/${projectId}`, {
+                        settings: { thumbnail: { ...thumb, title: project.data?.project.title ?? "" } },
+                      }),
+                    "Headline set to the current title",
+                  )
+            }
+          >
+            {f.key === "youtube_text" ? "Regenerate" : "Use the current title"}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary px-2 py-1 text-xs"
+            disabled={busy}
+            onClick={() => act(() => post(`/projects/${projectId}/keep-current`, { item: f.key }), "Kept as it is")}
+          >
+            Keep current
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

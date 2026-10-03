@@ -1,7 +1,10 @@
 import {
+  asc,
+  chapters,
   characterVersions,
   type Database,
   type DbOrTx,
+  eq,
   inArray,
   locationVersions,
   propVersions,
@@ -190,6 +193,58 @@ export async function staleChapters(db: Database, project: { id: string; languag
     narration: rows.filter((r) => r.narration && r.lines > 0).map(view),
   };
 }
+
+/**
+ * Fingerprint of what the YouTube text is written from that can go stale: the project title and its chapter titles in
+ * order (by title, not id, so a duplicated project's text stays current).
+ */
+export async function youtubeSourceFingerprint(db: Database | DbOrTx, project: { id: string; title: string }) {
+  const chs = await db
+    .select({ title: chapters.title })
+    .from(chapters)
+    .where(eq(chapters.projectId, project.id))
+    .orderBy(asc(chapters.order));
+  return hashOf({ title: project.title, chapters: chs });
+}
+
+/**
+ * The YouTube text and the thumbnail headline, which only a person or a run asked to write them changes: whether each
+ * may be out of date, and why. Never regenerated on their own: the person regenerates or keeps them.
+ */
+export async function publishingStaleness(
+  db: Database,
+  project: { id: string; title: string; settings: ProjectSettingsLike },
+) {
+  const src = project.settings.publishingSources ?? {};
+  const youtube: string[] = [];
+  if (project.settings.youtubePackage?.titles.length) {
+    if (src.youtubeText && src.youtubeText !== (await youtubeSourceFingerprint(db, project)))
+      youtube.push("the title or the chapters changed since it was written");
+    // The package export adds chapter timestamps from the newest whole-project video; a newer video moves them.
+    const [r] = await db.execute<{ newer: boolean }>(sql`
+      select coalesce((select max(v.finished_at) from export_jobs v
+        where v.project_id = ${project.id} and v.kind in ('video_pages', 'video_panels') and v.status = 'completed'
+          and v.chapter_id is null and v.options -> 'pageIds' is null and v.options -> 'video' -> 'maxDurationMs' is null)
+        > (select max(y.finished_at) from export_jobs y
+          where y.project_id = ${project.id} and y.kind = 'youtube_package' and y.status = 'completed'
+            and y.chapter_id is null), false) as newer`);
+    if (r?.newer) youtube.push("the video was rendered again after the package was exported, moving its timestamps");
+  }
+  const thumb = project.settings.thumbnail;
+  const thumbnail =
+    thumb && src.thumbnailTitle !== undefined && src.thumbnailTitle !== project.title
+      ? [`the project title changed from "${src.thumbnailTitle}" after the headline was set`]
+      : [];
+  return [
+    { key: "youtube_text" as const, stale: youtube.length > 0, reasons: youtube },
+    { key: "thumbnail" as const, stale: thumbnail.length > 0, reasons: thumbnail },
+  ];
+}
+type ProjectSettingsLike = {
+  youtubePackage?: { titles: string[] };
+  thumbnail?: { title: string };
+  publishingSources?: { youtubeText?: string; thumbnailTitle?: string };
+};
 
 /** The production pipeline's stages, in order: each one is made from the ones before it. */
 export const PIPELINE_STAGES = ["story", "plan", "prompts", "art", "narration", "audio", "render"] as const;

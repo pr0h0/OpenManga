@@ -377,6 +377,11 @@ export async function updateProject(c: Context<AppEnv>, projectId: string, input
     input.settings?.[k] !== undefined && JSON.stringify(input.settings[k]) !== JSON.stringify(p.settings[k] ?? null);
   if (OWNER_SETTINGS.some(changes)) await projectAccess(c, projectId, "manage");
   const settings = input.settings ? ProjectSettings.parse({ ...p.settings, ...input.settings }) : p.settings;
+  // The app records what the publishing text was made from; a form sending settings back does not change that.
+  settings.publishingSources = p.settings.publishingSources;
+  // A headline the person sets now is set for the title as it is now.
+  if (input.settings?.thumbnail && input.settings.thumbnail.title !== p.settings.thumbnail?.title)
+    settings.publishingSources = { ...settings.publishingSources, thumbnailTitle: input.title ?? p.title };
   if (settings.format !== p.settings.format) {
     const [page] = await c
       .get("deps")
@@ -450,7 +455,7 @@ projectRoutes.post("/:projectId/duplicate", async (c) => {
 
 export const StatusInput = z.object({ action: z.enum(["archive", "unarchive", "trash", "restore"]) });
 /** Settings a template never carries: this project's own outputs, not its setup. */
-const NOT_TEMPLATED = ["thumbnail", "youtubePackage", "pageWidth", "pageHeight"] as const;
+const NOT_TEMPLATED = ["thumbnail", "youtubePackage", "publishingSources", "pageWidth", "pageHeight"] as const;
 const SaveTemplate = z.object({ name: z.string().trim().min(1).max(80) });
 doc({
   method: "POST",

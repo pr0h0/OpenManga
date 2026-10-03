@@ -57,10 +57,15 @@ export const productionTools = [
     name: "get_staleness",
     title: "What is out of date",
     description:
-      "What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. update_production runs only the stale steps. Read-only.",
+      "What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. Also publishing: the YouTube text and the thumbnail headline, flagged (stale, with reasons) when the title, the chapters or the rendered video changed after they were written; never regenerated on their own: the user regenerates them (Exports → YouTube package in the app; a new headline is settings.thumbnail.title via update_project) or they are kept with keep_publishing_text. update_production runs only the stale steps. Read-only.",
     input: z.object({ projectId: Uuid }),
     output: z
-      .object({ stages: z.array(Passthrough), stalePlans: z.array(Passthrough), staleNarration: z.array(Passthrough) })
+      .object({
+        stages: z.array(Passthrough),
+        stalePlans: z.array(Passthrough),
+        staleNarration: z.array(Passthrough),
+        publishing: z.array(Passthrough),
+      })
       .passthrough(),
     scopes: ["projects:read"],
     sensitivity: "read",
@@ -72,7 +77,34 @@ export const productionTools = [
         stages: Record<string, unknown>[];
         stalePlans: Record<string, unknown>[];
         staleNarration: Record<string, unknown>[];
+        publishing: Record<string, unknown>[];
       }>("GET", `/api/projects/${projectId}/staleness`),
+    }),
+  }),
+
+  defineMcpTool({
+    name: "keep_publishing_text",
+    title: "Keep the YouTube text or thumbnail headline",
+    description:
+      "Keep the YouTube text (item=youtube_text) or the thumbnail headline (item=thumbnail) as it is although get_staleness flags it as possibly out of date (the title, the chapters or the video changed after it was written): records what it is current for, so it is no longer flagged. Nothing is regenerated.",
+    input: z.object({ projectId: Uuid, item: z.enum(["youtube_text", "thumbnail"]) }),
+    output: Passthrough,
+    scopes: ["projects:write"],
+    sensitivity: "write",
+    idempotent: true,
+    routes: ["POST /api/projects/:projectId/keep-current"],
+    actionKeys: ["project.keep_current"],
+    classify: async ({ projectId, item }) =>
+      cls(
+        "write",
+        "project.keep_current",
+        projectId,
+        `Keep the ${item === "youtube_text" ? "YouTube text" : "thumbnail headline"} as it is`,
+      ),
+    handler: async ({ projectId, item }, ctx) => ({
+      data: await ctx.invoke<Record<string, unknown>>("POST", `/api/projects/${projectId}/keep-current`, {
+        body: { item },
+      }),
     }),
   }),
 

@@ -14,7 +14,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | Scope | Consent description | Tools |
 | --- | --- | --- |
 | `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness` |
-| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `use_expert_reply` |
+| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `use_expert_reply` |
@@ -127,6 +127,7 @@ requests) need no scope.
 | [`list_exports`](#list_exports) | read | `exports:read` |
 | [`delete_exports`](#delete_exports) | delete | `exports:create` |
 | [`get_staleness`](#get_staleness) | read | `projects:read` |
+| [`keep_publishing_text`](#keep_publishing_text) | write | `projects:write` |
 | [`keep_stale_chapter`](#keep_stale_chapter) | write | `chapters:write` |
 | [`start_production_run`](#start_production_run) | spend | `generations:run` |
 | [`update_production`](#update_production) | spend | `generations:run` |
@@ -978,6 +979,20 @@ Change a project's title, description, type, language, reading direction, colour
                 "type": "string",
                 "maxLength": 60
               }
+            }
+          }
+        },
+        "publishingSources": {
+          "type": "object",
+          "properties": {
+            "youtubeText": {
+              "type": "string"
+            },
+            "youtubeTextAt": {
+              "type": "string"
+            },
+            "thumbnailTitle": {
+              "type": "string"
             }
           }
         },
@@ -9930,7 +9945,7 @@ Delete export files from disk now instead of waiting for their 30-day expiry: on
 
 ### get_staleness
 
-What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. update_production runs only the stale steps. Read-only.
+What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. Also publishing: the YouTube text and the thumbnail headline, flagged (stale, with reasons) when the title, the chapters or the rendered video changed after they were written; never regenerated on their own: the user regenerates them (Exports → YouTube package in the app; a new headline is settings.thumbnail.title via update_project) or they are kept with keep_publishing_text. update_production runs only the stale steps. Read-only.
 
 - **Scopes:** `projects:read`
 - **Sensitivity:** read
@@ -9990,13 +10005,75 @@ What is out of date in a project along story → plan → prompts → art → na
         "properties": {},
         "additionalProperties": {}
       }
+    },
+    "publishing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
     }
   },
   "required": [
     "stages",
     "stalePlans",
-    "staleNarration"
+    "staleNarration",
+    "publishing"
   ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### keep_publishing_text
+
+Keep the YouTube text (item=youtube_text) or the thumbnail headline (item=thumbnail) as it is although get_staleness flags it as possibly out of date (the title, the chapters or the video changed after it was written): records what it is current for, so it is no longer flagged. Nothing is regenerated.
+
+- **Scopes:** `projects:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=false, idempotent=true, openWorld=false
+- **Approval action keys:** `project.keep_current`
+- **Wraps:** `POST /api/projects/:projectId/keep-current`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "item": {
+      "type": "string",
+      "enum": [
+        "youtube_text",
+        "thumbnail"
+      ]
+    }
+  },
+  "required": [
+    "projectId",
+    "item"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": {}
 }
 ```

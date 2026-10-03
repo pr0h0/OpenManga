@@ -1,5 +1,5 @@
-import { and, desc, eq, inArray, productionRuns } from "@openmanga/db";
-import { pipelineStaleness, recordAudit } from "@openmanga/services";
+import { and, desc, eq, inArray, productionRuns, projects, sql } from "@openmanga/db";
+import { pipelineStaleness, publishingStaleness, recordAudit, youtubeSourceFingerprint } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv, Deps } from "../context.ts";
@@ -89,13 +89,47 @@ doc({
   method: "GET",
   path: "/api/projects/:projectId/staleness",
   summary:
-    "What is out of date along story → plan → prompts → art → narration → audio → render, stage by stage (count and a note), plus stalePlans (chapters with pages whose text changed after planning) and staleNarration (chapters whose text or panels changed after their narration was written), each with its page, panel, drawn-panel and narration-line counts. Start an update with POST production-runs { update: true }; resolve a chapter with POST /api/chapters/:id/keep or by re-planning it.",
+    "What is out of date along story → plan → prompts → art → narration → audio → render, stage by stage (count and a note), plus stalePlans (chapters with pages whose text changed after planning) and staleNarration (chapters whose text or panels changed after their narration was written), each with its page, panel, drawn-panel and narration-line counts. Start an update with POST production-runs { update: true }; resolve a chapter with POST /api/chapters/:id/keep or by re-planning it. publishing flags the YouTube text and the thumbnail headline when what they were written from changed (never regenerated on their own): regenerate them, or POST keep-current.",
   tag: "production",
 });
 productionRoutes.get("/projects/:projectId/staleness", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
-  const { stages, staleArt, stale } = await pipelineStaleness(c.get("deps").db, p);
-  return c.json({ stages, staleArtPanels: staleArt.length, stalePlans: stale.plans, staleNarration: stale.narration });
+  const { db } = c.get("deps");
+  const { stages, staleArt, stale } = await pipelineStaleness(db, p);
+  return c.json({
+    stages,
+    staleArtPanels: staleArt.length,
+    stalePlans: stale.plans,
+    staleNarration: stale.narration,
+    publishing: await publishingStaleness(db, p),
+  });
+});
+
+const KeepCurrent = z.object({ item: z.enum(["youtube_text", "thumbnail"]) });
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/keep-current",
+  summary:
+    "Keep the YouTube text (item=youtube_text) or the thumbnail headline (item=thumbnail) as it is although what it was written from changed: records the current title and chapters, so it is no longer flagged. Regenerating instead is POST youtube-package, or setting settings.thumbnail.title.",
+  tag: "production",
+  body: KeepCurrent,
+});
+productionRoutes.post("/projects/:projectId/keep-current", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
+  const { item } = await body(c, KeepCurrent);
+  const { db } = c.get("deps");
+  const sources =
+    item === "youtube_text"
+      ? { youtubeText: await youtubeSourceFingerprint(db, p), youtubeTextAt: new Date().toISOString() }
+      : { thumbnailTitle: p.title };
+  await db
+    .update(projects)
+    .set({
+      settings: sql`${projects.settings} || jsonb_build_object('publishingSources',
+        coalesce(${projects.settings} -> 'publishingSources', '{}'::jsonb) || ${JSON.stringify(sources)}::jsonb)`,
+    })
+    .where(eq(projects.id, p.id));
+  return c.json({ ok: true });
 });
 
 doc({
