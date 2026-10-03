@@ -67,7 +67,7 @@ async function segmentWithAccess(c: Context<AppEnv>, id: string, action: "read" 
   return { segment: s, project };
 }
 
-async function resegment(c: Context<AppEnv>, lineId: string, projectId: string, text: string, maxChars: number) {
+export async function resegment(c: Context<AppEnv>, lineId: string, projectId: string, text: string, maxChars: number) {
   const { db } = c.get("deps");
   const old = await db
     .select()

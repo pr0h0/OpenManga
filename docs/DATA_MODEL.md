@@ -117,6 +117,9 @@ slot).
   `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
   text, `text_sha256` (of the spoken text: the text with the project's pronunciation dictionary applied), voice/speed
   overrides, `pause_after_ms`, active audio asset).
+- `narration_findings` — narration QA findings per chapter track: `source` (`rule` or `ai`), `kind`, `severity`,
+  `line_ids`, `related_chapter_ids`, `message`, `status` (`open|ignored|fixed`) and a `fingerprint` unique per
+  `(chapter, language, source)`, which is how a re-run keeps an ignored finding ignored.
 
 ## Cast & world (`projects.ts`)
 
@@ -171,7 +174,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`,
+  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `image_batch_submit`, `text_batch_submit`,
   `expert_extract`, `bible_extract`, `continuity_check`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including

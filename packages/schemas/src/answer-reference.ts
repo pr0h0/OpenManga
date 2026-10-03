@@ -12,6 +12,9 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
     "for a vertical strip one panel per page with height and seam.",
   PanelPromptDraft: "**Prepare page prompts** — per-panel prompt text for the image model.",
   NarrationDraft: "**Generate narration** — the narrator's lines, tied to panels.",
+  NarrationLintReport:
+    "**Narration QA → Check with AI** — meaning repeated, facts explained again and lines that only describe the frame.",
+  NarrationFix: "**Narration QA → Fix flagged** — rewrites of the flagged lines only, shown as a diff before applying.",
   ImageDescription:
     "**Describe image** — what a reference image shows, by the aspects you asked for. Attach the image.",
   PanelCheck: "**Check panel** — a consistency check of finished artwork against its cast. Attach the image.",

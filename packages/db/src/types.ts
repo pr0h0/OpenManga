@@ -29,6 +29,7 @@ export type DialogueLineRow = Ser<typeof s.dialogueLines.$inferSelect>;
 export type SoundEffectRow = Ser<typeof s.soundEffects.$inferSelect>;
 export type NarrationLineRow = Ser<typeof s.narrationLines.$inferSelect>;
 export type NarrationSegmentRow = Ser<typeof s.narrationSegments.$inferSelect>;
+export type NarrationFindingRow = Ser<typeof s.narrationFindings.$inferSelect>;
 export type AudioAssetRow = Ser<typeof s.audioAssets.$inferSelect>;
 export type AudioJobRow = Ser<typeof s.audioJobs.$inferSelect>;
 export type GenerationJobRow = Ser<typeof s.generationJobs.$inferSelect>;

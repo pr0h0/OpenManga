@@ -74,6 +74,8 @@ community build: MinIO itself no longer publishes images).
 | `batch.test.ts`, `bulk-references.test.ts` | provider batches for panels, text and references: park, poll, ingest at the batch rate, partial failures, no double submit |
 | `manual-text.test.ts` | paste mode: prompts, schema rejection, per-scene chapter plans, image questions, the whole text pipeline with no key |
 | `experts.test.ts` | built-in and custom experts, project chats, images, paste-mode replies, streaming, output actions (a concept from a chat about no project, premise, outline and YouTube text in a project, a pasted extraction held to its schema) |
+| `pronunciation.test.ts` | the pronunciation dictionary changes only the text sent to the voice, re-voices only the segments it affects, and clearing it reuses the cached take |
+| `narration-qa.test.ts` | narration QA: rule findings stored and an ignored one kept ignored, the AI check, a fix of only the flagged lines shown before applying, re-voicing only the changed segments, the re-check comparison, density from real audio, and the paste-mode lint and fix |
 | `recovery.test.ts`, `tts-race.test.ts` | job redelivery, the stalled-job sweep, a dead batch submitter, permanent project deletion, a segment deleted while voiced |
 | `continuity.test.ts`, `outfits.test.ts`, `letter-from-plan.test.ts`, `upload-art.test.ts`, `vertical.test.ts`, `vision.test.ts` | scene continuity, outfits over a chapter, lettering from the plan, uploaded artwork, vertical strips, image descriptions and character versions |
 

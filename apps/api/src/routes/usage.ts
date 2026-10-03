@@ -20,6 +20,8 @@ const OPERATION_LABELS: Record<string, string> = {
   chapter_plan: "Planning",
   page_prompts: "Prompt prep",
   narration_text: "Narration text",
+  narration_lint: "Narration QA",
+  narration_fix: "Narration fixes",
   expert_chat: "Expert chat",
   expert_image: "Expert chat image",
   expert_extract: "Expert actions",

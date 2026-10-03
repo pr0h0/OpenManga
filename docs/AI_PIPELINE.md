@@ -13,6 +13,8 @@
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
+| Narration QA | `narration_lint` / text-ai | `narration-lint` v1 | `NarrationLintReport` stored as `narration_findings` (source `ai`) for the chapter |
+| Narration fixes | `narration_fix` / text-ai | `narration-fix` v1 | `NarrationFix` checked against the flagged lines, returned as before/after proposals in the job result; applied only when the user confirms |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
 | Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
 | Continuity check | `continuity_check` / text-ai | `continuity-check` v1 | `ContinuityReport` → `continuity_findings` (the chapter's open findings replaced) and each fixed rule's verdict on the job result |
@@ -350,6 +352,45 @@ written text. A segment's `text_sha256` is the hash of that spoken text, so the 
 Saving a different dictionary re-hashes the project's segments (`rehashNarrationSegments`): only those whose spoken
 text changed read as stale, and *Synthesize missing* or a production run's audio step re-voices just those. Project
 templates carry the dictionary like any other setting, so a new project made from one starts with it.
+
+## Narration QA
+
+`POST /api/chapters/:id/narration/lint` (or `/api/projects/:projectId/narration/lint` for every chapter with
+narration) runs the deterministic checks in `packages/domain/src/narration-lint.ts` at once, over the chapter's lines,
+its panels in reading order (the video's shots) with their dialogue, and its current audio:
+
+- repeated sentence openings (the same first two words three times within five sentences), and a flat rhythm (six
+  or more sentences in a row of nearly the same length);
+- a cast name said more than three times within five sentences;
+- near-duplicate lines (word-bigram similarity of 0.7 or more);
+- a line that restates its panel's dialogue (a shared run of five words, or most of the dialogue's content words);
+- a chapter whose first or last line opens or ends like another chapter's;
+- density: a shot carrying more than twice the words-per-panel target, three or more shots in a row with no
+  narration (a line spanning shots covers them), and words per minute of the voiced audio more than 25% off the
+  target runtime's (150 by default).
+
+`semantic: true` also queues one `narration_lint` job per chapter for what counting cannot find: meaning repeated in
+other words (within the chapter and against earlier chapters), a fact explained a third time, and a line that only
+describes its frame. The prompt names lines `L1…Ln` with each line's frame (from its panel spec: beat, action,
+composition, mood) and dialogue; earlier chapters go in as their summary and the first sentence of each line, nearest
+first, within a 30,000-character budget, so a long project stays within context.
+
+Findings are stored in `narration_findings` per chapter, language and source (`rule` or `ai`) with a fingerprint of
+their kind, lines and related chapters. A run replaces its source's findings and returns how they compare with the
+last run (`found`, `introduced`, `remaining`, `resolved`): a finding found again keeps its status (an ignored one stays
+ignored, a fixed one reopens), one no longer found is removed. `GET /api/projects/:projectId/narration/findings`
+lists them with counts by status, kind and chapter; `PATCH /api/narration-findings/:id` ignores or reopens one;
+`GET /api/projects/:projectId/narration/density` gives words, words per shot, silent shots and words per minute per
+chapter, and shot by shot for one chapter.
+
+**Fix only what was flagged.** `POST /api/chapters/:id/narration/fix` with finding ids queues a `narration_fix` job
+that sees every line for context but may rewrite only the flagged ones; an answer naming any other line has that
+entry dropped. The job result is a list of `{ lineId, before, after }`; nothing is written yet. `POST
+/api/chapters/:id/narration/fix/apply` applies all or some of them (a line edited since is skipped), marks the findings
+fixed, re-segments the lines (sentences that did not change keep their audio), queues synthesis for just the changed
+segments of lines that were voiced, re-runs the deterministic checks on the chapter and returns the comparison, and
+with `recheck: true` queues the AI check again on the model the fix used. Silent stretches and pace need lines added or
+the voice changed and are not offered for a rewrite.
 
 ## Narration languages
 

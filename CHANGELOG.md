@@ -7,9 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: four migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
-story bible's two tables, `0030_production_run_lease` two nullable columns to `production_runs` and
-`0031_continuity_findings` the continuity findings.
+Upgrading: five migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
+story bible's two tables, `0030_production_run_lease` two nullable columns to `production_runs`,
+`0031_continuity_findings` the continuity findings, and `0032_narration_findings` a table for narration QA
+findings.
 
 ### Added
 
@@ -39,6 +40,18 @@ story bible's two tables, `0030_production_run_lease` two nullable columns to `p
   lettering keep the written form. Changing it marks the audio of the affected segments stale, so the next synthesis
   re-voices only those. Saved in `settings.pronunciation` (also through `update_project` over MCP) and carried by
   project templates.
+- **Narration QA.** Narration → Narration QA checks a chapter or the whole project. Deterministic checks run at once
+  and spend nothing: repeated sentence openings, a flat rhythm, a name used too often, near-duplicate lines, narration that restates
+  its panel's dialogue, chapters that open or end alike, and density (crowded shots, stretches of silent shots, and
+  words per minute from the real audio). *Check with AI* adds a text job per chapter for meaning repeated in other
+  words (also against earlier chapters, given as compact summaries), facts explained a third time and lines that only
+  describe their frame. Findings are counted by type and can be reviewed, ignored (they stay ignored on later runs)
+  or fixed; a Density tab shows words per shot and per minute, chapter by chapter and shot by shot.
+- **Fix only what was flagged.** Select findings and *Fix selected*: a text job rewrites only their lines, the
+  changes are shown as a diff to accept line by line, and applying them re-voices only the changed sentences and runs
+  the checks again, reporting what is new and what was resolved (optionally the AI check too). Works in paste mode;
+  over MCP as `run_narration_lint`, `get_narration_qa`, `update_narration_finding`, `propose_narration_fix` and
+  `apply_narration_fix`, with spending behind approval.
 
 ### Changed
 

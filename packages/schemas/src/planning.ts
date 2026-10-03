@@ -280,3 +280,28 @@ export const PanelCheck = z.object({
   notes: optStr,
 });
 export type PanelCheck = z.infer<typeof PanelCheck>;
+
+/**
+ * Semantic narration lint: what reading finds and counting cannot. Lines are named by the keys the prompt gives
+ * them ("L4"); other chapters by their number.
+ */
+export const NarrationLintReport = z.object({
+  findings: z
+    .array(
+      z.object({
+        type: z.enum(["repeated_meaning", "cross_chapter_repeat", "fact_overexplained", "describes_frame"]),
+        lines: z.array(str.min(1)).min(1).max(12),
+        relatedChapters: z.array(z.number().int().min(1)).max(10).optional().default([]),
+        severity: z.enum(["low", "medium", "high"]).default("medium"),
+        explanation: str.min(1).max(600),
+      }),
+    )
+    .max(60),
+});
+export type NarrationLintReport = z.infer<typeof NarrationLintReport>;
+
+/** Rewrites of the flagged lines only, by key; every other line stays as it is. */
+export const NarrationFix = z.object({
+  lines: z.array(z.object({ line: str.min(1), text: str.min(1).max(4000) })).max(200),
+});
+export type NarrationFix = z.infer<typeof NarrationFix>;

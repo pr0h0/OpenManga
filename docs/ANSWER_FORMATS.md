@@ -17,6 +17,8 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [ScenePages](#scenepages)
 - [PanelPromptDraft](#panelpromptdraft)
 - [NarrationDraft](#narrationdraft)
+- [NarrationLintReport](#narrationlintreport)
+- [NarrationFix](#narrationfix)
 - [ImageDescription](#imagedescription)
 - [PanelCheck](#panelcheck)
 - [YoutubePackage](#youtubepackage)
@@ -1494,6 +1496,116 @@ interface NarrationDraft {
     {
       "text": "The boat was already turning for home when Ines looked up and saw the light at Vell, burning in broad daylight.",
       "panelId": "panel-1"
+    }
+  ]
+}
+```
+
+</details>
+
+## NarrationLintReport
+
+Asked by **Narration QA → Check with AI** — meaning repeated, facts explained again and lines that only describe the frame.
+
+```ts
+/** Problems a listener would notice in one chapter's narration. An empty findings list is a good answer. */
+interface NarrationLintReport {
+  /**
+   * Each problem found, worst first. Report only real problems, not style preferences or deliberate refrains.
+   * At most 60 items.
+   */
+  findings: {
+    /**
+     * repeated_meaning: lines of this chapter that say the same thing in other words; cross_chapter_repeat: a line that re-tells what an earlier chapter's narration told; fact_overexplained: a fact explained again after the listener has heard it twice; describes_frame: a line that only describes what its frame already shows.
+     * @example "repeated_meaning"
+     */
+    type: "repeated_meaning" | "cross_chapter_repeat" | "fact_overexplained" | "describes_frame";
+    /**
+     * The keys of the lines involved (L1, L2, … as the prompt lists them), the line that should change first.
+     * Between 1 and 12 items.
+     * @example ["L7","L3"]
+     */
+    lines: string[];
+    /**
+     * For cross_chapter_repeat and fact_overexplained: the numbers of the earlier chapters that already said it.
+     * At most 10 items.
+     * Optional — defaults to [] when left out.
+     * @example []
+     */
+    relatedChapters?: number[];
+    /**
+     * How much the listener would notice: low, medium or high.
+     * Optional — defaults to "medium" when left out.
+     * @example "medium"
+     */
+    severity?: "low" | "medium" | "high";
+    /**
+     * One or two sentences a writer can act on: what repeats or what the frame already shows.
+     * Between 1 and 600 characters.
+     * @example "L7 tells again that Tomas never left the light, which L3 already said in nearly the same way."
+     */
+    explanation: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "findings": [
+    {
+      "type": "repeated_meaning",
+      "lines": [
+        "L7",
+        "L3"
+      ],
+      "relatedChapters": [],
+      "severity": "medium",
+      "explanation": "L7 tells again that Tomas never left the light, which L3 already said in nearly the same way."
+    }
+  ]
+}
+```
+
+</details>
+
+## NarrationFix
+
+Asked by **Narration QA → Fix flagged** — rewrites of the flagged lines only, shown as a diff before applying.
+
+```ts
+/** Rewrites of the flagged narration lines only. Every line left out stays exactly as it is. */
+interface NarrationFix {
+  /**
+   * One entry per flagged line you rewrite. Lines no finding names are refused.
+   * At most 200 items.
+   */
+  lines: {
+    /**
+     * The key of the flagged line (L1, L2, …) as the prompt lists it.
+     * At least 1 characters.
+     * @example "L7"
+     */
+    line: string;
+    /**
+     * The new line: same meaning, facts, names, tense and roughly the same length, without the problem.
+     * Between 1 and 4000 characters.
+     * @example "By the time the storm reached Vell, the lamp was the only light left on the coast."
+     */
+    text: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "lines": [
+    {
+      "line": "L7",
+      "text": "By the time the storm reached Vell, the lamp was the only light left on the coast."
     }
   ]
 }

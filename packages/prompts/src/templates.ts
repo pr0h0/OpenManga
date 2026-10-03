@@ -6,6 +6,8 @@ import {
   ImageDescription,
   NarrationDraft,
   NarrationDraftV2,
+  NarrationFix,
+  NarrationLintReport,
   PanelCheck,
   PanelPromptDraft,
   type SceneOutline,
@@ -924,6 +926,67 @@ export const continuityCheckV1 = defineTextTemplate<{ projectData: Record<string
   },
 });
 
+/** One chapter's narration as the lint and fix prompts show it: keyed lines with the shot each plays over. */
+type LintLineInput = { key: string; text: string; frame?: string; dialogue?: string[] };
+
+export const narrationLintV1 = defineTextTemplate<{
+  chapter: { order: number; title: string; summary: string };
+  lines: LintLineInput[];
+  earlierChapters: { order: number; title: string; summary: string; narration: string[] }[];
+}>({
+  name: "narration-lint",
+  version: 1,
+  description: "Find narration that repeats meaning, re-explains facts or only describes the frame.",
+  system: [
+    templateHeader("narration-lint", 1),
+    "You are a script editor reviewing the voice-over narration of one chapter of a narrated comic video. Report only real problems a listener would notice; an empty findings list is a good answer.",
+    "Look for: (1) repeated_meaning — two or more lines of this chapter that say the same thing in other words; (2) cross_chapter_repeat — a line that re-tells something an earlier chapter's narration already told (name the earlier chapters in relatedChapters); (3) fact_overexplained — a fact explained again when the listener has already been told it at least twice, here or in earlier chapters; (4) describes_frame — a line that only describes what its frame already shows (each line's frame is given) without adding meaning, feeling or story.",
+    "Do not report wording, grammar, style preferences, or repetition that is a deliberate refrain. Reference lines only by the keys given (L1, L2, …); put the line that should change first. Explain each finding in one or two sentences a writer can act on.",
+    "Earlier chapters are given as a summary and their narration shortened to first sentences; use them only to judge repeats.",
+    DATA_RULE,
+    schemaInstructions("NarrationLintReport", NarrationLintReport),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: untrusted(
+          "project_data",
+          JSON.stringify({ chapter: i.chapter, lines: i.lines, earlierChapters: i.earlierChapters }),
+        ),
+      },
+    ];
+  },
+});
+
+export const narrationFixV1 = defineTextTemplate<{
+  language: string;
+  lines: LintLineInput[];
+  findings: { lines: string[]; problem: string }[];
+}>({
+  name: "narration-fix",
+  version: 1,
+  description: "Rewrite only the narration lines a lint flagged, keeping every other line as it is.",
+  system: [
+    templateHeader("narration-fix", 1),
+    "You are a script editor fixing specific problems in the voice-over narration of one chapter. Each finding names the lines involved and the problem.",
+    "Rewrite ONLY lines named in the findings, and only as much as the problem needs: keep their meaning, facts, names, tense, person, tone and roughly their length, so the narration still fits its shots. A line you do not need to change may be left out of the answer. Never return a line that no finding names.",
+    "The other lines are given for context so the rewrites fit around them and do not create a new repetition with them. Do not introduce phrasing that repeats a neighbouring line, the panel's dialogue or what the frame already shows. Write in the language given.",
+    DATA_RULE,
+    schemaInstructions("NarrationFix", NarrationFix),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: `Language: ${i.language}.\n\n${untrusted("project_data", JSON.stringify({ findings: i.findings, lines: i.lines }))}`,
+      },
+    ];
+  },
+});
+
 export const TEXT_TEMPLATES = [
   expertChatV1,
   expertChatV2,
@@ -984,4 +1047,6 @@ export const TEXT_TEMPLATES = [
   narrationV6,
   bibleExtractV1,
   continuityCheckV1,
+  narrationLintV1,
+  narrationFixV1,
 ];

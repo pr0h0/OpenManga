@@ -8,6 +8,8 @@ export const KIND_LABELS: Record<string, string> = {
   chapter_plan: "Chapter planning",
   page_prompts: "Prompt prep",
   narration_text: "Narration text",
+  narration_lint: "Narration QA",
+  narration_fix: "Narration fixes",
   character_reference: "Character ref",
   location_reference: "Location ref",
   prop_reference: "Prop ref",

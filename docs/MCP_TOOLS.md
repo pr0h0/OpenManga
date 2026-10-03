@@ -25,9 +25,9 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
-| `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status` |
-| `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa` |
+| `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio` |
 | `exports:read` | Read export status and files. | `suggest_shorts`, `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
@@ -113,6 +113,11 @@ requests) need no scope.
 | [`edit_narration`](#edit_narration) | delete | `narration:write` |
 | [`run_narration_generation`](#run_narration_generation) | spend | `narration:write` `generations:run` |
 | [`synthesize_narration`](#synthesize_narration) | spend | `narration:write` |
+| [`run_narration_lint`](#run_narration_lint) | spend | `narration:write` `generations:run` |
+| [`get_narration_qa`](#get_narration_qa) | read | `narration:read` |
+| [`update_narration_finding`](#update_narration_finding) | write | `narration:write` |
+| [`propose_narration_fix`](#propose_narration_fix) | spend | `narration:write` `generations:run` |
+| [`apply_narration_fix`](#apply_narration_fix) | spend | `narration:write` |
 | [`delete_narration_audio`](#delete_narration_audio) | delete | `narration:write` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
@@ -192,6 +197,8 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "ScenePages",
         "PanelPromptDraft",
         "NarrationDraft",
+        "NarrationLintReport",
+        "NarrationFix",
         "ImageDescription",
         "PanelCheck",
         "YoutubePackage",
@@ -8590,6 +8597,409 @@ Queue speech synthesis for one segment (segmentId) or every missing/stale segmen
       "pattern": "^[\\w.:-]+$"
     }
   }
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### run_narration_lint
+
+Narration QA for a chapter (chapterId) or every chapter with narration (projectId). The deterministic checks (repeated sentence openings, flat rhythm, a name used too often, near-duplicate lines, narration restating the panel's dialogue, chapters that open or end alike, crowded shots, silent stretches, pace from real audio) run at once and are stored as findings; the answer says how many were found, are new, remain and were resolved since the last run. semantic=true also queues the AI check per chapter (meaning repeated in other words, facts explained again, lines that only describe the frame) as narration_lint jobs: manual mode (ai.manual=true) asks you for a NarrationLintReport; a provider run spends credits (may need approval). Read findings with get_narration_qa.
+
+- **Scopes:** `narration:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `narration.lint`
+- **Wraps:** `POST /api/chapters/:id/narration/lint`, `POST /api/projects/:projectId/narration/lint`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16
+    },
+    "semantic": {
+      "default": false,
+      "type": "boolean"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  }
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_narration_qa
+
+view=findings: a project's narration QA findings (type, chapter, line ids, severity, explanation, status open/ignored/fixed, whether a rewrite can fix it) with counts by status, type and chapter and the text of the flagged lines; filter by chapterId, status or kind. view=density: words, words per shot, silent shots and words per minute (from current audio) per chapter, and shot by shot with chapterId. Read-only.
+
+- **Scopes:** `narration:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/narration/findings`, `GET /api/projects/:projectId/narration/density`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "view": {
+      "default": "findings",
+      "type": "string",
+      "enum": [
+        "findings",
+        "density"
+      ]
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "ignored",
+        "fixed"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 16
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### update_narration_finding
+
+status=ignored: dismiss a narration QA finding; it stays ignored while later checks find the same problem on the same lines. status=open reopens it.
+
+- **Scopes:** `narration:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=false, idempotent=true, openWorld=false
+- **Approval action keys:** `narration.finding`
+- **Wraps:** `PATCH /api/narration-findings/:id`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "findingId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "ignored"
+      ]
+    }
+  },
+  "required": [
+    "findingId",
+    "status"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### propose_narration_fix
+
+Queue a narration_fix job that rewrites only the lines the chosen findings (from get_narration_qa, all on this chapter) flag, keeping every other line. The job result holds proposals as { lineId, before, after }; nothing changes until apply_narration_fix. Silences and pace cannot be fixed by rewriting and are refused. Manual mode (ai.manual=true) asks you for a NarrationFix; a provider run spends credits (may need approval).
+
+- **Scopes:** `narration:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `narration.fix`
+- **Wraps:** `POST /api/chapters/:id/narration/fix`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "findingIds": {
+      "minItems": 1,
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "findingIds",
+    "chapterId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### apply_narration_fix
+
+Apply a completed propose_narration_fix job (jobId): rewrites its lines (or only lineIds), skipping any line edited since; marks its findings fixed; re-voices only the changed segments of lines that had audio (revoice, default true: the local voice unless ai names a speech key, which spends); and re-runs the deterministic checks on the chapter, returning how they compare (found, introduced, remaining, resolved). recheck=true also queues the AI check again on the model the fix used.
+
+- **Scopes:** `narration:write`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `narration.fix_apply`
+- **Wraps:** `POST /api/chapters/:id/narration/fix/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "jobId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "lineIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "revoice": {
+      "default": true,
+      "type": "boolean"
+    },
+    "recheck": {
+      "default": false,
+      "type": "boolean"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "credentialId": {
+          "description": "A saved speech-provider key; omit for the server's local voice (free).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  },
+  "required": [
+    "jobId",
+    "chapterId"
+  ]
 }
 ```
 
