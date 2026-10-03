@@ -102,6 +102,9 @@ nothing becomes out of date on upgrade.
 
 ### Fixed
 
+- The production run card did not show the chapters changed since they were planned after you pressed Continue
+  at the analysis review, until the page was reloaded: it refreshed only when the run's status changed, and going
+  from one review to the next keeps it "waiting". It now refreshes on every change to the run.
 - **The YouTube text and thumbnail headline show when they may be out of date.** Renaming the project, changing its
   chapters or rendering the video again left them looking current. *What is out of date* now flags the YouTube text
   (title or chapters changed since it was written, or the video re-rendered after the package was exported) and the
