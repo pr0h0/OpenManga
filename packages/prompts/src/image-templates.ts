@@ -368,7 +368,7 @@ export type PanelPromptInput = {
   } | null;
   props: { name: string; description: PropDescription; referenceImageIndex?: number; referenceKind?: string }[];
   /** The panel's layout sketch, sent after the subject references and before the previous panel. */
-  guide?: { imageIndex: number; strength: "loose" | "strict" };
+  guide?: { imageIndex: number; strength: "loose" | "strict"; pose?: string };
   previousPanelImageIndex?: number;
   continuity: string[];
   /** Panel has app lettering (bubbles/captions); ask for calm space for it. Defaults to true. */
@@ -415,7 +415,7 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 10,
+  version: 11,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
   body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
@@ -483,6 +483,8 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
             i.guide.strength === "strict"
               ? `Copy the pose of every figure, where each figure stands in the frame, and the framing from the sketch in reference image ${i.guide.imageIndex}. Where the written composition, action or story beat below disagrees with the sketch on pose, figure placement or framing, the sketch wins. Identity, outfits and the look of everything still come from the character references and the descriptions, never from the sketch.`
               : `Start from the sketch in reference image ${i.guide.imageIndex} for the poses, where the figures stand and the framing; the written description below may adjust it.`,
+            // The same pose in words: a model that only skims the sketch still gets it, and it ranks with the sketch.
+            i.guide.pose?.trim() ? `Pose, in words: ${clean(i.guide.pose)}` : "",
           ])
         : "",
       styleSection(i.style),

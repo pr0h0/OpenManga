@@ -413,7 +413,7 @@ export class GenerationPlanner {
         label: `layout guide (${panel.guide.strength})`,
         subjectVersionId: null,
       });
-      guideInput = { imageIndex: refs.length, strength: panel.guide.strength };
+      guideInput = { imageIndex: refs.length, strength: panel.guide.strength, pose: panel.guide.pose ?? "" };
     }
 
     const scene = panel.sceneId

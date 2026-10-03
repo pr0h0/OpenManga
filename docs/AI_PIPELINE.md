@@ -8,7 +8,7 @@
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
 | Narration text | `narration_text` / text-ai | `narration` v5 | narration lines → TTS segments |
 | References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v10 | a new `panel_art` asset, activated on the panel |
+| Panels | `panel_generation` / image-generation | `panel-generation` v11 | a new `panel_art` asset, activated on the panel |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
@@ -328,7 +328,7 @@ The job attaches the 1024 px preview to the user message and asks `image-describ
 | `character` | `CharacterBible` | a new character |
 | `location` | `LocationDescription` | a new location |
 | `outfit`, `lighting`, `composition`, `mood`, `props`, `era`, `technique` | prose + bullet details | copied by hand |
-| `pose` (v2) | one composition-ready sentence, per-figure notes, framing | a panel's composition, after review (*Describe pose* on a layout guide) |
+| `pose` (v2) | one composition-ready sentence, per-figure notes, framing | a layout guide's pose text, after review (*Describe pose* on a layout guide) |
 
 The three that map onto an entity return **exactly** the shape that entity's existing endpoint already accepts, so
 applying a result is a plain `POST` of the object — there is no translation step and no write path of its own.

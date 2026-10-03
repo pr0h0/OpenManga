@@ -187,7 +187,7 @@ describe("panel prompt compilation", () => {
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
-    expect(panelGenerationV1.version).toBe(10);
+    expect(panelGenerationV1.version).toBe(11);
     expect(p.startsWith("Create one cinematic 16:9 film frame")).toBe(true);
     expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
     expect(p).not.toContain("panel,");
@@ -227,6 +227,13 @@ describe("panel prompt compilation", () => {
     const loose = panelGenerationV1.compile({ ...base, guide: { imageIndex: 3, strength: "loose" } });
     expect(loose.split("\n\n")[1]).toStartWith("POSE / LAYOUT:\nStart from the sketch in reference image 3");
     expect(loose).not.toContain("the sketch wins");
+    // A typed pose rides in the same section; an empty one adds nothing.
+    const worded = panelGenerationV1.compile({
+      ...base,
+      guide: { imageIndex: 3, strength: "strict", pose: "standing centred, hands on hips" },
+    });
+    expect(worded.split("\n\n")[1]).toContain("Pose, in words: standing centred, hands on hips");
+    expect(strict).not.toContain("Pose, in words");
   });
 
   test("empty panel says no people", () => {

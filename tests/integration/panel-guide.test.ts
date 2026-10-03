@@ -11,7 +11,7 @@ let pageId: string;
 let versionId: string;
 let panelIds: string[];
 
-type Guide = { assetId: string; strength: "loose" | "strict" } | null;
+type Guide = { assetId: string; strength: "loose" | "strict"; pose?: string } | null;
 type Preview = { compiledPrompt: string; references: { index: number; role: string; assetId: string }[] };
 type JobDetail = {
   job: { status: string; templateVersion: number; compiledPrompt: string };
@@ -81,8 +81,8 @@ test("an uploaded guide is stored as a sanitised project image and set on the pa
   expect(res.status).toBe(201);
   const out = (await res.json()) as { panel: { guide: Guide }; asset: { id: string; width: number } };
   expect(out.asset.width).toBe(1600);
-  expect(out.panel.guide).toEqual({ assetId: out.asset.id, strength: "loose" });
-  expect(await guideOf(panelIds[0]!)).toEqual({ assetId: out.asset.id, strength: "loose" });
+  expect(out.panel.guide).toEqual({ assetId: out.asset.id, strength: "loose", pose: "" });
+  expect(await guideOf(panelIds[0]!)).toEqual({ assetId: out.asset.id, strength: "loose", pose: "" });
 
   const bad = new FormData();
   bad.set("file", new File(["not an image"], "x.txt", { type: "text/plain" }));
@@ -102,6 +102,14 @@ test("the planner sends the guide after the identity reference, with its layout-
   await alice.patch(`/api/panels/${panelIds[0]}`, { guide: { ...guide, strength: "strict" } });
   const strict = await alice.get<Preview>(`/api/panels/${panelIds[0]}/prompt-preview`);
   expect(strict.compiledPrompt).toContain("Reference image 2 is a rough layout/pose sketch: follow its composition");
+  expect(strict.compiledPrompt).not.toContain("Pose, in words");
+
+  // A typed pose rides with the sketch in POSE / LAYOUT, and clearing it removes the line again.
+  await alice.patch(`/api/panels/${panelIds[0]}`, { guide: { ...guide, strength: "strict", pose: "hands on hips" } });
+  expect((await guideOf(panelIds[0]!))?.pose).toBe("hands on hips");
+  const worded = await alice.get<Preview>(`/api/panels/${panelIds[0]}/prompt-preview`);
+  expect(worded.compiledPrompt.split("\n\n")[1]).toContain("Pose, in words: hands on hips");
+  await alice.patch(`/api/panels/${panelIds[0]}`, { guide: { ...guide, strength: "strict", pose: "" } });
 });
 
 test("generation sends the guide large and lossless (the identity reference stays small), and so does a regeneration", async () => {
@@ -110,7 +118,7 @@ test("generation sends the guide large and lossless (the identity reference stay
     const r = await alice.post<{ job: { id: string } }>(`/api/panels/${panelIds[0]}/generate`, body, 202);
     const done = await waitJob(r.job.id);
     expect(done.job.status).toBe("completed");
-    expect(done.job.templateVersion).toBe(10);
+    expect(done.job.templateVersion).toBe(11);
     expect(done.job.compiledPrompt).toContain("layout/pose sketch");
     expect(done.job.compiledPrompt).toContain("POSE / LAYOUT:\nCopy the pose of every figure");
     expect(done.inputs.map((i) => i.role)).toEqual(["character_ref", "layout_guide"]);
@@ -152,7 +160,7 @@ test("duplicating a panel keeps its guide; another project's image cannot be set
   // Any image of the project works, e.g. the panel's own artwork from another panel.
   const art = (await h.deps.db.select().from(panels).where(eq(panels.id, panelIds[0]!)))[0]!.activeArtworkAssetId!;
   await alice.patch(`/api/panels/${panelIds[1]}`, { guide: { assetId: art, strength: "strict" } });
-  expect(await guideOf(panelIds[1]!)).toEqual({ assetId: art, strength: "strict" });
+  expect(await guideOf(panelIds[1]!)).toEqual({ assetId: art, strength: "strict", pose: "" });
 });
 
 test("a masked edit leaves the guide out; removing it drops it from the next generation", async () => {

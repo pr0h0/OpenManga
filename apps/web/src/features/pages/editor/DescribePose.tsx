@@ -10,18 +10,19 @@ type JobDetail = { job: { status: string; failureReason: string | null; result: 
 
 /**
  * "Describe pose": a vision job reads the layout guide's poses, placement and framing into one sentence, which is
- * shown for review and only written into the composition when the user says so, appended or replacing.
+ * shown for review and only written into the guide's pose text when the user says so, appended or replacing.
  */
 export function DescribePose({
   panelId,
-  composition,
+  current,
   disabled,
   onApply,
 }: {
   panelId: string;
-  composition: string;
+  /** The guide's pose text as it is now. */
+  current: string;
   disabled: boolean;
-  onApply: (composition: string) => void;
+  onApply: (pose: string) => void;
 }) {
   const aiText = useAiBody("text");
   const [busy, setBusy] = useState(false);
@@ -40,7 +41,7 @@ export function DescribePose({
           const p = (d.job.result as { description?: ImageDescription }).description?.pose;
           const text = p?.summary || [...(p?.figures ?? []), p?.framing].filter(Boolean).join("; ");
           if (!text) throw new Error("The model did not describe a pose");
-          setMode(composition.trim() ? "append" : "replace");
+          setMode(current.trim() ? "append" : "replace");
           setPose(text);
           return;
         }
@@ -85,11 +86,11 @@ export function DescribePose({
               className="btn-primary"
               disabled={!pose?.trim()}
               onClick={() => {
-                onApply(withPose(composition, pose ?? "", mode));
+                onApply(withPose(current, pose ?? "", mode));
                 setPose(null);
               }}
             >
-              Write into composition
+              Use as the pose
             </button>
           </>
         }
@@ -99,7 +100,7 @@ export function DescribePose({
             <textarea className="input" rows={3} value={pose ?? ""} onChange={(e) => setPose(e.target.value)} />
           </Field>
           <fieldset className="space-y-1">
-            <legend className="label">Composition field</legend>
+            <legend className="label">Pose text</legend>
             {(["append", "replace"] as const).map((m) => (
               <label key={m} className="flex items-center gap-2 text-xs">
                 <input type="radio" name="pose-mode" checked={mode === m} onChange={() => setMode(m)} />
@@ -108,8 +109,8 @@ export function DescribePose({
             ))}
           </fieldset>
           <div>
-            <div className="label">Composition after saving</div>
-            <p className="rounded-lg bg-[var(--panel-2)] p-2 text-xs">{withPose(composition, pose ?? "", mode)}</p>
+            <div className="label">Pose text after saving</div>
+            <p className="rounded-lg bg-[var(--panel-2)] p-2 text-xs">{withPose(current, pose ?? "", mode)}</p>
           </div>
         </div>
       </Modal>

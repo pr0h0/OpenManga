@@ -180,7 +180,10 @@ export const ProjectInterchange = z.object({
               /** The panel as a video shot (motion, fade, disabled). */
               video: ShotVideo.nullable().default(null),
               /** The panel's layout sketch; `asset` may also be another panel's artwork in the package. */
-              guide: z.object({ asset: AssetRef, strength: PanelGuide.shape.strength }).nullable().default(null),
+              guide: z
+                .object({ asset: AssetRef, strength: PanelGuide.shape.strength, pose: PanelGuide.shape.pose })
+                .nullable()
+                .default(null),
             }),
           ),
         }),
