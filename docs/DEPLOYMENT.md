@@ -263,8 +263,9 @@ Add a compose override with `deploy.resources.reservations.devices` for the koko
   reset tokens, unused derivatives, expired exports, trashed assets, old temp files and published outbox rows
   (`docs/STORAGE.md`).
 - **Production runs** are advanced by the API process, not the worker: it checks every `running` run every 10 s, so
-  a run resumes by itself after an API restart. The guard against two passes on one run is in memory, so run a single
-  `api` replica.
+  a run resumes by itself after an API restart. A pass holds a lease on the run's row (`lease_owner`,
+  `lease_until`, two minutes, extended while it works), so several `api` replicas can tick without advancing one run
+  twice; a replica that dies mid-pass leaves a lease that expires and another takes over.
 
 ## Exports: readiness, video, import
 

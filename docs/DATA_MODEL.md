@@ -4,7 +4,7 @@ PostgreSQL via Drizzle. 72 tables in eight schema files under `packages/db/src/s
 `bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
 `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0029_story_bible.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0030_production_run_lease.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -69,8 +69,9 @@ slot).
   `exportJobId` it waits on, a `ref` a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`,
   `youtube` and the run's `ai` choice), a `reason` for the person and `warnings` (JSON, migration
   `0028_production_run_warnings`; set when it finished `completed_with_warnings`: `failedJobs` (at most 500, with
-  `failedJobCount`), `panelsWithoutArt`, `segmentsWithoutAudio`, `panelsNeedingReview`, `failedExports`). Advanced by
-  the API (`docs/ARCHITECTURE.md`).
+  `failedJobCount`), `panelsWithoutArt`, `segmentsWithoutAudio`, `panelsNeedingReview`, `failedExports`), and
+  `lease_owner` / `lease_until` (migration `0030_production_run_lease`): the pass advancing it now, so two API
+  processes never advance one run at once. Advanced by the API (`docs/ARCHITECTURE.md`).
 - `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a
   random `token` (unique), creator, `revoked_at`. Served without a session under `/api/public/shares/:token`
   (`docs/SECURITY.md`).

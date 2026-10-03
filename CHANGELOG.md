@@ -7,8 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-Upgrading: two migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
-story bible's two tables.
+Upgrading: three migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
+story bible's two tables and `0030_production_run_lease` two nullable columns to `production_runs`.
 
 ### Added
 
@@ -23,8 +23,6 @@ story bible's two tables.
   section, and an outfit state that names an outfit dresses the character in it wherever no panel sets another. The
   bible is copied with a duplicated project and kept in project exports and imports. MCP: `get_story_bible`,
   `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`.
-
-### Added
 
 - **Pronunciation dictionary.** Project settings → Pronunciation maps names and terms to how the narrator says them
   ("Qi" → "chee", "Seo Jinhyeok" → "suh jin-hyuk"), with match-case and whole-word options and a preview in the
@@ -43,6 +41,11 @@ story bible's two tables.
   `cancel_production_run` MCP tool).
 
 ### Fixed
+
+- **Production runs are safe with several API processes.** A run was guarded against two passes at once by an
+  in-memory set, so two `api` replicas (or a stale process) could advance the same run twice and queue its work
+  twice. A pass now holds a lease on the run's row (`lease_owner`, `lease_until`), extended while it works and
+  released when it returns; an expired lease is taken over, and a pass no longer overwrites a run stopped meanwhile.
 
 - **A production run with failures no longer ends as plain completed.** A run that reached the end while some steps
   had noted failures ("3 of 400 failed") reported `completed`. It now finishes `completed_with_warnings` with a

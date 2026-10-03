@@ -560,23 +560,55 @@ export async function runWarnings(deps: Deps, run: Run): Promise<ProductionWarni
 
 // ---------------------------------------------------------------- advancing
 
-// ponytail: one API process advances runs, so an in-process guard is enough; several API replicas would need a lease
-// column on the row instead.
-const busy = new Set<string>();
+/** This process; every advance adds its own suffix, so two advances in one process exclude each other too. */
+const PROCESS_ID = `${process.env.HOSTNAME ?? "api"}:${process.pid}:${crypto.randomUUID().slice(0, 8)}`;
+const LEASE = sql`now() + interval '2 minutes'`;
 
-/** Move a run forward as far as it can go now: finish waiting steps, start the next, stop at a review or a wait. */
-export async function advanceRun(deps: Deps, runId: string) {
-  if (busy.has(runId)) return;
-  busy.add(runId);
+/** The advance lost its lease (it expired and another process took the run) or the run stopped under it. */
+class LeaseLost extends Error {}
+
+/**
+ * Move a run forward as far as it can go now: finish waiting steps, start the next, stop at a review or a wait.
+ * Only the holder of the row's lease advances it, so API replicas (or a timer tick and a Continue click) never start
+ * the same step twice; the lease is extended while the advance works and released when it returns. `owner` is for
+ * tests that play two processes.
+ */
+export async function advanceRun(deps: Deps, runId: string, owner = `${PROCESS_ID}:${crypto.randomUUID()}`) {
+  const claimed = await deps.db.execute(sql`
+    update production_runs set lease_owner = ${owner}, lease_until = ${LEASE}
+    where id = ${runId} and status = 'running'
+      and (lease_until is null or lease_until < now() or lease_owner = ${owner})
+    returning id`);
+  if (!claimed.length) return;
+  // A step that calls many routes (planning 30 chapters) can outlast the lease; keep it alive while working.
+  const heartbeat = setInterval(
+    () =>
+      void deps.db
+        .update(productionRuns)
+        .set({ leaseUntil: LEASE })
+        .where(and(eq(productionRuns.id, runId), eq(productionRuns.leaseOwner, owner)))
+        .catch(() => {}),
+    30_000,
+  );
   try {
     const [run] = await deps.db.select().from(productionRuns).where(eq(productionRuns.id, runId));
     if (run?.status !== "running") return;
     const save = async (patch: Partial<Run>) => {
       Object.assign(run, patch);
-      await deps.db
+      // Only while this advance still holds the lease and the run is still running: a run stopped meanwhile stays
+      // stopped, and nothing done here after that is kept.
+      const saved = await deps.db
         .update(productionRuns)
-        .set({ ...patch, steps: run.steps, updatedAt: new Date() })
-        .where(eq(productionRuns.id, run.id));
+        .set({ ...patch, steps: run.steps, updatedAt: new Date(), leaseUntil: LEASE })
+        .where(
+          and(
+            eq(productionRuns.id, run.id),
+            eq(productionRuns.leaseOwner, owner),
+            eq(productionRuns.status, "running"),
+          ),
+        )
+        .returning({ id: productionRuns.id });
+      if (!saved.length) throw new LeaseLost();
       await deps.events.publish(run.projectId, { type: "production.updated", runId: run.id, status: run.status });
     };
     let call: Call;
@@ -634,6 +666,7 @@ export async function advanceRun(deps: Deps, runId: string) {
         step.finishedAt = new Date().toISOString();
         await save({});
       } catch (e) {
+        if (e instanceof LeaseLost) throw e;
         const msg = e instanceof Error ? e.message : String(e);
         // Spending stops at the project's cap: pause, so raising the cap and continuing picks up right here.
         if (e instanceof CallError && (e.code === "budget_exceeded" || e.status === 402)) {
@@ -647,8 +680,14 @@ export async function advanceRun(deps: Deps, runId: string) {
         return;
       }
     }
+  } catch (e) {
+    if (!(e instanceof LeaseLost)) throw e;
   } finally {
-    busy.delete(runId);
+    clearInterval(heartbeat);
+    await deps.db
+      .update(productionRuns)
+      .set({ leaseOwner: null, leaseUntil: null })
+      .where(and(eq(productionRuns.id, runId), eq(productionRuns.leaseOwner, owner)));
   }
 }
 

@@ -449,6 +449,9 @@ export const productionRuns = pgTable(
     reason: text("reason"),
     /** Set when the run finished `completed_with_warnings`. */
     warnings: jsonb("warnings").$type<ProductionWarnings>(),
+    /** The advance working on the run now, and until when (see advanceRun); null when nothing is. */
+    leaseOwner: text("lease_owner"),
+    leaseUntil: ts("lease_until"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

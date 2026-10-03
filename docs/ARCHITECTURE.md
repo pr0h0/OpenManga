@@ -104,7 +104,12 @@ every run in `running`. Each pass finishes steps whose generation, audio or expo
 and stops at a review step (`waiting`), a job still in flight, a failure (`failed`), or a 402 from the budget
 (`paused`, so raising the cap and continuing picks up at the same step). A step looks only at what exists
 (`onlyMissing`, chapters without pages, and so on), so a restarted API resumes where the row stood. Concurrent
-passes on one run are prevented by an in-memory set, which assumes a single API process. Every change publishes a
+passes on one run are prevented by a **lease on the row**: a pass claims it atomically
+(`UPDATE … SET lease_owner = $me, lease_until = now() + 2 min WHERE status = 'running' AND (lease_until IS NULL OR
+lease_until < now() OR lease_owner = $me)`), extends it every 30 s and on every save, writes only while it still holds
+it and the run is still `running` (so a run stopped meanwhile stays stopped), and releases it when it returns. `$me`
+is the process id plus a per-pass suffix, so a timer tick and a Continue click in one process exclude each other too,
+and API replicas are safe. Every change publishes a
 `production.updated` project event (`{runId, status}`) on the usual `EventBus`.
 
 **Update production.** `GET /api/projects/:projectId/staleness` (`pipelineStaleness` in `packages/services`) reports
