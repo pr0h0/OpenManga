@@ -14,6 +14,8 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   NarrationDraft: "**Generate narration** — the narrator's lines, tied to panels.",
   NarrationLintReport:
     "**Narration QA → Check with AI** — meaning repeated, facts explained again and lines that only describe the frame.",
+  StoryCoverageMap:
+    "**Story → Check coverage**, one question per part of the source — which scenes tell each paragraph, and its weight.",
   NarrationFix: "**Narration QA → Fix flagged** — rewrites of the flagged lines only, shown as a diff before applying.",
   ImageDescription:
     "**Describe image** — what a reference image shows, by the aspects you asked for. Attach the image.",

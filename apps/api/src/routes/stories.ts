@@ -1,6 +1,6 @@
-import { and, desc, eq, sql, storyAnalyses, storyRevisions } from "@openmanga/db";
+import { and, desc, eq, generationJobs, inArray, sql, storyAnalyses, storyRevisions } from "@openmanga/db";
 import { PRIORITY } from "@openmanga/domain";
-import { storyAnalysisV3, storyRewriteV1 } from "@openmanga/prompts";
+import { storyAnalysisV3, storyCoverageV1, storyRewriteV1 } from "@openmanga/prompts";
 import { StoryAnalysis } from "@openmanga/schemas";
 import { analysisDiff, applyStoryAnalysis, recordAudit } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -347,4 +347,136 @@ storyRoutes.post("/story-analyses/:id/apply", async (c) => {
     requestId: c.get("requestId"),
   });
   return c.json({ created });
+});
+
+// ---------------------------------------------------------------- story coverage
+
+/** The revision the plan was built from: the one the newest applied analysis read. */
+async function appliedRevisionId(c: Parameters<typeof projectAccess>[0], projectId: string) {
+  const [a] = await c
+    .get("deps")
+    .db.select({ id: storyAnalyses.storyRevisionId })
+    .from(storyAnalyses)
+    .where(and(eq(storyAnalyses.projectId, projectId), eq(storyAnalyses.status, "applied")))
+    .orderBy(sql`${storyAnalyses.appliedAt} desc nulls last`)
+    .limit(1);
+  return a?.id ?? null;
+}
+
+export const CoverageInput = z.object({
+  /** Another revision of this project to compare with the plan; the applied one when omitted. */
+  storyRevisionId: z.string().uuid().optional(),
+  ai: AiChoiceInput,
+});
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/story/coverage",
+  summary:
+    "Queue a story coverage check (story_coverage job): maps the applied story revision, part by part, to the chapters and scenes, and reports what was left out, told twice, or given far more or less room than its weight",
+  tag: "stories",
+  body: CoverageInput,
+});
+storyRoutes.post("/projects/:projectId/story/coverage", async (c) => {
+  const project = await projectAccess(c, uuidParam(c, "projectId"), "generate");
+  const input = await body(c, CoverageInput);
+  const deps = c.get("deps");
+  const revisionId = input.storyRevisionId ?? (await appliedRevisionId(c, project.id));
+  if (!revisionId) throw conflict("Analyse the story and apply the analysis first: coverage compares the plan with it");
+  const [rev] = await deps.db
+    .select({ p: storyRevisions.projectId })
+    .from(storyRevisions)
+    .where(eq(storyRevisions.id, revisionId));
+  if (rev?.p !== project.id) throw notFound("Story revision");
+  await assertBudget(c, project.id);
+  const run = await textRun(c, input.ai);
+  const job = await deps.db.transaction((tx) =>
+    deps.jobs.createGenerationJob(tx, {
+      projectId: project.id,
+      userId: user(c).id,
+      kind: "story_coverage",
+      priority: PRIORITY.single,
+      targetType: "story_revision",
+      targetId: revisionId,
+      templateName: storyCoverageV1.name,
+      templateVersion: storyCoverageV1.version,
+      provider: run.provider,
+      model: run.model,
+      parameters: run.parameters,
+      input: { storyRevisionId: revisionId, language: project.language },
+    }),
+  );
+  await deps.jobs.kick();
+  return c.json({ job }, 202);
+});
+
+type CoverageResult = {
+  storyRevisionId: string;
+  findings: { spans: { start: number; end: number; paragraphs: string[] }[] }[];
+};
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/story/coverage",
+  summary:
+    "The newest story coverage report: findings with their source spans (offsets and an excerpt) and chapters/scenes, source vs panel vs narration share per chapter, whether the story or the plan changed since, and any check still running",
+  tag: "stories",
+});
+storyRoutes.get("/projects/:projectId/story/coverage", async (c) => {
+  const project = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const { db } = c.get("deps");
+  const coverageJobs = and(eq(generationJobs.projectId, project.id), eq(generationJobs.kind, "story_coverage"));
+  const [last] = await db
+    .select()
+    .from(generationJobs)
+    .where(and(coverageJobs, eq(generationJobs.status, "completed")))
+    .orderBy(desc(generationJobs.finishedAt))
+    .limit(1);
+  const [running] = await db
+    .select({ id: generationJobs.id, status: generationJobs.status })
+    .from(generationJobs)
+    .where(and(coverageJobs, inArray(generationJobs.status, ["queued", "processing", "awaiting_input", "submitted"])))
+    .orderBy(desc(generationJobs.createdAt))
+    .limit(1);
+  const chapters = [
+    ...(await db.execute<{ id: string; order: number; title: string }>(
+      sql`select id, "order", title from chapters where project_id = ${project.id} order by "order"`,
+    )),
+  ];
+  const scenes = (
+    await db.execute<{ id: string; chapter_id: string; title: string }>(
+      sql`select id, chapter_id, title from scenes where project_id = ${project.id} order by chapter_id, "order"`,
+    )
+  ).map((s) => ({ id: s.id, chapterId: s.chapter_id, title: s.title }));
+  if (!last?.result) return c.json({ report: null, stale: null, running: running ?? null, chapters, scenes });
+  const result = last.result as CoverageResult;
+  const [rev] = await db
+    .select({ content: storyRevisions.content })
+    .from(storyRevisions)
+    .where(eq(storyRevisions.id, result.storyRevisionId));
+  // The plan moved on when anything it is made of was edited after the report.
+  const [plan] = await db.execute<{ changed: boolean }>(sql`
+    select coalesce(greatest(
+      (select max(updated_at) from chapters where project_id = ${project.id}),
+      (select max(updated_at) from scenes where project_id = ${project.id}),
+      (select max(updated_at) from pages where project_id = ${project.id}),
+      (select max(updated_at) from panels where project_id = ${project.id})
+    ) > ${last.finishedAt?.toISOString() ?? null}::timestamptz, false) as changed`);
+  const applied = await appliedRevisionId(c, project.id);
+  return c.json({
+    report: {
+      ...result,
+      jobId: last.id,
+      finishedAt: last.finishedAt,
+      findings: result.findings.map((f) => ({
+        ...f,
+        spans: f.spans.map((s) => ({
+          ...s,
+          excerpt: rev ? rev.content.slice(s.start, Math.min(s.end, s.start + 400)) : "",
+        })),
+      })),
+    },
+    stale: { story: Boolean(applied && applied !== result.storyRevisionId), plan: Boolean(plan?.changed) },
+    running: running ?? null,
+    chapters,
+    scenes,
+  });
 });

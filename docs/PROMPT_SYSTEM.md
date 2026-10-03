@@ -34,6 +34,7 @@ versions stay in the array so old jobs remain reproducible.
 | `panel-check` | 2 | 2 | `apps/api/src/routes/pages.ts`, `apps/worker/src/handlers/qa.ts` (vision QA; v2 also asks for face boxes) |
 | `story-rewrite` | 1 | 1 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
 | `narration-lint`, `narration-fix` | 1 | 1 | `apps/api/src/routes/narration-qa.ts`, `apps/worker/src/handlers/narration-qa.ts` (narration QA: semantic findings, and rewrites of only the flagged lines) |
+| `story-coverage` | 1 | 1 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/story-coverage.ts` (maps the source, part by part, to the scenes that tell it) |
 | `youtube-package` | 1, 2 | 2 | `apps/api/src/routes/generations.ts`, `apps/worker/src/handlers/text.ts` (video publishing text: titles, description, tags, pinned comment, thumbnail headlines; v2 adds the channel's `<channel_rules>`: title rules, description template, tags) |
 | `image-describe` | 1, 2 | 2 | `apps/api/src/routes/vision.ts`, `apps/worker/src/handlers/text.ts` (describe an uploaded image) |
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |

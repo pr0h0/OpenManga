@@ -19,6 +19,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [NarrationDraft](#narrationdraft)
 - [NarrationLintReport](#narrationlintreport)
 - [NarrationFix](#narrationfix)
+- [StoryCoverageMap](#storycoveragemap)
 - [ImageDescription](#imagedescription)
 - [PanelCheck](#panelcheck)
 - [YoutubePackage](#youtubepackage)
@@ -1606,6 +1607,58 @@ interface NarrationFix {
     {
       "line": "L7",
       "text": "By the time the storm reached Vell, the lamp was the only light left on the coast."
+    }
+  ]
+}
+```
+
+</details>
+
+## StoryCoverageMap
+
+Asked by **Story → Check coverage**, one question per part of the source — which scenes tell each paragraph, and its weight.
+
+```ts
+/** How the adaptation's plan covers one part of the source story, paragraph by paragraph. */
+interface StoryCoverageMap {
+  /**
+   * One entry for EVERY paragraph of the part, by its key; an answer missing any is sent back.
+   */
+  paragraphs: {
+    /**
+     * The paragraph's key as the prompt numbers it (P1, P2, …).
+     * At least 1 characters.
+     * @example "P12"
+     */
+    paragraph: string;
+    /**
+     * How much the paragraph matters to the story: 1 (texture that could go) to 5 (a turning point it needs).
+     * Between 1 and 5.
+     * @example 4
+     */
+    weight: number;
+    /**
+     * The keys of the scenes that tell what the paragraph tells (C2.S1), or a chapter key (C2) when that chapter tells it but its scenes are not listed. Empty when nothing in the plan tells it; more than one only when the plan really tells it twice.
+     * At most 12 items.
+     * Optional — defaults to [] when left out.
+     * @example ["C2.S1"]
+     */
+    coveredBy?: string[];
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "paragraphs": [
+    {
+      "paragraph": "P12",
+      "weight": 4,
+      "coveredBy": [
+        "C2.S1"
+      ]
     }
   ]
 }

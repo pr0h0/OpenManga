@@ -218,7 +218,7 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | --- | --- |
 | System | `get_server_info`, `get_answer_schema`, `describe_api`, `get_approval_request` |
 | Projects | `list_projects`, `get_project`, `create_project`, `update_project`, `set_project_status`, `delete_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_project_usage` |
-| Story | `get_story`, `get_story_revision`, `save_story_revision`, `run_story_analysis`, `get_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite` |
+| Story | `get_story`, `get_story_revision`, `save_story_revision`, `run_story_analysis`, `get_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `get_story_coverage`, `run_story_coverage` |
 | Story bible | `get_story_bible` (with `chapterId`, what that chapter's planning and narration receive), `manage_story_bible` (facts and character states), `run_bible_extraction`, `apply_bible_extraction`, `run_continuity_check` (estimate first, then `confirm`), `get_continuity_report` |
 | Cast, world, style | `list_library`, `get_library_item`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | Chapters | `list_chapters`, `get_chapter`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `list_chapter_panels` |

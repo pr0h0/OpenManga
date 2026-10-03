@@ -10,6 +10,7 @@ import {
   PanelCheck,
   PanelPromptDraft,
   ScenePages,
+  StoryCoverageMap,
   StoryRewrite,
   YoutubePackage,
 } from "./planning.ts";
@@ -29,6 +30,7 @@ export const ANSWER_SCHEMAS = {
   NarrationDraft: NarrationDraftV2,
   NarrationLintReport,
   NarrationFix,
+  StoryCoverageMap,
   ImageDescription,
   PanelCheck,
   YoutubePackage,
@@ -323,6 +325,22 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "lines[].text": [
       "The new line: same meaning, facts, names, tense and roughly the same length, without the problem.",
       "By the time the storm reached Vell, the lamp was the only light left on the coast.",
+    ],
+  },
+
+  StoryCoverageMap: {
+    "": "How the adaptation's plan covers one part of the source story, paragraph by paragraph.",
+    paragraphs: "One entry for EVERY paragraph of the part, by its key; an answer missing any is sent back.",
+    "paragraphs[].paragraph": ["The paragraph's key as the prompt numbers it (P1, P2, …).", "P12"],
+    "paragraphs[].weight": [
+      "How much the paragraph matters to the story: 1 (texture that could go) to 5 (a turning point it needs).",
+      4,
+    ],
+    "paragraphs[].coveredBy": [
+      "The keys of the scenes that tell what the paragraph tells (C2.S1), or a chapter key (C2) when that chapter " +
+        "tells it but its scenes are not listed. Empty when nothing in the plan tells it; more than one only when " +
+        "the plan really tells it twice.",
+      ["C2.S1"],
     ],
   },
 

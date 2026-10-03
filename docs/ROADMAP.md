@@ -11,8 +11,6 @@ Grouped by area, roughly most useful first within each.
 
 - **Source-to-panel traceability.** Every chapter, scene, panel and narration line links back to the span of the story
   it came from, so a revised paragraph points at exactly what it affects.
-- **Story coverage check.** Highlight story paragraphs and beats the adaptation left out, repeated, or gave far more or
-  less room than their weight; most useful for 1–3 hour recaps.
 - **Why is this stale.** A dependency view behind the staleness list: story revision → chapter plan → panel →
   artwork, so it is clear what changed and what an update would redo.
 - **Final-output gate.** Before a run reports success: every panel drawn, every line narrated and voiced, the video

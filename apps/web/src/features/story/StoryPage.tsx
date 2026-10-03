@@ -20,6 +20,7 @@ import {
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 import { AnalysisReview } from "./AnalysisReview.tsx";
+import { StoryCoverage } from "./StoryCoverage.tsx";
 
 export function StoryPage() {
   const aiText = useAiBody("text");
@@ -170,6 +171,29 @@ export function StoryPage() {
           <h2 className="mb-3 text-lg font-semibold">Analysis review</h2>
           <AnalysisReview analysis={selectedAnalysis} projectId={projectId} />
         </section>
+      )}
+      {data.analyses.some((a) => a.status === "applied") && (
+        <StoryCoverage
+          projectId={projectId}
+          onShowSpan={(revisionId, start, end) => {
+            if (revisionId !== latest?.id) {
+              setViewRevisionId(revisionId);
+              toast.info(`The report is for an earlier revision: characters ${start}–${end} of it`);
+              return;
+            }
+            setViewRevisionId(null);
+            // The editor holds the latest revision; select the span in it and bring it into view.
+            requestAnimationFrame(() => {
+              const t = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Story content"]');
+              if (!t) return;
+              t.focus();
+              t.setSelectionRange(start, end);
+              const line = Number.parseFloat(getComputedStyle(t).lineHeight) || 20;
+              t.scrollTop = Math.max(0, (t.value.slice(0, start).split("\n").length - 3) * line);
+              t.scrollIntoView({ block: "center", behavior: "smooth" });
+            });
+          }}
+        />
       )}
       {data.analyses.some((a) => a.status === "pending") && (
         <div className="card mt-6 flex items-center gap-2 p-3 text-sm">

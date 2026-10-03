@@ -1,6 +1,6 @@
 import { storyAnalyses } from "@openmanga/db";
 import { z } from "zod";
-import { NewRevision, PatchRevision } from "../../routes/stories.ts";
+import { CoverageInput, NewRevision, PatchRevision } from "../../routes/stories.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
 import { toolError } from "../runtime.ts";
 import { AiInput, aiLabel, cls, jobView, links, projectOf, restAi, stamp, textSpend, Uuid } from "./common.ts";
@@ -255,6 +255,49 @@ export const storyTools = [
         `/api/story-revisions/${revisionId}/rewrite`,
         {
           body: { instruction, ai: await restAi(ctx, ai), batch },
+        },
+      );
+      return { data: { ...r, job: jobView(r.job) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "get_story_coverage",
+    title: "Story coverage report",
+    description:
+      "The newest story coverage report for a project: source paragraphs left out of the plan, told in more than one chapter, or given far more or less room (share of panels) than their weight; each finding has its source spans (character offsets in the revision, with an excerpt) and its chapters and scenes. Also the source, panel and narration share of every chapter, whether the story or the plan changed since the report (stale), and a check still running. Read-only; run_story_coverage makes a new one.",
+    input: z.object({ projectId: Uuid }),
+    output: Passthrough,
+    scopes: ["story:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/story/coverage"],
+    actionKeys: [],
+    handler: async ({ projectId }, ctx) => ({
+      data: await ctx.invoke("GET", `/api/projects/${projectId}/story/coverage`),
+    }),
+  }),
+
+  defineMcpTool({
+    name: "run_story_coverage",
+    title: "Check story coverage",
+    description:
+      "Queue a story coverage check: the applied story revision (or storyRevisionId) is mapped part by part to the chapters and scenes. Asynchronous: returns a job; poll get_job, then read get_story_coverage. Manual mode (ai.manual=true) asks you for one StoryCoverageMap per part of the source via get_manual_prompt / submit_manual_answer; a provider run spends credits (may need approval).",
+    input: CoverageInput.omit({ ai: true }).extend({ projectId: Uuid, ai: AiInput, idempotencyKey: IdempotencyKey }),
+    output: JobResult,
+    scopes: ["story:read", "generations:run"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/projects/:projectId/story/coverage"],
+    actionKeys: ["story.coverage"],
+    classify: async ({ projectId, ai }) =>
+      cls(textSpend(ai, "write"), "story.coverage", projectId, `Check how the plan covers the story ${aiLabel(ai)}`),
+    handler: async ({ projectId, ai, idempotencyKey: _k, ...body }, ctx) => {
+      const r = await ctx.invoke<{ job: Record<string, unknown> }>(
+        "POST",
+        `/api/projects/${projectId}/story/coverage`,
+        {
+          body: { ...body, ai: await restAi(ctx, ai) },
         },
       );
       return { data: { ...r, job: jobView(r.job) } };

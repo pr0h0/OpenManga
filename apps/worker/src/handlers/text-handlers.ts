@@ -8,6 +8,7 @@ import type { ProjectJob } from "../lib/runner.ts";
 import { continuityCheck } from "./continuity.ts";
 import { narrationFix, narrationLint } from "./narration-qa.ts";
 import { panelCheck } from "./qa.ts";
+import { storyCoverage } from "./story-coverage.ts";
 import {
   bibleExtract,
   chapterPlan,
@@ -34,4 +35,5 @@ export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   continuity_check: continuityCheck,
   narration_lint: narrationLint,
   narration_fix: narrationFix,
+  story_coverage: storyCoverage,
 };

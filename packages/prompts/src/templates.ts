@@ -13,6 +13,7 @@ import {
   type SceneOutline,
   ScenePages,
   StoryAnalysis,
+  StoryCoverageMap,
   StoryRewrite,
   YoutubePackage,
 } from "@openmanga/schemas";
@@ -1025,6 +1026,44 @@ export const narrationFixV1 = defineTextTemplate<{
   },
 });
 
+export const storyCoverageV1 = defineTextTemplate<{
+  part: { index: number; of: number };
+  paragraphs: { key: string; text: string }[];
+  plan: {
+    chapters: {
+      key: string;
+      title: string;
+      summary: string;
+      scenes?: { key: string; title: string; summary: string; beats: string[] }[];
+    }[];
+  };
+}>({
+  name: "story-coverage",
+  version: 1,
+  description: "Map story source paragraphs to the chapters and scenes that tell them, with their weight.",
+  system: [
+    templateHeader("story-coverage", 1),
+    "You check how a comic or narrated-video adaptation covers its source story. You get part of the source as numbered paragraphs (P1, P2, …) and the adaptation's plan: every chapter (C1, C2, …) with its summary, and the scenes (C2.S1, C2.S2, …) of the chapters near this part with their summaries and beats.",
+    "For EVERY paragraph give: weight — how much it matters to the story, 1 (texture or description that can go) to 5 (a turning point the story needs); coveredBy — the keys of the scenes that tell what the paragraph tells, or a chapter key when that chapter tells it but its scenes are not listed. Leave coveredBy empty when nothing in the plan tells it. List more than one key only when the plan really tells the same thing more than once.",
+    "Judge by events and information, not wording: a scene covers a paragraph when a reader of the adaptation would learn what the paragraph says.",
+    DATA_RULE,
+    schemaInstructions("StoryCoverageMap", StoryCoverageMap),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          `Source part ${i.part.index} of ${i.part.of}.`,
+          untrusted("project_data", JSON.stringify(i.plan)),
+          untrusted("story_content", i.paragraphs.map((p) => `[${p.key}] ${p.text}`).join("\n\n")),
+        ].join("\n\n"),
+      },
+    ];
+  },
+});
+
 export const TEXT_TEMPLATES = [
   expertChatV1,
   expertChatV2,
@@ -1088,4 +1127,5 @@ export const TEXT_TEMPLATES = [
   continuityCheckV1,
   narrationLintV1,
   narrationFixV1,
+  storyCoverageV1,
 ];
