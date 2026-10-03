@@ -26,6 +26,9 @@ type Warnings = {
   segmentsWithoutAudio: number;
   panelsNeedingReview: number;
   failedExports: { id: string; kind: string; reason: string | null }[];
+  chaptersWithoutNarration?: number;
+  failedChecks?: number;
+  video?: string | null;
 };
 
 const STAGE_LABEL: Record<string, string> = {
@@ -364,7 +367,14 @@ function RunWarnings({
   const [busy, setBusy] = useState(false);
   const failedVideo = w.failedExports.some((e) => e.kind === "video_pages" || e.kind === "video_panels");
   const total =
-    w.failedJobCount + w.panelsWithoutArt + w.segmentsWithoutAudio + w.panelsNeedingReview + w.failedExports.length;
+    w.failedJobCount +
+    w.panelsWithoutArt +
+    w.segmentsWithoutAudio +
+    w.panelsNeedingReview +
+    w.failedExports.length +
+    (w.chaptersWithoutNarration ?? 0) +
+    (w.failedChecks ?? 0) +
+    (w.video ? 1 : 0);
   const retry = async () => {
     setBusy(true);
     let ok = 0;
@@ -416,6 +426,13 @@ function RunWarnings({
       to: "/projects/$projectId/narration",
     },
     { n: w.failedExports.length, text: "failed export(s)", to: "/projects/$projectId/exports" },
+    { n: w.chaptersWithoutNarration ?? 0, text: "chapter(s) without narration", to: "/projects/$projectId/narration" },
+    {
+      n: w.failedChecks ?? 0,
+      text: "panel(s) that failed a visual check",
+      to: "/projects/$projectId/storyboard",
+      search: { filter: "mismatch" },
+    },
   ];
   return (
     <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
@@ -432,6 +449,13 @@ function RunWarnings({
               </Link>
             </li>
           ))}
+        {w.video && (
+          <li>
+            <Link to="/projects/$projectId/exports" params={{ projectId }} className="text-accent-500 hover:underline">
+              {w.video} →
+            </Link>
+          </li>
+        )}
         {w.failedExports.map((e) => (
           <li key={e.id} className="muted">
             {e.kind}: {e.reason ?? "failed"}

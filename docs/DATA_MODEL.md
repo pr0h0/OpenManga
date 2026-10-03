@@ -74,7 +74,8 @@ slot).
   `exportJobId` it waits on, a `ref` a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`,
   `youtube` and the run's `ai` choice), a `reason` for the person and `warnings` (JSON, migration
   `0028_production_run_warnings`; set when it finished `completed_with_warnings`: `failedJobs` (at most 500, with
-  `failedJobCount`), `panelsWithoutArt`, `segmentsWithoutAudio`, `panelsNeedingReview`, `failedExports`), and
+  `failedJobCount`), `panelsWithoutArt`, `segmentsWithoutAudio`, `panelsNeedingReview`, `failedExports`,
+  `chaptersWithoutNarration`, `failedChecks`, and `video`, what is wrong with the rendered video), and
   `lease_owner` / `lease_until` (migration `0030_production_run_lease`): the pass advancing it now, so two API
   processes never advance one run at once. Advanced by the API (`docs/ARCHITECTURE.md`).
 - `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a

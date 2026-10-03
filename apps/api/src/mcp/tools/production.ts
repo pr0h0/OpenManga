@@ -83,6 +83,30 @@ export const productionTools = [
   }),
 
   defineMcpTool({
+    name: "get_project_health",
+    title: "Project health",
+    description:
+      "A project's health in one report: verdict.ready (ready to publish) or verdict.blocking (how many blocking issues), and items, each with a count, a severity (block: not ready while it stands; info: worth knowing) and the app page where it is fixed: export readiness (panels without artwork, chapters without or with patchy narration, segments without audio, superseded versions), a missing or out-of-date video, panels that failed a visual check, what is out of date (as get_staleness), the YouTube text and thumbnail headline, jobs still running and failed ones, open comment threads; plus spend against the budget and disk use. Read-only.",
+    input: z.object({ projectId: Uuid }),
+    output: z
+      .object({ verdict: Passthrough, items: z.array(Passthrough), spend: Passthrough, disk: Passthrough })
+      .passthrough(),
+    scopes: ["projects:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/health"],
+    actionKeys: [],
+    handler: async ({ projectId }, ctx) => ({
+      data: await ctx.invoke<{
+        verdict: Record<string, unknown>;
+        items: Record<string, unknown>[];
+        spend: Record<string, unknown>;
+        disk: Record<string, unknown>;
+      }>("GET", `/api/projects/${projectId}/health`),
+    }),
+  }),
+
+  defineMcpTool({
     name: "keep_publishing_text",
     title: "Keep the YouTube text or thumbnail headline",
     description:

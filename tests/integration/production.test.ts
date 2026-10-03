@@ -4,8 +4,10 @@ import {
   audioJobs,
   eq,
   exportJobs,
+  exportsTable,
   generationJobs,
   narrationSegments,
+  panels as panelsTable,
   productionRuns,
   sql,
   users,
@@ -544,6 +546,96 @@ describe("production runs", () => {
       settings: { thumbnail: { ...project.settings.thumbnail, title: "A new headline" } },
     });
     expect((await flags()).thumbnail).toBe(false);
+  }, 400_000);
+
+  test("the final-output gate: a missing audio segment and a too-short render are reported, and health counts them", async () => {
+    const projectId = await produce("Gate");
+    const { db } = h.deps;
+    const [me] = await db.select().from(users).where(eq(users.username, "prod"));
+    type Warnings = { segmentsWithoutAudio: number; video: string | null } | null;
+    const finish = async (render: boolean, steps: { key: string; status: "done"; exportJobId?: string }[]) => {
+      const [run] = await db
+        .insert(productionRuns)
+        .values({
+          projectId,
+          userId: me!.id,
+          options: { reviewGates: false, preparePrompts: false, render, youtube: false },
+          steps,
+        })
+        .returning();
+      await advanceRun(h.deps, run!.id);
+      const [row] = await db.select().from(productionRuns).where(eq(productionRuns.id, run!.id));
+      return { status: row!.status, warnings: row!.warnings as Warnings };
+    };
+    expect(await finish(false, [{ key: "audio", status: "done" }])).toMatchObject({ status: "completed" });
+
+    // A segment that lost its audio: the run does not report success.
+    const [seg] = await db.select().from(narrationSegments).where(eq(narrationSegments.projectId, projectId)).limit(1);
+    await db.update(narrationSegments).set({ activeAudioAssetId: null }).where(eq(narrationSegments.id, seg!.id));
+    const missing = await finish(false, [{ key: "audio", status: "done" }]);
+    expect(missing.status).toBe("completed_with_warnings");
+    expect(missing.warnings?.segmentsWithoutAudio).toBe(1);
+    expect(missing.warnings?.video).toBeNull();
+    await db
+      .update(narrationSegments)
+      .set({ activeAudioAssetId: seg!.activeAudioAssetId })
+      .where(eq(narrationSegments.id, seg!.id));
+
+    // A render half a second long against several seconds of narration: too short.
+    const [render] = await db
+      .insert(exportJobs)
+      .values({ projectId, kind: "video_pages", status: "completed", finishedAt: new Date() })
+      .returning();
+    const asset = await h.deps.assets.store({
+      projectId,
+      ownerUserId: me!.id,
+      type: "export",
+      data: new Uint8Array([0, 0, 0, 24]),
+      mimeType: "video/mp4",
+      durationMs: 500,
+      metadata: { exportJobId: render!.id, kind: "video_pages", fileName: "film.mp4" },
+    });
+    await db.insert(exportsTable).values({
+      projectId,
+      exportJobId: render!.id,
+      assetId: asset.id,
+      kind: "video_pages",
+      fileName: "film.mp4",
+      expiresAt: new Date(Date.now() + 86400_000),
+    });
+    const short = await finish(true, [{ key: "render", status: "done", exportJobId: render!.id }]);
+    expect(short.status).toBe("completed_with_warnings");
+    expect(short.warnings?.video).toContain("too short");
+    expect(short.warnings?.segmentsWithoutAudio).toBe(0);
+    // Health below counts a segment without audio again.
+    await db.update(narrationSegments).set({ activeAudioAssetId: null }).where(eq(narrationSegments.id, seg!.id));
+
+    // Health: not ready, with the missing audio and the video among the blocking items, and the counts.
+    const { panels } = await u.get<{ panels: { id: string }[] }>(
+      `/api/chapters/${(await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`)).chapters[0]!.id}/panels`,
+    );
+    await u.post(`/api/panels/${panels[0]!.id}/comments`, { body: "The sword should be on the left." }, 201);
+    const [pn] = await db.select().from(panelsTable).where(eq(panelsTable.id, panels[0]!.id));
+    await db
+      .update(panelsTable)
+      .set({ qa: { verdict: "mismatch", assetId: pn!.activeArtworkAssetId } })
+      .where(eq(panelsTable.id, pn!.id));
+    type Health = {
+      verdict: { ready: boolean; blocking: number };
+      items: { key: string; count: number; severity: string }[];
+      spend: { usd: number; budgetUsd: number | null };
+      disk: { totalBytes: number };
+    };
+    const health = await u.get<Health>(`/api/projects/${projectId}/health`);
+    const item = (k: string) => health.items.find((i) => i.key === k || i.key.startsWith(`${k}.`));
+    expect(health.verdict.ready).toBe(false);
+    expect(health.verdict.blocking).toBe(health.items.filter((i) => i.severity === "block").length);
+    expect(item("readiness.missing_audio")).toMatchObject({ count: 1, severity: "block" });
+    expect(item("checks")).toMatchObject({ count: 1, severity: "block" });
+    expect(item("comments")).toMatchObject({ count: 1, severity: "info" });
+    expect(item("stale.audio")).toMatchObject({ count: 1, severity: "info" });
+    expect(health.spend.budgetUsd).toBe(50);
+    expect(health.disk.totalBytes).toBeGreaterThan(0);
   }, 400_000);
 
   test("the batch policy only batches keys whose provider has a batch API", async () => {

@@ -19,6 +19,7 @@ import {
 } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { ProfileCard } from "../profiles/ApplyProfile.tsx";
+import { HealthCard } from "./HealthPage.tsx";
 import { MembersDialog } from "./MembersDialog.tsx";
 import { ProductionRunCard } from "./ProductionRun.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
@@ -197,6 +198,7 @@ export function OverviewPage() {
           </div>
         </div>
         <aside className="space-y-4">
+          <HealthCard projectId={projectId} />
           <ProductionRunCard projectId={projectId} format={p.settings.format} />
           {p.settings.thumbnail && <ThumbnailCard projectId={projectId} saved={p.settings.thumbnail} />}
           <div className="card overflow-hidden">

@@ -428,6 +428,12 @@ export type ProductionWarnings = {
   segmentsWithoutAudio: number;
   panelsNeedingReview: number;
   failedExports: { id: string; kind: string; reason: string | null }[];
+  /** Chapters with panels but no narration in the project's language. */
+  chaptersWithoutNarration?: number;
+  /** Panels whose current artwork a visual check found not to match. */
+  failedChecks?: number;
+  /** When the run renders: what is wrong with the video (not rendered, or shorter than its narration). */
+  video?: string | null;
 };
 
 /**
