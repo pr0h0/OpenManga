@@ -19,6 +19,7 @@ import {
 } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
+import { StaleChapters, useStaleness } from "../project/StaleChapters.tsx";
 import { AnalysisReview } from "./AnalysisReview.tsx";
 import { StoryCoverage } from "./StoryCoverage.tsx";
 
@@ -195,6 +196,7 @@ export function StoryPage() {
           }}
         />
       )}
+      <ChangedChapters projectId={projectId} />
       {data.analyses.some((a) => a.status === "pending") && (
         <div className="card mt-6 flex items-center gap-2 p-3 text-sm">
           <Spinner /> An analysis is running. Results appear here automatically.
@@ -418,5 +420,16 @@ function RewriteModal({ open, onClose, revisionId }: { open: boolean; onClose: (
         aria-label="Rewrite instruction"
       />
     </Modal>
+  );
+}
+
+/** After a revised story is applied: the chapters whose text changed since they were planned, to keep or re-plan. */
+function ChangedChapters({ projectId }: { projectId: string }) {
+  const q = useStaleness(projectId);
+  if (!q.data?.stalePlans.length) return null;
+  return (
+    <section className="mt-8">
+      <StaleChapters projectId={projectId} stage="plan" chapters={q.data.stalePlans} />
+    </section>
   );
 }

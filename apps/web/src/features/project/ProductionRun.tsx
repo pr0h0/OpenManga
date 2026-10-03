@@ -6,6 +6,7 @@ import { get, post } from "../../api/client.ts";
 import { ConfirmDialog, fmt, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { AnalysisDiff } from "../story/AnalysisDiff.tsx";
+import { StaleChapters, useStaleness } from "./StaleChapters.tsx";
 
 type Step = { key: string; label: string; status: string; note?: string; ref?: string };
 type Run = {
@@ -26,7 +27,6 @@ type Warnings = {
   panelsNeedingReview: number;
   failedExports: { id: string; kind: string; reason: string | null }[];
 };
-type Stage = { key: string; count: number; note: string };
 
 const STAGE_LABEL: Record<string, string> = {
   story: "Story",
@@ -59,10 +59,7 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
     queryFn: () => get<{ runs: Run[] }>(`/projects/${projectId}/production-runs`),
     refetchInterval: (q) => (q.state.data?.runs[0]?.status === "running" ? 10_000 : false),
   });
-  const staleness = useQuery({
-    queryKey: ["project", projectId, "staleness", runs.data?.runs[0]?.status],
-    queryFn: () => get<{ stages: Stage[] }>(`/projects/${projectId}/staleness`),
-  });
+  const staleness = useStaleness(projectId, runs.data?.runs[0]?.status);
   // A revised story counts too: the update re-analyses it and always stops for a review before applying.
   const updatable = staleness.data?.stages.some((s) => s.count > 0) ?? false;
   const [update, setUpdate] = useState(false);
@@ -88,6 +85,7 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
   const reviewing =
     run?.status === "waiting" && run.steps.some((s) => s.key === "review_analysis" && s.status === "review");
   const analysisRef = run?.steps.find((s) => s.key === "analyze")?.ref;
+  const deciding = run?.status === "waiting" ? run.steps.find((s) => s.status === "review")?.key : undefined;
   const active = run && ["running", "waiting", "paused", "failed"].includes(run.status);
 
   return (
@@ -196,6 +194,12 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
                 Review it on the Story page, where you can also choose what to remove →
               </Link>
             </div>
+          )}
+          {deciding === "review_plans" && staleness.data && (
+            <StaleChapters projectId={projectId} stage="plan" chapters={staleness.data.stalePlans} />
+          )}
+          {deciding === "review_narration" && staleness.data && (
+            <StaleChapters projectId={projectId} stage="narration" chapters={staleness.data.staleNarration} />
           )}
           {run.status === "completed_with_warnings" && run.warnings && (
             <RunWarnings

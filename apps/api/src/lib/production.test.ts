@@ -7,8 +7,15 @@ const keys = (steps: { key: string }[]) => steps.map((s) => s.key);
 test("an update runs from the first stale stage on; a revised story re-analyses and always reviews", () => {
   expect(keys(initialSteps({ ...o, update: true }, ["render"]))).toEqual(["render"]);
   expect(keys(initialSteps({ ...o, update: true }, ["audio", "render"]))).toEqual(["audio", "render"]);
-  // New artwork leaves narration current but the video stale: everything after art runs, and finds what to do.
-  expect(keys(initialSteps({ ...o, update: true }, ["art"]))).toEqual(["art", "narration", "audio", "render"]);
+  // New artwork leaves narration current but the video stale: everything after art runs, and finds what to do. The
+  // changed-narration review is always a step and skips itself when no chapter's narration is out of date.
+  expect(keys(initialSteps({ ...o, update: true }, ["art"]))).toEqual([
+    "art",
+    "review_narration",
+    "narration",
+    "audio",
+    "render",
+  ]);
   expect(keys(initialSteps({ ...o, update: true, reviewGates: true, youtube: true }, ["render"]))).toEqual([
     "review_render",
     "render",
@@ -20,9 +27,11 @@ test("an update runs from the first stale stage on; a revised story re-analyses 
     "review_analysis",
     "apply",
     "references",
+    "review_plans",
     "plan",
     "prompts",
     "art",
+    "review_narration",
     "narration",
     "audio",
     "render",

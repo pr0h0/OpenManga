@@ -232,6 +232,13 @@
       "when": 1791042082313,
       "tag": "0032_narration_findings",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791043775489,
+      "tag": "0033_chapter_source_fingerprints",
+      "breakpoints": true
     }
   ]
 }

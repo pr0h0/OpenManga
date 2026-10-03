@@ -653,13 +653,24 @@ Two settings, under Project settings → Production:
 whole pipeline as a list of steps, stored in `production_runs` (migration `0020`), each calling the same API route a
 person would, as the user who started it (`apps/api/src/lib/production.ts`):
 
-analyse → review → apply → references (characters, locations, props) → review → plan every chapter → prepare panel
-prompts → generate missing artwork → write narration → synthesize narration → video thumbnail → YouTube package text
+analyse → review → apply → references (characters, locations, props) → review → changed chapters → plan every
+chapter → prepare panel prompts → generate missing artwork → changed narration → write narration → synthesize narration → video thumbnail → YouTube package text
 → review → render the video → YouTube package export.
 
 - **Reuse.** Every step does only what is missing: analysis is skipped once the project has chapters, references
   and artwork are drawn only where missing, only unplanned chapters are planned, narration is written only for
   chapters without lines, and the thumbnail and YouTube text are skipped when they exist.
+- **Changed chapters.** Each chapter records a fingerprint of what its plan was made from (its text, as the planner
+  reads it) and of what its narration was written from (its panels, beats and dialogue). A chapter with pages whose
+  text changed since, or with narration whose panels changed since, is out of date (the plan and narration stages of
+  *What is out of date* count it), but a run **never redoes it on its own**: re-planning replaces pages and artwork.
+  The *changed chapters* review (before planning) and *changed narration* review (before writing narration) wait with
+  the list, and for each chapter the person chooses **Keep current** (`POST /api/chapters/:id/keep`, which records
+  the current fingerprint) or **Re-plan** / **Write again** (the ordinary chapter-plan or narration route with
+  `replace: true`; the confirmation says how many pages, panels, drawn panels or lines it replaces). The run waits
+  for those jobs before it carries on; undecided chapters keep what they have. Both reviews are skipped when nothing
+  changed, whatever `reviewGates` says. The Story page lists the same chapters with the same choice after a revised
+  story is applied.
 - **Options.** `reviewGates` (default on) pauses the run as `waiting` after the analysis, after the references and
   before the render, until **Continue** (`POST /api/production-runs/:id/continue`). With gates off, the newest draft
   reference of each subject without an approved one is approved automatically. `preparePrompts` and `render` default

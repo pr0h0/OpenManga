@@ -93,7 +93,7 @@ export function AnalysisDiff({
       <Section title="New chapters" items={d.chapters.added.map((c) => `${c.position}. ${c.title}`)} />
       <Section title="Renamed chapters" items={d.chapters.renamed.map((c) => `${c.from} → ${c.to}${work(c)}`)} />
       <Section
-        title="Chapters whose story text changed (pages are kept; re-plan them yourself if you want them redone)"
+        title="Chapters whose story text changed (pages are kept; once applied, choose for each to keep its pages or re-plan it)"
         items={d.chapters.kept.filter((c) => c.textChanged).map((c) => `${c.title}${work(c)}`)}
       />
       {d.chapters.removed.length > 0 && (

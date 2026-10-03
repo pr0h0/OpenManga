@@ -114,9 +114,13 @@ and API replicas are safe. Every change publishes a
 
 **Update production.** `GET /api/projects/:projectId/staleness` (`pipelineStaleness` in `packages/services`) reports
 what is out of date stage by stage along story → plan → prompts → art → narration → audio → render: a story revised
-after the applied analysis, chapters without a plan, pages without prepared prompts, panels without artwork or whose
-spec was edited after their artwork, chapters without narration, segments without current audio, and a whole-project
-video older than anything it is drawn from. A run started with `{ update: true }` is the same machinery with fewer
+after the applied analysis, chapters without a plan or whose text changed after they were planned, pages without
+prepared prompts, panels without artwork or whose spec was edited after their artwork, chapters without narration or
+whose panels changed after it was written, segments without current audio, and a whole-project video older than
+anything it is drawn from. "Changed after" is a **source fingerprint** on the chapter (`plan_fingerprint`,
+`narration_fingerprint`, migration `0033`): an md5 of what the plan or narration is made from (the chapter text the
+planner reads; the panels, beats and dialogue the narration prompt reads), recorded by the plan applier and the
+narration writer and compared in SQL (`planSourceFingerprint` / `narrationSourceFingerprint`). A run started with `{ update: true }` is the same machinery with fewer
 steps: from the first stale stage on (each stage is made from the ones before it), skipping the thumbnail and YouTube
 text; its art step also redraws the edited panels. The render then reuses every unchanged section
 (see `docs/VIDEO_EXPORT_REFERENCE.md`).
@@ -132,12 +136,17 @@ applies it keeping everything. Applying is additive (`applyStoryAnalysis` with `
 same title, else an analysis-made chapter at the same position whose title is gone, is kept with its pages and gets the
 new summary, beats and source text; new chapters are inserted at their place and chapters the story dropped stay where
 they were; characters, places and props are matched by key or name and never changed or removed. Staleness then carries
-the run on: the plan step plans the new chapters, and so on. A chapter whose text changed keeps its pages; re-planning
-it is left to the user.
+the run on: the plan step plans the new chapters, and so on. A chapter whose text changed keeps its pages, and a run
+never re-plans a chapter that has pages on its own (that replaces pages and artwork): the `review_plans` step (before
+the plan step, in every run) waits with the chapters whose plan is out of date, and the person keeps each one
+(`POST /api/chapters/:id/keep { stage: "plan" }` records the current fingerprint) or re-plans it (the ordinary
+`POST /api/chapters/:id/plan { replace: true }`; the plan step then waits for those plans). `review_narration`, before
+the narration step, does the same for narration (keep, or `narration/generate { replace: true }`). Both are skipped
+when nothing is out of date.
 
 Agents drive the same machinery through MCP (`apps/api/src/mcp/tools/production.ts`): `get_staleness`,
-`start_production_run`, `update_production`, `get_production_run`, `continue_production_run` and
-`cancel_production_run` call these routes in-process. Starting, updating and continuing are `spend` actions, so on an
+`start_production_run`, `update_production`, `get_production_run`, `continue_production_run`,
+`cancel_production_run` and `keep_stale_chapter` call these routes in-process. Starting, updating and continuing are `spend` actions, so on an
 "Ask me first" connection they wait for the user's approval; stopping a run is a plain write.
 
 ## Code layout

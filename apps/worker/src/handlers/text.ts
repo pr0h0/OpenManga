@@ -73,7 +73,13 @@ import {
   StoryRewrite,
   YoutubePackage,
 } from "@openmanga/schemas";
-import { applyChapterPlan, applyNarrationPauses, bibleFor, loadBible } from "@openmanga/services";
+import {
+  applyChapterPlan,
+  applyNarrationPauses,
+  bibleFor,
+  loadBible,
+  recordNarrationFingerprint,
+} from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
 import type { WorkerDeps } from "../context.ts";
@@ -853,6 +859,8 @@ export async function narrationText(deps: WorkerDeps, job: ProjectJob) {
       n++;
     }
     await applyNarrationPauses(tx, chapterId, language, project?.settings ?? {});
+    // The pipeline tracks narration in the project's own language; another language's lines say nothing about it.
+    if (language === project?.language) await recordNarrationFingerprint(tx, chapterId);
     return n;
   });
   await deps.events.publish(job.projectId, { type: "narration.updated", chapterId });

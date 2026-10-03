@@ -2,7 +2,7 @@ import { eq, productionRuns } from "@openmanga/db";
 import { z } from "zod";
 import { defineMcpTool, IdempotencyKey, Passthrough, type ToolContext } from "../registry.ts";
 import { toolError } from "../runtime.ts";
-import { AiInput, cls, ImageAiInput, restAi, Uuid } from "./common.ts";
+import { AiInput, cls, ImageAiInput, projectOf, restAi, Uuid } from "./common.ts";
 
 /** The project a run belongs to, for classifying a call on it. */
 async function runProject(ctx: ToolContext, id: string) {
@@ -57,16 +57,46 @@ export const productionTools = [
     name: "get_staleness",
     title: "What is out of date",
     description:
-      "What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). update_production runs only these steps. Read-only.",
+      "What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. update_production runs only the stale steps. Read-only.",
     input: z.object({ projectId: Uuid }),
-    output: z.object({ stages: z.array(Passthrough) }).passthrough(),
+    output: z
+      .object({ stages: z.array(Passthrough), stalePlans: z.array(Passthrough), staleNarration: z.array(Passthrough) })
+      .passthrough(),
     scopes: ["projects:read"],
     sensitivity: "read",
     idempotent: true,
     routes: ["GET /api/projects/:projectId/staleness"],
     actionKeys: [],
     handler: async ({ projectId }, ctx) => ({
-      data: await ctx.invoke<{ stages: Record<string, unknown>[] }>("GET", `/api/projects/${projectId}/staleness`),
+      data: await ctx.invoke<{
+        stages: Record<string, unknown>[];
+        stalePlans: Record<string, unknown>[];
+        staleNarration: Record<string, unknown>[];
+      }>("GET", `/api/projects/${projectId}/staleness`),
+    }),
+  }),
+
+  defineMcpTool({
+    name: "keep_stale_chapter",
+    title: "Keep a chapter's plan or narration",
+    description:
+      "Keep a chapter's current plan (stage=plan) or narration (stage=narration) although what it was made from changed since (get_staleness lists them as stalePlans / staleNarration, and a production run waits at a review for them): it is then no longer out of date, and nothing is regenerated. The alternative is redoing it: run_chapter_plan with replace=true (replaces the chapter's pages and artwork) or run_narration_generation with replace=true. Continue the waiting run with continue_production_run when every chapter is decided.",
+    input: z.object({ chapterId: Uuid, stage: z.enum(["plan", "narration"]) }),
+    output: Passthrough,
+    scopes: ["chapters:write"],
+    sensitivity: "write",
+    idempotent: true,
+    routes: ["POST /api/chapters/:id/keep"],
+    actionKeys: ["chapter.keep"],
+    classify: async ({ chapterId, stage }, ctx) =>
+      cls(
+        "write",
+        "chapter.keep",
+        await projectOf(ctx, "chapter", chapterId),
+        `Keep the chapter's current ${stage === "plan" ? "plan" : "narration"} as up to date`,
+      ),
+    handler: async ({ chapterId, stage }, ctx) => ({
+      data: await ctx.invoke<Record<string, unknown>>("POST", `/api/chapters/${chapterId}/keep`, { body: { stage } }),
     }),
   }),
 
@@ -96,7 +126,7 @@ export const productionTools = [
     name: "update_production",
     title: "Update production",
     description:
-      "Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work), then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.",
+      "Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work); chapters whose text changed after they were planned (or after their narration was written) are never redone on their own: the run waits at a review listing them (get_staleness stalePlans / staleNarration) until each is kept (keep_stale_chapter) or redone (run_chapter_plan / run_narration_generation with replace=true) and the run is continued; then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.",
     input: z.object(RunOptions),
     output: z.object({ run: Passthrough }).passthrough(),
     scopes: ["generations:run"],

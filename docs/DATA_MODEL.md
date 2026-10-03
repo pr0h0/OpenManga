@@ -4,7 +4,7 @@ PostgreSQL via Drizzle. 73 tables in eight schema files under `packages/db/src/s
 `bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
 `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0031_continuity_findings.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0033_chapter_source_fingerprints.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -94,7 +94,10 @@ slot).
 ## Structure (`projects.ts`, `media.ts`)
 
 - `chapters` — order, title, summary, source excerpt, and **chapter memory**: opening/closing state, character and
-  location state changes, revealed facts, beats, `last_plan` (the `ChapterPlan`) and `plan_status`.
+  location state changes, revealed facts, beats, `last_plan` (the `ChapterPlan`) and `plan_status`, and
+  `plan_fingerprint` / `narration_fingerprint` (migration `0033_chapter_source_fingerprints`, backfilled for chapters
+  already planned or narrated): md5 of what the plan and the narration were made from, which staleness compares with
+  the current ones (`docs/ARCHITECTURE.md`).
 - `scenes` (location, time, weather, characters, purpose/opening/progression/climax/ending, continuity notes,
   initial/final state, continuity deltas) and `story_beats` (ordered within a scene).
 - `pages` — order, purpose, pacing, visual emphasis, page-turn hook, layout template key, pixel width/height, optional
