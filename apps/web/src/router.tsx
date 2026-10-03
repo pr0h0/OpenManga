@@ -253,7 +253,9 @@ const projectChildren = [
   createRoute({
     getParentRoute: P,
     path: "/storyboard",
-    validateSearch: chapterSearch,
+    validateSearch: chapterSearch.extend({
+      filter: z.enum(["all", "noArt", "failed", "review", "mismatch", "unchecked"]).optional(),
+    }),
     staticData: { title: "Storyboard" },
     component: lazyRouteComponent(() => import("./features/pages/StoryboardPage.tsx"), "StoryboardPage"),
   }),

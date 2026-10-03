@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+Upgrading: one migration, `0028_production_run_warnings`, adds a nullable JSON column.
+
 ### Changed
 
 - **Stopping a production run cancels its queued jobs.** Stop used to end only the orchestration while the jobs the
@@ -15,6 +17,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   already running at a provider finish and nothing further happens with them. The Stop dialog shows how many jobs
   would be cancelled and offers *Stop the run only* (`{ "jobs": false }` on the API, `jobs: false` on the
   `cancel_production_run` MCP tool).
+
+### Fixed
+
+- **A production run with failures no longer ends as plain completed.** A run that reached the end while some steps
+  had noted failures ("3 of 400 failed") reported `completed`. It now finishes `completed_with_warnings` with a
+  summary of what is unresolved: failed jobs nobody retried, panels without artwork, narration segments without
+  current audio, panels needing review and failed exports. The run card shows "Finished with N unresolved items"
+  with links and **Retry failed**, **Review** and **Render anyway**; `get_production_run` returns the `warnings`. A
+  failed render no longer fails the whole run: it is listed with the rest.
 
 ## [0.13.0] — 2026-10-03
 

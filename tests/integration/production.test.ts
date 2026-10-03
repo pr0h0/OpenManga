@@ -219,6 +219,48 @@ describe("production runs", () => {
     expect(kept.chapters.map((c) => c.id)).toEqual(after.chapters.map((c) => c.id));
   }, 400_000);
 
+  test("a run that reaches the end with failures finishes completed_with_warnings and lists them", async () => {
+    const projectId = builtProjectId;
+    const { chapters } = await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`);
+    const { panels } = await u.get<{ panels: { id: string }[] }>(`/api/chapters/${chapters[0]!.id}/panels`);
+    expect(panels.length).toBeGreaterThan(1);
+    // Two panels edited after they were drawn; the provider refuses one of them.
+    for (const [i, pn] of panels.slice(0, 2).entries()) {
+      const { specs } = await u.get<{ specs: { spec: Record<string, unknown> }[] }>(`/api/panels/${pn.id}`);
+      const spec = specs[0]!.spec;
+      await u.put(`/api/panels/${pn.id}/spec`, {
+        spec: { ...spec, action: i === 0 ? "draws the sword [[mock:policy]]" : "draws the sword" },
+      });
+    }
+    const { run } = await u.post<{ run: Run }>(
+      `/api/projects/${projectId}/production-runs`,
+      { update: true, reviewGates: false, preparePrompts: false, render: false, youtube: false },
+      201,
+    );
+    const done = (await until(projectId, ["completed", "completed_with_warnings"])) as Run & {
+      warnings: {
+        failedJobs: { id: string; kind: string; step: string }[];
+        failedJobCount: number;
+        panelsWithoutArt: number;
+        failedExports: unknown[];
+      } | null;
+    };
+    expect(done.id).toBe(run.id);
+    expect(done.status).toBe("completed_with_warnings");
+    expect(done.warnings).toMatchObject({ failedJobCount: 1, panelsWithoutArt: 0, failedExports: [] });
+    expect(done.warnings!.failedJobs).toMatchObject([{ kind: "panel_generation", step: "art" }]);
+    expect(done.steps.find((s) => s.key === "art")?.note).toBe("1 of 2 failed; see Generation");
+    // The card's Retry failed calls the usual retry route for each listed job.
+    const retried = await u.post<{ job: { id: string } }>(
+      `/api/generations/${done.warnings!.failedJobs[0]!.id}/retry`,
+      {},
+      202,
+    );
+    expect(retried.job.id).toBeTruthy();
+    // A finished run cannot be continued.
+    expect((await u.raw("POST", `/api/production-runs/${run.id}/continue`, {})).status).toBe(409);
+  }, 400_000);
+
   test("the batch policy only batches keys whose provider has a batch API", async () => {
     const key = async (kind: string) =>
       (

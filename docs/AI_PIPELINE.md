@@ -498,7 +498,16 @@ prompts → generate missing artwork → write narration → synthesize narratio
   the text choice a text step waits for its answers the same way (see
   [WITHOUT_API_KEYS](WITHOUT_API_KEYS.md#production-runs)).
 - **Failures.** A failed analysis, or a step whose jobs all failed, fails the run; elsewhere a partial failure is
-  noted on the step and the run carries on. Continue retries the failed step, reusing whatever it already made.
+  noted on the step and the run carries on. Continue retries the failed step, reusing whatever it already made. A
+  failed render or YouTube package export is noted the same way (the package is skipped when the video did not
+  render).
+- **Completed with warnings.** A run that reaches the end with anything unresolved finishes as
+  `completed_with_warnings` instead of `completed`, with a `warnings` summary: the failed jobs it queued that nobody
+  retried, its failed exports, and the project's panels without artwork, narration segments without current audio
+  (the audio stage's definition) and panels flagged for review. The run card shows "Finished with N unresolved
+  items", each linking to where it is fixed (Generation, the storyboard on its *No artwork* or *Needs review* filter,
+  Narration, Exports), with **Retry failed** (the usual `POST /api/generations/:id/retry` for each listed job),
+  **Review** and, when the video failed, **Render anyway**. A finished run cannot be continued.
 - **Stop** (`POST /api/production-runs/:id/cancel`) ends the run and, by default, cancels what it queued that has
   not started, through the usual cancel paths: its generation jobs that are queued, waiting in a provider batch,
   paused at the budget or waiting for a pasted answer; narration audio still queued from the batches the audio step

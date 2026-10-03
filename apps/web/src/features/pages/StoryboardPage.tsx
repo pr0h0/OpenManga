@@ -41,7 +41,7 @@ type Filter = keyof typeof FILTERS;
 export function StoryboardPage() {
   const projectId = useProjectId();
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { chapterId?: string };
+  const search = useSearch({ strict: false }) as { chapterId?: string; filter?: Filter };
   const chapters = useQuery({
     queryKey: qk.chapters(projectId),
     queryFn: () => get<{ chapters: ChapterListItem[] }>(`/projects/${projectId}/chapters`),
@@ -53,7 +53,8 @@ export function StoryboardPage() {
     queryFn: () => get<{ panels: Panel[] }>(`/chapters/${chapterId}/panels`),
     enabled: Boolean(chapterId),
   });
-  const [filter, setFilter] = useState<Filter>("all");
+  // A link can open it on a filter, e.g. a production run's "panels without artwork".
+  const [filter, setFilter] = useState<Filter>(search.filter ?? "all");
   const shown = useMemo(() => (list.data?.panels ?? []).filter(FILTERS[filter].test), [list.data, filter]);
   const [focus, setFocus] = useState(0);
   const [ask, setAsk] = useState<{ kind: "check" | "generate"; panel: Panel } | null>(null);

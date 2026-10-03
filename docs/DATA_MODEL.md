@@ -3,7 +3,7 @@
 PostgreSQL via Drizzle. 66 tables in six schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
 `media.ts`, `jobs.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0020_production_runs.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0028_production_run_warnings.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -62,11 +62,14 @@ slot).
   | `video` | `{fadeAtSceneBreaks, watermark, intro, outro}` — video export settings: fade to black where the scene changes (each shot can override it), a logo watermark `{assetId, corner, opacity, size}` (an image of the project) and intro/outro cards `{title, subtitle, durationMs}`. |
 
 - `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
-  `user_id` it acts as, `status` (`running|waiting|paused|completed|failed|cancelled`; `waiting` is a review step,
-  `paused` a budget cap or a disabled account), `steps` (JSON, in order: `key`, status
-  `pending|running|review|done|skipped|failed`, a note, the generation `jobIds` or `exportJobId` it waits on, a `ref`
-  a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`, `youtube` and the run's `ai` choice) and a
-  `reason` for the person. Advanced by the API (`docs/ARCHITECTURE.md`).
+  `user_id` it acts as, `status` (`running|waiting|paused|completed|completed_with_warnings|failed|cancelled`;
+  `waiting` is a review step, `paused` a budget cap or a disabled account), `steps` (JSON, in order: `key`, status
+  `pending|running|review|done|skipped|failed`, a note, the generation `jobIds`, narration `audioBatchIds` or
+  `exportJobId` it waits on, a `ref` a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`,
+  `youtube` and the run's `ai` choice), a `reason` for the person and `warnings` (JSON, migration
+  `0028_production_run_warnings`; set when it finished `completed_with_warnings`: `failedJobs` (at most 500, with
+  `failedJobCount`), `panelsWithoutArt`, `segmentsWithoutAudio`, `panelsNeedingReview`, `failedExports`). Advanced by
+  the API (`docs/ARCHITECTURE.md`).
 - `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a
   random `token` (unique), creator, `revoked_at`. Served without a session under `/api/public/shares/:token`
   (`docs/SECURITY.md`).
