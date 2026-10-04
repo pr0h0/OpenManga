@@ -998,6 +998,38 @@ export async function imageDescribe(deps: WorkerDeps, job: ProjectJob) {
  * Proposes story bible facts and character states from the chapters (one, or all). The proposal stays on the job:
  * nothing is saved until the user reviews it and applies what they keep.
  */
+/** Characters of chapter text an extraction sends in all, shared between its chapters. */
+const EXTRACTION_TEXT_BUDGET = 120_000;
+
+/**
+ * What each chapter says, for reading facts out of it: its source text or summary when the analysis stored one,
+ * otherwise its narration in reading order. A project built without an analysis (chapters planned by hand or by an
+ * agent) has only the narration, and an extraction that read nothing returned an empty bible as if that were the
+ * answer. Long chapters are cut to an even share of the budget so a whole-project run fits the model's context.
+ */
+async function chapterTextsForExtraction(
+  deps: WorkerDeps,
+  chs: { id: string; sourceExcerpt: string | null; summary: string | null }[],
+  language: string,
+) {
+  const share = Math.floor(EXTRACTION_TEXT_BUDGET / Math.max(1, chs.length));
+  const out: string[] = [];
+  for (const c of chs) {
+    let text = (c.sourceExcerpt || c.summary || "").trim();
+    if (!text) {
+      const rows = await deps.db.execute<{ text: string }>(sql`
+        select nl.text from narration_lines nl
+        left join panels pn on pn.id = nl.panel_id
+        left join pages pg on pg.id = pn.page_id
+        where nl.chapter_id = ${c.id} and nl.language = ${language}
+        order by pg."order" nulls last, pn."order" nulls last, nl."order"`);
+      text = [...rows].map((r) => r.text).join("\n");
+    }
+    out.push(text.length > share ? `${text.slice(0, share)}\n[…]` : text);
+  }
+  return out;
+}
+
 export async function bibleExtract(deps: WorkerDeps, job: ProjectJob) {
   const chapterId = job.input.chapterId ? String(job.input.chapterId) : null;
   const chs = await deps.db
@@ -1033,6 +1065,12 @@ export async function bibleExtract(deps: WorkerDeps, job: ProjectJob) {
     .orderBy(desc(storyAnalyses.appliedAt))
     .limit(1);
   const existing = await loadBible(deps.db, job.projectId);
+  const texts = await chapterTextsForExtraction(deps, chs, project?.language ?? "en");
+  // With nothing to read, any model answers "no facts", which looks like a result; say what is missing instead.
+  if (!texts.some((t) => t.trim()))
+    throw new InputError(
+      "These chapters have no text to read yet: no source text or summary, and no narration. Analyse the story or write the narration first.",
+    );
   const r = await structured(
     deps,
     job,
@@ -1059,7 +1097,7 @@ export async function bibleExtract(deps: WorkerDeps, job: ProjectJob) {
           states: existing.states.map((s) => `${s.character} (${s.kind}): ${s.text}`),
         },
       },
-      chapters: chs.map((c) => ({ number: c.order, title: c.title, text: c.sourceExcerpt || c.summary })),
+      chapters: chs.map((c, i) => ({ number: c.order, title: c.title, text: texts[i] ?? "" })),
     }),
     BibleExtraction,
     "BibleExtraction",
