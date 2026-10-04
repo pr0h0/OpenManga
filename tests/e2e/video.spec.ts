@@ -65,11 +65,8 @@ test("exports: a Shorts export suggests a 9:16 pick of shots and renders it with
 
   await test.step("render it with captions drawn in", async () => {
     await page.getByLabel("Captions").selectOption("bottom");
+    // A Shorts cut is its picked shots only, so the readiness check never stops it.
     await page.getByRole("button", { name: "Export", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Export anyway" })
-      .click({ timeout: 15_000 })
-      .catch(() => {});
     await expect(page.getByText("Export queued")).toBeVisible();
     type Job = { kind: string; status: string; options: { video?: { captions?: string } } };
     await expect
