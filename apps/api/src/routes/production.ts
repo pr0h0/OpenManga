@@ -4,6 +4,7 @@ import {
   projectReadiness,
   publishingStaleness,
   recordAudit,
+  shotVariety,
   youtubeSourceFingerprint,
 } from "@openmanga/services";
 import { Hono } from "hono";
@@ -126,17 +127,19 @@ doc({
   method: "GET",
   path: "/api/projects/:projectId/health",
   summary:
-    "Project health in one report: a verdict (ready to publish, or how many blocking issues), and items each with a count, a severity (block or info) and where to fix it: export readiness (artwork, narration, audio), the video, failed visual checks, what is out of date (stages, changed chapters, YouTube text and thumbnail), unfinished and failed generation, open comments, spend against the budget and disk use.",
+    "Project health in one report: a verdict (ready to publish, or how many blocking issues), and items each with a count, a severity (block or info) and where to fix it: export readiness (artwork, narration, audio), the video, failed visual checks, what is out of date (stages, changed chapters, YouTube text and thumbnail), unfinished and failed generation, runs of panels repeating the same shot, open comments, spend against the budget and disk use.",
   tag: "production",
 });
 productionRoutes.get("/projects/:projectId/health", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
   const { db } = c.get("deps");
-  const [staleness, readiness, publishing] = await Promise.all([
+  const [staleness, readiness, publishing, shots] = await Promise.all([
     pipelineStaleness(db, p),
     projectReadiness(db, p.id),
     publishingStaleness(db, p),
+    shotVariety(db, p.id),
   ]);
+  const repeated = shots.filter((ch) => ch.runs.length);
   const [n] = await db.execute<{
     active: number;
     failed: number;
@@ -219,6 +222,16 @@ productionRoutes.get("/projects/:projectId/health", async (c) => {
       count: n?.failed ?? 0,
       severity: "info",
       link: { to: "/projects/$projectId/generation" },
+    },
+    {
+      key: "shots",
+      label: `${repeated.reduce((n, ch) => n + ch.runs.length, 0)} run(s) of panels repeating the same shot, in ${repeated.length} chapter(s)`,
+      count: repeated.reduce((n, ch) => n + ch.runs.length, 0),
+      severity: "info",
+      link: {
+        to: "/projects/$projectId/storyboard",
+        search: { ...(repeated[0] ? { chapterId: repeated[0].chapterId } : {}), filter: "repeated" },
+      },
     },
     {
       key: "comments",

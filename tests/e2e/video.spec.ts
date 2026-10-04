@@ -162,3 +162,19 @@ test("reader link: the shared chapter plays as a video preview", async () => {
   await expect(reader.getByRole("button", { name: "Pause", exact: true }).first()).toBeVisible();
   await anon.close();
 });
+
+test("shot variety: a run of the same framing is flagged on the storyboard and on Health", async () => {
+  const a = api(page);
+  const { panels } = await a.get<{ panels: { id: string }[] }>(`/chapters/${s.chapterId}/panels`);
+  // Three rare shots in a row, from one angle: a framing run whatever the planner chose around them.
+  for (const p of panels.slice(0, 3))
+    await a.patch(`/panels/${p.id}`, { shotType: "extreme-wide", cameraAngle: "birds-eye" });
+
+  await page.goto(`${s.url}/storyboard?chapterId=${s.chapterId}&filter=repeated`);
+  await expect(page.getByRole("tab", { name: /^Repeated shot \d+$/, selected: true })).toBeVisible();
+  await expect(page.getByText(/^\d+ extreme-wide shots in a row from the same birds-eye angle$/).first()).toBeVisible();
+  expect(await page.getByText(/extreme-wide shots in a row/).count()).toBeGreaterThanOrEqual(3);
+
+  await page.goto(`${s.url}/health`);
+  await expect(page.getByText(/run\(s\) of panels repeating the same shot/)).toBeVisible();
+});

@@ -737,8 +737,15 @@ chapter → prepare panel prompts → generate missing artwork → changed narra
 each with a severity and a link to where it is fixed. Blocking: export readiness (panels without artwork, chapters
 without or with patchy narration, segments without audio, superseded versions), a missing or out-of-date
 whole-project video, panels that failed a visual check. Worth knowing: every stale stage and changed chapter, the
-YouTube text and thumbnail headline, jobs still running and failed ones not retried, open comment threads. It also
-shows spend against the budget and disk use.
+YouTube text and thumbnail headline, jobs still running and failed ones not retried, runs of panels repeating the same
+shot, open comment threads. It also shows spend against the budget and disk use.
+
+**Shot variety** (`GET /api/projects/:projectId/shot-variety`, MCP `get_project_checks check=shot_variety`, the
+storyboard's *Repeated shot* filter): `repeatedShots` (`packages/domain/src/shot-variety.ts`) walks a chapter's panels
+in reading order and reports runs of one shot size four or more panels long, or of one size and angle (no angle reads
+as eye level) three or more long, as *framing* runs. It reads the plan only, so it costs nothing and can run before
+any art is drawn; change a flagged panel's shot type or camera angle in the page editor or with `PATCH
+/api/panels/:id`. A chapter of new blank pages is all medium eye-level shots, so it shows up until it is planned.
 
 The API process advances running runs every 10 seconds; one project has at most one active run. A pass holds a
 lease on the run's row (`lease_owner`, `lease_until`), so two API processes never advance the same run at once, and an

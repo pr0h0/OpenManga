@@ -1,4 +1,5 @@
 import { type Database, type ExportKind, sql } from "@openmanga/db";
+import { repeatedShots, type ShotRun } from "@openmanga/domain";
 
 export type ReadinessIssue = {
   code:
@@ -166,3 +167,32 @@ export const issuesForExport = (r: Readiness, kind: ExportKind) => {
   const areas = kind === "project_import" ? [] : EXPORT_AREAS[kind];
   return r.issues.filter((i) => areas.includes(i.area));
 };
+
+/** Each chapter's runs of repeated shots, panels in reading order (one chapter, or every chapter with panels). */
+export async function shotVariety(db: Database, projectId: string, chapterId?: string) {
+  const rows = await db.execute<{
+    id: string;
+    shot_type: string;
+    camera_angle: string | null;
+    chapter_id: string;
+    order: number;
+    title: string;
+  }>(sql`
+    select pn.id, pn.shot_type, pn.camera_angle, ch.id as chapter_id, ch."order", ch.title
+    from panels pn join pages pg on pg.id = pn.page_id join chapters ch on ch.id = pg.chapter_id
+    where pn.project_id = ${projectId} ${chapterId ? sql`and ch.id = ${chapterId}` : sql``}
+    order by ch."order", pg."order", pn."order"`);
+  const out: { chapterId: string; order: number; title: string; panels: number; runs: ShotRun[] }[] = [];
+  for (const r of rows) {
+    if (out.at(-1)?.chapterId !== r.chapter_id)
+      out.push({ chapterId: r.chapter_id, order: r.order, title: r.title, panels: 0, runs: [] });
+    out.at(-1)!.panels++;
+  }
+  for (const ch of out)
+    ch.runs = repeatedShots(
+      rows
+        .filter((r) => r.chapter_id === ch.chapterId)
+        .map((r) => ({ id: r.id, shotType: r.shot_type, cameraAngle: r.camera_angle })),
+    );
+  return out;
+}

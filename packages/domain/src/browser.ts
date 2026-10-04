@@ -15,6 +15,7 @@ export * from "./provider.ts";
 export * from "./providers.ts";
 export * from "./repurpose.ts";
 export * from "./runtime.ts";
+export * from "./shot-variety.ts";
 export * from "./strip.ts";
 export * from "./styles.ts";
 export * from "./text.ts";
