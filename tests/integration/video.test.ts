@@ -777,10 +777,11 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     expect(ok.warnings).toBeUndefined();
     await u.post(`/api/exports/${ok.job.id}/cancel`);
     // The render honours the chosen length, whatever it is: 95 s of 30 s shots ends before the fourth, at 90 s.
+    // Captions drawn into the picture re-encode the joined film without changing its length.
     const capped = await runExport(projectId, {
       kind: "video_shorts",
       panelIds: art,
-      video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 95 },
+      video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 95, captions: "bottom" },
     });
     const cappedMs = (await probe(capped.files.find((f) => f.mimeType === "video/mp4")!.assetId)).ms;
     expect(Math.abs(cappedMs - Math.min(3, art.length) * 30_000)).toBeLessThan(200);

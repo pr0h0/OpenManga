@@ -1,4 +1,5 @@
 import { NARRATION_LANGUAGES, SHORTS_DEFAULT_MS, type VideoAspect } from "@openmanga/domain/browser";
+import type { ShortsCaptions } from "@openmanga/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileDown, Trash2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -18,7 +19,7 @@ import {
 import { ProgressBar } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
-import { ShortsPicker } from "./ShortsPicker.tsx";
+import { CAPTION_OPTIONS, ShortsPicker } from "./ShortsPicker.tsx";
 import { YoutubePackageCard } from "./YoutubePackage.tsx";
 
 const KINDS = [
@@ -113,6 +114,7 @@ export function ExportsPage() {
   const [chosenAspect, setAspect] = useState<VideoAspect>();
   const [shortsPick, setShortsPick] = useState<string[]>([]);
   const [shortsSeconds, setShortsSeconds] = useState(SHORTS_DEFAULT_MS / 1000);
+  const [captions, setCaptions] = useState<ShortsCaptions>("off");
   // Partial renders: the first N minutes, and/or a range of pages within the chosen chapter.
   const [maxMinutes, setMaxMinutes] = useState("");
   const [pageRange, setPageRange] = useState({ from: "", to: "" });
@@ -171,7 +173,7 @@ export function ExportsPage() {
           // A narrow frame shows a page at its full width unless chosen otherwise.
           pageWidthRatio: aspect === "16:9" ? video.pageWidthRatio : 1,
           aspect,
-          ...(shorts ? { shortsSeconds } : {}),
+          ...(shorts ? { shortsSeconds, captions } : {}),
           ...(isVideo(kind) && !shorts && Number(maxMinutes) > 0
             ? { maxDurationMs: Math.round(Number(maxMinutes) * 60_000) }
             : {}),
@@ -556,6 +558,21 @@ export function ExportsPage() {
                   <option value="1:1">1:1 square</option>
                 </select>
               </Field>
+              {shorts && (
+                <Field label="Captions">
+                  <select
+                    className="input"
+                    value={captions}
+                    onChange={(e) => setCaptions(e.target.value as ShortsCaptions)}
+                  >
+                    {CAPTION_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               {!shorts && (
                 <Field label="Only the first … minutes (for a check)">
                   <input

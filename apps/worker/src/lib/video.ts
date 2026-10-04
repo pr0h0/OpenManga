@@ -21,6 +21,7 @@ import {
   watermarkBox,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
+import type { ShortsCaptions } from "@openmanga/schemas";
 import {
   type BrandedProject,
   backdrop,
@@ -64,6 +65,8 @@ export type VideoOptions = {
   shortsSeconds?: number;
   /** Intro and outro cards, when the project has them (default true; a Shorts cut has none). */
   cards?: boolean;
+  /** Captions drawn into the picture from the narration cues (Shorts only). */
+  captions?: ShortsCaptions;
 };
 
 type Project = Parameters<typeof planVideoShots>[1] & BrandedProject & { language: string };
@@ -175,6 +178,77 @@ export function toSrt(cues: { startMs: number; endMs: number; text: string }[]) 
   return cues.map((c, i) => `${i + 1}\n${srtTime(c.startMs)} --> ${srtTime(c.endMs)}\n${c.text.trim()}\n`).join("\n");
 }
 
+type Cue = { startMs: number; endMs: number; text: string };
+type CaptionStyle = Exclude<ShortsCaptions, "off">;
+
+/** Words per caption, size as a share of the frame's short side, ASS alignment and bottom margin per style. */
+const CAPTION: Record<CaptionStyle, { words: number; size: number; align: number; marginV: number }> = {
+  bottom: { words: 5, size: 0.065, align: 2, marginV: 0.22 },
+  center: { words: 3, size: 0.09, align: 5, marginV: 0 },
+  two_line: { words: 8, size: 0.06, align: 2, marginV: 0.22 },
+};
+
+/**
+ * Narration cues cut into short captions: evenly sized groups of words (no one-word orphan at the end), each shown for
+ * its share of the cue by length. Two-line captions break at the middle word.
+ */
+export function captionChunks(cues: Cue[], style: CaptionStyle): Cue[] {
+  const max = CAPTION[style].words;
+  return cues.flatMap((c) => {
+    const words = c.text.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const size = Math.ceil(words.length / Math.ceil(words.length / max));
+    const groups: string[][] = [];
+    for (let i = 0; i < words.length; i += size) groups.push(words.slice(i, i + size));
+    const total = groups.reduce((n, g) => n + g.join(" ").length, 0);
+    let at = c.startMs;
+    return groups.map((g, k) => {
+      const end = k === groups.length - 1 ? c.endMs : at + ((c.endMs - c.startMs) * g.join(" ").length) / total;
+      const half = Math.ceil(g.length / 2);
+      const text =
+        style === "two_line" && g.length > 3
+          ? `${g.slice(0, half).join(" ")}\n${g.slice(half).join(" ")}`
+          : g.join(" ");
+      const out = { startMs: Math.round(at), endMs: Math.round(end), text };
+      at = end;
+      return out;
+    });
+  });
+}
+
+const assTime = (ms: number) => {
+  const cs = Math.max(0, Math.round(ms / 10));
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${Math.floor(cs / 360_000)}:${p(Math.floor(cs / 6000) % 60)}:${p(Math.floor(cs / 100) % 60)}.${p(cs % 100)}`;
+};
+
+/** An ASS subtitle file for burning captions into a frame of this size: white bold text with a black outline. */
+export function toAss(cues: Cue[], style: CaptionStyle, frameW: number, frameH: number) {
+  const st = CAPTION[style];
+  const size = Math.round(Math.min(frameW, frameH) * st.size);
+  const side = Math.round(frameW * 0.08);
+  const assText = (t: string) => t.replace(/[\\{}]/g, "").replace(/\n/g, "\\N");
+  return [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${frameW}`,
+    `PlayResY: ${frameH}`,
+    "WrapStyle: 0",
+    "ScaledBorderAndShadow: yes",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    `Style: Default,DejaVu Sans,${size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${Math.max(2, Math.round(size * 0.09))},2,${st.align},${side},${side},${Math.round(frameH * st.marginV)},1`,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ...captionChunks(cues, style).map(
+      (c) => `Dialogue: 0,${assTime(c.startMs)},${assTime(c.endMs)},Default,,0,0,0,,${assText(c.text)}`,
+    ),
+    "",
+  ].join("\n");
+}
+
 type Narration = {
   byLine: Awaited<ReturnType<typeof narrationSegmentsFor>>;
   /** Each line's start and end offsets. */
@@ -251,7 +325,7 @@ async function buildFilm<S extends Shot>(
     if (bytes) await appendPcm(new Uint8Array(bytes), 0, bytes);
   };
   const sampleAt = (ms: number) => Math.round((ms / 1000) * SAMPLE_RATE);
-  const cues: { startMs: number; endMs: number; text: string }[] = [];
+  const cues: Cue[] = [];
   const holds: { frames: number; holdSec: number }[] = [];
   /** Where each shot starts in the film, for chapter timestamps. */
   const startsMs: number[] = [];
@@ -499,6 +573,13 @@ async function buildFilm<S extends Shot>(
     measure.stderr.slice(measure.stderr.lastIndexOf("{"), measure.stderr.lastIndexOf("}") + 1),
   ) as Record<string, string>;
   const outPath = join(dir, "video.mp4");
+  // Captions are drawn over the joined film, so its cached sections stay caption-free; the video is encoded once more.
+  const assPath = join(dir, "captions.ass");
+  const captions = opts.captions && opts.captions !== "off" && cues.length ? opts.captions : null;
+  if (captions) await Bun.write(assPath, toAss(cues, captions, film.frameW, film.frameH));
+  const videoOut = captions
+    ? ["-vf", `ass=${assPath}`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
+    : ["-c:v", "copy"];
   await run(
     [
       "ffmpeg",
@@ -508,8 +589,7 @@ async function buildFilm<S extends Shot>(
       "error",
       "-i",
       rawPath,
-      "-c:v",
-      "copy",
+      ...videoOut,
       "-af",
       `loudnorm=${target}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`,
       ...aac,
@@ -546,6 +626,7 @@ async function buildFilm<S extends Shot>(
       clips: clips.length,
       sections: { reused, encoded: clips.length - reused },
       subtitleCues: cues.length,
+      ...(captions ? { captions } : {}),
       loudness: m,
     },
   };

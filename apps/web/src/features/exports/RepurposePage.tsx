@@ -9,6 +9,7 @@ import { clsx, EmptyState, ErrorBox, Field, PageHeader, Spinner } from "../../co
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { CAPTION_OPTIONS } from "./ShortsPicker.tsx";
 
 type Candidate = {
   id: string;
@@ -42,7 +43,7 @@ function exportBody(it: RepurposeItem) {
       panelIds: it.panelIds,
       label: it.label || it.kind,
       social,
-      video: { shortsSeconds: it.lengthSeconds ?? 60, aspect: it.aspect ?? "9:16" },
+      video: { shortsSeconds: it.lengthSeconds ?? 60, aspect: it.aspect ?? "9:16", captions: it.captions ?? "off" },
     };
   return {
     kind: it.kind === "carousel" ? "carousel" : "quote_image",
@@ -293,6 +294,21 @@ function ItemCard({
                 ))}
               </select>
             </Field>
+            {video && (
+              <Field label="Captions">
+                <select
+                  className="input"
+                  value={it.captions ?? "off"}
+                  onChange={(e) => set({ captions: e.target.value as RepurposeItem["captions"] })}
+                >
+                  {CAPTION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
           </div>
           {it.kind === "quote" && (
             <Field label="Quote">

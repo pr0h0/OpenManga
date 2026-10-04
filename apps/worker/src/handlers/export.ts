@@ -474,6 +474,8 @@ async function buildExport(
         pageWidthRatio: opts.video?.pageWidthRatio ?? (aspect === "16:9" ? 0.6 : 1),
         // A Shorts cut is its picked shots only, up to its chosen length, without the intro and outro cards.
         ...(shorts ? { capMs: (opts.video?.shortsSeconds ?? SHORTS_DEFAULT_MS / 1000) * 1000, cards: false } : {}),
+        // Captions in the picture are for Shorts; a long video keeps the .srt sidecar only.
+        captions: shorts ? opts.video?.captions : undefined,
       };
       const render = job.kind === "video_pages" ? renderPageCutVideo : renderPanelCutVideo;
       // A panel or page selection narrows the film to those; otherwise the chapter, or the whole project.

@@ -5,6 +5,7 @@ import {
   type VideoAspect,
   YOUTUBE_SHORTS_MAX_MS,
 } from "@openmanga/domain/browser";
+import type { ShortsCaptions } from "@openmanga/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { Wand2 } from "lucide-react";
 import { useEffect } from "react";
@@ -31,6 +32,14 @@ const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
  * the length, 3 minutes by default), which the user can change before previewing and rendering. `value` is the chosen
  * panel ids; the render plays them in story order and stops before the shot that would pass the length.
  */
+/** Captions drawn into a Shorts cut, from its narration. */
+export const CAPTION_OPTIONS: { value: ShortsCaptions; label: string }[] = [
+  { value: "off", label: "Off (.srt file only)" },
+  { value: "bottom", label: "Clean, at the bottom" },
+  { value: "center", label: "Large, in the centre" },
+  { value: "two_line", label: "Two lines, at the bottom" },
+];
+
 export function ShortsPicker({
   projectId,
   chapterId,

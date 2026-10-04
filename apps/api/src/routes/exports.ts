@@ -14,6 +14,7 @@ import {
   sql,
 } from "@openmanga/db";
 import { providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
+import { ShortsCaptions } from "@openmanga/schemas";
 import { issuesForExport, projectReadiness, recordAudit, sweepRenderSections } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -128,6 +129,11 @@ export const ExportOptions = z.object({
        * the shot that would pass it. Over 180 the response carries a warning: YouTube uploads it as a regular video.
        */
       shortsSeconds: z.number().int().min(15).max(600).optional(),
+      /**
+       * video_shorts: captions drawn into the picture from the narration (off by default). "bottom" a clean line low in
+       * the frame, "center" a few large words at a time, "two_line" two lines at the bottom. Other videos keep the .srt.
+       */
+      captions: ShortsCaptions.optional(),
     })
     .default({
       fps: 30,

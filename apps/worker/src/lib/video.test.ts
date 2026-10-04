@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fitBox, scrollPlan } from "@openmanga/domain";
 import { focusInCrop } from "@openmanga/image-utils";
-import { fadeFilter, toSrt, zoompanFor } from "./video.ts";
+import { captionChunks, fadeFilter, toAss, toSrt, zoompanFor } from "./video.ts";
 
 test("scroll is capped and centred when the hold is short", () => {
   expect(scrollPlan(648, 1.1, 60)).toEqual({ y0: 291, travel: 66 });
@@ -49,4 +49,23 @@ test("the move is aimed at the image focus inside the visible crop", () => {
   // zoomed crop centred on the focus: centre of the crop
   const f = focusInCrop(2048, 1152, 16 / 9, { focalX: 0.6, focalY: 0.5, scale: 2 });
   expect(f.x).toBeCloseTo(0.5, 2);
+});
+
+test("Shorts captions split a cue into even word groups timed by length", () => {
+  const cue = { startMs: 1000, endMs: 4000, text: "one two three four five six seven" };
+  const bottom = captionChunks([cue], "bottom");
+  // 7 words at most 5 per caption: 4 + 3, not 5 + 2.
+  expect(bottom.map((c) => c.text)).toEqual(["one two three four", "five six seven"]);
+  expect(bottom[0]!.startMs).toBe(1000);
+  expect(bottom[0]!.endMs).toBe(bottom[1]!.startMs);
+  expect(bottom[1]!.endMs).toBe(4000);
+  expect(captionChunks([cue], "two_line").map((c) => c.text)).toEqual(["one two three four\nfive six seven"]);
+  expect(captionChunks([{ ...cue, text: "  " }], "center")).toEqual([]);
+});
+
+test("the ASS file is sized to the frame and escapes override braces", () => {
+  const ass = toAss([{ startMs: 0, endMs: 61_250, text: "Hi {there}" }], "center", 1080, 1920);
+  expect(ass).toContain("PlayResX: 1080\nPlayResY: 1920");
+  expect(ass).toContain("Style: Default,DejaVu Sans,97,");
+  expect(ass).toContain("Dialogue: 0,0:00:00.00,0:01:01.25,Default,,0,0,0,,Hi there");
 });
