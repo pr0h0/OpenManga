@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-10-05
+
+Upgrading: pull the new images and restart. One migration (`0034_comment_agent_source`) runs on start through the
+migrate service: four columns on `panel_comments` recording comments and resolutions made through an agent connection.
+Existing comments count as written by hand. No new settings. Reload open tabs to get the new web app.
+
 ### Added
 
 - Comments from agents: MCP `resolve_comment` resolves or reopens a thread, so one agent can audit a project with
