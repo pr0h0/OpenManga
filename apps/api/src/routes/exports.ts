@@ -13,7 +13,7 @@ import {
   panels,
   sql,
 } from "@openmanga/db";
-import { providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
+import { captionsSupported, providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
 import { ShortsCaptions } from "@openmanga/schemas";
 import { issuesForExport, projectReadiness, recordAudit, sweepRenderSections } from "@openmanga/services";
 import type { Context } from "hono";
@@ -162,6 +162,11 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
   // Viewers download what exists; making a new export queues server work every member then sees, so it is an edit.
   const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const input = await body(c, ExportOptions);
+  const captions = input.kind === "video_shorts" ? input.video.captions : undefined;
+  if (captions && captions !== "off" && !captionsSupported(input.language || p.language))
+    throw badRequest(
+      "Captions can't be drawn in this narration language yet: the render image has no font for its script. Turn captions off; the .srt file still comes with the video.",
+    );
   // Filled here, so the stored options say what was rendered whoever asked: the app, an agent or a production run.
   const output = p.settings.video?.output;
   input.video.height ??= output?.height ?? 1080;

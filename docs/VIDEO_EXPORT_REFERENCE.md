@@ -96,7 +96,11 @@ groups, so no one-word orphan ends a cue, each shown for its share of the cue by
 the frame, clear of the Shorts buttons; `center` up to 3 large words in the middle; `two_line` up to 8 words as two
 lines at the bottom. libass draws them during the loudness pass, which then re-encodes the video once (H.264 as
 above) instead of copying it; the cached sections stay caption-free, so turning captions on or off reuses them. The
-browser preview does not show captions. Other video kinds ignore the option and keep the `.srt` only.
+browser preview does not show captions. Other video kinds ignore the option and keep the `.srt` only. A word longer
+than a caption line (a long compound, a URL, a script written without spaces) is broken into pieces. The render image
+ships DejaVu Sans, which covers Latin, Cyrillic, Greek, Arabic and Vietnamese but not Japanese, Korean, Chinese, Hindi
+or Thai, so captions in those narration languages are refused (400; `captionsSupported`) and the select is disabled
+rather than drawing empty boxes.
 
 Encoding: H.264 `-preset veryfast -crf 20` per clip (`-tune stillimage` for the page cut, which is a still image
 under a crop; not for the panel cut, where `zoompan` moves every frame), AAC 192 kbit/s 48 kHz stereo on the mux,

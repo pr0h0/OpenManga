@@ -1,4 +1,5 @@
 import {
+  captionsSupported,
   SHORTS_LIMIT_MS,
   SHORTS_MIN_MS,
   shortsLengthWarning,
@@ -33,12 +34,44 @@ const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
  * panel ids; the render plays them in story order and stops before the shot that would pass the length.
  */
 /** Captions drawn into a Shorts cut, from its narration. */
-export const CAPTION_OPTIONS: { value: ShortsCaptions; label: string }[] = [
+const CAPTION_OPTIONS: { value: ShortsCaptions; label: string }[] = [
   { value: "off", label: "Off (.srt file only)" },
   { value: "bottom", label: "Clean, at the bottom" },
   { value: "center", label: "Large, in the centre" },
   { value: "two_line", label: "Two lines, at the bottom" },
 ];
+
+/** The captions a Shorts cut gets; off, and not offered, for a narration language the render has no font for. */
+export function CaptionsField({
+  value,
+  onChange,
+  language,
+}: {
+  value: ShortsCaptions;
+  onChange: (v: ShortsCaptions) => void;
+  language: string;
+}) {
+  const ok = captionsSupported(language);
+  return (
+    <Field
+      label="Captions"
+      hint={ok ? undefined : "Not available for this narration language yet: the render has no font for its script."}
+    >
+      <select
+        className="input"
+        value={ok ? value : "off"}
+        disabled={!ok}
+        onChange={(e) => onChange(e.target.value as ShortsCaptions)}
+      >
+        {CAPTION_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
 
 export function ShortsPicker({
   projectId,

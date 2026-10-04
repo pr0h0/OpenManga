@@ -76,8 +76,8 @@ const SAMPLE_RATE = 24_000;
 /** No ffmpeg invocation in an export should outlive this; a wedged encoder would otherwise hold the export queue. */
 const FFMPEG_TIMEOUT_MS = 60 * 60 * 1000;
 
-async function run(cmd: string[], label: string, timeoutMs = FFMPEG_TIMEOUT_MS) {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
+async function run(cmd: string[], label: string, timeoutMs = FFMPEG_TIMEOUT_MS, cwd?: string) {
+  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", cwd });
   const timer = setTimeout(() => proc.kill(), timeoutMs);
   try {
     const [code, stdout, stderr] = await Promise.all([
@@ -181,11 +181,14 @@ export function toSrt(cues: { startMs: number; endMs: number; text: string }[]) 
 type Cue = { startMs: number; endMs: number; text: string };
 type CaptionStyle = Exclude<ShortsCaptions, "off">;
 
-/** Words per caption, size as a share of the frame's short side, ASS alignment and bottom margin per style. */
-const CAPTION: Record<CaptionStyle, { words: number; size: number; align: number; marginV: number }> = {
-  bottom: { words: 5, size: 0.065, align: 2, marginV: 0.22 },
-  center: { words: 3, size: 0.09, align: 5, marginV: 0 },
-  two_line: { words: 8, size: 0.06, align: 2, marginV: 0.22 },
+/**
+ * Words per caption, the longest word before it is broken (a long compound, a URL, or a script written without spaces),
+ * size as a share of the frame's short side, ASS alignment and bottom margin per style.
+ */
+const CAPTION: Record<CaptionStyle, { words: number; chars: number; size: number; align: number; marginV: number }> = {
+  bottom: { words: 5, chars: 16, size: 0.065, align: 2, marginV: 0.22 },
+  center: { words: 3, chars: 10, size: 0.09, align: 5, marginV: 0 },
+  two_line: { words: 8, chars: 18, size: 0.06, align: 2, marginV: 0.22 },
 };
 
 /**
@@ -193,9 +196,14 @@ const CAPTION: Record<CaptionStyle, { words: number; size: number; align: number
  * its share of the cue by length. Two-line captions break at the middle word.
  */
 export function captionChunks(cues: Cue[], style: CaptionStyle): Cue[] {
-  const max = CAPTION[style].words;
+  const { words: max, chars } = CAPTION[style];
+  const long = new RegExp(`.{1,${chars}}`, "gu");
   return cues.flatMap((c) => {
-    const words = c.text.trim().split(/\s+/).filter(Boolean);
+    const words = c.text
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .flatMap((w) => w.match(long) ?? [w]);
     if (!words.length) return [];
     const size = Math.ceil(words.length / Math.ceil(words.length / max));
     const groups: string[][] = [];
@@ -574,11 +582,12 @@ async function buildFilm<S extends Shot>(
   ) as Record<string, string>;
   const outPath = join(dir, "video.mp4");
   // Captions are drawn over the joined film, so its cached sections stay caption-free; the video is encoded once more.
-  const assPath = join(dir, "captions.ass");
+  // The filter names the file relative to the temp dir (ffmpeg runs there), so no character of its path can break the
+  // filtergraph's syntax.
   const captions = opts.captions && opts.captions !== "off" && cues.length ? opts.captions : null;
-  if (captions) await Bun.write(assPath, toAss(cues, captions, film.frameW, film.frameH));
+  if (captions) await Bun.write(join(dir, "captions.ass"), toAss(cues, captions, film.frameW, film.frameH));
   const videoOut = captions
-    ? ["-vf", `ass=${assPath}`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
+    ? ["-vf", "ass=captions.ass", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
     : ["-c:v", "copy"];
   await run(
     [
@@ -598,6 +607,8 @@ async function buildFilm<S extends Shot>(
       outPath,
     ],
     "loudness normalise",
+    FFMPEG_TIMEOUT_MS,
+    dir,
   );
   await rm(rawPath);
   await progress(0.92);

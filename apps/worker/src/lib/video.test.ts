@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { fitBox, scrollPlan } from "@openmanga/domain";
+import { captionsSupported, fitBox, scrollPlan } from "@openmanga/domain";
 import { focusInCrop } from "@openmanga/image-utils";
 import { captionChunks, fadeFilter, toAss, toSrt, zoompanFor } from "./video.ts";
 
@@ -68,4 +68,41 @@ test("the ASS file is sized to the frame and escapes override braces", () => {
   expect(ass).toContain("PlayResX: 1080\nPlayResY: 1920");
   expect(ass).toContain("Style: Default,DejaVu Sans,97,");
   expect(ass).toContain("Dialogue: 0,0:00:00.00,0:01:01.25,Default,,0,0,0,,Hi there");
+});
+
+test("captions: long words and text without spaces are broken to fit, timing stays inside the cue", () => {
+  const long = captionChunks([{ startMs: 0, endMs: 1000, text: "Donaudampfschifffahrtsgesellschaft sank" }], "center");
+  expect(long.map((c) => c.text)).toEqual(["Donaudampf schifffahr tsgesellsc", "haft sank"]);
+  // A script written without spaces is cut by characters, never one caption the width of the whole line.
+  const cjk = captionChunks(
+    [{ startMs: 500, endMs: 2500, text: "彼は屋上の扉を押し開けて女帝が机に伏しているのを見た" }],
+    "bottom",
+  );
+  expect(cjk.every((c) => [...c.text.replaceAll(" ", "")].length <= 16 * 5)).toBe(true);
+  expect(cjk.flatMap((c) => c.text.split(" ")).every((w) => [...w].length <= 16)).toBe(true);
+  for (const chunks of [long, cjk]) {
+    for (const [i, c] of chunks.entries()) {
+      expect(c.endMs).toBeGreaterThanOrEqual(c.startMs);
+      if (i) expect(c.startMs).toBe(chunks[i - 1]!.endMs);
+    }
+  }
+  expect(cjk[0]!.startMs).toBe(500);
+  expect(cjk.at(-1)!.endMs).toBe(2500);
+});
+
+test("captions: empty and zero-length cues, and text that could break the ASS file", () => {
+  expect(captionChunks([{ startMs: 0, endMs: 0, text: "\n \t" }], "bottom")).toEqual([]);
+  expect(captionChunks([{ startMs: 100, endMs: 100, text: "Now." }], "bottom")).toEqual([
+    { startMs: 100, endMs: 100, text: "Now." },
+  ]);
+  const ass = toAss([{ startMs: 0, endMs: 900, text: "a {\\b1}bold\\N claim,\nnew line" }], "bottom", 720, 1280);
+  const line = ass.split("\n").find((l) => l.startsWith("Dialogue:"))!;
+  // Override blocks and backslashes are dropped, so the text cannot restyle or break the file; one event per caption.
+  expect(line).toBe("Dialogue: 0,0:00:00.00,0:00:00.90,Default,,0,0,0,,a b1boldN claim, new line");
+  expect(ass.split("\n").filter((l) => l.startsWith("Dialogue:"))).toHaveLength(1);
+});
+
+test("captions are refused only for scripts the render has no font for", () => {
+  for (const l of ["en", "de", "ru", "ar", "vi", "pt-BR"]) expect(captionsSupported(l)).toBe(true);
+  for (const l of ["ja", "ko", "zh", "zh-CN", "hi", "th", "JA"]) expect(captionsSupported(l)).toBe(false);
 });

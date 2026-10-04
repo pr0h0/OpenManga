@@ -776,6 +776,48 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     );
     expect(ok.warnings).toBeUndefined();
     await u.post(`/api/exports/${ok.job.id}/cancel`);
+    // Captions: an unknown style is refused, and so is a narration language the render has no font for.
+    await u.post(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, video: { captions: "karaoke" } },
+      422,
+    );
+    const fontless = await u.raw("POST", `/api/projects/${projectId}/exports`, {
+      kind: "video_shorts",
+      panelIds: art,
+      language: "ja",
+      video: { captions: "bottom" },
+    });
+    expect(fontless.status).toBe(400);
+    expect(await fontless.text()).toContain("no font for its script");
+    // Off is always fine in that language, and other kinds ignore the option.
+    const offJa = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, language: "ja", video: { captions: "off" } },
+      202,
+    );
+    await u.post(`/api/exports/${offJa.job.id}/cancel`);
+    const panelsCut = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      {
+        kind: "video_panels",
+        chapterId,
+        video: { captions: "center", maxDurationMs: 10_000 },
+        acknowledgeIssues: true,
+      },
+      202,
+    );
+    await u.post(`/api/exports/${panelsCut.job.id}/cancel`);
+    // A repurposing plan keeps each item's captions; a wrong value is refused.
+    const item = { id: "short-1", kind: "short", label: "Short 1", panelIds: art.slice(0, 2), captions: "two_line" };
+    await u.patch(`/api/projects/${projectId}`, { settings: { repurpose: { items: [item] } } });
+    const plan = await u.get<{ items: { captions?: string }[] }>(`/api/projects/${projectId}/repurpose`);
+    expect(plan.items[0]!.captions).toBe("two_line");
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { repurpose: { items: [{ ...item, captions: "huge" }] } } },
+      422,
+    );
     // The render honours the chosen length, whatever it is: 95 s of 30 s shots ends before the fourth, at 90 s.
     // Captions drawn into the picture re-encode the joined film without changing its length.
     const capped = await runExport(projectId, {
