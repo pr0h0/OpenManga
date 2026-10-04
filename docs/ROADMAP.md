@@ -41,7 +41,6 @@ Grouped by area, roughly most useful first within each.
 - **Directing controls.** Optional structured fields per panel: camera height, shot size, lens feel, angle (frontal,
   three-quarter, profile, over-the-shoulder, point of view), where each figure stands and faces, eye-line, depth order,
   focus subject, shot purpose (establish, reveal, reaction, insert) and props held ("sword in right hand").
-- **Shot variety check.** Warn when a run of panels repeats the same shot size or framing.
 - **Coverage sheet.** For one story beat, draw a 3×3 sheet of angles (wide, medium, close, over-the-shoulder,
   insert, low, high) in one image and turn the picks into panels.
 - **Reference board.** A moodboard of images that can be dropped onto a character, location, prop, outfit, style or

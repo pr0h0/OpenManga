@@ -1,3 +1,4 @@
+import { describeShotRun, repeatedShots } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -11,8 +12,10 @@ import { useProjectId } from "../project/ProjectLayout.tsx";
 
 type Panel = PanelRow & { pageOrder: number };
 type Qa = { verdict?: string; stale?: boolean; assetId?: string; problems?: string[] } | null;
+/** What the filters know beyond the panel itself: the chapter's runs of repeated shots, by panel. */
+type Ctx = { repeated: Map<string, string> };
 
-const FILTERS = {
+const FILTERS: Record<string, { label: string; test: (p: Panel, ctx: Ctx) => boolean }> = {
   all: { label: "All", test: () => true },
   noArt: { label: "No artwork", test: (p: Panel) => !p.activeArtworkAssetId },
   failed: { label: "Failed", test: (p: Panel) => p.status === "failed" },
@@ -31,8 +34,9 @@ const FILTERS = {
       return Boolean(p.activeArtworkAssetId) && (!qa || qa.stale || qa.assetId !== p.activeArtworkAssetId);
     },
   },
-} as const;
-type Filter = keyof typeof FILTERS;
+  repeated: { label: "Repeated shot", test: (p: Panel, ctx: Ctx) => ctx.repeated.has(p.id) },
+};
+type Filter = "all" | "noArt" | "failed" | "review" | "mismatch" | "unchecked" | "repeated";
 
 /**
  * Every panel of a chapter at a glance, filtered to what needs attention. Keys: arrows move, Enter opens the panel
@@ -55,7 +59,17 @@ export function StoryboardPage() {
   });
   // A link can open it on a filter, e.g. a production run's "panels without artwork".
   const [filter, setFilter] = useState<Filter>(search.filter ?? "all");
-  const shown = useMemo(() => (list.data?.panels ?? []).filter(FILTERS[filter].test), [list.data, filter]);
+  // Runs of the same shot size or framing, in reading order: the storyboard lists the chapter in that order.
+  const ctx = useMemo<Ctx>(() => {
+    const repeated = new Map<string, string>();
+    for (const run of repeatedShots(list.data?.panels ?? []))
+      for (const id of run.panelIds) repeated.set(id, describeShotRun(run));
+    return { repeated };
+  }, [list.data]);
+  const shown = useMemo(
+    () => (list.data?.panels ?? []).filter((p) => FILTERS[filter]!.test(p, ctx)),
+    [list.data, filter, ctx],
+  );
   const [focus, setFocus] = useState(0);
   const [ask, setAsk] = useState<{ kind: "check" | "generate"; panel: Panel } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -140,7 +154,7 @@ export function StoryboardPage() {
       />
       <div className="mb-4 flex flex-wrap gap-1" role="tablist" aria-label="Filter">
         {(Object.keys(FILTERS) as Filter[]).map((f) => {
-          const n = (list.data?.panels ?? []).filter(FILTERS[f].test).length;
+          const n = (list.data?.panels ?? []).filter((p) => FILTERS[f]!.test(p, ctx)).length;
           return (
             <button
               key={f}
@@ -150,7 +164,7 @@ export function StoryboardPage() {
               className={filter === f ? "btn-primary px-2 py-1 text-xs" : "btn-secondary px-2 py-1 text-xs"}
               onClick={() => setFilter(f)}
             >
-              {FILTERS[f].label} <span className="opacity-70">{n}</span>
+              {FILTERS[f]!.label} <span className="opacity-70">{n}</span>
             </button>
           );
         })}
@@ -164,7 +178,8 @@ export function StoryboardPage() {
           const flags = [
             p.status === "failed" && "failed",
             p.review && "review",
-            FILTERS.mismatch.test(p) && (qa?.problems?.[0] ?? "mismatch"),
+            FILTERS.mismatch!.test(p, ctx) && (qa?.problems?.[0] ?? "mismatch"),
+            ctx.repeated.get(p.id),
           ].filter(Boolean) as string[];
           return (
             <button
@@ -191,7 +206,10 @@ export function StoryboardPage() {
                   <span className="font-medium">
                     p{p.pageOrder}·{p.order}
                   </span>
-                  <span className="muted truncate">{p.shotType}</span>
+                  <span className="muted truncate">
+                    {p.shotType}
+                    {p.cameraAngle ? ` · ${p.cameraAngle}` : ""}
+                  </span>
                 </div>
                 <p className="muted line-clamp-2">{p.storyBeat}</p>
                 {flags.length > 0 && (

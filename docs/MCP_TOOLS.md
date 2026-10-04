@@ -2068,14 +2068,14 @@ Search one project's characters, places, props, chapters, scenes and panels by t
 
 ### get_project_checks
 
-check=readiness: what an export would lack (missing artwork, narration coverage and audio, draft or superseded versions) and whether the user has a usable provider key. check=preflight: a dry run before image generation (risky vocabulary, stale or missing references, lighting issues). Optionally limited to a chapter (or a page for preflight). Read-only; run before bulk generation or export.
+check=readiness: what an export would lack (missing artwork, narration coverage and audio, draft or superseded versions) and whether the user has a usable provider key. check=preflight: a dry run before image generation (risky vocabulary, stale or missing references, lighting issues). check=shot_variety: per chapter, runs of panels in reading order that repeat a shot (the same size 4+ times in a row, or the same size and angle 3+ times), to vary with update_panel shotType / cameraAngle before drawing. Optionally limited to a chapter (or a page for preflight). Read-only; run before bulk generation or export.
 
 - **Scopes:** `projects:read`
 - **Sensitivity:** read
 - **Idempotent:** yes
 - **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
 
-- **Wraps:** `GET /api/projects/:projectId/readiness`, `GET /api/projects/:projectId/preflight`
+- **Wraps:** `GET /api/projects/:projectId/readiness`, `GET /api/projects/:projectId/preflight`, `GET /api/projects/:projectId/shot-variety`
 
 <details><summary>Input schema</summary>
 
@@ -2093,7 +2093,8 @@ check=readiness: what an export would lack (missing artwork, narration coverage 
       "type": "string",
       "enum": [
         "readiness",
-        "preflight"
+        "preflight",
+        "shot_variety"
       ]
     },
     "chapterId": {

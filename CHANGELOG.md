@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Shot variety check: runs of panels repeating the same shot size (four in a row) or framing (the same size and
+  angle, three in a row) are flagged on the storyboard (*Repeated shot* filter, with the run on each card) and on the
+  Health page, and returned by `GET /api/projects/:projectId/shot-variety` and MCP `get_project_checks
+  check=shot_variety`. It reads the plan only: nothing is spent.
 - Audio check (Narration QA → *Check audio*, or `audio: true` on the narration lint routes and `run_narration_lint`):
   measures the voiced narration with no model and nothing spent, and flags silent takes, clipping, a stall inside a
   line and lines much louder or quieter than their chapter, plus chapters out of step in loudness. A *Loudness* tab
