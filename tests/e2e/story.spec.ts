@@ -123,7 +123,7 @@ test("story coverage: run the check from the Story page and read the report", as
   await expect(page.getByRole("columnheader", { name: "Story weight" })).toBeVisible();
 });
 
-test("narration QA: rule checks, the AI check, a fix shown as a diff and applied, and density", async () => {
+test("narration QA: rule checks, the AI check, a fix shown as a diff and applied, density, and the audio check", async () => {
   await page.goto(`${s.url}/narration/qa?chapterId=${s.chapterId}`);
   await expect(page.getByRole("heading", { name: "Narration QA" })).toBeVisible();
   await expect(page.getByText("No open findings")).toBeVisible();
@@ -159,6 +159,15 @@ test("narration QA: rule checks, the AI check, a fix shown as a diff and applied
     await page.getByRole("tab", { name: "Density" }).click();
     await expect(page.getByRole("columnheader", { name: "Words / shot" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Shot by shot" })).toBeVisible();
+  });
+
+  await test.step("the audio check measures the voiced takes and fills the Loudness tab", async () => {
+    await page.getByRole("tab", { name: "Loudness" }).click();
+    await expect(page.getByText("Not measured yet")).toBeVisible();
+    await page.getByRole("button", { name: "Check audio" }).click();
+    await expect(page.getByText(/^Audio check: /)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("columnheader", { name: "True peak" })).toBeVisible();
+    await expect(page.getByText(/^-?\d+\.\d LUFS$/).first()).toBeVisible();
   });
 });
 

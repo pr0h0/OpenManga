@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { eq, generationJobs } from "@openmanga/db";
+import { eq, generationJobs, narrationSegments, sql } from "@openmanga/db";
+import { pcmToWav } from "../../packages/audio/src/index.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -137,6 +138,71 @@ test("the density view counts words per shot and the words a minute of the real 
   expect(ch.words).toBeGreaterThan(20);
   expect(ch.audioMs).toBeGreaterThan(0);
   expect(ch.wordsPerMinute).toBeGreaterThan(0);
+});
+
+test("the audio check: a loudness report, a silent take found, and a new take that replaces a cached one", async () => {
+  type Report = { chapters: { chapterId: string; segments: number; lufs: number; truePeakDb: number }[] };
+  const check = async () => {
+    const r = await alice.post<{ audioJob: { id: string } }>(
+      `/api/chapters/${chapterId}/narration/lint`,
+      { audio: true },
+      202,
+    );
+    return (await finished(r.audioJob.id)).result as Report & { found: number; resolved: number };
+  };
+  const audioFindings = async () => (await findings("?status=open")).findings.filter((f) => f.check === "audio");
+
+  const first = await check();
+  expect(first.chapters).toHaveLength(1);
+  // The fake voice is a steady tone: measurable loudness, no clipping, nothing to flag.
+  expect(first.chapters[0]!.lufs).toBeGreaterThan(-40);
+  expect(first.chapters[0]!.lufs).toBeLessThan(-10);
+  expect(first.chapters[0]!.truePeakDb).toBeLessThan(0);
+  expect(await audioFindings()).toEqual([]);
+  const report = await alice.get<{ audio: { chapterId: string; lufs: number }[] }>(
+    `/api/projects/${projectId}/narration/findings`,
+  );
+  expect(report.audio).toEqual([expect.objectContaining({ chapterId, lufs: first.chapters[0]!.lufs })]);
+
+  // A silent take, cached as the newest audio for the same text, voice and speed.
+  const line = (await narration()).lines[0]!;
+  const seg = line.segments[0]!;
+  const asset = await h.deps.assets.store({
+    projectId,
+    ownerUserId: null,
+    type: "audio",
+    data: pcmToWav(new Uint8Array(24_000 * 2), 24_000),
+    mimeType: "audio/wav",
+    metadata: { trimmedSilenceMs: 0 },
+  });
+  await h.deps.db.execute(sql`insert into audio_assets
+      (project_id, asset_id, segment_id, text_sha256, voice, speed, language, provider, sample_rate, duration_ms, format)
+    select project_id, ${asset.id}, segment_id, text_sha256, voice, speed, language, provider, sample_rate, 1000, format
+    from audio_assets where asset_id = ${seg.activeAudioAssetId}`);
+  await h.deps.db
+    .update(narrationSegments)
+    .set({ activeAudioAssetId: asset.id })
+    .where(eq(narrationSegments.id, seg.id));
+  await check();
+  const [silent] = await audioFindings();
+  expect(silent).toMatchObject({ kind: "audio_silent", lineIds: [line.id], fixable: false });
+
+  // A new take skips the cached silent one.
+  await alice.post(
+    `/api/chapters/${chapterId}/narration/synthesize`,
+    { lineIds: [line.id], onlyMissing: false, newTake: true },
+    202,
+  );
+  await waitFor(
+    async () => {
+      const s = (await narration()).lines[0]!.segments[0]!;
+      return s.audio && s.activeAudioAssetId !== asset.id ? s : null;
+    },
+    { label: "new take" },
+  );
+  const again = await check();
+  expect(again).toMatchObject({ resolved: 1 });
+  expect(await audioFindings()).toEqual([]);
 });
 
 test("paste mode: the fix parks for an answer, and lines no finding names are refused", async () => {

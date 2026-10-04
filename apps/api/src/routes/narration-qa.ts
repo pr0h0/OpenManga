@@ -2,16 +2,18 @@ import {
   and,
   asc,
   audioJobs,
+  desc,
   eq,
   generationJobs,
   inArray,
   narrationFindings,
   narrationLines,
   narrationSegments,
+  sql,
 } from "@openmanga/db";
 import { narrationDensity, PRIORITY } from "@openmanga/domain";
 import { narrationFixV1, narrationLintV1 } from "@openmanga/prompts";
-import { isRuleKind, lintNarrationChapters, loadNarrationQa, UNFIXABLE_KINDS } from "@openmanga/services";
+import { isAudioKind, isRuleKind, lintNarrationChapters, loadNarrationQa, UNFIXABLE_KINDS } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -62,17 +64,40 @@ async function queueSemantic(
   return jobs;
 }
 
+/** Queues the audio check of some chapters (all voiced ones when none are named): one job, no model, nothing spent. */
+async function queueAudio(c: Context<AppEnv>, project: ProjectRecord, chapterId: string | null, language: string) {
+  const deps = c.get("deps");
+  const job = await deps.db.transaction((tx) =>
+    deps.jobs.createGenerationJob(tx, {
+      projectId: project.id,
+      userId: user(c).id,
+      kind: "audio_check",
+      priority: PRIORITY.single,
+      targetType: chapterId ? "chapter" : "project",
+      targetId: chapterId ?? project.id,
+      input: { language, ...(chapterId ? { chapterIds: [chapterId] } : {}) },
+    }),
+  );
+  await deps.jobs.kick();
+  return job;
+}
+
 export const LintInput = z.object({
   language: Language,
   /** Also queue the semantic checks (a text job per chapter) on the chosen text model or in paste mode. */
   semantic: z.boolean().default(false),
+  /**
+   * Also queue the audio check: silent, clipped or stalled segments, lines much louder or quieter than their chapter,
+   * and each chapter's loudness and true peak. One audio_check job; no model, nothing spent.
+   */
+  audio: z.boolean().default(false),
   ai: AiChoiceInput,
 });
 doc({
   method: "POST",
   path: "/api/chapters/:id/narration/lint",
   summary:
-    "Check a chapter's narration: the deterministic checks run now and are stored as findings (with how they compare to the last run); semantic=true also queues the AI check as a narration_lint job",
+    "Check a chapter's narration: the deterministic checks run now and are stored as findings (with how they compare to the last run); semantic=true also queues the AI check as a narration_lint job; audio=true also queues the audio check (audio_check job) of its voiced audio",
   tag: "narration",
   body: LintInput,
 });
@@ -83,14 +108,15 @@ narrationQaRoutes.post("/chapters/:id/narration/lint", async (c) => {
   const language = input.language || project.language;
   const [rules] = await lintNarrationChapters(c.get("deps").db, project, language, [chapterId]);
   const jobs = input.semantic ? await queueSemantic(c, project, [chapterId], language, input.ai) : [];
-  return c.json({ language, rules, job: jobs[0] ?? null }, input.semantic ? 202 : 200);
+  const audioJob = input.audio ? await queueAudio(c, project, chapterId, language) : null;
+  return c.json({ language, rules, job: jobs[0] ?? null, audioJob }, input.semantic || input.audio ? 202 : 200);
 });
 
 doc({
   method: "POST",
   path: "/api/projects/:projectId/narration/lint",
   summary:
-    "Check the narration of every chapter that has some: deterministic checks now; semantic=true also queues one narration_lint job per chapter",
+    "Check the narration of every chapter that has some: deterministic checks now; semantic=true also queues one narration_lint job per chapter; audio=true also queues one audio_check job for every voiced chapter",
   tag: "narration",
   body: LintInput,
 });
@@ -108,8 +134,35 @@ narrationQaRoutes.post("/projects/:projectId/narration/lint", async (c) => {
         input.ai,
       )
     : [];
-  return c.json({ language, rules, jobs }, input.semantic ? 202 : 200);
+  const audioJob = input.audio ? await queueAudio(c, project, null, language) : null;
+  return c.json({ language, rules, jobs, audioJob }, input.semantic || input.audio ? 202 : 200);
 });
+
+/**
+ * Each chapter's loudness from the newest completed audio check that measured it: integrated LUFS, loudness range and
+ * true peak, with when it was measured.
+ */
+async function latestAudioReport(db: AppEnv["Variables"]["deps"]["db"], projectId: string, language: string) {
+  const jobs = await db
+    .select({ result: generationJobs.result, finishedAt: generationJobs.finishedAt })
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.projectId, projectId),
+        eq(generationJobs.kind, "audio_check"),
+        eq(generationJobs.status, "completed"),
+        sql`${generationJobs.input} ->> 'language' = ${language}`,
+      ),
+    )
+    .orderBy(desc(generationJobs.finishedAt))
+    .limit(20);
+  type Row = { chapterId: string; lufs: number | null; lra: number | null; truePeakDb: number | null };
+  const out = new Map<string, Row & { measuredAt: Date | null }>();
+  for (const j of jobs)
+    for (const r of (j.result as { chapters?: Row[] } | null)?.chapters ?? [])
+      if (!out.has(r.chapterId)) out.set(r.chapterId, { ...r, measuredAt: j.finishedAt });
+  return [...out.values()];
+}
 
 const FindingsQuery = z.object({
   language: Language,
@@ -121,7 +174,7 @@ doc({
   method: "GET",
   path: "/api/projects/:projectId/narration/findings",
   summary:
-    "Narration QA findings with counts by kind, status and chapter, and the text of the lines they point at. Filter by chapter, status or kind.",
+    "Narration QA findings with counts by kind, status and chapter, and the text of the lines they point at (each finding's `check`: rule, ai or audio), plus `audio`: each chapter's loudness (integrated LUFS, loudness range, true peak) from the newest audio check that measured it. Filter by chapter, status or kind.",
   tag: "narration",
   query: FindingsQuery,
 });
@@ -165,8 +218,9 @@ narrationQaRoutes.get("/projects/:projectId/narration/findings", async (c) => {
     findings: findings.map((f) => ({
       ...f,
       fixable: !UNFIXABLE_KINDS.includes(f.kind),
-      check: isRuleKind(f.kind) ? "rule" : "ai",
+      check: isRuleKind(f.kind) ? "rule" : isAudioKind(f.kind) ? "audio" : "ai",
     })),
+    audio: await latestAudioReport(db, project.id, language),
     lines,
     counts: {
       byStatus: count((f) => f.status),

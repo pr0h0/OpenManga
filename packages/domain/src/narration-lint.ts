@@ -23,7 +23,18 @@ export const AI_FINDING_KINDS = [
   "fact_overexplained",
   "describes_frame",
 ] as const;
-export type NarrationFindingKind = (typeof RULE_FINDING_KINDS)[number] | (typeof AI_FINDING_KINDS)[number];
+/** Measured in the voiced audio by the audio check job. */
+export const AUDIO_FINDING_KINDS = [
+  "audio_silent",
+  "audio_clipping",
+  "audio_gap",
+  "audio_level",
+  "audio_loudness",
+] as const;
+export type NarrationFindingKind =
+  | (typeof RULE_FINDING_KINDS)[number]
+  | (typeof AI_FINDING_KINDS)[number]
+  | (typeof AUDIO_FINDING_KINDS)[number];
 export type FindingSeverity = "low" | "medium" | "high";
 
 export type LintFinding = {
@@ -362,3 +373,89 @@ export function lintNarrationRules(
 /** Identity of a finding across runs: an ignored finding stays ignored while the same lines show the same problem. */
 export const findingKey = (f: Pick<LintFinding, "kind" | "lineIds" | "relatedChapterIds">) =>
   `${f.kind}|${[...f.lineIds].sort().join(",")}|${[...f.relatedChapterIds].sort().join(",")}`;
+
+/** Thresholds of the audio check. */
+export const AUDIO_CHECK = {
+  /** Speech level below this (dBFS) is a segment with no voice in it. */
+  silentDb: -50,
+  /** A pause inside one segment longer than this is a glitch, not a breath. */
+  gapMs: 1500,
+  /** A segment this far from its chapter's median speech level stands out. */
+  levelDb: 6,
+  /** A chapter this far from the others' median loudness (LU) will sound louder or quieter after the film is normalised. */
+  loudnessLu: 3,
+} as const;
+
+type SegmentAudio = {
+  lineId: string;
+  stats: { durationMs: number; speechDb: number; clippedMs: number; longestGapMs: number };
+};
+
+const median = (xs: number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? (s.length % 2 ? s[(s.length - 1) / 2]! : (s[s.length / 2 - 1]! + s[s.length / 2]!) / 2) : 0;
+};
+const sec = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+
+/**
+ * Problems measured in one chapter's voiced segments: silent audio, clipping, a long pause inside a segment, and a
+ * segment much louder or quieter than the rest of its chapter. One finding per line and kind.
+ */
+export function audioFindings(segments: SegmentAudio[]): LintFinding[] {
+  const voiced = segments.filter((s) => s.stats.speechDb > AUDIO_CHECK.silentDb);
+  const mid = median(voiced.map((s) => s.stats.speechDb));
+  const out = new Map<string, LintFinding>();
+  const add = (lineId: string, kind: NarrationFindingKind, severity: FindingSeverity, message: string) => {
+    const key = `${kind}|${lineId}`;
+    if (!out.has(key)) out.set(key, { kind, severity, lineIds: [lineId], relatedChapterIds: [], message });
+  };
+  for (const { lineId, stats } of segments) {
+    if (stats.speechDb <= AUDIO_CHECK.silentDb) {
+      add(lineId, "audio_silent", "high", "The voiced audio is silent or nearly so: re-voice the line.");
+      continue;
+    }
+    if (stats.clippedMs > 0)
+      add(
+        lineId,
+        "audio_clipping",
+        stats.clippedMs >= 20 ? "high" : "medium",
+        `The voice clips (${stats.clippedMs} ms at full scale): it will crackle. Re-voice the line.`,
+      );
+    if (stats.longestGapMs > AUDIO_CHECK.gapMs)
+      add(
+        lineId,
+        "audio_gap",
+        "medium",
+        `A ${sec(stats.longestGapMs)} silence inside the line: the voice stalled. Re-voice it, or split the line.`,
+      );
+    const off = stats.speechDb - mid;
+    if (voiced.length >= 3 && Math.abs(off) > AUDIO_CHECK.levelDb)
+      add(
+        lineId,
+        "audio_level",
+        "medium",
+        `${Math.abs(off).toFixed(1)} dB ${off > 0 ? "louder" : "quieter"} than the chapter's other lines.`,
+      );
+  }
+  return [...out.values()];
+}
+
+/** Chapters whose integrated loudness is far from the others': normalising the whole film leaves them out of step. */
+export function loudnessFindings(chapters: { id: string; lufs: number }[]): Map<string, LintFinding> {
+  const out = new Map<string, LintFinding>();
+  const known = chapters.filter((c) => Number.isFinite(c.lufs));
+  if (known.length < 2) return out;
+  for (const c of known) {
+    const mid = median(known.filter((o) => o.id !== c.id).map((o) => o.lufs));
+    const off = c.lufs - mid;
+    if (Math.abs(off) > AUDIO_CHECK.loudnessLu)
+      out.set(c.id, {
+        kind: "audio_loudness",
+        severity: "medium",
+        lineIds: [],
+        relatedChapterIds: [],
+        message: `The chapter is ${c.lufs.toFixed(1)} LUFS, ${Math.abs(off).toFixed(1)} LU ${off > 0 ? "louder" : "quieter"} than the others: after the film is normalised it will stand out. Was it voiced with a different voice or provider?`,
+      });
+  }
+  return out;
+}

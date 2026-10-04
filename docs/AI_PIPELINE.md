@@ -16,6 +16,7 @@
 | Narration timing | `narration_retime` / text-ai | `narration-retime` v1 | `NarrationRetime`: the chosen lines rewritten to a word budget each, kept on the job until the user applies them (`docs/VIDEO_EXPORT_REFERENCE.md`, timing pass) |
 | Social copy | `social_copy` / text-ai | `social-copy` v1 | `SocialCopy`: a title and caption per repurposing item, written into `settings.repurpose.items` by id (only the items asked for) |
 | Narration QA | `narration_lint` / text-ai | `narration-lint` v1 | `NarrationLintReport` stored as `narration_findings` (source `ai`) for the chapter |
+| Audio check | `audio_check` / text-ai | — (no model) | Measured takes and chapter loudness, stored as `narration_findings` (source `audio`) |
 | Narration fixes | `narration_fix` / text-ai | `narration-fix` v1 | `NarrationFix` checked against the flagged lines, returned as before/after proposals in the job result; applied only when the user confirms |
 | Story coverage | `story_coverage` / text-ai | `story-coverage` v1 | one `StoryCoverageMap` per part of the source; the findings and shares are computed from them and kept in the job result |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v2 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
@@ -397,6 +398,21 @@ fixed, re-segments the lines (sentences that did not change keep their audio), q
 segments of lines that were voiced, re-runs the deterministic checks on the chapter and returns the comparison, and
 with `recheck: true` queues the AI check again on the model the fix used. Silent stretches and pace need lines added or
 the voice changed and are not offered for a rewrite.
+
+**Audio check.** `audio: true` on the same routes also queues one `audio_check` job (no model, nothing spent) over the
+voiced audio of the chapter, or of every voiced chapter. Each current segment's WAV is measured in 10 ms windows
+(`analyseWav`, `packages/audio`): speech level (RMS of the windows above -45 dBFS, so pauses don't lower it), peak,
+clipping (runs of three or more samples at full scale) and the longest silence between the first and last sound. The
+rules (`audioFindings`, `packages/domain/src/narration-lint.ts`) flag a silent take (speech below -50 dBFS), clipping
+(high from 20 ms), a stall inside a line (a pause over 1.5 s) and a line more than 6 dB louder or quieter than its
+chapter's median. Each chapter's narration is also written as one WAV with its pauses and measured by ffmpeg's EBU R128
+meter (`ebur128=peak=true`): integrated loudness, loudness range and true peak, in the job result and in the findings
+response as `audio` (newest measurement per chapter); a chapter more than 3 LU from the others' median is flagged
+(`audio_loudness`), since normalising the whole film to -14 LUFS leaves it out of step. Findings are stored with
+source `audio`. They are fixed by a new take, not a rewrite: `POST /api/chapters/:id/narration/synthesize` with
+`lineIds`, `onlyMissing: false` and `newTake: true` synthesizes those lines again even where the same text, voice and
+speed are cached (local Kokoro gives the same take every time, so edit the line or change its speed there; a cloud
+voice usually gives a new one). Run the check again to see them resolved.
 
 ## Story coverage
 

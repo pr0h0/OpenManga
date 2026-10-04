@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mockWav } from "@openmanga/testing";
 import {
+  analyseWav,
   concatWav,
   ElevenLabsTTSProvider,
   FakeTTSProvider,
@@ -229,4 +230,29 @@ test("OpenAI voice list follows the model: legacy tts-1 rejects the newer voices
   expect(legacy.map((v) => v.id)).not.toContain("marin");
   expect(legacy.map((v) => v.id)).toContain("nova");
   expect(legacy.length).toBeLessThan(modern.length);
+});
+
+test("analyseWav measures speech level, clipping and the longest pause inside the take", () => {
+  const sr = 24_000;
+  // 0.5 s tone, 2 s silence, 0.5 s tone with a clipped stretch, then 0.3 s trailing silence (not a gap).
+  const n = sr * 3.3;
+  const pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const loud = t < 0.5 || (t >= 2.5 && t < 3);
+    pcm[i] = loud ? Math.round(Math.sin(2 * Math.PI * 220 * t) * 8000) : 0;
+  }
+  pcm.fill(32_767, Math.round(sr * 2.6), Math.round(sr * 2.6) + 48); // 2 ms flat at full scale
+  const stats = analyseWav(pcmToWav(new Uint8Array(pcm.buffer), sr));
+  expect(stats.durationMs).toBe(3300);
+  expect(stats.peakDb).toBeCloseTo(0, 1);
+  expect(stats.clippedMs).toBe(2);
+  expect(stats.longestGapMs).toBeGreaterThanOrEqual(1990);
+  expect(stats.longestGapMs).toBeLessThanOrEqual(2010);
+  // A sine of amplitude 8000 has an RMS of 8000/√2: about -15.2 dBFS (the clipped samples nudge it up a little).
+  expect(stats.speechDb).toBeGreaterThan(-15.5);
+  expect(stats.speechDb).toBeLessThan(-14);
+  const silent = analyseWav(pcmToWav(new Uint8Array(new Int16Array(sr).buffer), sr));
+  expect(silent.speechDb).toBe(Number.NEGATIVE_INFINITY);
+  expect(silent.longestGapMs).toBe(0);
 });

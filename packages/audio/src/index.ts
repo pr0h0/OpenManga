@@ -178,6 +178,75 @@ export function parseWav(b: Uint8Array): WavInfo {
   throw new Error("WAV has no data chunk");
 }
 
+/** What a narration segment's audio measures: its levels, clipped stretches and the longest pause inside it. */
+export type AudioStats = {
+  durationMs: number;
+  /** Highest sample, dBFS. */
+  peakDb: number;
+  /** RMS over the windows that are not silent (the speech level, unaffected by pauses), dBFS; -Infinity if none. */
+  speechDb: number;
+  /** Time in runs of three or more samples at full scale: the voice was cut off at the top. */
+  clippedMs: number;
+  /** The longest silence between the first and the last sound. */
+  longestGapMs: number;
+};
+
+const db = (amplitude: number) => (amplitude > 0 ? 20 * Math.log10(amplitude / 32768) : Number.NEGATIVE_INFINITY);
+
+/** Levels, clipping and pauses of a 16-bit PCM WAV, in 10 ms windows; silence is below `silenceDb` (-45). */
+export function analyseWav(wav: Uint8Array, opts: { silenceDb?: number } = {}): AudioStats {
+  const info = parseWav(wav);
+  if (info.bitsPerSample !== 16) throw new Error(`Cannot analyse ${info.bitsPerSample}-bit audio`);
+  const view = new DataView(wav.buffer, wav.byteOffset, wav.byteLength);
+  const samples = Math.floor(info.dataLength / 2);
+  const win = Math.max(1, Math.round(info.sampleRate * info.channels * 0.01));
+  const silence = 32768 * 10 ** ((opts.silenceDb ?? -45) / 20);
+  let peak = 0;
+  let clipped = 0;
+  let run = 0;
+  let speechSq = 0;
+  let speechN = 0;
+  let first = -1;
+  let last = -1;
+  let gap = 0;
+  let longest = 0;
+  for (let w = 0; w * win < samples; w++) {
+    let max = 0;
+    let sq = 0;
+    const end = Math.min(samples, (w + 1) * win);
+    for (let i = w * win; i < end; i++) {
+      const x = Math.abs(view.getInt16(info.dataOffset + i * 2, true));
+      if (x > max) max = x;
+      sq += x * x;
+      if (x >= 32_700) run++;
+      else {
+        if (run >= 3) clipped += run;
+        run = 0;
+      }
+    }
+    if (max > peak) peak = max;
+    if (max < silence) {
+      if (first >= 0) gap++;
+      continue;
+    }
+    if (first < 0) first = w;
+    else longest = Math.max(longest, gap);
+    gap = 0;
+    last = w;
+    speechSq += sq;
+    speechN += end - w * win;
+  }
+  if (run >= 3) clipped += run;
+  const perMs = (info.sampleRate * info.channels) / 1000;
+  return {
+    durationMs: info.durationMs,
+    peakDb: db(peak),
+    speechDb: speechN ? db(Math.sqrt(speechSq / speechN)) : Number.NEGATIVE_INFINITY,
+    clippedMs: Math.round(clipped / perMs),
+    longestGapMs: last > first ? longest * 10 : 0,
+  };
+}
+
 /** Concatenate PCM WAVs (same format) with silence gaps. Deterministic, no external tools. */
 /**
  * Trims leading/trailing silence from a 16-bit PCM WAV. TTS voices (Kokoro measured ~0.31s leading, ~0.69s

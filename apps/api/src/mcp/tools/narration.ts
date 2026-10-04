@@ -262,7 +262,7 @@ export const narrationTools = [
     name: "run_narration_lint",
     title: "Check narration (QA)",
     description:
-      "Narration QA for a chapter (chapterId) or every chapter with narration (projectId). The deterministic checks (repeated sentence openings, flat rhythm, a name used too often, near-duplicate lines, narration restating the panel's dialogue, chapters that open or end alike, crowded shots, silent stretches, pace from real audio) run at once and are stored as findings; the answer says how many were found, are new, remain and were resolved since the last run. semantic=true also queues the AI check per chapter (meaning repeated in other words, facts explained again, lines that only describe the frame) as narration_lint jobs: manual mode (ai.manual=true) asks you for a NarrationLintReport; a provider run spends credits (may need approval). Read findings with get_narration_qa.",
+      "Narration QA for a chapter (chapterId) or every chapter with narration (projectId). The deterministic checks (repeated sentence openings, flat rhythm, a name used too often, near-duplicate lines, narration restating the panel's dialogue, chapters that open or end alike, crowded shots, silent stretches, pace from real audio) run at once and are stored as findings; the answer says how many were found, are new, remain and were resolved since the last run. semantic=true also queues the AI check per chapter (meaning repeated in other words, facts explained again, lines that only describe the frame) as narration_lint jobs: manual mode (ai.manual=true) asks you for a NarrationLintReport; a provider run spends credits (may need approval). audio=true also queues one audio_check job over the voiced audio (silent, clipped or stalled segments, lines much louder or quieter than their chapter, chapters out of step in loudness; plus each chapter's integrated LUFS, loudness range and true peak); no model, nothing spent. Read findings with get_narration_qa.",
     input: LintInput.omit({ ai: true }).extend({
       chapterId: Uuid.optional(),
       projectId: Uuid.optional(),
@@ -275,13 +275,13 @@ export const narrationTools = [
     idempotent: false,
     routes: ["POST /api/chapters/:id/narration/lint", "POST /api/projects/:projectId/narration/lint"],
     actionKeys: ["narration.lint"],
-    classify: async ({ chapterId, projectId, semantic, ai }, ctx) => {
+    classify: async ({ chapterId, projectId, semantic, audio, ai }, ctx) => {
       if (!chapterId === !projectId) throw toolError(400, "bad_request", "Pass either chapterId or projectId");
       return cls(
         semantic ? textSpend(ai, "write") : "write",
         "narration.lint",
         chapterId ? await projectOf(ctx, "chapter", chapterId) : projectId!,
-        `Check the narration of ${chapterId ? "a chapter" : "every chapter"}${semantic ? ` with the AI check ${aiLabel(ai)}` : ""}`,
+        `Check the narration of ${chapterId ? "a chapter" : "every chapter"}${semantic ? ` with the AI check ${aiLabel(ai)}` : ""}${audio ? " and its audio" : ""}`,
       );
     },
     handler: async ({ chapterId, projectId, ai, idempotencyKey: _k, ...body }, ctx) => {
@@ -296,6 +296,7 @@ export const narrationTools = [
           ...r,
           ...(r.job ? { job: jobView(r.job as Record<string, unknown>) } : {}),
           ...(Array.isArray(r.jobs) ? { jobs: (r.jobs as Record<string, unknown>[]).map(jobView) } : {}),
+          ...(r.audioJob ? { audioJob: jobView(r.audioJob as Record<string, unknown>) } : {}),
         },
       };
     },
@@ -305,7 +306,7 @@ export const narrationTools = [
     name: "get_narration_qa",
     title: "Narration QA findings and density",
     description:
-      "view=findings: a project's narration QA findings (type, chapter, line ids, severity, explanation, status open/ignored/fixed, whether a rewrite can fix it) with counts by status, type and chapter and the text of the flagged lines; filter by chapterId, status or kind. view=density: words, words per shot, silent shots and words per minute (from current audio) per chapter, and shot by shot with chapterId. Read-only.",
+      "view=findings: a project's narration QA findings (type, chapter, line ids, severity, explanation, status open/ignored/fixed, whether a rewrite can fix it, and `check`: rule, ai or audio; audio findings are fixed by voicing the line again) with counts by status, type and chapter, the text of the flagged lines, and `audio`: each chapter's loudness from the newest audio check; filter by chapterId, status or kind. view=density: words, words per shot, silent shots and words per minute (from current audio) per chapter, and shot by shot with chapterId. Read-only.",
     input: z.object({
       projectId: Uuid,
       view: z.enum(["findings", "density"]).default("findings"),

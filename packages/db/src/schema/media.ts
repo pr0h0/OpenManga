@@ -370,8 +370,8 @@ export const audioAssets = pgTable(
 );
 
 /**
- * Narration QA findings for one chapter track: from the deterministic checks (`source = rule`) or the semantic lint
- * job (`ai`). A re-run replaces a source's findings, keeping the status of those still found (by `fingerprint`), so
+ * Narration QA findings for one chapter track: from the deterministic checks (`source = rule`), the semantic lint
+ * job (`ai`) or the audio check job (`audio`). A re-run replaces a source's findings, keeping the status of those still found (by `fingerprint`), so
  * an ignored finding stays ignored and a fixed one that is found again reopens.
  */
 export const narrationFindings = pgTable(
@@ -385,7 +385,7 @@ export const narrationFindings = pgTable(
       .notNull()
       .references(() => chapters.id, { onDelete: "cascade" }),
     language: text("language").notNull(),
-    source: text("source").$type<"rule" | "ai">().notNull(),
+    source: text("source").$type<"rule" | "ai" | "audio">().notNull(),
     kind: text("kind").notNull(),
     severity: text("severity").$type<"low" | "medium" | "high">().notNull(),
     lineIds: jsonb("line_ids").$type<string[]>().notNull().default([]),
