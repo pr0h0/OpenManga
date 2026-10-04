@@ -184,6 +184,38 @@ test("extracting proposes facts and states; applying saves them once", async () 
   expect(after.extraction?.result?.applied).toBeTruthy();
 });
 
+test("a chapter with no stored text is read from its narration, and one with nothing at all fails clearly", async () => {
+  // Chapters built without an analysis have no source excerpt or summary; only their narration says what happens.
+  const p = await alice.post<{ project: { id: string } }>("/api/projects", { title: "Narrated only" }, 201);
+  const ch = await alice.post<{ chapter: { id: string } }>(
+    `/api/projects/${p.project.id}/chapters`,
+    { title: "The Hour He Came Home" },
+    201,
+  );
+  const empty = await alice.post<{ job: { id: string } }>(
+    `/api/projects/${p.project.id}/bible/extract`,
+    { chapterId: ch.chapter.id },
+    202,
+  );
+  const failed = await finished(empty.job.id, "extraction with nothing to read");
+  expect(failed.status).toBe("failed");
+  expect(failed.failureReason).toContain("no text to read");
+
+  await alice.post(
+    `/api/chapters/${ch.chapter.id}/narration/lines`,
+    { text: "Shen Yan carried the southern letter home across the sea." },
+    201,
+  );
+  const run = await alice.post<{ job: { id: string } }>(
+    `/api/projects/${p.project.id}/bible/extract`,
+    { chapterId: ch.chapter.id },
+    202,
+  );
+  const done = await finished(run.job.id, "extraction from narration");
+  expect(done.status).toBe("completed");
+  expect(done.compiledPrompt).toContain("Shen Yan carried the southern letter home across the sea.");
+});
+
 test("extraction works without a key: it parks for a pasted BibleExtraction", async () => {
   const run = await alice.post<{ job: { id: string } }>(
     `/api/projects/${projectId}/bible/extract`,

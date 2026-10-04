@@ -105,6 +105,10 @@ nothing becomes out of date on upgrade.
 - The production run card did not show the chapters changed since they were planned after you pressed Continue
   at the analysis review, until the page was reloaded: it refreshed only when the run's status changed, and going
   from one review to the next keeps it "waiting". It now refreshes on every change to the run.
+- *Extract from story* read only a chapter's stored source text or summary. Chapters built without an analysis
+  have neither, so the model was sent empty chapters and every extraction came back with no facts, shown as a normal
+  result. It now reads such a chapter's narration (cut to a share of a 120,000-character budget across chapters),
+  and fails with "These chapters have no text to read yet" when there is nothing at all.
 - **The YouTube text and thumbnail headline show when they may be out of date.** Renaming the project, changing its
   chapters or rendering the video again left them looking current. *What is out of date* now flags the YouTube text
   (title or chapters changed since it was written, or the video re-rendered after the package was exported) and the
