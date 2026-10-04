@@ -250,6 +250,8 @@ function ItemCard({
         .slice(0, it.kind === "quote" ? 1 : 100),
     });
   const quotePanel = cands.find((c) => c.id === it.panelIds[0]);
+  // A long project has thousands of panels: the pick list is built only while it is open.
+  const [picking, setPicking] = useState(false);
   return (
     <li className="card space-y-3 p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -345,38 +347,41 @@ function ItemCard({
             {video &&
               ` · ${secs(totalMs)}${totalMs > capMs ? ` — over ${secs(capMs)}, the render stops before the shot that passes it` : ""}`}
           </p>
-          <details>
+          <details onToggle={(e) => setPicking(e.currentTarget.open)}>
             <summary className="cursor-pointer text-xs font-medium">
               {it.kind === "quote" ? "Choose the panel" : "Adjust the picks"}
             </summary>
-            <ul className="mt-1 max-h-64 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs">
-              {cands
-                .filter((c) => c.hasArt)
-                .map((c) => (
-                  <li key={c.id}>
-                    <label className="flex cursor-pointer items-center gap-2 p-1.5 hover:bg-[var(--panel-2)]">
-                      <input
-                        type={it.kind === "quote" ? "radio" : "checkbox"}
-                        name={`pick-${it.id}`}
-                        checked={chosen.has(c.id)}
-                        onChange={() => (it.kind === "quote" ? set({ panelIds: [c.id] }) : toggle(c.id))}
-                      />
-                      {c.artAssetId && (
-                        <img
-                          src={assetUrl(c.artAssetId, "thumbnail")}
-                          alt=""
-                          className="size-10 shrink-0 rounded object-cover"
+            {picking && (
+              <ul className="mt-1 max-h-64 divide-y divide-[var(--border)] overflow-y-auto rounded-lg border border-[var(--border)] text-xs">
+                {cands
+                  .filter((c) => c.hasArt)
+                  .map((c) => (
+                    <li key={c.id}>
+                      <label className="flex cursor-pointer items-center gap-2 p-1.5 hover:bg-[var(--panel-2)]">
+                        <input
+                          type={it.kind === "quote" ? "radio" : "checkbox"}
+                          name={`pick-${it.id}`}
+                          checked={chosen.has(c.id)}
+                          onChange={() => (it.kind === "quote" ? set({ panelIds: [c.id] }) : toggle(c.id))}
                         />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{c.label}</span>
-                        <span className="muted block truncate">{c.text || "— no narration —"}</span>
-                      </span>
-                      {video && <span className="muted shrink-0 tabular-nums">{secs(c.holdMs)}</span>}
-                    </label>
-                  </li>
-                ))}
-            </ul>
+                        {c.artAssetId && (
+                          <img
+                            src={assetUrl(c.artAssetId, "thumbnail")}
+                            alt=""
+                            loading="lazy"
+                            className="size-10 shrink-0 rounded object-cover"
+                          />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{c.label}</span>
+                          <span className="muted block truncate">{c.text || "— no narration —"}</span>
+                        </span>
+                        {video && <span className="muted shrink-0 tabular-nums">{secs(c.holdMs)}</span>}
+                      </label>
+                    </li>
+                  ))}
+              </ul>
+            )}
           </details>
           <div className="flex flex-wrap gap-1">
             {cands
