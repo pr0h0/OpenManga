@@ -89,9 +89,7 @@ test("produce, the final-output gate, Health, then Update production after a rev
     await expect(card().getByText(/^Chapters changed since they were planned — 1 chapter/)).toBeVisible({
       timeout: 60_000,
     });
-    // The card refreshes what is out of date when the run's status changes; waiting → waiting is not a change, so a
-    // reload shows the list (a known gap in the card, not in the run).
-    await page.reload();
+    // No reload: the card refreshes what is out of date on every change to the run, waiting → waiting included.
     const stale = card().getByText("Chapters whose text changed after they were planned");
     await expect(stale).toBeVisible();
     await card().getByRole("button", { name: "Keep current" }).first().click();

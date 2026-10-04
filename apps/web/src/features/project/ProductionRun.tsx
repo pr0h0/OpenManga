@@ -15,6 +15,8 @@ type Run = {
   reason: string | null;
   steps: Step[];
   createdAt: string;
+  /** Changes with every step the run takes, which is what the staleness view must follow. */
+  updatedAt: string;
   /** Jobs it queued that have not started: what Stop cancels by default. */
   pendingJobs: number;
   warnings: Warnings | null;
@@ -62,7 +64,9 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
     queryFn: () => get<{ runs: Run[] }>(`/projects/${projectId}/production-runs`),
     refetchInterval: (q) => (q.state.data?.runs[0]?.status === "running" ? 10_000 : false),
   });
-  const staleness = useStaleness(projectId, runs.data?.runs[0]?.status);
+  // Keyed on the run's last change, not its status: going from one review to the next keeps the status at
+  // "waiting", and the list of changed chapters would otherwise stay hidden until a reload.
+  const staleness = useStaleness(projectId, runs.data?.runs[0]?.updatedAt);
   // A revised story counts too: the update re-analyses it and always stops for a review before applying.
   const updatable = staleness.data?.stages.some((s) => s.count > 0) ?? false;
   const [update, setUpdate] = useState(false);
