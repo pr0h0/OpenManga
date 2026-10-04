@@ -1,3 +1,4 @@
+import { ProjectSettings } from "@openmanga/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Sparkles, Youtube } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -94,6 +95,19 @@ export function YoutubePackageCard() {
   };
   const thumb = data?.project.settings.thumbnail;
   const dirty = JSON.stringify(current) !== JSON.stringify(saved ?? EMPTY);
+  // The same limits the server applies, said before saving instead of as a failed save.
+  const problem = (() => {
+    const r = ProjectSettings.shape.youtubePackage.safeParse(current);
+    if (r.success) return null;
+    const LIMITS: Record<string, string> = {
+      titles: "up to 8 titles of at most 100 characters",
+      thumbnailHeadlines: "up to 8 headlines of at most 60 characters",
+      tags: "up to 30 tags of at most 60 characters",
+      description: "a description of at most 4,500 characters",
+      pinnedComment: "a pinned comment of at most 2,000 characters",
+    };
+    return `YouTube allows ${LIMITS[String(r.error.issues[0]?.path[0])] ?? "less than this"}.`;
+  })();
 
   return (
     <section className="card mb-4 space-y-3 p-4">
@@ -106,7 +120,7 @@ export function YoutubePackageCard() {
           {writing ? <Spinner /> : <Sparkles className="size-4" />} {saved ? "Rewrite" : "Write"} with AI
         </button>
         {dirty && (
-          <button type="button" className="btn-primary" onClick={() => save(current)}>
+          <button type="button" className="btn-primary" disabled={Boolean(problem)} onClick={() => save(current)}>
             Save
           </button>
         )}
@@ -116,6 +130,7 @@ export function YoutubePackageCard() {
         edit. The <strong>YouTube package</strong> export zips them with the newest rendered video of the same scope,
         its subtitles and chapter timestamps (added to the description), and the thumbnail.
       </p>
+      {dirty && problem && <p className="text-xs text-red-600 dark:text-red-400">{problem}</p>}
       {saved || dirty ? (
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Title options (one per line)">
@@ -162,7 +177,7 @@ export function YoutubePackageCard() {
                   export includes them all as separate images, for YouTube's Test &amp; compare (three at a time).
                 </p>
                 <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {current.thumbnailHeadlines.map((h) => {
+                  {current.thumbnailHeadlines.map((h, i) => {
                     const url = (download: boolean) =>
                       `/api/projects/${projectId}/thumbnail.png?${new URLSearchParams({
                         title: h,
@@ -172,7 +187,7 @@ export function YoutubePackageCard() {
                         ...(download ? { download: "1" } : { width: "480" }),
                       })}`;
                     return (
-                      <li key={h} className="overflow-hidden rounded-lg border border-[var(--border)]">
+                      <li key={`${i}:${h}`} className="overflow-hidden rounded-lg border border-[var(--border)]">
                         <img src={url(false)} alt={`Thumbnail: ${h}`} className="aspect-video w-full object-cover" />
                         <div className="flex items-center gap-1 p-1.5 text-xs">
                           <span className="min-w-0 flex-1 truncate" title={h}>

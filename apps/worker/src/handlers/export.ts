@@ -639,11 +639,20 @@ async function buildExport(
         await zip.add("thumbnail.png", await renderThumbnail(bytes, thumb.title, thumb.subtitle, thumb.side));
         // Every headline on the same art, to compare or to upload to YouTube's Test & compare (three at a time):
         // the headline is composited, so the variants cost no images.
-        for (const [i, h] of yt.thumbnailHeadlines.entries())
+        for (const [i, h] of yt.thumbnailHeadlines.entries()) {
+          // Named by number, plus the headline where it has letters a file name keeps (thumbnail-headlines.txt has
+          // them all, in the same order).
+          const slug = h
+            .replace(/[^\w\- ]+/g, "")
+            .trim()
+            .replace(/\s+/g, "_")
+            .toLowerCase()
+            .slice(0, 40);
           await zip.add(
-            `thumbnails/${i + 1}-${safeName(h).toLowerCase().slice(0, 40)}.png`,
+            `thumbnails/${i + 1}${slug ? `-${slug}` : ""}.png`,
             await renderThumbnail(bytes, h, thumb.subtitle, thumb.side),
           );
+        }
       }
       const description = chaptersText ? `${yt.description.trim()}\n\n${chaptersText}` : yt.description.trim();
       await zip.add("description.txt", enc.encode(`${description}\n`));

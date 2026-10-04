@@ -210,4 +210,17 @@ test("thumbnail variants: each headline on the same art, and one put in use", as
   await expect
     .poll(async () => (await a.get(`/projects/${s.projectId}`)).project.settings.thumbnail?.title)
     .toBe("Who lit it?");
+
+  // A headline over YouTube's 60 characters is caught before saving, not by a failed save.
+  const headlines = page.getByLabel("Thumbnail headlines (one per line)");
+  await headlines.fill(`The duel\n${"x".repeat(61)}`);
+  await expect(page.getByText("YouTube allows up to 8 headlines of at most 60 characters.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await headlines.fill("The duel\nWho lit it?\nThe last lamp");
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Thumbnail: The last lamp" })).toBeVisible();
+  await expect
+    .poll(async () => (await a.get(`/projects/${s.projectId}`)).project.settings.youtubePackage?.thumbnailHeadlines)
+    .toEqual(["The duel", "Who lit it?", "The last lamp"]);
 });

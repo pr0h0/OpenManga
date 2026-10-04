@@ -347,7 +347,9 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
           description: "D",
           tags: ["a"],
           pinnedComment: "Q?",
-          thumbnailHeadlines: ["The duel", "Who lit it?"],
+          // Markup characters must stay text in the composited image; a headline with no Latin letters still gets a file;
+          // the same headline twice is two variants.
+          thumbnailHeadlines: ["The duel", 'Tom & "Jerry" <3', "決闘", "The duel"],
         },
       },
     });
@@ -380,10 +382,30 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     expect(Object.keys(pkgZip).sort()).toEqual([
       "thumbnail.png",
       "thumbnails/1-the_duel.png",
-      "thumbnails/2-who_lit_it.png",
+      "thumbnails/2-tom_jerry_3.png",
+      "thumbnails/3.png",
+      "thumbnails/4-the_duel.png",
     ]);
     const variant = await sharp(pkgZip["thumbnails/1-the_duel.png"]!).metadata();
     expect([variant.width, variant.height]).toEqual([1280, 720]);
+    // Each variant is its own picture: the headline differs, the art does not.
+    const raw = async (f: string) => sharp(pkgZip[f]!).raw().toBuffer();
+    expect(Buffer.compare(await raw("thumbnails/1-the_duel.png"), await raw("thumbnails/2-tom_jerry_3.png"))).not.toBe(
+      0,
+    );
+    expect(Buffer.compare(await raw("thumbnails/1-the_duel.png"), await raw("thumbnails/4-the_duel.png"))).toBe(0);
+    // YouTube's limits hold on the server too: a headline over 60 characters, or a ninth one, is refused.
+    const pkg = { titles: ["T"], description: "D", tags: [], pinnedComment: "" };
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { youtubePackage: { ...pkg, thumbnailHeadlines: ["x".repeat(61)] } } },
+      422,
+    );
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { youtubePackage: { ...pkg, thumbnailHeadlines: Array.from({ length: 9 }, (_, i) => `H${i}`) } } },
+      422,
+    );
 
     // A page selection renders only those pages: shorter than the chapter, and still a valid film.
     const chapterPages = await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`);
