@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { startHarness, type TestClient } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -52,4 +53,69 @@ test("a run of the same shot is found per chapter, reported in health, and gone 
   const after = await u.get<Variety>(`/api/projects/${project.id}/shot-variety?chapterId=${chapter.id}`);
   expect(after.runs).toBe(0);
   expect((await u.get<Health>(`/api/projects/${project.id}/health`)).items.some((i) => i.key === "shots")).toBe(false);
+});
+
+test("runs continue across pages but never across chapters; access; another project's chapter; MCP", async () => {
+  const { project } = await u.post<{ project: { id: string } }>("/api/projects", { title: "Edges" }, 201);
+  const chapter = async (title: string) =>
+    (await u.post<{ chapter: { id: string } }>(`/api/projects/${project.id}/chapters`, { title }, 201)).chapter.id;
+  const page = async (chapterId: string, shots: string[]) => {
+    const { page } = await u.post<{ page: { id: string } }>(
+      `/api/chapters/${chapterId}/pages`,
+      { layoutTemplate: "four-grid" },
+      201,
+    );
+    const panels = (await u.get<{ panels: { id: string }[] }>(`/api/pages/${page.id}`)).panels;
+    for (const [i, shotType] of shots.entries()) await u.patch(`/api/panels/${panels[i]!.id}`, { shotType });
+    return panels.map((p) => p.id);
+  };
+  const one = await chapter("One");
+  const a = await page(one, ["wide", "close", "medium", "medium"]);
+  const b = await page(one, ["medium", "medium", "close", "wide"]);
+  const two = await chapter("Two");
+  // Chapter one ends on a wide shot and two opens on two more: three in a row only if chapters ran together.
+  await page(two, ["wide", "wide", "close", "insert"]);
+
+  const v = await u.get<Variety>(`/api/projects/${project.id}/shot-variety`);
+  expect(v.runs).toBe(1);
+  // The run starts on page one and ends on page two: pages are read in order within the chapter.
+  expect(v.chapters.find((c) => c.chapterId === one)!.runs[0]!.panelIds).toEqual([a[2]!, a[3]!, b[0]!, b[1]!]);
+  expect(v.chapters.find((c) => c.chapterId === two)!.runs).toEqual([]);
+
+  // Someone outside the project sees nothing; a chapter of another project is refused.
+  const outsider = h.client();
+  await outsider.post(
+    "/api/auth/register",
+    { username: "nosy", email: "nosy@example.com", password: "nosy-pass-1234" },
+    201,
+  );
+  expect((await outsider.raw("GET", `/api/projects/${project.id}/shot-variety`)).status).toBeGreaterThanOrEqual(403);
+  const { project: other } = await u.post<{ project: { id: string } }>("/api/projects", { title: "Other" }, 201);
+  expect((await u.raw("GET", `/api/projects/${other.id}/shot-variety?chapterId=${one}`)).status).toBe(404);
+  expect((await u.raw("GET", `/api/projects/${project.id}/shot-variety?chapterId=nope`)).status).toBe(422);
+
+  // An agent reads the same report through get_project_checks.
+  const { token } = await u.post<{ token: string }>(
+    "/api/agents/tokens",
+    { name: "shots agent", scopes: ["projects:read"], projectAccess: "all", approvalMode: "ALLOW_ALL" },
+    201,
+  );
+  const client = new Client({ name: "shots-agent", version: "1.0.0" });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+      fetch: (url, init) => {
+        const headers = new Headers((init as RequestInit).headers);
+        headers.set("host", "test.local");
+        return Promise.resolve(h.app.request(String(url), { ...(init as RequestInit), headers }));
+      },
+    }),
+  );
+  const r = await client.callTool({
+    name: "get_project_checks",
+    arguments: { projectId: project.id, check: "shot_variety", chapterId: one },
+  });
+  expect(r.isError).toBeFalsy();
+  expect((r.structuredContent as { data: Variety }).data.runs).toBe(1);
+  await client.close();
 });

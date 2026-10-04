@@ -520,7 +520,7 @@ doc({
 chapterRoutes.get("/projects/:projectId/shot-variety", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
   const { chapterId } = query(c, z.object({ chapterId: z.string().uuid().optional() }));
-  if (chapterId) await entityAccess(c, "chapter", chapterId, "read");
+  if (chapterId && (await entityAccess(c, "chapter", chapterId, "read")).id !== p.id) throw notFound("Chapter");
   const chapters = await shotVariety(c.get("deps").db, p.id, chapterId);
   return c.json({ chapters, runs: chapters.reduce((n, ch) => n + ch.runs.length, 0) });
 });

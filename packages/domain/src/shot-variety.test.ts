@@ -18,3 +18,16 @@ test("runs of one shot size or one framing are found; varied coverage is not", (
   // Three of a size with a change of angle is fine.
   expect(repeatedShots([p("a", "close"), p("b", "close", "low"), p("c", "close")])).toEqual([]);
 });
+
+test("edges: nothing, one panel, a long run reported once, a run at the very end, alternating sizes", () => {
+  expect(repeatedShots([])).toEqual([]);
+  expect(repeatedShots([p("a", "wide")])).toEqual([]);
+  const ten = Array.from({ length: 10 }, (_, i) => p(`m${i}`, "medium", i % 2 ? "low" : "high"));
+  expect(repeatedShots(ten)).toEqual([
+    { kind: "size", shotType: "medium", cameraAngle: null, panelIds: ten.map((x) => x.id) },
+  ]);
+  const tail = repeatedShots([p("a", "wide"), p("b", "close"), p("c", "insert"), p("d", "insert"), p("e", "insert")]);
+  expect(tail.map((r) => r.panelIds)).toEqual([["c", "d", "e"]]);
+  const zigzag = ["wide", "close", "wide", "close", "wide", "close"].map((t, i) => p(`z${i}`, t));
+  expect(repeatedShots(zigzag)).toEqual([]);
+});
