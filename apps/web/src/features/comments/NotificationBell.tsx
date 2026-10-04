@@ -12,6 +12,7 @@ type Notification = {
   readAt: string | null;
   createdAt: string;
   actor: string | null;
+  viaAgent: boolean;
   projectId: string;
   projectTitle: string;
   body: string;
@@ -85,7 +86,9 @@ export function NotificationBell() {
                 <div className="flex items-center gap-1.5 text-xs">
                   {!n.readAt && <span className="size-1.5 shrink-0 rounded-full bg-accent-500" title="Unread" />}
                   <span className="truncate">
-                    @{n.actor ?? "someone"} {n.kind === "mention" ? "mentioned you" : "replied"} in {n.projectTitle}
+                    @{n.actor ?? "someone"}
+                    {n.viaAgent ? " (via MCP)" : ""} {n.kind === "mention" ? "mentioned you" : "replied"} in{" "}
+                    {n.projectTitle}
                   </span>
                   <span className="muted ml-auto shrink-0">{fmt.ago(n.createdAt)}</span>
                 </div>

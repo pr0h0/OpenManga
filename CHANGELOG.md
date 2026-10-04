@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Comments from agents: MCP `resolve_comment` resolves or reopens a thread, so one agent can audit a project with
+  `post_comment` and another (or you) can read the open threads with `list_comments`, fix them and resolve them.
+  Every comment and resolution shows whether it was written by hand or through an agent connection ("MCP"); only the
+  member whose connection it was also sees its name. Notifications say "via MCP". Migration `0034` adds the columns.
 - Thumbnail variants: Exports → YouTube package shows every thumbnail headline composited on the same art side by
   side, each with *Use* and a full-size download, and the headlines are now editable there. The YouTube package
   export ships each one as its own image (`thumbnails/1-….png`) next to the title options in `titles.txt`, for
@@ -31,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A link to one panel of a page (a comment notification, the open-comments list, a storyboard card) now opens the
+  page editor on that panel; it opened on the page's first panel.
 - Repurpose no longer crashes the tab on long projects: each item's panel pick list (one row and thumbnail per panel)
   is built only while it is open, and its thumbnails load as they scroll into view.
 
