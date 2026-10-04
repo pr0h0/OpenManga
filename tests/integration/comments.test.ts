@@ -216,4 +216,98 @@ describe("agents", () => {
     const stranger = await mcp(outsider, ["panels:read", "panels:write"]);
     expect((await stranger("list_comments", { panelId })).error?.code).toBe("not_found");
   });
+
+  test("an agent audits and another fixes: who wrote and resolved what, by hand or through which connection", async () => {
+    type Seen = Thread & {
+      viaAgent: boolean;
+      agentName: string | null;
+      resolvedViaAgent: boolean;
+      resolvedAgentName: string | null;
+      replies: (Comment & { viaAgent: boolean; agentName: string | null })[];
+    };
+    const panel = otherPanelId;
+    const threadsAs = async (c: TestClient) =>
+      (await c.get<{ threads: Seen[] }>(`/api/panels/${panel}/comments`)).threads;
+
+    // The editor's audit agent leaves a finding; the editor also comments by hand.
+    const auditor = await mcp(editor, ["panels:read", "panels:write"]);
+    const posted = await auditor("post_comment", { panelId: panel, body: "The lamp is missing in this panel @olive" });
+    expect(posted.error).toBeNull();
+    const finding = (posted.data as { comment: Seen & Record<string, unknown> }).comment;
+    expect(finding).toMatchObject({ viaAgent: true, agentName: "notes agent" });
+    // Connection ids never leave the server, not even to the author.
+    expect(Object.keys(finding).some((k) => /serviceid/i.test(k))).toBe(false);
+    const byHand = await editor.post<{ comment: Seen }>(
+      `/api/panels/${panel}/comments`,
+      { body: "Also the rain" },
+      201,
+    );
+    expect(byHand.comment).toMatchObject({ viaAgent: false, agentName: null });
+
+    // The author sees which connection wrote it; everyone else sees only that an agent did.
+    const mine = (await threadsAs(editor)).find((t) => t.id === finding.id)!;
+    expect(mine).toMatchObject({ viaAgent: true, agentName: "notes agent" });
+    const theirs = (await threadsAs(owner)).find((t) => t.id === finding.id)!;
+    expect(theirs).toMatchObject({ viaAgent: true, agentName: null, author: "eddie" });
+    const listed = await owner.get<{ threads: Seen[] }>(`/api/projects/${projectId}/comments`);
+    expect(listed.threads.find((t) => t.id === finding.id)).toMatchObject({ viaAgent: true, agentName: null });
+    // The mention says it came through an agent, never which one.
+    const note = (await owner.get<{ notifications: (Notification & { viaAgent: boolean })[] }>("/api/notifications"))
+      .notifications[0]!;
+    expect(note).toMatchObject({ actor: "eddie", viaAgent: true });
+    expect(JSON.stringify(note)).not.toContain("notes agent");
+
+    // The owner's fixing agent reads the open findings, replies with what it did and resolves the thread.
+    const fixer = await mcp(owner, ["panels:read", "panels:write"]);
+    const open = await fixer("list_comments", { projectId, status: "open" });
+    const seen = (open.data as { threads: Seen[] }).threads.find((t) => t.id === finding.id)!;
+    expect(seen).toMatchObject({ viaAgent: true, agentName: null });
+    const reply = await fixer("post_comment", { panelId: panel, threadId: finding.id, body: "Added the lamp back." });
+    expect(reply.error).toBeNull();
+    // Resolving through a reply resolves its thread.
+    const replyId = (reply.data as { comment: { id: string } }).comment.id;
+    const resolved = await fixer("resolve_comment", { commentId: replyId });
+    expect(resolved.error).toBeNull();
+    expect((resolved.data as { comment: Seen }).comment).toMatchObject({
+      id: finding.id,
+      resolvedBy: "olive",
+      resolvedViaAgent: true,
+      resolvedAgentName: "notes agent",
+    });
+    const forOwner = (await threadsAs(owner)).find((t) => t.id === finding.id)!;
+    expect(forOwner).toMatchObject({ resolvedViaAgent: true, resolvedAgentName: "notes agent" });
+    expect(forOwner.replies[0]).toMatchObject({ viaAgent: true, agentName: "notes agent" });
+    const forEditor = (await threadsAs(editor)).find((t) => t.id === finding.id)!;
+    expect(forEditor).toMatchObject({ resolvedViaAgent: true, resolvedAgentName: null });
+    expect(forEditor.replies[0]).toMatchObject({ viaAgent: true, agentName: null });
+    expect(
+      (await owner.get<{ threads: Seen[] }>(`/api/projects/${projectId}/comments`)).threads.some(
+        (t) => t.id === finding.id,
+      ),
+    ).toBe(false);
+
+    // Reopened by hand: the agent's resolution is gone with it. A read-only connection cannot resolve.
+    await editor.post(`/api/comments/${finding.id}/resolve`, { resolved: false });
+    expect((await threadsAs(editor)).find((t) => t.id === finding.id)).toMatchObject({
+      resolvedAt: null,
+      resolvedViaAgent: false,
+      resolvedAgentName: null,
+    });
+    const readOnly = await mcp(owner, ["panels:read"]);
+    expect((await readOnly("resolve_comment", { commentId: finding.id })).error).not.toBeNull();
+    expect((await fixer("resolve_comment", { commentId: crypto.randomUUID() })).error?.code).toBe("not_found");
+    // A viewer's agent may resolve too, as the viewer may by hand.
+    const viewerAgent = await mcp(viewer, ["panels:read", "panels:write"]);
+    expect((await viewerAgent("resolve_comment", { commentId: finding.id })).error).toBeNull();
+
+    // A revoked connection still marks what it wrote; its owner still sees its name.
+    const { connections } = await editor.get<{ connections: { id: string; name: string }[] }>(
+      "/api/agents/connections",
+    );
+    for (const c of connections) await editor.post(`/api/agents/connections/${c.id}/revoke`, {});
+    expect((await threadsAs(editor)).find((t) => t.id === finding.id)).toMatchObject({
+      viaAgent: true,
+      agentName: "notes agent",
+    });
+  });
 });

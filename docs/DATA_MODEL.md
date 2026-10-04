@@ -86,7 +86,10 @@ slot).
   re-planning a chapter's pages removes their comments with them), `thread_id` (null for a thread's first comment,
   else that comment's id), author, plain-text `body`, `mentions` (member ids resolved when written), `resolved_at` /
   `resolved_by_user_id` on the first comment, `edited_at`, and `deleted_at` for a first comment deleted while it has
-  replies (its body is blanked; any other deleted comment is removed).
+  replies (its body is blanked; any other deleted comment is removed). `via_agent` and `via_service_id` (migration
+  `0034_comment_agent_source`) say a comment was written through an agent connection and which one (`user_services`,
+  set null if the connection is deleted, while `via_agent` stays true); `resolved_via_agent` and
+  `resolved_via_service_id` do the same for resolving.
 - `notifications` — one user's mention or reply notice: user, project, `kind` (`mention|reply`), comment, actor,
   `read_at`.
 - `story_revisions` — immutable once `locked_at` is set (analyses reference them); editing a locked revision forks a

@@ -12,6 +12,7 @@ import {
   narrationLines,
   narrationSegments,
   pages,
+  panelComments,
   panels,
   projectStyles,
   referenceAssets,
@@ -146,7 +147,8 @@ type Kind =
   | "character"
   | "expert_chat"
   | "bible_fact"
-  | "character_state";
+  | "character_state"
+  | "comment";
 
 /**
  * The project an entity id belongs to, for approval rules and the target snapshot. Access itself is always checked
@@ -155,6 +157,11 @@ type Kind =
 export async function projectOf(ctx: ToolContext, kind: Kind, id: string): Promise<string> {
   const db = ctx.deps.db;
   const one = async (q: Promise<{ p: string | null }[]>) => (await q)[0]?.p ?? null;
+  if (kind === "comment") {
+    const p = await one(db.select({ p: panelComments.projectId }).from(panelComments).where(eq(panelComments.id, id)));
+    if (!p) throw toolError(404, "not_found", "Comment not found");
+    return p;
+  }
   if (kind === "bible_fact" || kind === "character_state") {
     const t = kind === "bible_fact" ? bibleFacts : characterStates;
     const p = await one(db.select({ p: t.projectId }).from(t).where(eq(t.id, id)));

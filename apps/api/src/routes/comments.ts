@@ -80,8 +80,14 @@ async function publish(c: Context<AppEnv>, projectId: string, panelId: string) {
 const author = sql<string | null>`(select u.username from users u where u.id = ${panelComments.authorUserId})`;
 const authorName = sql<string | null>`(select u.display_name from users u where u.id = ${panelComments.authorUserId})`;
 const resolver = sql<string | null>`(select u.username from users u where u.id = ${panelComments.resolvedByUserId})`;
-const commentFields = {
+/**
+ * A comment as `me` sees it. `viaAgent` says a comment was written (or its thread resolved) through an agent
+ * connection; the connection's name is shown only to the member it belongs to, everyone else sees just that an agent
+ * did it. Connection ids never leave the server.
+ */
+const commentFields = (me: string) => ({
   id: panelComments.id,
+  projectId: panelComments.projectId,
   panelId: panelComments.panelId,
   threadId: panelComments.threadId,
   authorUserId: panelComments.authorUserId,
@@ -89,12 +95,31 @@ const commentFields = {
   authorName,
   body: panelComments.body,
   mentions: panelComments.mentions,
+  viaAgent: panelComments.viaAgent,
+  agentName: sql<string | null>`(select s.name from user_services s
+    where s.id = ${panelComments.viaServiceId} and s.user_id = ${me} and ${panelComments.authorUserId} = ${me})`,
   resolvedAt: panelComments.resolvedAt,
   resolvedBy: resolver,
+  resolvedViaAgent: panelComments.resolvedViaAgent,
+  resolvedAgentName: sql<string | null>`(select s.name from user_services s
+    where s.id = ${panelComments.resolvedViaServiceId} and s.user_id = ${me} and ${panelComments.resolvedByUserId} = ${me})`,
   editedAt: panelComments.editedAt,
   deletedAt: panelComments.deletedAt,
   createdAt: panelComments.createdAt,
-};
+});
+
+/** One comment as the caller sees it, for answers to a write. */
+async function viewOf(c: Context<AppEnv>, id: string) {
+  const [row] = await c
+    .get("deps")
+    .db.select(commentFields(user(c).id))
+    .from(panelComments)
+    .where(eq(panelComments.id, id));
+  return row!;
+}
+
+/** The agent connection a request came through (an MCP tool call), or null for the app itself. */
+const agentOf = (c: Context<AppEnv>) => c.get("service")?.serviceId ?? null;
 
 doc({
   method: "GET",
@@ -107,7 +132,7 @@ commentRoutes.get("/panels/:id/comments", async (c) => {
   await entityAccess(c, "panel", panelId, "read");
   const rows = await c
     .get("deps")
-    .db.select(commentFields)
+    .db.select(commentFields(user(c).id))
     .from(panelComments)
     .where(eq(panelComments.panelId, panelId))
     .orderBy(asc(panelComments.createdAt));
@@ -162,6 +187,8 @@ commentRoutes.post("/panels/:id/comments", commentLimit, async (c) => {
       authorUserId: me,
       body: input.body,
       mentions,
+      viaAgent: Boolean(agentOf(c)),
+      viaServiceId: agentOf(c),
     })
     .returning();
   const current = new Set(members.map((m) => m.id));
@@ -170,7 +197,7 @@ commentRoutes.post("/panels/:id/comments", commentLimit, async (c) => {
     ...participants.filter((u) => current.has(u)).map((userId) => ({ userId, kind: "reply" as const })),
   ]);
   await publish(c, p.id, panelId);
-  return c.json({ comment }, 201);
+  return c.json({ comment: await viewOf(c, comment!.id) }, 201);
 });
 
 async function ownComment(c: Context<AppEnv>, id: string, mayModerate = false) {
@@ -210,7 +237,7 @@ commentRoutes.patch("/comments/:id", commentLimit, async (c) => {
     mentions.filter((m) => !comment.mentions.includes(m)).map((userId) => ({ userId, kind: "mention" as const })),
   );
   await publish(c, comment.projectId, comment.panelId);
-  return c.json({ comment: row });
+  return c.json({ comment: await viewOf(c, row!.id) });
 });
 
 doc({
@@ -260,13 +287,18 @@ commentRoutes.post("/comments/:id/resolve", async (c) => {
     .update(panelComments)
     .set(
       resolved
-        ? { resolvedAt: new Date(), resolvedByUserId: user(c).id }
-        : { resolvedAt: null, resolvedByUserId: null },
+        ? {
+            resolvedAt: new Date(),
+            resolvedByUserId: user(c).id,
+            resolvedViaAgent: Boolean(agentOf(c)),
+            resolvedViaServiceId: agentOf(c),
+          }
+        : { resolvedAt: null, resolvedByUserId: null, resolvedViaAgent: false, resolvedViaServiceId: null },
     )
     .where(eq(panelComments.id, comment.threadId ?? comment.id))
     .returning();
   await publish(c, comment.projectId, comment.panelId);
-  return c.json({ comment: root });
+  return c.json({ comment: await viewOf(c, root!.id) });
 });
 
 const ListQuery = z.object({
@@ -286,7 +318,7 @@ commentRoutes.get("/projects/:projectId/comments", async (c) => {
   const rows = await c
     .get("deps")
     .db.select({
-      ...commentFields,
+      ...commentFields(user(c).id),
       pageId: pages.id,
       pageOrder: pages.order,
       panelOrder: panels.order,
@@ -371,6 +403,8 @@ commentRoutes.get("/notifications", async (c) => {
       projectTitle: projects.title,
       commentId: panelComments.id,
       body: panelComments.body,
+      // Who notified you is never you, so the connection is never named here.
+      viaAgent: panelComments.viaAgent,
       panelId: panelComments.panelId,
       pageId: panels.pageId,
     })

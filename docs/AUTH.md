@@ -195,7 +195,11 @@ trashed asset is not served outside the trash views; see `docs/STORAGE.md`.
 - **Comments** (`apps/api/src/routes/comments.ts`) need only `read`: every member, viewers included, reads and writes
   panel comments, resolves and reopens threads. Editing a comment is its author's alone; deleting is its author's or
   the owner's (`manage`). A mention notifies only a current member, and the notification list shows only projects
-  the user is still a member of.
+  the user is still a member of. A comment written or a thread resolved through an agent connection (an MCP tool
+  call, which reaches the route with the connection in `c.get("service")`) is marked `viaAgent` / `resolvedViaAgent`
+  and records the connection. Every member sees that an agent did it; only the member whose connection it was sees
+  its name (`agentName`, `resolvedAgentName`), and connection ids are never returned. A notification says "via MCP"
+  without the name.
 - **Live**: every change publishes `members.updated` on the project's event stream. A removed member's open stream
   gets that event and is closed, and their SPA leaves the project.
 
