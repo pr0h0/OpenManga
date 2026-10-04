@@ -337,9 +337,20 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
       const text = await (await u.raw("GET", `/cdn/a/${stamps.assetId}`)).text();
       expect(text.startsWith("0:00 Chapter 1")).toBe(true);
     }
+    // A thumbnail, and two headlines to compare on it.
+    const th = await u.post<{ job: { id: string } }>(`/api/projects/${projectId}/thumbnail`, { title: "Main" }, 202);
+    expect((await waitJob(th.job.id)).status).toBe("completed");
     await u.patch(`/api/projects/${projectId}`, {
       settings: {
-        youtubePackage: { titles: ["T"], description: "D", tags: ["a"], pinnedComment: "Q?", thumbnailHeadlines: [] },
+        youtubePackage: {
+          titles: ["T"],
+          description: "D",
+          tags: ["a"],
+          pinnedComment: "Q?",
+          // Markup characters must stay text in the composited image; a headline with no Latin letters still gets a file;
+          // the same headline twice is two variants.
+          thumbnailHeadlines: ["The duel", 'Tom & "Jerry" <3', "決闘", "The duel"],
+        },
       },
     });
     const pk = await u.post<{ job: { id: string } }>(
@@ -363,6 +374,38 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     );
     for (const f of ["description.txt", "titles.txt", "tags.txt", "pinned-comment.txt", "video/", ".mp4", ".srt"])
       expect(zipNames).toContain(f);
+    // Every headline on the same art, as its own image: the variants to compare or A/B test.
+    const pkgZip = unzipSync(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${pkDone.files[0]!.assetId}`)).arrayBuffer()),
+      { filter: (f) => f.name.endsWith(".png") },
+    );
+    expect(Object.keys(pkgZip).sort()).toEqual([
+      "thumbnail.png",
+      "thumbnails/1-the_duel.png",
+      "thumbnails/2-tom_jerry_3.png",
+      "thumbnails/3.png",
+      "thumbnails/4-the_duel.png",
+    ]);
+    const variant = await sharp(pkgZip["thumbnails/1-the_duel.png"]!).metadata();
+    expect([variant.width, variant.height]).toEqual([1280, 720]);
+    // Each variant is its own picture: the headline differs, the art does not.
+    const raw = async (f: string) => sharp(pkgZip[f]!).raw().toBuffer();
+    expect(Buffer.compare(await raw("thumbnails/1-the_duel.png"), await raw("thumbnails/2-tom_jerry_3.png"))).not.toBe(
+      0,
+    );
+    expect(Buffer.compare(await raw("thumbnails/1-the_duel.png"), await raw("thumbnails/4-the_duel.png"))).toBe(0);
+    // YouTube's limits hold on the server too: a headline over 60 characters, or a ninth one, is refused.
+    const pkg = { titles: ["T"], description: "D", tags: [], pinnedComment: "" };
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { youtubePackage: { ...pkg, thumbnailHeadlines: ["x".repeat(61)] } } },
+      422,
+    );
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { youtubePackage: { ...pkg, thumbnailHeadlines: Array.from({ length: 9 }, (_, i) => `H${i}`) } } },
+      422,
+    );
 
     // A page selection renders only those pages: shorter than the chapter, and still a valid film.
     const chapterPages = await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`);

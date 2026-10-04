@@ -452,7 +452,9 @@ calls either.
 
 The ZIP (built with `ZipWriter`) holds `video/` with that export's files — the MP4 streamed in chunk by chunk
 (`ZipWriter.addStream` over `AssetStorage.stream`), so a multi-gigabyte film never sits in memory — plus its `.srt`
-and `.chapters.txt`; `thumbnail.png` rendered from the project's saved thumbnail, when there is one;
+and `.chapters.txt`; `thumbnail.png` rendered from the project's saved thumbnail, when there is one, and with it
+`thumbnails/<n>-<headline>.png`, every thumbnail headline of the package composited on the same art (variants to
+compare or upload to YouTube's Test & compare, three at a time; they cost no images);
 `description.txt` (the description with the chapter timestamps appended); `titles.txt`; `tags.txt`
 (comma-separated); and `pinned-comment.txt` and `thumbnail-headlines.txt` when those are not empty. Like the video
 kinds it needs the `art` and `narration` readiness areas.

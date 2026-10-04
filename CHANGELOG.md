@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Thumbnail variants: Exports → YouTube package shows every thumbnail headline composited on the same art side by
+  side, each with *Use* and a full-size download, and the headlines are now editable there. The YouTube package
+  export ships each one as its own image (`thumbnails/1-….png`) next to the title options in `titles.txt`, for
+  YouTube's Test & compare. No images are generated for them.
 - Shot variety check: runs of panels repeating the same shot size (four in a row) or framing (the same size and
   angle, three in a row) are flagged on the storyboard (*Repeated shot* filter, with the run on each card) and on the
   Health page, and returned by `GET /api/projects/:projectId/shot-variety` and MCP `get_project_checks
