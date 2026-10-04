@@ -218,6 +218,7 @@ export async function audioCheck(deps: WorkerDeps, job: ProjectJob) {
         bytes += data.length;
       };
       const measured: { lineId: string; stats: AudioStats }[] = [];
+      const unreadable = new Set<string>();
       let missing = 0;
       try {
         for (const seg of segs) {
@@ -226,11 +227,20 @@ export async function audioCheck(deps: WorkerDeps, job: ProjectJob) {
             missing++;
             continue;
           }
-          let wav = await deps.assets.read(asset);
-          let info = parseWav(wav);
-          if (info.sampleRate !== SAMPLE_RATE || info.channels !== 1 || info.bitsPerSample !== 16) {
-            wav = await ffmpegConvert(wav, "wav", { tempDir: dir });
+          // A take whose file is gone or not audio is a finding of its own, not the end of the check.
+          let wav: Uint8Array;
+          let info: ReturnType<typeof parseWav>;
+          try {
+            wav = await deps.assets.read(asset);
             info = parseWav(wav);
+            if (info.sampleRate !== SAMPLE_RATE || info.channels !== 1 || info.bitsPerSample !== 16) {
+              wav = await ffmpegConvert(wav, "wav", { tempDir: dir });
+              info = parseWav(wav);
+            }
+          } catch (e) {
+            deps.logger.warn("audio check: unreadable take", { assetId: asset.id, error: String(e) });
+            unreadable.add(seg.line_id);
+            continue;
           }
           measured.push({ lineId: seg.line_id, stats: analyseWav(wav) });
           await append(wav.subarray(info.dataOffset, info.dataOffset + info.dataLength));
@@ -247,7 +257,19 @@ export async function audioCheck(deps: WorkerDeps, job: ProjectJob) {
       const loud = measured.length
         ? await ebur128(path)
         : { lufs: Number.NaN, lra: Number.NaN, truePeakDb: Number.NaN };
-      chapters.push({ chapterId, segments: segs.length, missing, ...loud, findings: audioFindings(measured) });
+      const findings = [
+        ...[...unreadable].map(
+          (lineId): LintFinding => ({
+            kind: "audio_silent",
+            severity: "high",
+            lineIds: [lineId],
+            relatedChapterIds: [],
+            message: "The audio file of this line can't be read (missing or damaged): re-voice the line.",
+          }),
+        ),
+        ...audioFindings(measured.filter((m) => !unreadable.has(m.lineId))),
+      ];
+      chapters.push({ chapterId, segments: segs.length, missing, ...loud, findings });
     }
   });
   // Chapter loudness is compared across the chapters checked together.

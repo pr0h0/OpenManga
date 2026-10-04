@@ -256,3 +256,22 @@ test("analyseWav measures speech level, clipping and the longest pause inside th
   expect(silent.speechDb).toBe(Number.NEGATIVE_INFINITY);
   expect(silent.longestGapMs).toBe(0);
 });
+
+test("analyseWav: an empty take and a stereo one", () => {
+  const empty = analyseWav(pcmToWav(new Uint8Array(0), 24_000));
+  expect(empty).toMatchObject({ durationMs: 0, clippedMs: 0, longestGapMs: 0 });
+  expect(empty.speechDb).toBe(Number.NEGATIVE_INFINITY);
+  // Stereo at 48 kHz: 1 s of tone on both channels, 1.6 s of silence, 1 s of tone. The gap is measured in time.
+  const sr = 48_000;
+  const frames = sr * 3.6;
+  const pcm = new Int16Array(frames * 2);
+  for (let i = 0; i < frames; i++) {
+    const v = i < sr || i >= sr * 2.6 ? Math.round(Math.sin((2 * Math.PI * 300 * i) / sr) * 6000) : 0;
+    pcm[i * 2] = v;
+    pcm[i * 2 + 1] = v;
+  }
+  const stereo = analyseWav(pcmToWav(new Uint8Array(pcm.buffer), sr, 2));
+  expect(stereo.durationMs).toBe(3600);
+  expect(Math.abs(stereo.longestGapMs - 1600)).toBeLessThanOrEqual(10);
+  expect(stereo.clippedMs).toBe(0);
+});
