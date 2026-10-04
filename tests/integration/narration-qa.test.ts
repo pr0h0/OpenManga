@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { eq, generationJobs } from "@openmanga/db";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { eq, generationJobs, narrationSegments, sql } from "@openmanga/db";
+import { pcmToWav } from "../../packages/audio/src/index.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -137,6 +139,147 @@ test("the density view counts words per shot and the words a minute of the real 
   expect(ch.words).toBeGreaterThan(20);
   expect(ch.audioMs).toBeGreaterThan(0);
   expect(ch.wordsPerMinute).toBeGreaterThan(0);
+});
+
+test("the audio check: a loudness report, a silent take found, and a new take that replaces a cached one", async () => {
+  type Report = { chapters: { chapterId: string; segments: number; lufs: number; truePeakDb: number }[] };
+  const check = async () => {
+    const r = await alice.post<{ audioJob: { id: string } }>(
+      `/api/chapters/${chapterId}/narration/lint`,
+      { audio: true },
+      202,
+    );
+    return (await finished(r.audioJob.id)).result as Report & { found: number; resolved: number };
+  };
+  const audioFindings = async () => (await findings("?status=open")).findings.filter((f) => f.check === "audio");
+
+  const first = await check();
+  expect(first.chapters).toHaveLength(1);
+  // The fake voice is a steady tone: measurable loudness, no clipping, nothing to flag.
+  expect(first.chapters[0]!.lufs).toBeGreaterThan(-40);
+  expect(first.chapters[0]!.lufs).toBeLessThan(-10);
+  expect(first.chapters[0]!.truePeakDb).toBeLessThan(0);
+  expect(await audioFindings()).toEqual([]);
+  const report = await alice.get<{ audio: { chapterId: string; lufs: number }[] }>(
+    `/api/projects/${projectId}/narration/findings`,
+  );
+  expect(report.audio).toEqual([expect.objectContaining({ chapterId, lufs: first.chapters[0]!.lufs })]);
+
+  // A silent take, cached as the newest audio for the same text, voice and speed.
+  const line = (await narration()).lines[0]!;
+  const seg = line.segments[0]!;
+  const asset = await h.deps.assets.store({
+    projectId,
+    ownerUserId: null,
+    type: "audio",
+    data: pcmToWav(new Uint8Array(24_000 * 2), 24_000),
+    mimeType: "audio/wav",
+    metadata: { trimmedSilenceMs: 0 },
+  });
+  await h.deps.db.execute(sql`insert into audio_assets
+      (project_id, asset_id, segment_id, text_sha256, voice, speed, language, provider, sample_rate, duration_ms, format)
+    select project_id, ${asset.id}, segment_id, text_sha256, voice, speed, language, provider, sample_rate, 1000, format
+    from audio_assets where asset_id = ${seg.activeAudioAssetId}`);
+  await h.deps.db
+    .update(narrationSegments)
+    .set({ activeAudioAssetId: asset.id })
+    .where(eq(narrationSegments.id, seg.id));
+  await check();
+  const [silent] = await audioFindings();
+  expect(silent).toMatchObject({ kind: "audio_silent", lineIds: [line.id], fixable: false });
+
+  // A new take skips the cached silent one.
+  await alice.post(
+    `/api/chapters/${chapterId}/narration/synthesize`,
+    { lineIds: [line.id], onlyMissing: false, newTake: true },
+    202,
+  );
+  await waitFor(
+    async () => {
+      const s = (await narration()).lines[0]!.segments[0]!;
+      return s.audio && s.activeAudioAssetId !== asset.id ? s : null;
+    },
+    { label: "new take" },
+  );
+  const again = await check();
+  expect(again).toMatchObject({ resolved: 1 });
+  expect(await audioFindings()).toEqual([]);
+});
+
+test("the audio check's edges: access, an unreadable take, ignored findings, stale audio, nothing voiced, MCP", async () => {
+  type Result = { chapters: { segments: number; missingAudio: number }[]; found: number };
+  const check = async (body: Record<string, unknown> = {}, status = "completed") => {
+    const r = await alice.post<{ audioJob: { id: string } }>(
+      `/api/chapters/${chapterId}/narration/lint`,
+      { audio: true, ...body },
+      202,
+    );
+    return finished(r.audioJob.id, status);
+  };
+  const audioOpen = async () => (await findings("?status=open")).findings.filter((f) => f.check === "audio");
+
+  // Someone outside the project cannot queue it.
+  const outsider = h.client();
+  await outsider.post(
+    "/api/auth/register",
+    { username: "outsider", email: "out@example.com", password: "out-pass-1234" },
+    201,
+  );
+  const denied = await outsider.raw("POST", `/api/chapters/${chapterId}/narration/lint`, { audio: true });
+  expect(denied.status).toBeGreaterThanOrEqual(403);
+
+  // A take whose file is gone is reported on its line; the rest of the chapter is still checked.
+  const line = (await narration()).lines[1]!;
+  const asset = (await h.deps.assets.get(line.segments[0]!.activeAudioAssetId!))!;
+  await h.deps.assets.storage.delete(asset.storageKey);
+  const r1 = (await check()).result as Result;
+  expect(r1.chapters[0]!.segments).toBeGreaterThan(1);
+  const lost = (await audioOpen()).find((f) => f.lineIds[0] === line.id)!;
+  expect(lost).toMatchObject({ kind: "audio_silent" });
+  expect((await findings()).findings.find((f) => f.id === lost.id)).toBeTruthy();
+
+  // Ignored stays ignored when the check finds it again.
+  await alice.patch(`/api/narration-findings/${lost.id}`, { status: "ignored" });
+  await check();
+  expect((await findings()).findings.find((f) => f.id === lost.id)?.status).toBe("ignored");
+
+  // Audio for text that changed since is not the line's audio any more: it is left out, not measured.
+  await alice.patch(`/api/narration-lines/${line.id}`, { text: "Tomas lit the lamp, and the harbour went quiet." });
+  const r2 = (await check()).result as Result;
+  expect(r2.chapters[0]!.segments).toBeLessThan(r1.chapters[0]!.segments);
+  expect((await findings()).findings.some((f) => f.id === lost.id)).toBe(false);
+
+  // A language with no voiced narration has nothing to measure: the job says so.
+  const none = await check({ language: "de" }, "failed");
+  expect(none.failureReason).toContain("No voiced narration");
+
+  // Agents queue it through run_narration_lint, with no model and nothing to approve.
+  const { token } = await alice.post<{ token: string }>(
+    "/api/agents/tokens",
+    {
+      name: "qa agent",
+      scopes: ["narration:read", "narration:write", "generations:run"],
+      projectAccess: "all",
+      approvalMode: "ALLOW_ALL",
+    },
+    201,
+  );
+  const client = new Client({ name: "qa-agent", version: "1.0.0" });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+      fetch: (url, init) => {
+        const headers = new Headers((init as RequestInit).headers);
+        headers.set("host", "test.local");
+        return Promise.resolve(h.app.request(String(url), { ...(init as RequestInit), headers }));
+      },
+    }),
+  );
+  const res = await client.callTool({ name: "run_narration_lint", arguments: { chapterId, audio: true } });
+  expect(res.isError).toBeFalsy();
+  const audioJob = (res.structuredContent as { data: { audioJob: { id: string } } }).data.audioJob;
+  expect((await finished(audioJob.id)).kind).toBe("audio_check");
+  await client.close();
 });
 
 test("paste mode: the fix parks for an answer, and lines no finding names are refused", async () => {

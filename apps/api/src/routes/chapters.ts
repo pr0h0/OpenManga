@@ -2,7 +2,7 @@ import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes,
 import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
 import { chapterPlanningV7, shotPlanningV4, stripPlanningV3 } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
-import { recordAudit, recordNarrationFingerprint, recordPlanFingerprint } from "@openmanga/services";
+import { recordAudit, recordNarrationFingerprint, recordPlanFingerprint, shotVariety } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -16,7 +16,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
 export const chapterRoutes = new Hono<AppEnv>();
@@ -508,4 +508,19 @@ chapterRoutes.get("/chapters/:id/panels", async (c) => {
     .where(eq(pages.chapterId, id))
     .orderBy(asc(pages.order), asc(panels.order));
   return c.json({ panels: rows.map((r) => ({ ...r.panel, pageOrder: r.pageOrder })) });
+});
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/shot-variety",
+  summary:
+    "Shot variety: per chapter, the runs of panels in reading order that repeat a shot (the same size 4+ times in a row, or the same size and angle 3+ times), each with its panel ids (?chapterId=). Change a panel's shot type or camera angle with PATCH /api/panels/:id. Nothing is generated.",
+  tag: "chapters",
+});
+chapterRoutes.get("/projects/:projectId/shot-variety", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const { chapterId } = query(c, z.object({ chapterId: z.string().uuid().optional() }));
+  if (chapterId && (await entityAccess(c, "chapter", chapterId, "read")).id !== p.id) throw notFound("Chapter");
+  const chapters = await shotVariety(c.get("deps").db, p.id, chapterId);
+  return c.json({ chapters, runs: chapters.reduce((n, ch) => n + ch.runs.length, 0) });
 });

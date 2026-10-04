@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Check, MessageSquare, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Bot, Check, MessageSquare, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { type FormEvent, Fragment, useState } from "react";
 import { del, get, patch, post } from "../../api/client.ts";
 import { useAction, useMe } from "../../api/hooks.ts";
@@ -14,13 +14,34 @@ export type Comment = {
   author: string | null;
   authorName: string | null;
   body: string;
+  /** Written through an agent connection (MCP); its name only when it is the viewer's own. */
+  viaAgent: boolean;
+  agentName: string | null;
   resolvedAt: string | null;
   resolvedBy: string | null;
+  resolvedViaAgent: boolean;
+  resolvedAgentName: string | null;
   editedAt: string | null;
   deletedAt: string | null;
   createdAt: string;
 };
 export type Thread = Comment & { replies: Comment[] };
+
+/**
+ * How a comment was written: by hand, or through an agent connection. Everyone sees "MCP"; the member whose
+ * connection it was also sees its name.
+ */
+export function Source({ viaAgent, agentName }: { viaAgent: boolean; agentName: string | null }) {
+  if (!viaAgent) return <span className="muted">by hand</span>;
+  return (
+    <span
+      className="chip inline-flex items-center gap-1 px-1.5 py-0 text-[11px]"
+      title={agentName ? `Written through your connection "${agentName}"` : "Written through an agent connection (MCP)"}
+    >
+      <Bot className="size-3" /> MCP{agentName ? ` · ${agentName}` : ""}
+    </span>
+  );
+}
 
 export const commentKeys = {
   panel: (panelId: string) => ["comments", panelId] as const,
@@ -168,6 +189,7 @@ function CommentItem({
     <div className="group space-y-0.5">
       <div className="flex items-baseline gap-1.5 text-xs">
         <span className="font-medium">{c.authorName || c.author || "Former member"}</span>
+        <Source viaAgent={c.viaAgent} agentName={c.agentName} />
         <span className="muted">
           {fmt.ago(c.createdAt)}
           {c.editedAt && " · edited"}
@@ -248,7 +270,10 @@ export function ThreadView({ t, projectId }: { t: Thread; projectId: string }) {
           </button>
           {t.resolvedAt ? (
             <>
-              <span className="muted">Resolved{t.resolvedBy ? ` by @${t.resolvedBy}` : ""}</span>
+              <span className="muted inline-flex flex-wrap items-center gap-1">
+                Resolved{t.resolvedBy ? ` by @${t.resolvedBy}` : ""}
+                {t.resolvedViaAgent && <Source viaAgent agentName={t.resolvedAgentName} />}
+              </span>
               <button
                 type="button"
                 className="btn-ghost ml-auto py-0.5 text-xs"

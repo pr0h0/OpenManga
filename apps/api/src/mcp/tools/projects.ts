@@ -227,10 +227,10 @@ export const projectTools = [
     name: "get_project_checks",
     title: "Readiness / preflight",
     description:
-      "check=readiness: what an export would lack (missing artwork, narration coverage and audio, draft or superseded versions) and whether the user has a usable provider key. check=preflight: a dry run before image generation (risky vocabulary, stale or missing references, lighting issues). Optionally limited to a chapter (or a page for preflight). Read-only; run before bulk generation or export.",
+      "check=readiness: what an export would lack (missing artwork, narration coverage and audio, draft or superseded versions) and whether the user has a usable provider key. check=preflight: a dry run before image generation (risky vocabulary, stale or missing references, lighting issues). check=shot_variety: per chapter, runs of panels in reading order that repeat a shot (the same size 4+ times in a row, or the same size and angle 3+ times), to vary with update_panel shotType / cameraAngle before drawing. Optionally limited to a chapter (or a page for preflight). Read-only; run before bulk generation or export.",
     input: z.object({
       projectId: Uuid,
-      check: z.enum(["readiness", "preflight"]),
+      check: z.enum(["readiness", "preflight", "shot_variety"]),
       chapterId: Uuid.optional(),
       pageId: Uuid.optional(),
       language: z.string().max(16).optional(),
@@ -239,11 +239,20 @@ export const projectTools = [
     scopes: ["projects:read"],
     sensitivity: "read",
     idempotent: true,
-    routes: ["GET /api/projects/:projectId/readiness", "GET /api/projects/:projectId/preflight"],
+    routes: [
+      "GET /api/projects/:projectId/readiness",
+      "GET /api/projects/:projectId/preflight",
+      "GET /api/projects/:projectId/shot-variety",
+    ],
     actionKeys: [],
     handler: async ({ projectId, check, chapterId, pageId, language }, ctx) => ({
-      data: await ctx.invoke("GET", `/api/projects/${projectId}/${check}`, {
-        query: check === "readiness" ? { chapterId, language } : { chapterId, pageId },
+      data: await ctx.invoke("GET", `/api/projects/${projectId}/${check.replace("_", "-")}`, {
+        query:
+          check === "readiness"
+            ? { chapterId, language }
+            : check === "preflight"
+              ? { chapterId, pageId }
+              : { chapterId },
       }),
     }),
   }),

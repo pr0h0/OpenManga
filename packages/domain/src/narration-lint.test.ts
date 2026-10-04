@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { findingKey, type LintChapter, lintNarrationRules, narrationDensity, similarity } from "./narration-lint.ts";
+import {
+  audioFindings,
+  findingKey,
+  type LintChapter,
+  lintNarrationRules,
+  loudnessFindings,
+  narrationDensity,
+  similarity,
+} from "./narration-lint.ts";
 
 const opts = { names: ["Ines", "Tomas"], wordsPerShot: 20, wordsPerMinute: 150 };
 const chapter = (id: string, order: number, lines: string[], shots = 0, dialogue: Record<number, string[]> = {}) =>
@@ -105,4 +113,33 @@ test("a line spanning several shots keeps them from counting as silent", () => {
 test("a finding's key ignores the order of its lines", () => {
   const f = { kind: "near_duplicate" as const, lineIds: ["b", "a"], relatedChapterIds: [] };
   expect(findingKey(f)).toBe(findingKey({ ...f, lineIds: ["a", "b"] }));
+});
+
+test("audio findings: silent, clipped, stalled and out-of-level takes; chapters out of step in loudness", () => {
+  const ok = { durationMs: 3000, speechDb: -20, clippedMs: 0, longestGapMs: 300 };
+  const found = audioFindings([
+    { lineId: "a", stats: ok },
+    { lineId: "b", stats: { ...ok, speechDb: -21 } },
+    { lineId: "c", stats: { ...ok, speechDb: -60 } },
+    { lineId: "d", stats: { ...ok, clippedMs: 25 } },
+    { lineId: "d", stats: { ...ok, clippedMs: 3 } },
+    { lineId: "e", stats: { ...ok, longestGapMs: 2400 } },
+    { lineId: "f", stats: { ...ok, speechDb: -29 } },
+  ]);
+  expect(found.map((f) => [f.kind, f.lineIds[0], f.severity])).toEqual([
+    ["audio_silent", "c", "high"],
+    ["audio_clipping", "d", "high"],
+    ["audio_gap", "e", "medium"],
+    ["audio_level", "f", "medium"],
+  ]);
+  expect(found[3]!.message).toBe("9.0 dB quieter than the chapter's other lines.");
+  const loud = loudnessFindings([
+    { id: "c1", lufs: -20 },
+    { id: "c2", lufs: -19.5 },
+    { id: "c3", lufs: -25 },
+    { id: "c4", lufs: Number.NaN },
+  ]);
+  expect([...loud.keys()]).toEqual(["c3"]);
+  expect(loud.get("c3")!.message).toContain("5.3 LU quieter");
+  expect(loudnessFindings([{ id: "c1", lufs: -30 }]).size).toBe(0);
 });

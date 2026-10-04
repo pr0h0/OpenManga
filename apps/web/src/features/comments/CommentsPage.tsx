@@ -5,7 +5,7 @@ import { get } from "../../api/client.ts";
 import type { ChapterListItem } from "../../api/types.ts";
 import { EmptyState, ErrorBox, Field, fmt, PageHeader, Spinner, Tabs } from "../../components/ui.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
-import { type Comment, CommentText, commentKeys } from "./comments.tsx";
+import { type Comment, CommentText, commentKeys, Source } from "./comments.tsx";
 
 type Status = "open" | "resolved" | "all";
 type Row = Comment & {
@@ -79,15 +79,16 @@ export function CommentsPage() {
                 <span>
                   Ch. {t.chapterOrder} · page {t.pageOrder} · panel {t.panelOrder}
                 </span>
-                <span>
-                  {t.authorName || t.author || "Former member"} · {fmt.ago(t.lastActivityAt)}
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  {t.authorName || t.author || "Former member"} <Source viaAgent={t.viaAgent} agentName={t.agentName} />{" "}
+                  · {fmt.ago(t.lastActivityAt)}
                 </span>
                 {t.replies > 0 && (
                   <span>
                     {t.replies} repl{t.replies === 1 ? "y" : "ies"}
                   </span>
                 )}
-                {t.resolvedAt && <span>resolved</span>}
+                {t.resolvedAt && <span>resolved{t.resolvedViaAgent ? " via MCP" : ""}</span>}
               </div>
               {t.deletedAt ? <p className="muted text-sm italic">Comment deleted</p> : <CommentText body={t.body} />}
             </Link>

@@ -52,7 +52,7 @@ test("repurpose: suggest a plan, adjust a pick, write copy, render the carousel"
   });
 });
 
-test("exports: a Shorts export suggests a 9:16 pick of shots", async () => {
+test("exports: a Shorts export suggests a 9:16 pick of shots and renders it with captions", async () => {
   await page.goto(`${s.url}/exports`);
   await page
     .getByRole("combobox", { name: /^Format/ })
@@ -62,6 +62,25 @@ test("exports: a Shorts export suggests a 9:16 pick of shots", async () => {
   // The automatic pick: some shots chosen and their running length.
   await expect(page.getByText(/^[1-9]\d* shot\(s\) · \d+\.\d s$/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Preview the Short" })).toBeVisible();
+
+  await test.step("render it with captions drawn in", async () => {
+    await page.getByLabel("Captions").selectOption("bottom");
+    // A Shorts cut is its picked shots only, so the readiness check never stops it.
+    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await expect(page.getByText("Export queued")).toBeVisible();
+    type Job = { kind: string; status: string; options: { video?: { captions?: string } } };
+    await expect
+      .poll(
+        async () =>
+          (await api(page).get<{ jobs: Job[] }>(`/projects/${s.projectId}/exports`)).jobs.find(
+            (j) => j.kind === "video_shorts",
+          )?.status,
+        { timeout: 120_000 },
+      )
+      .toBe("completed");
+    const { jobs } = await api(page).get<{ jobs: Job[] }>(`/projects/${s.projectId}/exports`);
+    expect(jobs.find((j) => j.kind === "video_shorts")?.options.video?.captions).toBe("bottom");
+  });
 });
 
 test("page editor: a shot's video settings and a drawn layout guide", async () => {
@@ -142,4 +161,66 @@ test("reader link: the shared chapter plays as a video preview", async () => {
   await reader.getByRole("button", { name: "Play", exact: true }).first().click();
   await expect(reader.getByRole("button", { name: "Pause", exact: true }).first()).toBeVisible();
   await anon.close();
+});
+
+test("shot variety: a run of the same framing is flagged on the storyboard and on Health", async () => {
+  const a = api(page);
+  const { panels } = await a.get<{ panels: { id: string }[] }>(`/chapters/${s.chapterId}/panels`);
+  // Three rare shots in a row, from one angle: a framing run whatever the planner chose around them.
+  for (const p of panels.slice(0, 3))
+    await a.patch(`/panels/${p.id}`, { shotType: "extreme-wide", cameraAngle: "birds-eye" });
+
+  await page.goto(`${s.url}/storyboard?chapterId=${s.chapterId}&filter=repeated`);
+  await expect(page.getByRole("tab", { name: /^Repeated shot \d+$/, selected: true })).toBeVisible();
+  await expect(page.getByText(/^\d+ extreme-wide shots in a row from the same birds-eye angle$/).first()).toBeVisible();
+  expect(await page.getByText(/extreme-wide shots in a row/).count()).toBeGreaterThanOrEqual(3);
+
+  await page.goto(`${s.url}/health`);
+  await expect(page.getByText(/run\(s\) of panels repeating the same shot/)).toBeVisible();
+});
+
+test("thumbnail variants: each headline on the same art, and one put in use", async () => {
+  const a = api(page);
+  const { project } = await a.get<{ project: { settings: { thumbnail?: { title: string } } } }>(
+    `/projects/${s.projectId}`,
+  );
+  expect(project.settings.thumbnail).toBeTruthy();
+  await a.patch(`/projects/${s.projectId}`, {
+    settings: {
+      youtubePackage: {
+        titles: ["The rooftop"],
+        description: "D",
+        tags: [],
+        pinnedComment: "",
+        thumbnailHeadlines: ["The duel", "Who lit it?"],
+      },
+    },
+  });
+  await page.goto(`${s.url}/exports`);
+  const duel = page.getByRole("img", { name: "Thumbnail: The duel" });
+  await expect(duel).toBeVisible();
+  // Composited from the saved art: a real image came back, not a broken one.
+  await expect.poll(() => duel.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(480);
+  await expect(page.getByRole("img", { name: "Thumbnail: Who lit it?" })).toBeVisible();
+
+  const card = page.locator("li", { has: page.getByRole("img", { name: "Thumbnail: Who lit it?" }) });
+  await card.getByRole("button", { name: "Use" }).click();
+  await expect(page.getByText("Thumbnail headline updated")).toBeVisible();
+  await expect(card.getByText("In use")).toBeVisible();
+  await expect
+    .poll(async () => (await a.get(`/projects/${s.projectId}`)).project.settings.thumbnail?.title)
+    .toBe("Who lit it?");
+
+  // A headline over YouTube's 60 characters is caught before saving, not by a failed save.
+  const headlines = page.getByLabel("Thumbnail headlines (one per line)");
+  await headlines.fill(`The duel\n${"x".repeat(61)}`);
+  await expect(page.getByText("YouTube allows up to 8 headlines of at most 60 characters.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await headlines.fill("The duel\nWho lit it?\nThe last lamp");
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Thumbnail: The last lamp" })).toBeVisible();
+  await expect
+    .poll(async () => (await a.get(`/projects/${s.projectId}`)).project.settings.youtubePackage?.thumbnailHeadlines)
+    .toEqual(["The duel", "Who lit it?", "The last lamp"]);
 });

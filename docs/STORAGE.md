@@ -66,7 +66,8 @@ stream, which is how a finished MP4 goes into a `youtube_package` zip without be
 holds `video/` (the newest completed full `video_pages` or `video_panels` export of the same scope, never a partial or
 page-selection render: the MP4, its `.srt` and,
 when the film spans more than one chapter, its `.chapters.txt` of YouTube timestamps), `thumbnail.png` (the project's
-thumbnail with its headline composited, when there is one), `description.txt` (with the chapter timestamps appended),
+thumbnail with its headline composited, when there is one, plus `thumbnails/` with each of the package's thumbnail
+headlines on the same art), `description.txt` (with the chapter timestamps appended),
 `titles.txt`, `tags.txt`, and `pinned-comment.txt` and `thumbnail-headlines.txt` when those are set.
 
 ## Serving (`/cdn`)

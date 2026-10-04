@@ -28,6 +28,8 @@ export type GenerationKind =
   | "narration_lint"
   /** Rewrites of the narration lines a lint flagged, returned as a proposal to review before applying. */
   | "narration_fix"
+  /** Measures the voiced narration: silent, clipped or stalled segments, uneven levels, chapter loudness. No model. */
+  | "audio_check"
   /** Maps the story source to the plan: what was left out, told twice, or given far more or less room than its weight. */
   | "story_coverage"
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */

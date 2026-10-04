@@ -86,7 +86,10 @@ slot).
   re-planning a chapter's pages removes their comments with them), `thread_id` (null for a thread's first comment,
   else that comment's id), author, plain-text `body`, `mentions` (member ids resolved when written), `resolved_at` /
   `resolved_by_user_id` on the first comment, `edited_at`, and `deleted_at` for a first comment deleted while it has
-  replies (its body is blanked; any other deleted comment is removed).
+  replies (its body is blanked; any other deleted comment is removed). `via_agent` and `via_service_id` (migration
+  `0034_comment_agent_source`) say a comment was written through an agent connection and which one (`user_services`,
+  set null if the connection is deleted, while `via_agent` stays true); `resolved_via_agent` and
+  `resolved_via_service_id` do the same for resolving.
 - `notifications` — one user's mention or reply notice: user, project, `kind` (`mention|reply`), comment, actor,
   `read_at`.
 - `story_revisions` — immutable once `locked_at` is set (analyses reference them); editing a locked revision forks a
@@ -127,7 +130,7 @@ slot).
   `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
   text, `text_sha256` (of the spoken text: the text with the project's pronunciation dictionary applied), voice/speed
   overrides, `pause_after_ms`, active audio asset).
-- `narration_findings` — narration QA findings per chapter track: `source` (`rule` or `ai`), `kind`, `severity`,
+- `narration_findings` — narration QA findings per chapter track: `source` (`rule`, `ai` or `audio`), `kind`, `severity`,
   `line_ids`, `related_chapter_ids`, `message`, `status` (`open|ignored|fixed`) and a `fingerprint` unique per
   `(chapter, language, source)`, which is how a re-run keeps an ignored finding ignored.
 
@@ -184,7 +187,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
+  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
   `expert_extract`, `bible_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including

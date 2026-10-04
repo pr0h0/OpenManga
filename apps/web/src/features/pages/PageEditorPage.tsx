@@ -49,7 +49,7 @@ export function PageEditorPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   useEffect(() => {
-    if (q.data) hydrate(pageId, q.data);
+    if (q.data) hydrate(pageId, q.data, search.panelId);
   }, [q.data, pageId, hydrate]);
   useEffect(() => {
     useEditor.setState({ onSaved: () => void qc.invalidateQueries({ queryKey: qk.page(pageId) }) });

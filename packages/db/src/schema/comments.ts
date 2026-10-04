@@ -1,13 +1,16 @@
-import { type AnyPgColumn, index, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean, index, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
 import { createdAt, id, ts } from "./common.ts";
+import { userServices } from "./mcp.ts";
 import { panels } from "./media.ts";
 import { projects } from "./projects.ts";
 
 /**
  * A comment on a panel. A thread is a root comment (`threadId` null) and the replies that point at it; resolving is
  * done on the root. The body is the member's own text, shown as text and never as markup. A root deleted while it has
- * replies keeps its row with an empty body and `deletedAt`, so the replies keep their thread.
+ * replies keeps its row with an empty body and `deletedAt`, so the replies keep their thread. A comment written or a
+ * thread resolved through an agent connection (MCP) records that, and which connection: everyone sees that an agent
+ * did it, only the member whose connection it was sees which one.
  */
 export const panelComments = pgTable(
   "panel_comments",
@@ -24,8 +27,13 @@ export const panelComments = pgTable(
     body: text("body").notNull(),
     /** Members @mentioned in the body, resolved when it was written. */
     mentions: jsonb("mentions").$type<string[]>().notNull().default([]),
+    /** Written through an agent connection rather than by hand; kept true after the connection is deleted. */
+    viaAgent: boolean("via_agent").notNull().default(false),
+    viaServiceId: uuid("via_service_id").references(() => userServices.id, { onDelete: "set null" }),
     resolvedAt: ts("resolved_at"),
     resolvedByUserId: uuid("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    resolvedViaAgent: boolean("resolved_via_agent").notNull().default(false),
+    resolvedViaServiceId: uuid("resolved_via_service_id").references(() => userServices.id, { onDelete: "set null" }),
     editedAt: ts("edited_at"),
     deletedAt: ts("deleted_at"),
     createdAt: createdAt(),

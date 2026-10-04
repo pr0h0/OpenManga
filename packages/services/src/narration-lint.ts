@@ -1,5 +1,6 @@
 import { and, type DbOrTx, eq, inArray, narrationFindings, sql } from "@openmanga/db";
 import {
+  AUDIO_FINDING_KINDS,
   findingKey,
   hashOf,
   type LintChapter,
@@ -9,8 +10,8 @@ import {
 } from "@openmanga/domain";
 import type { PanelSpec, ProjectSettings } from "@openmanga/schemas";
 
-/** Rule findings a rewrite of the flagged lines cannot fix: they need lines added or the voice changed. */
-export const UNFIXABLE_KINDS: readonly string[] = ["silent_stretch", "pace"];
+/** Findings a rewrite of the flagged lines cannot fix: they need lines added, or the line voiced again. */
+export const UNFIXABLE_KINDS: readonly string[] = ["silent_stretch", "pace", ...AUDIO_FINDING_KINDS];
 
 export type QaChapter = LintChapter & { summary: string };
 
@@ -81,7 +82,13 @@ export type LintComparison = { found: number; introduced: number; remaining: num
  */
 export async function saveFindings(
   db: DbOrTx,
-  x: { projectId: string; chapterId: string; language: string; source: "rule" | "ai"; findings: LintFinding[] },
+  x: {
+    projectId: string;
+    chapterId: string;
+    language: string;
+    source: "rule" | "ai" | "audio";
+    findings: LintFinding[];
+  },
 ): Promise<LintComparison> {
   const next = new Map(x.findings.map((f) => [hashOf(findingKey(f)), f]));
   const where = and(
@@ -157,3 +164,4 @@ export async function lintNarrationChapters(
 }
 
 export const isRuleKind = (kind: string) => (RULE_FINDING_KINDS as readonly string[]).includes(kind);
+export const isAudioKind = (kind: string) => (AUDIO_FINDING_KINDS as readonly string[]).includes(kind);

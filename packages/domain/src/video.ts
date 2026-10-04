@@ -406,3 +406,11 @@ export function pickShorts(cands: ShortsCandidate[], o: { targetMs: number; minM
   }
   return [...picked].sort((a, b) => a.i - b.i).map((x) => x.c.id);
 }
+
+/**
+ * Narration languages whose script the render image has no font for (it ships DejaVu Sans): captions in them would be
+ * empty boxes, so they are refused. Installing a font that covers them (e.g. Noto CJK) is what would lift this.
+ */
+export const CAPTION_FONTLESS_LANGUAGES = ["ja", "ko", "zh", "hi", "th"];
+export const captionsSupported = (language: string) =>
+  !CAPTION_FONTLESS_LANGUAGES.includes(language.toLowerCase().split(/[-_]/)[0]!);

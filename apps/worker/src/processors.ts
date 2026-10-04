@@ -7,7 +7,7 @@ import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
 import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
 import { runMaintenance } from "./handlers/maintenance.ts";
-import { narrationFix, narrationLint } from "./handlers/narration-qa.ts";
+import { audioCheck, narrationFix, narrationLint } from "./handlers/narration-qa.ts";
 import { panelCheck } from "./handlers/qa.ts";
 import { storyCoverage } from "./handlers/story-coverage.ts";
 import {
@@ -52,6 +52,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   continuity_check: continuityCheck,
   narration_lint: narrationLint,
   narration_fix: narrationFix,
+  audio_check: audioCheck,
   story_coverage: storyCoverage,
   cover: coverGeneration,
   thumbnail: coverGeneration,

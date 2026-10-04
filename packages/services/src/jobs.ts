@@ -39,6 +39,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   image_describe: "text-ai",
   narration_lint: "text-ai",
   narration_fix: "text-ai",
+  audio_check: "text-ai",
   story_coverage: "text-ai",
   cover: "image-generation",
   thumbnail: "image-generation",

@@ -69,6 +69,70 @@ test("panel comments: a mention reaches the member's notification bell", async (
   await expect(other.getByText("Can you check the pose here?")).toBeVisible();
 });
 
+/** One MCP tool call as an agent connection would make it: the server is stateless, so a single JSON-RPC request. */
+async function mcpCall(page: Page, token: string, name: string, args: Record<string, unknown>) {
+  const r = await page.request.post("/mcp", {
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+  });
+  const text = await r.text();
+  const line = text.startsWith("{") ? text : (text.split("\n").find((l) => l.startsWith("data:")) ?? "").slice(5);
+  const json = JSON.parse(line) as { result?: { isError?: boolean; structuredContent?: { data: unknown } } };
+  expect(json.result?.isError, text.slice(0, 300)).toBeFalsy();
+  return json.result!.structuredContent!.data as Record<string, unknown>;
+}
+
+test("comments from an agent: marked MCP for everyone, named only for the member whose connection it is", async () => {
+  const [, panel] = await firstPagePanels(api(owner.page), s.pageId);
+  const { token } = await api(owner.page).post<{ token: string }>("/agents/tokens", {
+    name: "E2E audit",
+    scopes: ["panels:read", "panels:write"],
+    projectAccess: "all",
+    approvalMode: "ALLOW_ALL",
+  });
+  const posted = await mcpCall(owner.page, token, "post_comment", {
+    panelId: panel!.id,
+    body: "Audit: the lamp from page 1 is missing here.",
+  });
+  const commentId = (posted.comment as { id: string }).id;
+  const where = `${s.url}/pages/${s.pageId}?panelId=${panel!.id}&tab=comments`;
+
+  await test.step("the owner sees which of their connections wrote it", async () => {
+    await owner.page.goto(where);
+    await expect(owner.page.getByText("Audit: the lamp from page 1 is missing here.")).toBeVisible();
+    await expect(owner.page.getByText("MCP · E2E audit")).toBeVisible();
+  });
+
+  await test.step("another member sees only that an agent wrote it", async () => {
+    await member.page.goto(where);
+    await expect(member.page.getByText("Audit: the lamp from page 1 is missing here.")).toBeVisible();
+    await expect(member.page.getByText("MCP", { exact: true })).toBeVisible();
+    await expect(member.page.getByText("E2E audit")).toHaveCount(0);
+  });
+
+  await test.step("a hand-written reply says so; the agent resolves the thread", async () => {
+    await member.page.getByRole("button", { name: "Reply", exact: true }).click();
+    const reply = member.page.getByLabel("Reply", { exact: true });
+    await reply.fill("On it.");
+    await reply.press("Control+Enter");
+    await expect(member.page.getByText("On it.")).toBeVisible();
+    await expect(member.page.getByText("by hand").first()).toBeVisible();
+    await mcpCall(owner.page, token, "resolve_comment", { commentId });
+    // Resolved threads fold away under "Show N resolved".
+    for (const p of [member.page, owner.page]) {
+      await p.reload();
+      await p.getByRole("button", { name: /^Show \d+ resolved$/ }).click();
+      await expect(p.getByText(`Resolved by @${owner.user.username}`)).toBeVisible();
+    }
+    await expect(member.page.getByText("E2E audit")).toHaveCount(0);
+    await expect(owner.page.getByText("MCP · E2E audit")).toHaveCount(2);
+  });
+});
+
 test("channel profiles: voice, pronunciation and branding, picked in the wizard, re-applied with a diff", async () => {
   const page = owner.page;
   const name = "E2E Channel";

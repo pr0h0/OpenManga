@@ -7,6 +7,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-10-05
+
+Upgrading: pull the new images and restart. One migration (`0034_comment_agent_source`) runs on start through the
+migrate service: four columns on `panel_comments` recording comments and resolutions made through an agent connection.
+Existing comments count as written by hand. No new settings. Reload open tabs to get the new web app.
+
+### Added
+
+- Comments from agents: MCP `resolve_comment` resolves or reopens a thread, so one agent can audit a project with
+  `post_comment` and another (or you) can read the open threads with `list_comments`, fix them and resolve them.
+  Every comment and resolution shows whether it was written by hand or through an agent connection ("MCP"); only the
+  member whose connection it was also sees its name. Notifications say "via MCP". Migration `0034` adds the columns.
+- Thumbnail variants: Exports → YouTube package shows every thumbnail headline composited on the same art side by
+  side, each with *Use* and a full-size download, and the headlines are now editable there. The YouTube package
+  export ships each one as its own image (`thumbnails/1-….png`) next to the title options in `titles.txt`, for
+  YouTube's Test & compare. No images are generated for them.
+- Shot variety check: runs of panels repeating the same shot size (four in a row) or framing (the same size and
+  angle, three in a row) are flagged on the storyboard (*Repeated shot* filter, with the run on each card) and on the
+  Health page, and returned by `GET /api/projects/:projectId/shot-variety` and MCP `get_project_checks
+  check=shot_variety`. It reads the plan only: nothing is spent.
+- Audio check (Narration QA → *Check audio*, or `audio: true` on the narration lint routes and `run_narration_lint`):
+  measures the voiced narration with no model and nothing spent, and flags silent takes, clipping, a stall inside a
+  line and lines much louder or quieter than their chapter, plus chapters out of step in loudness. A *Loudness* tab
+  shows each chapter's integrated loudness, range and true peak (EBU R128). Audio findings offer *New take*, which
+  synthesizes the lines again even where the same take is cached (`newTake` on chapter synthesis; the one-segment
+  route's `force` now does the same).
+- Captions on Shorts: a Shorts cut (Exports → Shorts, or a Short, trailer or teaser on the Repurpose page) can have its
+  narration drawn into the picture, in three styles: a clean line at the bottom, a few large words in the centre, or
+  two lines at the bottom. `video.captions` on `video_shorts` exports and on repurposing items; off by default, and
+  long videos keep the `.srt` only. Not yet for Japanese, Korean, Chinese, Hindi or Thai narration: the render image
+  has no font for those scripts.
+
+### Fixed
+
+- A link to one panel of a page (a comment notification, the open-comments list, a storyboard card) now opens the
+  page editor on that panel; it opened on the page's first panel.
+- Repurpose no longer crashes the tab on long projects: each item's panel pick list (one row and thumbnail per panel)
+  is built only while it is open, and its thumbnails load as they scroll into view.
+
 ## [0.14.0] — 2026-10-04
 
 Upgrading: pull the new images and restart. Six migrations (`0028`–`0033`) run on start through the migrate service;

@@ -337,9 +337,20 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
       const text = await (await u.raw("GET", `/cdn/a/${stamps.assetId}`)).text();
       expect(text.startsWith("0:00 Chapter 1")).toBe(true);
     }
+    // A thumbnail, and two headlines to compare on it.
+    const th = await u.post<{ job: { id: string } }>(`/api/projects/${projectId}/thumbnail`, { title: "Main" }, 202);
+    expect((await waitJob(th.job.id)).status).toBe("completed");
     await u.patch(`/api/projects/${projectId}`, {
       settings: {
-        youtubePackage: { titles: ["T"], description: "D", tags: ["a"], pinnedComment: "Q?", thumbnailHeadlines: [] },
+        youtubePackage: {
+          titles: ["T"],
+          description: "D",
+          tags: ["a"],
+          pinnedComment: "Q?",
+          // Markup characters must stay text in the composited image; a headline with no Latin letters still gets a file;
+          // the same headline twice is two variants.
+          thumbnailHeadlines: ["The duel", 'Tom & "Jerry" <3', "決闘", "The duel"],
+        },
       },
     });
     const pk = await u.post<{ job: { id: string } }>(
@@ -363,6 +374,38 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     );
     for (const f of ["description.txt", "titles.txt", "tags.txt", "pinned-comment.txt", "video/", ".mp4", ".srt"])
       expect(zipNames).toContain(f);
+    // Every headline on the same art, as its own image: the variants to compare or A/B test.
+    const pkgZip = unzipSync(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${pkDone.files[0]!.assetId}`)).arrayBuffer()),
+      { filter: (f) => f.name.endsWith(".png") },
+    );
+    expect(Object.keys(pkgZip).sort()).toEqual([
+      "thumbnail.png",
+      "thumbnails/1-the_duel.png",
+      "thumbnails/2-tom_jerry_3.png",
+      "thumbnails/3.png",
+      "thumbnails/4-the_duel.png",
+    ]);
+    const variant = await sharp(pkgZip["thumbnails/1-the_duel.png"]!).metadata();
+    expect([variant.width, variant.height]).toEqual([1280, 720]);
+    // Each variant is its own picture: the headline differs, the art does not.
+    const raw = async (f: string) => sharp(pkgZip[f]!).raw().toBuffer();
+    expect(Buffer.compare(await raw("thumbnails/1-the_duel.png"), await raw("thumbnails/2-tom_jerry_3.png"))).not.toBe(
+      0,
+    );
+    expect(Buffer.compare(await raw("thumbnails/1-the_duel.png"), await raw("thumbnails/4-the_duel.png"))).toBe(0);
+    // YouTube's limits hold on the server too: a headline over 60 characters, or a ninth one, is refused.
+    const pkg = { titles: ["T"], description: "D", tags: [], pinnedComment: "" };
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { youtubePackage: { ...pkg, thumbnailHeadlines: ["x".repeat(61)] } } },
+      422,
+    );
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { youtubePackage: { ...pkg, thumbnailHeadlines: Array.from({ length: 9 }, (_, i) => `H${i}`) } } },
+      422,
+    );
 
     // A page selection renders only those pages: shorter than the chapter, and still a valid film.
     const chapterPages = await u.get<{ pages: { id: string }[] }>(`/api/chapters/${chapterId}`);
@@ -776,11 +819,54 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     );
     expect(ok.warnings).toBeUndefined();
     await u.post(`/api/exports/${ok.job.id}/cancel`);
+    // Captions: an unknown style is refused, and so is a narration language the render has no font for.
+    await u.post(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, video: { captions: "karaoke" } },
+      422,
+    );
+    const fontless = await u.raw("POST", `/api/projects/${projectId}/exports`, {
+      kind: "video_shorts",
+      panelIds: art,
+      language: "ja",
+      video: { captions: "bottom" },
+    });
+    expect(fontless.status).toBe(400);
+    expect(await fontless.text()).toContain("no font for its script");
+    // Off is always fine in that language, and other kinds ignore the option.
+    const offJa = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      { kind: "video_shorts", panelIds: art, language: "ja", video: { captions: "off" } },
+      202,
+    );
+    await u.post(`/api/exports/${offJa.job.id}/cancel`);
+    const panelsCut = await u.post<{ job: { id: string } }>(
+      `/api/projects/${projectId}/exports`,
+      {
+        kind: "video_panels",
+        chapterId,
+        video: { captions: "center", maxDurationMs: 10_000 },
+        acknowledgeIssues: true,
+      },
+      202,
+    );
+    await u.post(`/api/exports/${panelsCut.job.id}/cancel`);
+    // A repurposing plan keeps each item's captions; a wrong value is refused.
+    const item = { id: "short-1", kind: "short", label: "Short 1", panelIds: art.slice(0, 2), captions: "two_line" };
+    await u.patch(`/api/projects/${projectId}`, { settings: { repurpose: { items: [item] } } });
+    const plan = await u.get<{ items: { captions?: string }[] }>(`/api/projects/${projectId}/repurpose`);
+    expect(plan.items[0]!.captions).toBe("two_line");
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { repurpose: { items: [{ ...item, captions: "huge" }] } } },
+      422,
+    );
     // The render honours the chosen length, whatever it is: 95 s of 30 s shots ends before the fourth, at 90 s.
+    // Captions drawn into the picture re-encode the joined film without changing its length.
     const capped = await runExport(projectId, {
       kind: "video_shorts",
       panelIds: art,
-      video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 95 },
+      video: { height: 720, fps: 12, minHoldMs: 30_000, shortsSeconds: 95, captions: "bottom" },
     });
     const cappedMs = (await probe(capped.files.find((f) => f.mimeType === "video/mp4")!.assetId)).ms;
     expect(Math.abs(cappedMs - Math.min(3, art.length) * 30_000)).toBeLessThan(200);
