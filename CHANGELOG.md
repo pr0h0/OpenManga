@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-04
+
+Upgrading: pull the new images and restart. Six migrations (`0028`–`0033`) run on start through the migrate service;
+`0033` records what each chapter's existing plan and narration were made from, so nothing shows as out of date after
+the upgrade. No new settings. Reload open tabs to get the new web app.
+
 Upgrading: six migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
 story bible's two tables, `0030_production_run_lease` two nullable columns to `production_runs`,
 `0031_continuity_findings` the continuity findings, `0032_narration_findings` a table for narration QA findings, and
