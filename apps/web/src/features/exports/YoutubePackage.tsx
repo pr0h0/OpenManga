@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Youtube } from "lucide-react";
+import { Check, Download, Sparkles, Youtube } from "lucide-react";
 import { useEffect, useState } from "react";
 import { patch, post } from "../../api/client.ts";
 import { onProjectEvent, qk } from "../../api/hooks.ts";
@@ -31,12 +31,14 @@ export function YoutubePackageCard() {
   // Typed as text and parsed when saved, so a new line or comma being typed is not stripped mid-word.
   const [titlesText, setTitlesText] = useState((saved ?? EMPTY).titles.join("\n"));
   const [tagsText, setTagsText] = useState((saved ?? EMPTY).tags.join(", "));
+  const [headlinesText, setHeadlinesText] = useState((saved ?? EMPTY).thumbnailHeadlines.join("\n"));
   const [writing, setWriting] = useState(false);
   const key = JSON.stringify(saved);
   useEffect(() => {
     setP(saved ?? EMPTY);
     setTitlesText((saved ?? EMPTY).titles.join("\n"));
     setTagsText((saved ?? EMPTY).tags.join(", "));
+    setHeadlinesText((saved ?? EMPTY).thumbnailHeadlines.join("\n"));
   }, [key]);
   // The job writes into the project settings; refresh when it finishes.
   useEffect(
@@ -84,7 +86,13 @@ export function YoutubePackageCard() {
       .split(sep)
       .map((s) => s.trim())
       .filter(Boolean);
-  const current: Pkg = { ...p, titles: split(titlesText, "\n"), tags: split(tagsText, ",") };
+  const current: Pkg = {
+    ...p,
+    titles: split(titlesText, "\n"),
+    tags: split(tagsText, ","),
+    thumbnailHeadlines: split(headlinesText, "\n"),
+  };
+  const thumb = data?.project.settings.thumbnail;
   const dirty = JSON.stringify(current) !== JSON.stringify(saved ?? EMPTY);
 
   return (
@@ -130,25 +138,75 @@ export function YoutubePackageCard() {
               onChange={(e) => setP({ ...p, pinnedComment: e.target.value })}
             />
           </Field>
+          <Field label="Thumbnail headlines (one per line)">
+            <textarea
+              className="input min-h-20"
+              value={headlinesText}
+              onChange={(e) => setHeadlinesText(e.target.value)}
+            />
+          </Field>
+          <div className="flex items-end">
+            <CopyButton
+              text={[current.titles[0] ?? "", "", p.description, "", current.tags.join(", ")].join("\n")}
+              label="Copy all"
+            />
+          </div>
           <div className="md:col-span-2">
-            <span className="label">Thumbnail headlines</span>
-            <div className="flex flex-wrap gap-2">
-              {p.thumbnailHeadlines.map((h) => (
-                <button
-                  key={h}
-                  type="button"
-                  className="btn-secondary text-xs"
-                  title="Use this as the thumbnail's headline"
-                  onClick={() => applyHeadline(h)}
-                >
-                  {h}
-                </button>
-              ))}
-              <CopyButton
-                text={[current.titles[0] ?? "", "", p.description, "", current.tags.join(", ")].join("\n")}
-                label="Copy all"
-              />
-            </div>
+            <span className="label">Thumbnail variants</span>
+            {!thumb ? (
+              <p className="muted text-xs">Generate a thumbnail on the overview to see each headline on it.</p>
+            ) : (
+              <>
+                <p className="muted mb-2 text-xs">
+                  Each headline on the same art, to compare side by side; nothing is generated. The YouTube package
+                  export includes them all as separate images, for YouTube's Test &amp; compare (three at a time).
+                </p>
+                <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {current.thumbnailHeadlines.map((h) => {
+                    const url = (download: boolean) =>
+                      `/api/projects/${projectId}/thumbnail.png?${new URLSearchParams({
+                        title: h,
+                        subtitle: thumb.subtitle,
+                        side: thumb.side,
+                        v: thumb.assetId,
+                        ...(download ? { download: "1" } : { width: "480" }),
+                      })}`;
+                    return (
+                      <li key={h} className="overflow-hidden rounded-lg border border-[var(--border)]">
+                        <img src={url(false)} alt={`Thumbnail: ${h}`} className="aspect-video w-full object-cover" />
+                        <div className="flex items-center gap-1 p-1.5 text-xs">
+                          <span className="min-w-0 flex-1 truncate" title={h}>
+                            {h}
+                          </span>
+                          {thumb.title === h ? (
+                            <span className="chip flex items-center gap-1">
+                              <Check className="size-3" /> In use
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-ghost px-1.5 py-0.5 text-xs"
+                              title="Use this as the thumbnail's headline"
+                              onClick={() => applyHeadline(h)}
+                            >
+                              Use
+                            </button>
+                          )}
+                          <a
+                            className="btn-ghost px-1.5 py-0.5"
+                            href={url(true)}
+                            aria-label={`Download the 1280×720 PNG: ${h}`}
+                            title="1280×720 PNG"
+                          >
+                            <Download className="size-3.5" />
+                          </a>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
           </div>
         </div>
       ) : (

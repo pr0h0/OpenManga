@@ -107,8 +107,6 @@ Grouped by area, roughly most useful first within each.
   optional scheduling, playlist, language and category, the altered-or-synthetic content declaration, processing
   status, retry without re-rendering, and the video id kept on the export. (Unaudited API projects can only upload
   privately.)
-- **Title and thumbnail variants.** Several titles and thumbnail headlines from the same art, to compare or A/B test;
-  the headline is already composited apart from the art, so variants cost no images.
 - **Hook lines for repurposed Shorts.** An optional opening line per Short of the repurposing plan, written by a text
   job and voiced before its first shot.
 - **Export targets.** Presets that check a platform's limits before export (YouTube, Shorts, TikTok, Reels, carousels,

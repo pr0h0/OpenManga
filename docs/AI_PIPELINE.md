@@ -43,7 +43,11 @@ on pose, placement and framing. Details and the reasons for the order are in `do
 The video thumbnail (`POST /api/projects/:projectId/thumbnail`, same body as the cover plus `side: left|right`) draws
 16:9 art that keeps that side dark and clear. The title and subtitle stay text in `settings.thumbnail`, and
 `GET /api/projects/:projectId/thumbnail.png` composites them at request time (1280 px wide by default), so rewording
-the headline or moving it to the other side costs nothing. It never replaces the cover.
+the headline or moving it to the other side costs nothing. It never replaces the cover. The YouTube package's
+thumbnail headlines are previewed side by side on the same art (Exports → YouTube package → *Thumbnail variants*,
+each with *Use* and a full-size download), and the package export ships each one as its own image under
+`thumbnails/`, next to every title option in `titles.txt`: title and thumbnail variants to compare or A/B test, at no
+image cost.
 
 The YouTube package (`POST /api/projects/:projectId/youtube-package`, `ai` and `batch` like any text step; Exports →
 YouTube package in the app) writes the publishing text from the project's title, description, chapter summaries and
