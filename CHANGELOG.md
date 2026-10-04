@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Repurpose no longer crashes the tab on long projects: each item's panel pick list (one row and thumbnail per panel)
+  is built only while it is open, and its thumbnails load as they scroll into view.
+
 ## [0.14.0] — 2026-10-04
 
 Upgrading: pull the new images and restart. Six migrations (`0028`–`0033`) run on start through the migrate service;
