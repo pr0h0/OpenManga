@@ -1744,6 +1744,15 @@ Change a project's title, description, type, language, reading direction, colour
                       "4:5"
                     ]
                   },
+                  "captions": {
+                    "type": "string",
+                    "enum": [
+                      "off",
+                      "bottom",
+                      "center",
+                      "two_line"
+                    ]
+                  },
                   "text": {
                     "default": "",
                     "type": "string",
@@ -9784,7 +9793,7 @@ The timing pass's trim or expand. start: a text job rewrites only the given line
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer; `video.captions` bottom, center or two_line draws the narration into the picture), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -10118,6 +10127,15 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "integer",
           "minimum": 15,
           "maximum": 600
+        },
+        "captions": {
+          "type": "string",
+          "enum": [
+            "off",
+            "bottom",
+            "center",
+            "two_line"
+          ]
         }
       }
     },
@@ -10252,7 +10270,7 @@ Candidate shots for a Shorts cut (a trailer of key shots) of a chapter or the wh
 
 ### suggest_repurpose
 
-Repurposing a finished project: `items` is the saved plan (settings.repurpose), `suggestion` a fresh one (`shorts` non-overlapping Shorts of 30–60 s from distinct parts of the story, a 60–90 s trailer, a 15–30 s teaser, a 10-panel carousel and 3 quote images with their lines), `candidates` every panel with its hold, narration, art and quotable lines. Save an edited plan with update_project settings.repurpose.items, write titles and captions with write_social_copy, then render each item with create_export (short/trailer/teaser: video_shorts with panelIds, label, video.shortsSeconds and video.aspect; carousel; quote_image), passing its title and caption as `social`. Read-only.
+Repurposing a finished project: `items` is the saved plan (settings.repurpose), `suggestion` a fresh one (`shorts` non-overlapping Shorts of 30–60 s from distinct parts of the story, a 60–90 s trailer, a 15–30 s teaser, a 10-panel carousel and 3 quote images with their lines), `candidates` every panel with its hold, narration, art and quotable lines. Save an edited plan with update_project settings.repurpose.items, write titles and captions with write_social_copy, then render each item with create_export (short/trailer/teaser: video_shorts with panelIds, label, video.shortsSeconds, video.aspect and video.captions; carousel; quote_image), passing its title and caption as `social`. Read-only.
 
 - **Scopes:** `exports:read`
 - **Sensitivity:** read

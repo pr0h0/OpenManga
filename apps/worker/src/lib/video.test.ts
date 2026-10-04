@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { fitBox, scrollPlan } from "@openmanga/domain";
+import { captionsSupported, fitBox, scrollPlan } from "@openmanga/domain";
 import { focusInCrop } from "@openmanga/image-utils";
-import { fadeFilter, toSrt, zoompanFor } from "./video.ts";
+import { captionChunks, fadeFilter, toAss, toSrt, zoompanFor } from "./video.ts";
 
 test("scroll is capped and centred when the hold is short", () => {
   expect(scrollPlan(648, 1.1, 60)).toEqual({ y0: 291, travel: 66 });
@@ -49,4 +49,60 @@ test("the move is aimed at the image focus inside the visible crop", () => {
   // zoomed crop centred on the focus: centre of the crop
   const f = focusInCrop(2048, 1152, 16 / 9, { focalX: 0.6, focalY: 0.5, scale: 2 });
   expect(f.x).toBeCloseTo(0.5, 2);
+});
+
+test("Shorts captions split a cue into even word groups timed by length", () => {
+  const cue = { startMs: 1000, endMs: 4000, text: "one two three four five six seven" };
+  const bottom = captionChunks([cue], "bottom");
+  // 7 words at most 5 per caption: 4 + 3, not 5 + 2.
+  expect(bottom.map((c) => c.text)).toEqual(["one two three four", "five six seven"]);
+  expect(bottom[0]!.startMs).toBe(1000);
+  expect(bottom[0]!.endMs).toBe(bottom[1]!.startMs);
+  expect(bottom[1]!.endMs).toBe(4000);
+  expect(captionChunks([cue], "two_line").map((c) => c.text)).toEqual(["one two three four\nfive six seven"]);
+  expect(captionChunks([{ ...cue, text: "  " }], "center")).toEqual([]);
+});
+
+test("the ASS file is sized to the frame and escapes override braces", () => {
+  const ass = toAss([{ startMs: 0, endMs: 61_250, text: "Hi {there}" }], "center", 1080, 1920);
+  expect(ass).toContain("PlayResX: 1080\nPlayResY: 1920");
+  expect(ass).toContain("Style: Default,DejaVu Sans,97,");
+  expect(ass).toContain("Dialogue: 0,0:00:00.00,0:01:01.25,Default,,0,0,0,,Hi there");
+});
+
+test("captions: long words and text without spaces are broken to fit, timing stays inside the cue", () => {
+  const long = captionChunks([{ startMs: 0, endMs: 1000, text: "Donaudampfschifffahrtsgesellschaft sank" }], "center");
+  expect(long.map((c) => c.text)).toEqual(["Donaudampf schifffahr tsgesellsc", "haft sank"]);
+  // A script written without spaces is cut by characters, never one caption the width of the whole line.
+  const cjk = captionChunks(
+    [{ startMs: 500, endMs: 2500, text: "彼は屋上の扉を押し開けて女帝が机に伏しているのを見た" }],
+    "bottom",
+  );
+  expect(cjk.every((c) => [...c.text.replaceAll(" ", "")].length <= 16 * 5)).toBe(true);
+  expect(cjk.flatMap((c) => c.text.split(" ")).every((w) => [...w].length <= 16)).toBe(true);
+  for (const chunks of [long, cjk]) {
+    for (const [i, c] of chunks.entries()) {
+      expect(c.endMs).toBeGreaterThanOrEqual(c.startMs);
+      if (i) expect(c.startMs).toBe(chunks[i - 1]!.endMs);
+    }
+  }
+  expect(cjk[0]!.startMs).toBe(500);
+  expect(cjk.at(-1)!.endMs).toBe(2500);
+});
+
+test("captions: empty and zero-length cues, and text that could break the ASS file", () => {
+  expect(captionChunks([{ startMs: 0, endMs: 0, text: "\n \t" }], "bottom")).toEqual([]);
+  expect(captionChunks([{ startMs: 100, endMs: 100, text: "Now." }], "bottom")).toEqual([
+    { startMs: 100, endMs: 100, text: "Now." },
+  ]);
+  const ass = toAss([{ startMs: 0, endMs: 900, text: "a {\\b1}bold\\N claim,\nnew line" }], "bottom", 720, 1280);
+  const line = ass.split("\n").find((l) => l.startsWith("Dialogue:"))!;
+  // Override blocks and backslashes are dropped, so the text cannot restyle or break the file; one event per caption.
+  expect(line).toBe("Dialogue: 0,0:00:00.00,0:00:00.90,Default,,0,0,0,,a b1boldN claim, new line");
+  expect(ass.split("\n").filter((l) => l.startsWith("Dialogue:"))).toHaveLength(1);
+});
+
+test("captions are refused only for scripts the render has no font for", () => {
+  for (const l of ["en", "de", "ru", "ar", "vi", "pt-BR"]) expect(captionsSupported(l)).toBe(true);
+  for (const l of ["ja", "ko", "zh", "zh-CN", "hi", "th", "JA"]) expect(captionsSupported(l)).toBe(false);
 });

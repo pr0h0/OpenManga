@@ -143,6 +143,10 @@ export const VERTICAL_LETTERING = { autoPlace: true } as const;
  * a length and a frame), an Instagram carousel (picked panels as 1:1 or 4:5 images), or a quote image (one panel and a
  * line of its narration or dialogue). `title` and `caption` are its social copy, written by a text job or by hand.
  */
+/** Captions drawn into a Shorts cut from its narration: off, a clean line at the bottom, large words in the centre, or two lines. */
+export const ShortsCaptions = z.enum(["off", "bottom", "center", "two_line"]);
+export type ShortsCaptions = z.infer<typeof ShortsCaptions>;
+
 export const RepurposeItem = z.object({
   id: z.string().trim().min(1).max(40),
   kind: z.enum(["short", "trailer", "teaser", "carousel", "quote"]),
@@ -152,6 +156,8 @@ export const RepurposeItem = z.object({
   lengthSeconds: z.number().int().min(15).max(600).optional(),
   /** Video kinds: 16:9, 9:16 or 1:1; images: 1:1 or 4:5. */
   aspect: z.enum(["16:9", "9:16", "1:1", "4:5"]).optional(),
+  /** Video kinds: captions drawn into the picture. */
+  captions: ShortsCaptions.optional(),
   /** Quote images: the line on the image (its panel is `panelIds[0]`). */
   text: z.string().max(300).default(""),
   title: z.string().max(150).default(""),

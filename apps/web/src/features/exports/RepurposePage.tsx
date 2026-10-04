@@ -1,3 +1,4 @@
+import { captionsSupported } from "@openmanga/domain/browser";
 import type { RepurposeItem } from "@openmanga/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -7,8 +8,9 @@ import { assetUrl, get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
 import { clsx, EmptyState, ErrorBox, Field, PageHeader, Spinner } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
-import { useProjectId } from "../project/ProjectLayout.tsx";
+import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { CaptionsField } from "./ShortsPicker.tsx";
 
 type Candidate = {
   id: string;
@@ -34,7 +36,7 @@ const KIND_LABEL: Record<RepurposeItem["kind"], string> = {
 const secs = (ms: number) => `${Math.round(ms / 1000)} s`;
 
 /** The export request that renders one item: a Shorts cut for the video kinds, images for the others. */
-function exportBody(it: RepurposeItem) {
+function exportBody(it: RepurposeItem, language: string) {
   const social = { title: it.title, caption: it.caption };
   if (VIDEO.has(it.kind))
     return {
@@ -42,7 +44,11 @@ function exportBody(it: RepurposeItem) {
       panelIds: it.panelIds,
       label: it.label || it.kind,
       social,
-      video: { shortsSeconds: it.lengthSeconds ?? 60, aspect: it.aspect ?? "9:16" },
+      video: {
+        shortsSeconds: it.lengthSeconds ?? 60,
+        aspect: it.aspect ?? "9:16",
+        captions: captionsSupported(language) ? (it.captions ?? "off") : "off",
+      },
     };
   return {
     kind: it.kind === "carousel" ? "carousel" : "quote_image",
@@ -59,6 +65,7 @@ function exportBody(it: RepurposeItem) {
  */
 export function RepurposePage() {
   const projectId = useProjectId();
+  const language = useProject().data?.project.language ?? "en";
   const [shorts, setShorts] = useState(3);
   const plan = useQuery({
     queryKey: ["repurpose", projectId, shorts],
@@ -107,7 +114,8 @@ export function RepurposePage() {
     }
   }, [jobStatus]);
   const render = useAction(
-    (list: RepurposeItem[]) => Promise.all(list.map((it) => post(`/projects/${projectId}/exports`, exportBody(it)))),
+    (list: RepurposeItem[]) =>
+      Promise.all(list.map((it) => post(`/projects/${projectId}/exports`, exportBody(it, language)))),
     {
       invalidate: [qk.exports(projectId)],
       success: (r) => `${r.length} export(s) queued — download them from Exports`,
@@ -204,6 +212,7 @@ export function RepurposePage() {
               <ItemCard
                 key={it.id}
                 projectId={projectId}
+                language={language}
                 item={it}
                 cands={cands}
                 onChange={(next) => edit(items.map((x, j) => (j === i ? next : x)))}
@@ -221,6 +230,7 @@ export function RepurposePage() {
 
 function ItemCard({
   projectId,
+  language,
   item: it,
   cands,
   onChange,
@@ -229,6 +239,7 @@ function ItemCard({
   busy,
 }: {
   projectId: string;
+  language: string;
   item: RepurposeItem;
   cands: Candidate[];
   onChange: (it: RepurposeItem) => void;
@@ -293,6 +304,13 @@ function ItemCard({
                 ))}
               </select>
             </Field>
+            {video && (
+              <CaptionsField
+                value={it.captions ?? "off"}
+                onChange={(captions) => set({ captions })}
+                language={language}
+              />
+            )}
           </div>
           {it.kind === "quote" && (
             <Field label="Quote">

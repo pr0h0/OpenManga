@@ -45,6 +45,7 @@ Defaults from the export request schema; every value is overridable per export.
 | `zoom` | `0.06` | Panel cut: camera travel over the hold (6% zoom, or the slack a pan crosses) |
 | `concurrency` | `VIDEO_ENCODE_CONCURRENCY` (4) | Clips rendered and encoded at once |
 | `shortsSeconds` | `180` | `video_shorts` only: the cut's length, 15–600 s; see Shorts cut |
+| `captions` | `off` | `video_shorts` only: captions drawn into the picture (`bottom`, `center`, `two_line`); see Shorts cut |
 | `maxDurationMs` | unset | Partial render: stop after the shot that reaches this length (10 s to 24 h); see below |
 
 Outside the `video` bucket, the request's `pageIds` (up to 500) narrows the film to those pages; see the shot list.
@@ -87,6 +88,19 @@ the best of each, so the trailer spans the whole story rather than its opening; 
 the length and adds the strongest left over until it reaches 30 s. On the Exports page (*Shorts*) the length is a
 setting above the pick, which is a checklist with the running length; change either, preview it
 (`/api/video-preview?panelIds=…&aspect=9:16`, played with the same length limit) and render it.
+
+Captions (`video.captions`, off by default) draw the narration into the picture, for Shorts, Reels and TikTok, which
+autoplay muted. Each narration segment's subtitle cue is cut into short captions (`captionChunks`: evenly sized word
+groups, so no one-word orphan ends a cue, each shown for its share of the cue by length) and written as an ASS file
+(`toAss`, white bold DejaVu Sans with a black outline, sized to the frame's short side): `bottom` up to 5 words low in
+the frame, clear of the Shorts buttons; `center` up to 3 large words in the middle; `two_line` up to 8 words as two
+lines at the bottom. libass draws them during the loudness pass, which then re-encodes the video once (H.264 as
+above) instead of copying it; the cached sections stay caption-free, so turning captions on or off reuses them. The
+browser preview does not show captions. Other video kinds ignore the option and keep the `.srt` only. A word longer
+than a caption line (a long compound, a URL, a script written without spaces) is broken into pieces. The render image
+ships DejaVu Sans, which covers Latin, Cyrillic, Greek, Arabic and Vietnamese but not Japanese, Korean, Chinese, Hindi
+or Thai, so captions in those narration languages are refused (400; `captionsSupported`) and the select is disabled
+rather than drawing empty boxes.
 
 Encoding: H.264 `-preset veryfast -crf 20` per clip (`-tune stillimage` for the page cut, which is a still image
 under a crop; not for the panel cut, where `zoompan` moves every frame), AAC 192 kbit/s 48 kHz stereo on the mux,

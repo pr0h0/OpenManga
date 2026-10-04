@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Captions on Shorts: a Shorts cut (Exports → Shorts, or a Short, trailer or teaser on the Repurpose page) can have its
+  narration drawn into the picture, in three styles: a clean line at the bottom, a few large words in the centre, or
+  two lines at the bottom. `video.captions` on `video_shorts` exports and on repurposing items; off by default, and
+  long videos keep the `.srt` only. Not yet for Japanese, Korean, Chinese, Hindi or Thai narration: the render image
+  has no font for those scripts.
+
 ### Fixed
 
 - Repurpose no longer crashes the tab on long projects: each item's panel pick list (one row and thumbnail per panel)
