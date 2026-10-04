@@ -52,7 +52,7 @@ test("repurpose: suggest a plan, adjust a pick, write copy, render the carousel"
   });
 });
 
-test("exports: a Shorts export suggests a 9:16 pick of shots", async () => {
+test("exports: a Shorts export suggests a 9:16 pick of shots and renders it with captions", async () => {
   await page.goto(`${s.url}/exports`);
   await page
     .getByRole("combobox", { name: /^Format/ })
@@ -62,6 +62,28 @@ test("exports: a Shorts export suggests a 9:16 pick of shots", async () => {
   // The automatic pick: some shots chosen and their running length.
   await expect(page.getByText(/^[1-9]\d* shot\(s\) · \d+\.\d s$/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Preview the Short" })).toBeVisible();
+
+  await test.step("render it with captions drawn in", async () => {
+    await page.getByLabel("Captions").selectOption("bottom");
+    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Export anyway" })
+      .click({ timeout: 15_000 })
+      .catch(() => {});
+    await expect(page.getByText("Export queued")).toBeVisible();
+    type Job = { kind: string; status: string; options: { video?: { captions?: string } } };
+    await expect
+      .poll(
+        async () =>
+          (await api(page).get<{ jobs: Job[] }>(`/projects/${s.projectId}/exports`)).jobs.find(
+            (j) => j.kind === "video_shorts",
+          )?.status,
+        { timeout: 120_000 },
+      )
+      .toBe("completed");
+    const { jobs } = await api(page).get<{ jobs: Job[] }>(`/projects/${s.projectId}/exports`);
+    expect(jobs.find((j) => j.kind === "video_shorts")?.options.video?.captions).toBe("bottom");
+  });
 });
 
 test("page editor: a shot's video settings and a drawn layout guide", async () => {
