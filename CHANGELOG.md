@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- A link to one panel of a page (a comment notification, the open-comments list, a storyboard card) now opens the
+  page editor on that panel; it opened on the page's first panel.
 - Repurpose no longer crashes the tab on long projects: each item's panel pick list (one row and thumbnail per panel)
   is built only while it is open, and its thumbnails load as they scroll into view.
 

@@ -122,11 +122,13 @@ test("comments from an agent: marked MCP for everyone, named only for the member
     await expect(member.page.getByText("On it.")).toBeVisible();
     await expect(member.page.getByText("by hand").first()).toBeVisible();
     await mcpCall(owner.page, token, "resolve_comment", { commentId });
-    await member.page.reload();
-    await expect(member.page.getByText(`Resolved by @${owner.user.username}`)).toBeVisible();
+    // Resolved threads fold away under "Show N resolved".
+    for (const p of [member.page, owner.page]) {
+      await p.reload();
+      await p.getByRole("button", { name: /^Show \d+ resolved$/ }).click();
+      await expect(p.getByText(`Resolved by @${owner.user.username}`)).toBeVisible();
+    }
     await expect(member.page.getByText("E2E audit")).toHaveCount(0);
-    await owner.page.reload();
-    await expect(owner.page.getByText(`Resolved by @${owner.user.username}`)).toBeVisible();
     await expect(owner.page.getByText("MCP · E2E audit")).toHaveCount(2);
   });
 });

@@ -75,7 +75,8 @@ type State = {
   adjustImageFor: string | null;
   setAdjustImage: (id: string | null) => void;
   onSaved: (() => void) | null;
-  hydrate: (pageId: string, d: PageDocument) => void;
+  /** Loads a page; on a page newly opened, `panelId` (when it is on the page) is selected instead of the first panel. */
+  hydrate: (pageId: string, d: PageDocument, panelId?: string) => void;
   select: (s: Selection, additive?: boolean) => void;
   /** Apply an edit as one undoable step and schedule persistence. */
   commit: (fn: (d: EditorDoc) => EditorDoc) => void;
@@ -103,12 +104,13 @@ export const useEditor = create<State>((set, get) => ({
   setAdjustImage: (id) => set({ adjustImageFor: id }),
   onSaved: null,
 
-  hydrate: (pageId, d) => {
+  hydrate: (pageId, d, panelId) => {
     const s = get();
     const next = docFromServer(d);
     if (s.pageId !== pageId) {
-      // Open with the first panel selected so the Panel/Prompt/Versions tabs have something to show.
-      const first = [...next.panels].sort((x, y) => x.order - y.order)[0];
+      // Open on the panel a link names (a comment, a storyboard card), else the first, so the Panel/Prompt/Versions
+      // tabs have something to show.
+      const first = next.panels.find((p) => p.id === panelId) ?? [...next.panels].sort((x, y) => x.order - y.order)[0];
       set({
         pageId,
         doc: next,
