@@ -94,7 +94,8 @@ export async function processTts(deps: WorkerDeps, bullJob: Job) {
   const cachedIsTrimmed =
     !deps.config.TTS_TRIM_SILENCE ||
     (cachedAsset?.metadata as { trimmedSilenceMs?: number } | null)?.trimmedSilenceMs !== undefined;
-  if (cached && cachedAsset && cachedIsTrimmed) {
+  // A new take was asked for: the cached audio is the take being replaced.
+  if (cached && cachedAsset && cachedIsTrimmed && !job.options.newTake) {
     await deps.db.transaction(async (tx) => {
       await tx
         .update(narrationSegments)

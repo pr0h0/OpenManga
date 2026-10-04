@@ -76,7 +76,7 @@ const SAMPLE_RATE = 24_000;
 /** No ffmpeg invocation in an export should outlive this; a wedged encoder would otherwise hold the export queue. */
 const FFMPEG_TIMEOUT_MS = 60 * 60 * 1000;
 
-async function run(cmd: string[], label: string, timeoutMs = FFMPEG_TIMEOUT_MS, cwd?: string) {
+export async function run(cmd: string[], label: string, timeoutMs = FFMPEG_TIMEOUT_MS, cwd?: string) {
   const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe", cwd });
   const timer = setTimeout(() => proc.kill(), timeoutMs);
   try {

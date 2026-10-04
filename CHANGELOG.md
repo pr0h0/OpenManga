@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Audio check (Narration QA → *Check audio*, or `audio: true` on the narration lint routes and `run_narration_lint`):
+  measures the voiced narration with no model and nothing spent, and flags silent takes, clipping, a stall inside a
+  line and lines much louder or quieter than their chapter, plus chapters out of step in loudness. A *Loudness* tab
+  shows each chapter's integrated loudness, range and true peak (EBU R128). Audio findings offer *New take*, which
+  synthesizes the lines again even where the same take is cached (`newTake` on chapter synthesis; the one-segment
+  route's `force` now does the same).
 - Captions on Shorts: a Shorts cut (Exports → Shorts, or a Short, trailer or teaser on the Repurpose page) can have its
   narration drawn into the picture, in three styles: a clean line at the bottom, a few large words in the centre, or
   two lines at the bottom. `video.captions` on `video_shorts` exports and on repurposing items; off by default, and

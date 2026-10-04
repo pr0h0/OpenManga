@@ -98,7 +98,6 @@ Grouped by area, roughly most useful first within each.
   with unclear licensing ships in the repository.
 - **Sound effects.** A tagged local library of effects (footsteps, impacts, doors, crowds, thunder) on its own track,
   with cues suggested from the panels' sound effects and actions, never inserted unasked.
-- **Audio checks.** Silence, clipping and peaks, and a loudness and true-peak report before export.
 - **Voice casting.** Voices per character for dialogue as well as the narrator, saved narrator profiles, and cloned or
   custom voices where a provider allows it.
 

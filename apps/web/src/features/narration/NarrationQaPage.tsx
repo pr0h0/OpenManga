@@ -3,7 +3,7 @@ import { NARRATION_LANGUAGES } from "@openmanga/domain/browser";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import clsx from "clsx";
-import { ListChecks, Sparkles, Wand2 } from "lucide-react";
+import { AudioLines, ListChecks, Mic, Sparkles, Wand2 } from "lucide-react";
 import { useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
@@ -12,9 +12,17 @@ import { EmptyState, ErrorBox, Modal, PageHeader, Spinner, Tabs, toast } from ".
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 
-type Finding = NarrationFindingRow & { fixable: boolean; check: "rule" | "ai" };
+type Finding = NarrationFindingRow & { fixable: boolean; check: "rule" | "ai" | "audio" };
+type Loudness = {
+  chapterId: string;
+  lufs: number | null;
+  lra: number | null;
+  truePeakDb: number | null;
+  measuredAt: string | null;
+};
 type Findings = {
   findings: Finding[];
+  audio: Loudness[];
   lines: { id: string; chapterId: string; order: number; text: string }[];
   counts: { byStatus: Record<string, number>; openByKind: Record<string, number> };
 };
@@ -53,6 +61,11 @@ const KIND_LABEL: Record<string, string> = {
   cross_chapter_repeat: "Repeats an earlier chapter",
   fact_overexplained: "Fact explained again",
   describes_frame: "Only describes the frame",
+  audio_silent: "Silent audio",
+  audio_clipping: "Clipping",
+  audio_gap: "Stall inside a line",
+  audio_level: "Level out of step",
+  audio_loudness: "Chapter loudness",
 };
 const SEVERITY_STYLE: Record<string, string> = {
   high: "bg-red-500/15 text-red-700 dark:text-red-300",
@@ -85,12 +98,12 @@ export function NarrationQaPage() {
   const chapterId = search.chapterId;
   const [language, setLanguage] = useState<string>();
   const lang = language ?? overview?.project.language ?? "en";
-  const [tab, setTab] = useState<"findings" | "density">("findings");
+  const [tab, setTab] = useState<"findings" | "density" | "loudness">("findings");
   const [status, setStatus] = useState<"open" | "ignored" | "fixed">("open");
   const [kind, setKind] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** Jobs this page started and is waiting on: AI checks, and fixes whose proposal opens for review. */
-  const [jobs, setJobs] = useState<{ id: string; kind: "lint" | "fix"; chapterId: string }[]>([]);
+  const [jobs, setJobs] = useState<{ id: string; kind: "lint" | "fix" | "audio"; chapterId: string }[]>([]);
   const [review, setReview] = useState<{ jobId: string; chapterId: string; proposals: Proposal[] } | null>(null);
   const aiText = useAiBody("text");
   const aiTts = useAiBody("tts");
@@ -125,6 +138,8 @@ export function NarrationQaPage() {
         }
         if (job.status === "completed" && j.kind === "lint")
           toast.success(`AI check: ${summary(job.result as Comparison)}`);
+        if (job.status === "completed" && j.kind === "audio")
+          toast.success(`Audio check: ${summary(job.result as Comparison)}`);
         if (job.status === "failed") toast.error(new Error(job.failureReason ?? "The job failed"));
         if (["completed", "failed", "cancelled"].includes(job.status)) {
           setJobs((all) => all.filter((x) => x.id !== j.id));
@@ -155,6 +170,28 @@ export function NarrationQaPage() {
         return `AI check queued for ${started.length} chapter(s); paste-mode jobs wait in Generation`;
       },
     },
+  );
+  const runAudio = useAction(
+    () => post<{ audioJob: { id: string; targetId: string } }>(lintUrl, { language: lang, audio: true }),
+    {
+      invalidate: [findingsKey],
+      success: (r) => {
+        setJobs((all) => [...all, { id: r.audioJob.id, kind: "audio", chapterId: r.audioJob.targetId }]);
+        return "Audio check queued";
+      },
+    },
+  );
+  // A new take of the lines an audio finding points at; the finding stays open until the audio is checked again.
+  const revoice = useAction(
+    (f: Finding) =>
+      post<{ queued: number }>(`/chapters/${f.chapterId}/narration/synthesize`, {
+        lineIds: f.lineIds,
+        onlyMissing: false,
+        newTake: true,
+        language: lang,
+        ...aiTts(),
+      }),
+    { success: (r) => `${r.queued} segment(s) queued for a new take — check the audio again once they are done` },
   );
   const setFindingStatus = useAction(
     (v: { id: string; status: "open" | "ignored" }) => patch(`/narration-findings/${v.id}`, { status: v.status }),
@@ -260,6 +297,15 @@ export function NarrationQaPage() {
         >
           <Sparkles className="size-4" /> Check with AI
         </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => runAudio.mutate()}
+          disabled={runAudio.isPending}
+          title="Silent, clipped or stalled takes, uneven levels and each chapter's loudness, measured in the voiced audio: no model, nothing spent"
+        >
+          <AudioLines className="size-4" /> Check audio
+        </button>
         <AiChip cap="text" />
         {busy && (
           <Link
@@ -279,11 +325,18 @@ export function NarrationQaPage() {
         tabs={[
           { value: "findings", label: `Findings (${findings.data?.counts.byStatus.open ?? 0} open)` },
           { value: "density", label: "Density" },
+          { value: "loudness", label: "Loudness" },
         ]}
       />
 
       {tab === "density" ? (
         <DensityView data={density.data} loading={density.isLoading} chapterId={chapterId} />
+      ) : tab === "loudness" ? (
+        <LoudnessView
+          rows={findings.data?.audio ?? []}
+          chapters={chapters.data?.chapters ?? []}
+          chapterId={chapterId}
+        />
       ) : (
         <>
           {findings.error && <ErrorBox error={findings.error} onRetry={() => findings.refetch()} />}
@@ -348,7 +401,13 @@ export function NarrationQaPage() {
                       className="mt-1 shrink-0"
                       aria-label="Select to fix"
                       disabled={!f.fixable}
-                      title={f.fixable ? "Select to fix" : "Needs lines added or the voice changed, not a rewrite"}
+                      title={
+                        f.fixable
+                          ? "Select to fix"
+                          : f.check === "audio"
+                            ? "Needs a new take of the audio, not a rewrite"
+                            : "Needs lines added or the voice changed, not a rewrite"
+                      }
                       checked={selected.has(f.id)}
                       onChange={(e) => {
                         const next = new Set(selected);
@@ -362,7 +421,7 @@ export function NarrationQaPage() {
                     <div className="flex flex-wrap items-center gap-1.5 text-sm">
                       <span className="font-medium">{KIND_LABEL[f.kind] ?? f.kind}</span>
                       <span className={clsx("chip", SEVERITY_STYLE[f.severity])}>{f.severity}</span>
-                      <span className="chip">{f.check === "ai" ? "AI" : "rule"}</span>
+                      <span className="chip">{f.check === "ai" ? "AI" : f.check}</span>
                       {!chapterId && (
                         <Link
                           to="/projects/$projectId/narration/qa"
@@ -386,7 +445,18 @@ export function NarrationQaPage() {
                       </p>
                     )}
                   </div>
-                  <div className="shrink-0">
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {f.check === "audio" && f.status === "open" && f.lineIds.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        disabled={revoice.isPending}
+                        title="Synthesize these lines again, even where the same take is cached"
+                        onClick={() => revoice.mutate(f)}
+                      >
+                        <Mic className="size-3.5" /> New take
+                      </button>
+                    )}
                     {f.status === "ignored" || f.status === "fixed" ? (
                       <button
                         type="button"
@@ -620,6 +690,74 @@ function DensityView({
         </div>
       )}
       {chapterId && !one?.shots?.length && <p className="muted text-sm">This chapter has no planned shots yet.</p>}
+    </div>
+  );
+}
+
+/** Each chapter's loudness from the newest audio check: what the film's normalisation to -14 LUFS starts from. */
+function LoudnessView({
+  rows,
+  chapters,
+  chapterId,
+}: {
+  rows: Loudness[];
+  chapters: ChapterListItem[];
+  chapterId?: string;
+}) {
+  const by = new Map(rows.map((r) => [r.chapterId, r]));
+  const list = chapters.filter((c) => (chapterId ? c.id === chapterId : by.has(c.id)));
+  if (!rows.length)
+    return (
+      <EmptyState icon={<AudioLines className="size-8" />} title="Not measured yet">
+        Run <b>Check audio</b> to measure each voiced chapter's loudness and true peak.
+      </EmptyState>
+    );
+  const num = (n: number | null, unit: string) => (n === null ? "—" : `${n.toFixed(1)} ${unit}`);
+  return (
+    <div className="space-y-3">
+      <div className="card overflow-x-auto p-0">
+        <table className="w-full min-w-[30rem] text-sm">
+          <thead className="muted text-left text-xs">
+            <tr>
+              <th className="p-2">Chapter</th>
+              <th className="p-2 text-right">Loudness</th>
+              <th className="p-2 text-right">Range</th>
+              <th className="p-2 text-right">True peak</th>
+              <th className="p-2 text-right">Measured</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((c) => {
+              const r = by.get(c.id);
+              return (
+                <tr key={c.id} className="border-t border-[var(--border)]">
+                  <td className="p-2">
+                    Ch. {c.order} — {c.title}
+                  </td>
+                  <td className="p-2 text-right tabular-nums">{num(r?.lufs ?? null, "LUFS")}</td>
+                  <td className="p-2 text-right tabular-nums">{num(r?.lra ?? null, "LU")}</td>
+                  <td
+                    className={clsx(
+                      "p-2 text-right tabular-nums",
+                      (r?.truePeakDb ?? -99) > -1 && "text-amber-600 dark:text-amber-400",
+                    )}
+                  >
+                    {num(r?.truePeakDb ?? null, "dBTP")}
+                  </td>
+                  <td className="muted p-2 text-right text-xs">
+                    {r?.measuredAt ? new Date(r.measuredAt).toLocaleDateString() : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted text-xs">
+        Measured on the voiced narration with its pauses (EBU R128). A video export normalises the whole film to -14
+        LUFS with peaks under -1.5 dBTP, so what matters here is that chapters sit close together; a true peak above -1
+        dBTP (amber) is close to clipping before normalisation.
+      </p>
     </div>
   );
 }

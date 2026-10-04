@@ -739,6 +739,7 @@ audioRoutes.post(
 export const Synth = z.object({
   voice: z.string().max(128).optional(),
   speed: z.number().min(0.5).max(2).optional(),
+  /** Synthesize again even when audio for the same text, voice and speed is cached (a new take). */
   force: z.boolean().default(false),
   ai: AiChoiceInput,
 });
@@ -772,7 +773,7 @@ audioRoutes.post("/narration-segments/:id/synthesize", async (c) => {
       voice,
       speed,
       priority: PRIORITY.interactive,
-      options: voiceRun.options,
+      options: { ...voiceRun.options, ...(input.force ? { newTake: true } : {}) },
     }),
   );
   await deps.jobs.kick();
@@ -789,6 +790,11 @@ export const SynthAll = z.object({
   ai: AiChoiceInput,
   /** Only these segments of the chapter (others are left alone). */
   segmentIds: z.array(z.string().uuid()).max(5000).optional(),
+  /**
+   * A new take: synthesize even where audio for the same text, voice and speed is cached (a stalled or clipped take
+   * the audio check found). Local Kokoro gives the same take every time; a cloud voice usually does not.
+   */
+  newTake: z.boolean().default(false),
 });
 doc({
   method: "POST",
@@ -800,7 +806,15 @@ doc({
 audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
   const chapterId = uuidParam(c, "id");
   const project = await entityAccess(c, "chapter", chapterId, "generate");
-  const { onlyMissing, voice: voiceOverride, ai, language: lang, segmentIds, lineIds } = await body(c, SynthAll);
+  const {
+    onlyMissing,
+    voice: voiceOverride,
+    ai,
+    language: lang,
+    segmentIds,
+    lineIds,
+    newTake,
+  } = await body(c, SynthAll);
   const language = lang || project.language;
   const deps = c.get("deps");
   const voiceRun = await ttsRun(c, ai, voiceOverride);
@@ -854,7 +868,7 @@ audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
         speed,
         batchId,
         priority: PRIORITY.page,
-        options: voiceRun.options,
+        options: { ...voiceRun.options, ...(newTake ? { newTake: true } : {}) },
       });
       queued++;
     }

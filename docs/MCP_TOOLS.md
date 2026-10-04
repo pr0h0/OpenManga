@@ -9026,7 +9026,7 @@ Queue speech synthesis for one segment (segmentId) or every missing/stale segmen
 
 ### run_narration_lint
 
-Narration QA for a chapter (chapterId) or every chapter with narration (projectId). The deterministic checks (repeated sentence openings, flat rhythm, a name used too often, near-duplicate lines, narration restating the panel's dialogue, chapters that open or end alike, crowded shots, silent stretches, pace from real audio) run at once and are stored as findings; the answer says how many were found, are new, remain and were resolved since the last run. semantic=true also queues the AI check per chapter (meaning repeated in other words, facts explained again, lines that only describe the frame) as narration_lint jobs: manual mode (ai.manual=true) asks you for a NarrationLintReport; a provider run spends credits (may need approval). Read findings with get_narration_qa.
+Narration QA for a chapter (chapterId) or every chapter with narration (projectId). The deterministic checks (repeated sentence openings, flat rhythm, a name used too often, near-duplicate lines, narration restating the panel's dialogue, chapters that open or end alike, crowded shots, silent stretches, pace from real audio) run at once and are stored as findings; the answer says how many were found, are new, remain and were resolved since the last run. semantic=true also queues the AI check per chapter (meaning repeated in other words, facts explained again, lines that only describe the frame) as narration_lint jobs: manual mode (ai.manual=true) asks you for a NarrationLintReport; a provider run spends credits (may need approval). audio=true also queues one audio_check job over the voiced audio (silent, clipped or stalled segments, lines much louder or quieter than their chapter, chapters out of step in loudness; plus each chapter's integrated LUFS, loudness range and true peak); no model, nothing spent. Read findings with get_narration_qa.
 
 - **Scopes:** `narration:write`, `generations:run`
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
@@ -9048,6 +9048,10 @@ Narration QA for a chapter (chapterId) or every chapter with narration (projectI
       "maxLength": 16
     },
     "semantic": {
+      "default": false,
+      "type": "boolean"
+    },
+    "audio": {
       "default": false,
       "type": "boolean"
     },
@@ -9114,7 +9118,7 @@ Narration QA for a chapter (chapterId) or every chapter with narration (projectI
 
 ### get_narration_qa
 
-view=findings: a project's narration QA findings (type, chapter, line ids, severity, explanation, status open/ignored/fixed, whether a rewrite can fix it) with counts by status, type and chapter and the text of the flagged lines; filter by chapterId, status or kind. view=density: words, words per shot, silent shots and words per minute (from current audio) per chapter, and shot by shot with chapterId. Read-only.
+view=findings: a project's narration QA findings (type, chapter, line ids, severity, explanation, status open/ignored/fixed, whether a rewrite can fix it, and `check`: rule, ai or audio; audio findings are fixed by voicing the line again) with counts by status, type and chapter, the text of the flagged lines, and `audio`: each chapter's loudness from the newest audio check; filter by chapterId, status or kind. view=density: words, words per shot, silent shots and words per minute (from current audio) per chapter, and shot by shot with chapterId. Read-only.
 
 - **Scopes:** `narration:read`
 - **Sensitivity:** read

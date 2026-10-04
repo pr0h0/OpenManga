@@ -22,6 +22,7 @@ const OPERATION_LABELS: Record<string, string> = {
   narration_text: "Narration text",
   narration_lint: "Narration QA",
   narration_fix: "Narration fixes",
+  audio_check: "Audio check",
   story_coverage: "Story coverage",
   narration_retime: "Narration timing",
   social_copy: "Social copy",
