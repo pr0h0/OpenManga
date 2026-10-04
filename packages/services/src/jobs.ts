@@ -23,7 +23,11 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   chapter_plan: "text-ai",
   page_prompts: "text-ai",
   narration_text: "text-ai",
+  narration_retime: "text-ai",
+  social_copy: "text-ai",
   expert_extract: "text-ai",
+  bible_extract: "text-ai",
+  continuity_check: "text-ai",
   character_reference: "image-generation",
   location_reference: "image-generation",
   prop_reference: "image-generation",
@@ -33,6 +37,9 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   panel_check: "text-ai",
   youtube_package: "text-ai",
   image_describe: "text-ai",
+  narration_lint: "text-ai",
+  narration_fix: "text-ai",
+  story_coverage: "text-ai",
   cover: "image-generation",
   thumbnail: "image-generation",
   image_batch_submit: "image-batch",
@@ -488,6 +495,24 @@ export class JobService {
       status: "cancelled",
     });
     return "cancelled";
+  }
+
+  /** A queued export is taken off its queue; a running one is asked to stop (the worker checks between steps). */
+  async cancelExport(jobId: string): Promise<"cancelled" | "cancel_requested" | "not_cancellable"> {
+    const [job] = await this.db.select().from(exportJobs).where(eq(exportJobs.id, jobId));
+    if (job?.status === "queued") {
+      for (const q of exportQueuesFor(job.kind)) await this.opts.queue?.removeWaiting(q, job.id);
+      await this.db
+        .update(exportJobs)
+        .set({ status: "cancelled", finishedAt: new Date() })
+        .where(eq(exportJobs.id, jobId));
+      return "cancelled";
+    }
+    if (job?.status === "processing") {
+      await this.db.update(exportJobs).set({ status: "cancel_requested" }).where(eq(exportJobs.id, jobId));
+      return "cancel_requested";
+    }
+    return "not_cancellable";
   }
 
   /** Retry creates a NEW job (history preserved) with the same compiled prompt and inputs. */

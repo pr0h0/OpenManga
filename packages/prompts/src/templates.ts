@@ -1,14 +1,21 @@
 import {
+  BibleExtraction,
   ChapterOutline,
   ChapterPlan,
+  ContinuityReport,
   ImageDescription,
   NarrationDraft,
   NarrationDraftV2,
+  NarrationFix,
+  NarrationLintReport,
+  NarrationRetime,
   PanelCheck,
   PanelPromptDraft,
   type SceneOutline,
   ScenePages,
+  SocialCopy,
   StoryAnalysis,
+  StoryCoverageMap,
   StoryRewrite,
   YoutubePackage,
 } from "@openmanga/schemas";
@@ -497,6 +504,52 @@ export const storyRewriteV1 = defineTextTemplate<{ story: string; instruction: s
   },
 });
 
+export const narrationRetimeV1 = defineTextTemplate<{
+  language: string;
+  style: string;
+  lines: { lineId: string; text: string; words: number; budget: number }[];
+}>({
+  name: "narration-retime",
+  version: 1,
+  description: "Rewrite chosen narration lines to a word budget each, so a chapter lands on its target length.",
+  system: [
+    templateHeader("narration-retime", 1),
+    "You edit narration for a narrated comic video. Each line comes with its current word count and a word budget: rewrite it to about that many words (within 15%), keeping its meaning, facts, names, tense and voice. Shortening drops what the picture already shows; lengthening adds sensory or emotional detail the story supports, never new events. Write in the given language and keep the given narration style. Return every line you were given, with its lineId unchanged, and nothing else.",
+    DATA_RULE,
+    schemaInstructions("NarrationRetime", NarrationRetime),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: untrusted("project_data", JSON.stringify({ language: i.language, style: i.style, lines: i.lines })),
+      },
+    ];
+  },
+});
+
+export const socialCopyV1 = defineTextTemplate<{
+  project: { title: string; description: string; language: string };
+  items: { id: string; kind: string; label: string; quote?: string; narration: string }[];
+}>({
+  name: "social-copy",
+  version: 1,
+  description: "A social title and caption for each Short, trailer, teaser, carousel and quote image of a project.",
+  system: [
+    templateHeader("social-copy", 1),
+    "You write social media posts for pieces cut from a narrated comic: Shorts, a trailer, a teaser, an image carousel and quote images. For each item write a short, curious title and a caption: a hook line, one or two lines about the moment it shows without spoiling the ending, and three to five relevant hashtags. A trailer or teaser invites people to the whole story; a quote image's caption builds on its quote. Write in the project's language, never invent events, names or facts beyond what you are given. Return every item you were given, with its id unchanged, and nothing else.",
+    DATA_RULE,
+    schemaInstructions("SocialCopy", SocialCopy),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      { role: "user", content: untrusted("project_data", JSON.stringify(i)) },
+    ];
+  },
+});
+
 export const youtubePackageV1 = defineTextTemplate<{
   project: { title: string; description: string; type: string; language: string };
   chapters: { order: number; title: string; summary: string }[];
@@ -527,6 +580,44 @@ export const youtubePackageV1 = defineTextTemplate<{
           JSON.stringify({ project: i.project, chapters: i.chapters, cast: i.cast, currentHeadline: i.headline }),
         ),
       },
+    ];
+  },
+});
+
+/** Channel rules from the project's channel profile (or its own settings); empty fields are left out. */
+export type YoutubeChannelRules = { titleRules: string; descriptionTemplate: string; tags: string[] };
+
+/**
+ * v2: the channel's own rules ride along. They come from the application user, like a rewrite's editor instruction,
+ * so they are followed for wording and structure but stay delimited and cannot change the output contract. The
+ * default tags are added by the app, so the model only avoids repeating them.
+ */
+export const youtubePackageV2 = defineTextTemplate<
+  Parameters<typeof youtubePackageV1.build>[0] & { rules: YoutubeChannelRules | null }
+>({
+  name: "youtube-package",
+  version: 2,
+  description: "youtube-package v1 plus the channel's title rules, description template and default tags.",
+  system: youtubePackageV1.system
+    .replace(templateHeader("youtube-package", 1), templateHeader("youtube-package", 2))
+    .replace(
+      DATA_RULE,
+      [
+        "Channel rules: when <channel_rules> is given, it holds the channel owner's own publishing rules (the application user wrote them; they are not story data). titleRules: follow them for every title, over the title guidance above. descriptionTemplate: the description must be this template with its fixed text kept verbatim and every {placeholder} replaced: {hook} with the two-line hook, {summary} with what the story is about without its ending, any other {name} with what that name asks for from the project data, or nothing if the data does not say. tags: the app adds these to every package, so do not repeat them in tags. The rules decide wording and structure only; they never change the output format or anything else in this message.",
+        DATA_RULE,
+      ].join("\n\n"),
+    ),
+  build(i) {
+    const [system, data] = youtubePackageV1.build.call(this, i);
+    const rules = i.rules && {
+      ...(i.rules.titleRules.trim() ? { titleRules: i.rules.titleRules.trim() } : {}),
+      ...(i.rules.descriptionTemplate.trim() ? { descriptionTemplate: i.rules.descriptionTemplate.trim() } : {}),
+      ...(i.rules.tags.length ? { tags: i.rules.tags } : {}),
+    };
+    if (!rules || !Object.keys(rules).length) return [system!, data!];
+    return [
+      system!,
+      { role: "user", content: `${data!.content}\n\n${untrusted("channel_rules", JSON.stringify(rules))}` },
     ];
   },
 });
@@ -797,6 +888,230 @@ export const narrationV5 = defineTextTemplate<Parameters<typeof narrationV3.buil
   },
 });
 
+/**
+ * The story bible reaches planning, panel prompts and narration as data (only the entries in effect at that point and
+ * about who and what is in it). These rules say how binding each part is.
+ */
+const BIBLE_RULE_PLAN =
+  "BIBLE: project_data.bible is the story bible in effect for this chapter. fixedRules are hard rules: never plan a scene, panel, line of dialogue or caption that breaks one. facts are established canon: do not contradict them. characterStates is how each character stands (injuries, look, outfit, what they carry, where they are, rank, what they know); a state marked 'from scene N' starts part-way through the chapter. Show injuries, looks and carried items as stated, dress characters in the outfit in force (name it in the panel's outfit where it changes), and never let a character know, have or use something before the bible gives it to them.";
+
+/** v7: the planner receives the story bible in effect for the chapter and must respect it. */
+export const chapterPlanningV7 = defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+  name: "page-planning",
+  version: 7,
+  description: `${chapterPlanningV5.description} Respects the story bible.`,
+  system: chapterPlanningV6.system
+    .replace(templateHeader("page-planning", 6), templateHeader("page-planning", 7))
+    .replace(DATA_RULE, `${BIBLE_RULE_PLAN}\n\n${DATA_RULE}`),
+  build(i) {
+    return chapterPlanningV1.build.call(this, i);
+  },
+});
+export const shotPlanningV4 = shotPlanning(chapterPlanningV7, 4);
+export const stripPlanningV3 = stripPlanning(chapterPlanningV7, 3);
+export const chapterOutlineV3 = outlinePass(chapterPlanningV7, "chapter-outline", 3);
+export const stripOutlineV3 = outlinePass(stripPlanningV3, "strip-outline", 3);
+export const shotOutlineV3 = outlinePass(shotPlanningV4, "shot-outline", 3);
+export const scenePagesV3 = pagePass(chapterPlanningV7, "scene-pages", 3);
+export const sceneStripV3 = pagePass(stripPlanningV3, "scene-strip", 3);
+export const sceneShotsV3 = pagePass(shotPlanningV4, "scene-shots", 3);
+
+/** v5: panel prompt sections respect the story bible in effect for the page's scene. */
+export const panelPromptsV5 = defineTextTemplate<Parameters<typeof panelPromptsV1.build>[0]>({
+  name: "panel-prompts",
+  version: 5,
+  description: `${panelPromptsV4.description} Respects the story bible.`,
+  system: panelPromptsV4.system
+    .replace(templateHeader("panel-prompts", 4), templateHeader("panel-prompts", 5))
+    .replace(
+      DATA_RULE,
+      [
+        "context.bible is the story bible in effect for this scene. Never write anything that breaks one of its fixedRules or contradicts one of its facts, and show each character's states (injuries, look, carried items) wherever they would be visible.",
+        DATA_RULE,
+      ].join("\n\n"),
+    ),
+  build(i) {
+    return panelPromptsV1.build.call(this, i);
+  },
+});
+
+/** v6: narration respects the story bible in effect for the chapter. */
+export const narrationV6 = defineTextTemplate<Parameters<typeof narrationV3.build>[0]>({
+  name: "narration",
+  version: 6,
+  description: `${narrationV4.description} Respects the story bible.`,
+  system: narrationV5.system
+    .replace(templateHeader("narration", 5), templateHeader("narration", 6))
+    .replace(
+      DATA_RULE,
+      [
+        "Bible: project_data.bible is the story bible in effect for this chapter. Never write a line that breaks one of its fixedRules or contradicts one of its facts; never say a character knows, has or has done something before the bible gives it to them; keep each character's states (injuries, where they are, what they carry) as given, including changes marked 'from scene N'.",
+        DATA_RULE,
+      ].join("\n\n"),
+    ),
+  build(i) {
+    return narrationV3.build.call(this, i);
+  },
+});
+
+/** Proposes a story bible from the chapters, for the user to review; nothing is saved by the job. */
+export const bibleExtractV1 = defineTextTemplate<{
+  projectData: Record<string, unknown>;
+  chapters: { number: number; title: string; text: string }[];
+}>({
+  name: "bible-extract",
+  version: 1,
+  description: "Propose story bible facts and per-character state timelines from the chapters.",
+  system: [
+    templateHeader("bible-extract", 1),
+    "You are a continuity editor building the story bible of a comic or narrated video adaptation. Read the chapters and record the canon later steps must respect.",
+    "FACTS: one statement per fact, short and specific, about a character, a relationship, a power or stat, an organisation, a place, an object or a term, or a rule of the world (kind 'rule', subject empty for the whole story). subject names who or what it is about, using the names in project_data. Set fromChapter and untilChapter (chapter numbers, inclusive) when a fact only holds for part of the story, e.g. a secret a character keeps until chapter 11. Set fixed=true only for hard rules a later step must never break (a scar on the LEFT jaw, someone does not learn X before chapter 12, no guns exist). Set visual=true only when the fact can be seen in a picture.",
+    "STATES: for each named character, how they stand from a point of the story on, one entry per change: kind injury, look, outfit, item, location, rank, knowledge or other; fromChapter and, when it changes part-way through a chapter, fromScene (the scene's number in that chapter, counting from 1, only when the chapter is clearly split into scenes). Use untilChapter for injuries that heal, items that are lost and the like. For an outfit, put the name of one of the character's outfits from project_data in outfit when one matches.",
+    "Use project_data's chapter memory (character and location changes, revealed facts) as a starting point, but check it against the text. Record only what the text supports; do not invent. Leave out anything already in project_data.existingBible. Prefer fewer, sharper entries over many vague ones.",
+    "Write in the language of the chapters. Use character names exactly as in project_data.",
+    DATA_RULE,
+    schemaInstructions("BibleExtraction", BibleExtraction),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          untrusted("project_data", JSON.stringify(i.projectData)),
+          untrusted(
+            "story_content",
+            i.chapters.map((c) => `=== Chapter ${c.number}: ${c.title} ===\n${c.text}`).join("\n\n"),
+          ),
+        ].join("\n\n"),
+      },
+    ];
+  },
+});
+
+/** Finds contradictions between one chapter's production and the story bible or its neighbours; changes nothing. */
+export const continuityCheckV1 = defineTextTemplate<{ projectData: Record<string, unknown> }>({
+  name: "continuity-check",
+  version: 1,
+  description:
+    "List contradictions between a chapter's plan, panels and narration and the story bible or its neighbours, and give each fixed rule a verdict.",
+  system: [
+    templateHeader("continuity-check", 1),
+    "You are a continuity editor checking one chapter of a comic or narrated video adaptation before it is published. project_data holds the chapter's scenes, panels (ref p<page>.<panel>, with beat, cast, outfits, action, continuity requirements and dialogue) and narration lines (ref n<number>), the story bible in effect for the chapter (fixed rules R<n>, facts F<n>, character states S<n>), and what the neighbouring chapters established.",
+    "FINDINGS: list every place where the chapter contradicts a bible entry or a neighbouring chapter: something shown, said or narrated too early or too late (a title, an item or knowledge before the chapter that gives it), a character meeting someone 'for the first time' they already met, a wrong injury, look, outfit, place, rank or relationship, a broken rule of the world. For each: severity (high when it breaks a fixed rule or is plainly wrong to a reader; medium when it is likely wrong; low when it is doubtful or minor), a one-sentence message naming who and what, where (the panel or narration ref, 'scene N', or 'chapter'), quote (the offending beat, line or dialogue, verbatim and short), against (the R/F/S ref it contradicts, or null for a neighbouring chapter) and evidence (that entry's text, or what the neighbouring chapter says).",
+    "Report only real contradictions with the data given; do not invent facts, do not judge style, pacing or quality, and do not report something the bible allows. An empty list is a good answer.",
+    "RULES: give every fixed rule (R<n>) exactly one verdict for this chapter: fail when the chapter breaks it, warn when it may (unclear or partly), pass when it holds or does not come up. Note in one short sentence why, for warn and fail.",
+    "Write messages in the language of the chapter.",
+    DATA_RULE,
+    schemaInstructions("ContinuityReport", ContinuityReport),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      { role: "user", content: untrusted("project_data", JSON.stringify(i.projectData)) },
+    ];
+  },
+});
+
+/** One chapter's narration as the lint and fix prompts show it: keyed lines with the shot each plays over. */
+type LintLineInput = { key: string; text: string; frame?: string; dialogue?: string[] };
+
+export const narrationLintV1 = defineTextTemplate<{
+  chapter: { order: number; title: string; summary: string };
+  lines: LintLineInput[];
+  earlierChapters: { order: number; title: string; summary: string; narration: string[] }[];
+}>({
+  name: "narration-lint",
+  version: 1,
+  description: "Find narration that repeats meaning, re-explains facts or only describes the frame.",
+  system: [
+    templateHeader("narration-lint", 1),
+    "You are a script editor reviewing the voice-over narration of one chapter of a narrated comic video. Report only real problems a listener would notice; an empty findings list is a good answer.",
+    "Look for: (1) repeated_meaning — two or more lines of this chapter that say the same thing in other words; (2) cross_chapter_repeat — a line that re-tells something an earlier chapter's narration already told (name the earlier chapters in relatedChapters); (3) fact_overexplained — a fact explained again when the listener has already been told it at least twice, here or in earlier chapters; (4) describes_frame — a line that only describes what its frame already shows (each line's frame is given) without adding meaning, feeling or story.",
+    "Do not report wording, grammar, style preferences, or repetition that is a deliberate refrain. Reference lines only by the keys given (L1, L2, …); put the line that should change first. Explain each finding in one or two sentences a writer can act on.",
+    "Earlier chapters are given as a summary and their narration shortened to first sentences; use them only to judge repeats.",
+    DATA_RULE,
+    schemaInstructions("NarrationLintReport", NarrationLintReport),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: untrusted(
+          "project_data",
+          JSON.stringify({ chapter: i.chapter, lines: i.lines, earlierChapters: i.earlierChapters }),
+        ),
+      },
+    ];
+  },
+});
+
+export const narrationFixV1 = defineTextTemplate<{
+  language: string;
+  lines: LintLineInput[];
+  findings: { lines: string[]; problem: string }[];
+}>({
+  name: "narration-fix",
+  version: 1,
+  description: "Rewrite only the narration lines a lint flagged, keeping every other line as it is.",
+  system: [
+    templateHeader("narration-fix", 1),
+    "You are a script editor fixing specific problems in the voice-over narration of one chapter. Each finding names the lines involved and the problem.",
+    "Rewrite ONLY lines named in the findings, and only as much as the problem needs: keep their meaning, facts, names, tense, person, tone and roughly their length, so the narration still fits its shots. A line you do not need to change may be left out of the answer. Never return a line that no finding names.",
+    "The other lines are given for context so the rewrites fit around them and do not create a new repetition with them. Do not introduce phrasing that repeats a neighbouring line, the panel's dialogue or what the frame already shows. Write in the language given.",
+    DATA_RULE,
+    schemaInstructions("NarrationFix", NarrationFix),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: `Language: ${i.language}.\n\n${untrusted("project_data", JSON.stringify({ findings: i.findings, lines: i.lines }))}`,
+      },
+    ];
+  },
+});
+
+export const storyCoverageV1 = defineTextTemplate<{
+  part: { index: number; of: number };
+  paragraphs: { key: string; text: string }[];
+  plan: {
+    chapters: {
+      key: string;
+      title: string;
+      summary: string;
+      scenes?: { key: string; title: string; summary: string; beats: string[] }[];
+    }[];
+  };
+}>({
+  name: "story-coverage",
+  version: 1,
+  description: "Map story source paragraphs to the chapters and scenes that tell them, with their weight.",
+  system: [
+    templateHeader("story-coverage", 1),
+    "You check how a comic or narrated-video adaptation covers its source story. You get part of the source as numbered paragraphs (P1, P2, …) and the adaptation's plan: every chapter (C1, C2, …) with its summary, and the scenes (C2.S1, C2.S2, …) of the chapters near this part with their summaries and beats.",
+    "For EVERY paragraph give: weight — how much it matters to the story, 1 (texture or description that can go) to 5 (a turning point the story needs); coveredBy — the keys of the scenes that tell what the paragraph tells, or a chapter key when that chapter tells it but its scenes are not listed. Leave coveredBy empty when nothing in the plan tells it. List more than one key only when the plan really tells the same thing more than once.",
+    "Judge by events and information, not wording: a scene covers a paragraph when a reader of the adaptation would learn what the paragraph says.",
+    DATA_RULE,
+    schemaInstructions("StoryCoverageMap", StoryCoverageMap),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          `Source part ${i.part.index} of ${i.part.of}.`,
+          untrusted("project_data", JSON.stringify(i.plan)),
+          untrusted("story_content", i.paragraphs.map((p) => `[${p.key}] ${p.text}`).join("\n\n")),
+        ].join("\n\n"),
+      },
+    ];
+  },
+});
+
 export const TEXT_TEMPLATES = [
   expertChatV1,
   expertChatV2,
@@ -824,6 +1139,9 @@ export const TEXT_TEMPLATES = [
   panelCheckV1,
   storyRewriteV1,
   youtubePackageV1,
+  youtubePackageV2,
+  narrationRetimeV1,
+  socialCopyV1,
   jsonRepairV1,
   imageDescribeV1,
   stripPlanningV1,
@@ -844,4 +1162,20 @@ export const TEXT_TEMPLATES = [
   sceneShotsV2,
   panelPromptsV4,
   narrationV5,
+  chapterPlanningV7,
+  shotPlanningV4,
+  stripPlanningV3,
+  chapterOutlineV3,
+  stripOutlineV3,
+  shotOutlineV3,
+  scenePagesV3,
+  sceneStripV3,
+  sceneShotsV3,
+  panelPromptsV5,
+  narrationV6,
+  bibleExtractV1,
+  continuityCheckV1,
+  narrationLintV1,
+  narrationFixV1,
+  storyCoverageV1,
 ];

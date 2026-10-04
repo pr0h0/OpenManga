@@ -131,8 +131,16 @@ const dashboard = createRoute({
 const newProject = createRoute({
   getParentRoute: () => shell,
   path: "/projects/new",
+  /** `profile`: a channel profile to start from (Profiles → New project). */
+  validateSearch: z.object({ profile: z.string().optional() }),
   staticData: { title: "New project" },
   component: lazyRouteComponent(() => import("./features/dashboard/NewProjectWizard.tsx"), "NewProjectWizard"),
+});
+const profiles = createRoute({
+  getParentRoute: () => shell,
+  path: "/profiles",
+  staticData: { title: "Channel profiles" },
+  component: lazyRouteComponent(() => import("./features/profiles/ChannelProfilesPage.tsx"), "ChannelProfilesPage"),
 });
 const usage = createRoute({
   getParentRoute: () => shell,
@@ -233,6 +241,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/bible",
+    staticData: { title: "Story bible" },
+    component: lazyRouteComponent(() => import("./features/bible/BiblePage.tsx"), "BiblePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/chapters",
     staticData: { title: "Chapters" },
     component: lazyRouteComponent(() => import("./features/chapters/ChaptersPage.tsx"), "ChaptersPage"),
@@ -253,7 +267,9 @@ const projectChildren = [
   createRoute({
     getParentRoute: P,
     path: "/storyboard",
-    validateSearch: chapterSearch,
+    validateSearch: chapterSearch.extend({
+      filter: z.enum(["all", "noArt", "failed", "review", "mismatch", "unchecked"]).optional(),
+    }),
     staticData: { title: "Storyboard" },
     component: lazyRouteComponent(() => import("./features/pages/StoryboardPage.tsx"), "StoryboardPage"),
   }),
@@ -279,6 +295,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/health",
+    staticData: { title: "Health" },
+    component: lazyRouteComponent(() => import("./features/project/HealthPage.tsx"), "HealthPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/generation",
     staticData: { title: "Generation" },
     component: lazyRouteComponent(() => import("./features/generation/GenerationPage.tsx"), "GenerationPage"),
@@ -295,6 +317,26 @@ const projectChildren = [
     validateSearch: chapterSearch,
     staticData: { title: "Narration" },
     component: lazyRouteComponent(() => import("./features/narration/NarrationPage.tsx"), "NarrationPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
+    path: "/narration/qa",
+    validateSearch: chapterSearch,
+    staticData: { title: "Narration QA" },
+    component: lazyRouteComponent(() => import("./features/narration/NarrationQaPage.tsx"), "NarrationQaPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
+    path: "/timing",
+    validateSearch: chapterSearch,
+    staticData: { title: "Timing" },
+    component: lazyRouteComponent(() => import("./features/narration/TimingPage.tsx"), "TimingPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
+    path: "/repurpose",
+    staticData: { title: "Repurpose" },
+    component: lazyRouteComponent(() => import("./features/exports/RepurposePage.tsx"), "RepurposePage"),
   }),
   createRoute({
     getParentRoute: P,
@@ -339,6 +381,7 @@ const routeTree = rootRoute.addChildren([
   shell.addChildren([
     dashboard,
     newProject,
+    profiles,
     usage,
     experts,
     agents,

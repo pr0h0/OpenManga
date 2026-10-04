@@ -10,18 +10,23 @@ import { aiRoutes } from "./routes/ai.ts";
 import { assetRoutes, cdnRoutes } from "./routes/assets.ts";
 import { audioRoutes } from "./routes/audio.ts";
 import { authRoutes, devMailRoutes } from "./routes/auth.ts";
+import { bibleRoutes } from "./routes/bible.ts";
+import { channelProfileRoutes } from "./routes/channel-profiles.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
 import { commentRoutes } from "./routes/comments.ts";
+import { continuityRoutes } from "./routes/continuity.ts";
 import { expertRoutes } from "./routes/experts.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { memberRoutes, publicInviteRoutes } from "./routes/members.ts";
+import { narrationQaRoutes } from "./routes/narration-qa.ts";
 import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { referenceRoutes } from "./routes/references.ts";
+import { repurposeRoutes } from "./routes/repurpose.ts";
 import { publicShareRoutes, shareRoutes } from "./routes/shares.ts";
 import { storyRoutes } from "./routes/stories.ts";
 import { healthRoutes, miscRoutes } from "./routes/system.ts";
@@ -52,8 +57,10 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     generationRoutes,
     assetRoutes,
     audioRoutes,
+    narrationQaRoutes,
     exportRoutes,
     videoRoutes,
+    repurposeRoutes,
     importRoutes,
     visionRoutes,
     miscRoutes,
@@ -63,6 +70,9 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     memberRoutes,
     commentRoutes,
     productionRoutes,
+    bibleRoutes,
+    continuityRoutes,
+    channelProfileRoutes,
   ])
     api.route("/", r);
 }

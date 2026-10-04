@@ -1,6 +1,7 @@
 import { toSessionUser } from "@openmanga/auth";
 import {
   and,
+  audioJobs,
   chapters,
   eq,
   exportJobs,
@@ -8,6 +9,7 @@ import {
   inArray,
   isNull,
   type ProductionStep,
+  type ProductionWarnings,
   pages,
   panels,
   productionRuns,
@@ -16,8 +18,16 @@ import {
   sql,
   users,
 } from "@openmanga/db";
-import { BATCH_CAPABLE_PROVIDERS } from "@openmanga/domain";
-import { PIPELINE_STAGES, type PipelineStage, pipelineStaleness, revisedStory } from "@openmanga/services";
+import { BATCH_CAPABLE_PROVIDERS, videoDriftToleranceMs } from "@openmanga/domain";
+import {
+  PIPELINE_STAGES,
+  type PipelineStage,
+  pipelineStaleness,
+  publishingStaleness,
+  revisedStory,
+  staleAudioFrom,
+  staleChapters,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
 import { handleError, notFound } from "./http.ts";
@@ -47,9 +57,11 @@ const STAGE_OF: Partial<Record<(typeof STEPS)[number], PipelineStage>> = {
   apply: "story",
   references: "story",
   review_references: "story",
+  review_plans: "plan",
   plan: "plan",
   prompts: "prompts",
   art: "art",
+  review_narration: "narration",
   narration: "narration",
   audio: "audio",
   review_render: "render",
@@ -64,9 +76,11 @@ const STEPS = [
   "apply",
   "references",
   "review_references",
+  "review_plans",
   "plan",
   "prompts",
   "art",
+  "review_narration",
   "narration",
   "audio",
   "thumbnail",
@@ -82,9 +96,11 @@ export const STEP_LABELS: Record<(typeof STEPS)[number], string> = {
   apply: "Apply the analysis",
   references: "Draw references",
   review_references: "Review the references",
+  review_plans: "Chapters changed since they were planned",
   plan: "Plan every chapter",
   prompts: "Prepare panel prompts",
   art: "Generate missing artwork",
+  review_narration: "Narration written before its chapter changed",
   narration: "Write narration",
   audio: "Synthesize narration",
   thumbnail: "Video thumbnail",
@@ -106,7 +122,9 @@ export function initialSteps(o: RunOptions, stale: PipelineStage[] = []): Produc
       const stage = STAGE_OF[k];
       if (!stage || PIPELINE_STAGES.indexOf(stage) < from) return false;
     }
-    if (k === "review_analysis") return true;
+    // Decisions only a person can make: a re-analysis to apply, and plans or narration made from text that has
+    // changed since (redoing them replaces pages and artwork, or the narration). Skipped when there is nothing to decide.
+    if (k === "review_analysis" || k === "review_plans" || k === "review_narration") return true;
     if (k.startsWith("review_")) return o.reviewGates && (k !== "review_render" || o.render);
     if (k === "prompts") return o.preparePrompts;
     if (k === "render") return o.render;
@@ -187,7 +205,7 @@ type Ctx = {
   step: ProductionStep;
   batch: { text: boolean; image: boolean };
 };
-type Started = Pick<ProductionStep, "status" | "jobIds" | "exportJobId" | "note"> & { ref?: string };
+type Started = Pick<ProductionStep, "status" | "jobIds" | "exportJobId" | "audioBatchIds" | "note"> & { ref?: string };
 
 /**
  * Whether the run's text and image steps go through provider batches: the project's policy asks for it, and the
@@ -300,12 +318,23 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
       note: "Approve the references you want kept (Cast and World pages); unapproved ones do not pin identity.",
     };
   },
+  async review_plans(x) {
+    const { plans } = await staleChapters(x.deps.db, x.project);
+    if (!plans.length) return { status: "skipped" };
+    return {
+      status: "review",
+      note: `${plans.length} chapter(s) changed after they were planned. For each, keep the current pages or re-plan it (re-planning replaces its pages and artwork); continue when done. Chapters left undecided keep their pages.`,
+    };
+  },
   async plan(x) {
     const todo = (await chapterRows(x)).filter((c) => c.pages === 0);
     const out = await each(todo, async (c) => {
       const r = await x.call<{ job: { id: string } }>("POST", `/api/chapters/${c.id}/plan`, text(x));
       return [r.job.id];
     });
+    // Re-plans the person asked for at the review are waited for like the run's own, so nothing is drawn on pages
+    // that are about to be replaced.
+    out.jobIds.push(...(await inFlight(x, "chapter_plan")));
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
   async prompts(x) {
@@ -347,21 +376,35 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     }
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
+  async review_narration(x) {
+    const { narration } = await staleChapters(x.deps.db, x.project);
+    if (!narration.length) return { status: "skipped" };
+    return {
+      status: "review",
+      note: `${narration.length} chapter(s) changed after their narration was written. For each, keep the narration or write it again (which replaces it); continue when done.`,
+    };
+  },
   async narration(x) {
     const todo = (await chapterRows(x)).filter((c) => c.panels > 0 && c.lines === 0);
     const out = await each(todo, async (c) => {
       const r = await x.call<{ job: { id: string } }>("POST", `/api/chapters/${c.id}/narration/generate`, text(x));
       return [r.job.id];
     });
+    out.jobIds.push(...(await inFlight(x, "narration_text")));
     return { status: out.jobIds.length ? "running" : "done", jobIds: out.jobIds, note: out.note };
   },
   async audio(x) {
     const todo = (await chapterRows(x)).filter((c) => c.lines > 0);
     const out = await each(todo, async (c) => {
-      await x.call("POST", `/api/chapters/${c.id}/narration/synthesize`, { onlyMissing: true });
-      return [];
+      const r = await x.call<{ batchId: string; queued: number }>(
+        "POST",
+        `/api/chapters/${c.id}/narration/synthesize`,
+        { onlyMissing: true },
+      );
+      return r.queued ? [r.batchId] : [];
     });
-    return { status: "running", note: out.note };
+    // Synthesis is not a generation job: the batches are kept so stopping the run can cancel what is still queued.
+    return { status: "running", audioBatchIds: out.jobIds, note: out.note };
   },
   async thumbnail(x) {
     if (x.project.settings.thumbnail) return { status: "skipped", note: "Already has one" };
@@ -387,6 +430,14 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     return { status: "running", exportJobId: r.job.id };
   },
   async youtube_package(x) {
+    const render = prev(x, "render");
+    if (render?.exportJobId) {
+      const [e] = await x.deps.db
+        .select({ status: exportJobs.status })
+        .from(exportJobs)
+        .where(eq(exportJobs.id, render.exportJobId));
+      if (e?.status !== "completed") return { status: "skipped", note: "The video did not render" };
+    }
     const r = await x.call<{ job: { id: string } }>("POST", `/api/projects/${x.project.id}/exports`, {
       kind: "youtube_package",
       acknowledgeIssues: true,
@@ -394,6 +445,21 @@ const START: Record<string, (x: Ctx) => Promise<Started>> = {
     return { status: "running", exportJobId: r.job.id };
   },
 };
+
+/** The project's jobs of this kind still in flight (e.g. a re-plan the person started at a review). */
+async function inFlight(x: Ctx, kind: "chapter_plan" | "narration_text") {
+  const rows = await x.deps.db
+    .select({ id: generationJobs.id })
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.projectId, x.project.id),
+        eq(generationJobs.kind, kind),
+        inArray(generationJobs.status, ["queued", "submitted", "processing", "paused", "awaiting_input"]),
+      ),
+    );
+  return rows.map((r) => r.id);
+}
 
 async function hasChapters(x: Ctx) {
   const [n] = await x.deps.db
@@ -418,7 +484,37 @@ async function check(x: Ctx): Promise<"running" | "done" | { failed: string }> {
       join narration_segments ns on ns.id = aj.segment_id
       join narration_lines nl on nl.id = ns.narration_line_id
       where nl.project_id = ${x.project.id} and aj.status in ('queued', 'processing')`);
-    return (r?.busy ?? 0) > 0 ? "running" : "done";
+    if ((r?.busy ?? 0) > 0) return "running";
+    // Idle is not the same as voiced: check every segment has current audio, by the audio stage's own definition.
+    const since = s.startedAt ?? new Date(0).toISOString();
+    const stale = await x.deps.db.execute<{ id: string; chapter_id: string; tried: boolean; failed: boolean }>(sql`
+      select s.id, nl.chapter_id,
+        exists (select 1 from audio_jobs j where j.segment_id = s.id and j.created_at >= ${since}) as tried,
+        (select j.status from audio_jobs j where j.segment_id = s.id order by j.created_at desc limit 1) = 'failed'
+          as failed
+      ${staleAudioFrom(x.project)}`);
+    if (!stale.length) return "done";
+    // Segments this step never queued (a chapter's request was refused or capped) are queued once more; failures
+    // are not retried here, or a segment the voice provider always refuses would loop the run forever.
+    const untried = stale.filter((r) => !r.tried);
+    if (untried.length && !s.requeued) {
+      s.requeued = true;
+      const byChapter = new Map<string, string[]>();
+      for (const r of untried) byChapter.set(r.chapter_id, [...(byChapter.get(r.chapter_id) ?? []), r.id]);
+      for (const [chapterId, segmentIds] of byChapter) {
+        const q = await x.call<{ batchId: string; queued: number }>(
+          "POST",
+          `/api/chapters/${chapterId}/narration/synthesize`,
+          { onlyMissing: true, segmentIds },
+        );
+        if (q.queued) s.audioBatchIds = [...(s.audioBatchIds ?? []), q.batchId];
+      }
+      return "running";
+    }
+    // Left for the person: listed in the run's warnings at the end, and here on the step.
+    const failed = stale.filter((r) => r.failed).length;
+    s.note = `${stale.length} segment(s) without current audio${failed ? `, ${failed} failed` : ""}; see Narration`;
+    return "done";
   }
   if (s.exportJobId) {
     const [e] = await x.deps.db
@@ -426,7 +522,10 @@ async function check(x: Ctx): Promise<"running" | "done" | { failed: string }> {
       .from(exportJobs)
       .where(eq(exportJobs.id, s.exportJobId));
     if (!e || !FINAL.includes(e.status)) return "running";
-    return e.status === "completed" ? "done" : { failed: e.reason ?? `Export ${e.status}` };
+    // The exports come last and nothing else stands on them: a failure is noted, listed in the run's warnings, and
+    // can be rendered again from the run card.
+    if (e.status !== "completed") s.note = `Export ${e.status}: ${e.reason ?? "no reason given"}`;
+    return "done";
   }
   if (!s.jobIds?.length) return "done";
   const jobs = await x.deps.db
@@ -458,25 +557,175 @@ async function approveDrafts(x: Ctx) {
   for (const r of rows) await x.call("POST", `/api/references/${r.id}/status`, { status: "approved" }).catch(() => {});
 }
 
+/**
+ * What a run that reached the end left unresolved, or null when nothing is: its failed jobs nobody retried, its failed
+ * exports, and the project's panels without artwork, segments without current audio and panels flagged for review.
+ */
+export async function runWarnings(deps: Deps, run: Run): Promise<ProductionWarnings | null> {
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, run.projectId));
+  if (!project) return null;
+  const stepOf = new Map(run.steps.flatMap((s) => (s.jobIds ?? []).map((id) => [id, s.key] as const)));
+  const failed = stepOf.size
+    ? await deps.db
+        .select({ id: generationJobs.id, kind: generationJobs.kind, reason: generationJobs.failureReason })
+        .from(generationJobs)
+        .where(
+          and(
+            inArray(generationJobs.id, [...stepOf.keys()]),
+            eq(generationJobs.status, "failed"),
+            isNull(generationJobs.retriedByJobId),
+          ),
+        )
+    : [];
+  const exportIds = run.steps.flatMap((s) => (s.exportJobId ? [s.exportJobId] : []));
+  const failedExports = exportIds.length
+    ? await deps.db
+        .select({ id: exportJobs.id, kind: exportJobs.kind, reason: exportJobs.failureReason })
+        .from(exportJobs)
+        .where(and(inArray(exportJobs.id, exportIds), inArray(exportJobs.status, ["failed", "cancelled"])))
+    : [];
+  const [counts] = await deps.db.execute<{
+    no_art: number;
+    review: number;
+    audio: number;
+    unnarrated: number;
+    checks: number;
+    panels: number;
+  }>(sql`
+    select
+      (select count(*)::int from panels pn where pn.project_id = ${project.id} and pn.active_artwork_asset_id is null)
+        as no_art,
+      (select count(*)::int from panels pn where pn.project_id = ${project.id} and pn.review is not null) as review,
+      (select count(*)::int ${staleAudioFrom(project)}) as audio,
+      (select count(*)::int from chapters c where c.project_id = ${project.id}
+        and exists (select 1 from panels pn join pages p on p.id = pn.page_id where p.chapter_id = c.id)
+        and not exists (select 1 from narration_lines nl where nl.chapter_id = c.id and nl.language = ${project.language}))
+        as unnarrated,
+      (select count(*)::int from panels pn where pn.project_id = ${project.id} and ${FAILED_CHECK}) as checks,
+      (select count(*)::int from panels pn where pn.project_id = ${project.id}) as panels`);
+  const w: ProductionWarnings = {
+    failedJobs: failed.slice(0, 500).map((j) => ({ ...j, step: stepOf.get(j.id)! })),
+    failedJobCount: failed.length,
+    panelsWithoutArt: counts?.no_art ?? 0,
+    segmentsWithoutAudio: counts?.audio ?? 0,
+    panelsNeedingReview: counts?.review ?? 0,
+    failedExports,
+    chaptersWithoutNarration: counts?.unnarrated ?? 0,
+    failedChecks: counts?.checks ?? 0,
+    video: (run.options as RunOptions).render ? await videoProblem(deps, run, project, counts?.panels ?? 0) : null,
+  };
+  return unresolvedCount(w) ? w : null;
+}
+
+/** How many things a run's warnings list. */
+export const unresolvedCount = (w: ProductionWarnings) =>
+  w.failedJobCount +
+  w.panelsWithoutArt +
+  w.segmentsWithoutAudio +
+  w.panelsNeedingReview +
+  w.failedExports.length +
+  (w.chaptersWithoutNarration ?? 0) +
+  (w.failedChecks ?? 0) +
+  (w.video ? 1 : 0);
+
+/** A panel whose current artwork a visual check found not to match (what the storyboard's "Check mismatch" shows). */
+export const FAILED_CHECK =
+  sql.raw(`pn.qa ->> 'verdict' = 'mismatch' and coalesce((pn.qa ->> 'stale')::boolean, false) = false
+  and pn.qa ->> 'assetId' = pn.active_artwork_asset_id::text`);
+
+/**
+ * The final output check for a run that renders: the video exists, and it is not shorter than the narration it
+ * carries (the voiced segments laid end to end) by more than the render's own drift tolerance. A failed render is
+ * already listed with the failed exports.
+ */
+async function videoProblem(deps: Deps, run: Run, project: Project, panels: number) {
+  const render = run.steps.find((s) => s.key === "render");
+  if (!render?.exportJobId) return "The video was not rendered";
+  const [r] = await deps.db.execute<{ status: string; video_ms: number | null; narration_ms: number }>(sql`
+    select j.status,
+      (select max(a.duration_ms) from exports e join assets a on a.id = e.asset_id
+        where e.export_job_id = j.id and a.mime_type = 'video/mp4') as video_ms,
+      (select coalesce(sum(au.duration_ms), 0)::int from narration_segments s
+        join narration_lines nl on nl.id = s.narration_line_id
+        join audio_assets au on au.asset_id = s.active_audio_asset_id
+        where nl.project_id = ${project.id} and nl.language = ${project.language}) as narration_ms
+    from export_jobs j where j.id = ${render.exportJobId}`);
+  if (r?.status !== "completed") return null;
+  if (r.video_ms == null) return "The rendered video has no length recorded";
+  if (r.video_ms + videoDriftToleranceMs(panels) < r.narration_ms)
+    return `The video runs ${Math.round(r.video_ms / 1000)} s but its narration takes ${Math.round(r.narration_ms / 1000)} s: it is too short`;
+  return null;
+}
+
+/**
+ * An update leaves the YouTube text and the thumbnail headline to a person; when what they were written from changed,
+ * its end says so (the run card offers Regenerate and Keep current).
+ */
+async function publishingNote(deps: Deps, run: Run) {
+  if (!(run.options as RunOptions).update) return null;
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, run.projectId));
+  if (!project) return null;
+  const stale = (await publishingStaleness(deps.db, project)).filter((p) => p.stale);
+  if (!stale.length) return null;
+  return stale
+    .map((p) =>
+      p.key === "youtube_text" ? "YouTube text may be out of date" : "thumbnail headline may be out of date",
+    )
+    .join("; ")
+    .replace(/^./, (ch) => ch.toUpperCase());
+}
+
 // ---------------------------------------------------------------- advancing
 
-// ponytail: one API process advances runs, so an in-process guard is enough; several API replicas would need a lease
-// column on the row instead.
-const busy = new Set<string>();
+/** This process; every advance adds its own suffix, so two advances in one process exclude each other too. */
+const PROCESS_ID = `${process.env.HOSTNAME ?? "api"}:${process.pid}:${crypto.randomUUID().slice(0, 8)}`;
+const LEASE = sql`now() + interval '2 minutes'`;
 
-/** Move a run forward as far as it can go now: finish waiting steps, start the next, stop at a review or a wait. */
-export async function advanceRun(deps: Deps, runId: string) {
-  if (busy.has(runId)) return;
-  busy.add(runId);
+/** The advance lost its lease (it expired and another process took the run) or the run stopped under it. */
+class LeaseLost extends Error {}
+
+/**
+ * Move a run forward as far as it can go now: finish waiting steps, start the next, stop at a review or a wait.
+ * Only the holder of the row's lease advances it, so API replicas (or a timer tick and a Continue click) never start
+ * the same step twice; the lease is extended while the advance works and released when it returns. `owner` is for
+ * tests that play two processes.
+ */
+export async function advanceRun(deps: Deps, runId: string, owner = `${PROCESS_ID}:${crypto.randomUUID()}`) {
+  const claimed = await deps.db.execute(sql`
+    update production_runs set lease_owner = ${owner}, lease_until = ${LEASE}
+    where id = ${runId} and status = 'running'
+      and (lease_until is null or lease_until < now() or lease_owner = ${owner})
+    returning id`);
+  if (!claimed.length) return;
+  // A step that calls many routes (planning 30 chapters) can outlast the lease; keep it alive while working.
+  const heartbeat = setInterval(
+    () =>
+      void deps.db
+        .update(productionRuns)
+        .set({ leaseUntil: LEASE })
+        .where(and(eq(productionRuns.id, runId), eq(productionRuns.leaseOwner, owner)))
+        .catch(() => {}),
+    30_000,
+  );
   try {
     const [run] = await deps.db.select().from(productionRuns).where(eq(productionRuns.id, runId));
     if (run?.status !== "running") return;
     const save = async (patch: Partial<Run>) => {
       Object.assign(run, patch);
-      await deps.db
+      // Only while this advance still holds the lease and the run is still running: a run stopped meanwhile stays
+      // stopped, and nothing done here after that is kept.
+      const saved = await deps.db
         .update(productionRuns)
-        .set({ ...patch, steps: run.steps, updatedAt: new Date() })
-        .where(eq(productionRuns.id, run.id));
+        .set({ ...patch, steps: run.steps, updatedAt: new Date(), leaseUntil: LEASE })
+        .where(
+          and(
+            eq(productionRuns.id, run.id),
+            eq(productionRuns.leaseOwner, owner),
+            eq(productionRuns.status, "running"),
+          ),
+        )
+        .returning({ id: productionRuns.id });
+      if (!saved.length) throw new LeaseLost();
       await deps.events.publish(run.projectId, { type: "production.updated", runId: run.id, status: run.status });
     };
     let call: Call;
@@ -489,7 +738,12 @@ export async function advanceRun(deps: Deps, runId: string) {
     for (let guard = 0; guard < STEPS.length * 2; guard++) {
       const step = run.steps.find((s) => s.status !== "done" && s.status !== "skipped");
       if (!step) {
-        await save({ status: "completed", reason: null });
+        const warnings = await runWarnings(deps, run);
+        await save(
+          warnings
+            ? { status: "completed_with_warnings", reason: await publishingNote(deps, run), warnings }
+            : { status: "completed", reason: await publishingNote(deps, run), warnings: null },
+        );
         return;
       }
       const [project] = await deps.db.select().from(projects).where(eq(projects.id, run.projectId));
@@ -511,8 +765,13 @@ export async function advanceRun(deps: Deps, runId: string) {
           await save({});
           continue;
         }
+        const before = JSON.stringify(step);
         const r = await check(x);
-        if (r === "running") return;
+        if (r === "running") {
+          // Waiting can still change the step (the audio step queuing what it missed); keep that.
+          if (JSON.stringify(step) !== before) await save({});
+          return;
+        }
         if (typeof r === "object") {
           step.status = "failed";
           step.note = r.failed;
@@ -524,6 +783,7 @@ export async function advanceRun(deps: Deps, runId: string) {
         step.finishedAt = new Date().toISOString();
         await save({});
       } catch (e) {
+        if (e instanceof LeaseLost) throw e;
         const msg = e instanceof Error ? e.message : String(e);
         // Spending stops at the project's cap: pause, so raising the cap and continuing picks up right here.
         if (e instanceof CallError && (e.code === "budget_exceeded" || e.status === 402)) {
@@ -537,9 +797,69 @@ export async function advanceRun(deps: Deps, runId: string) {
         return;
       }
     }
+  } catch (e) {
+    if (!(e instanceof LeaseLost)) throw e;
   } finally {
-    busy.delete(runId);
+    clearInterval(heartbeat);
+    await deps.db
+      .update(productionRuns)
+      .set({ leaseOwner: null, leaseUntil: null })
+      .where(and(eq(productionRuns.id, runId), eq(productionRuns.leaseOwner, owner)));
   }
+}
+
+/**
+ * What a run started that is still waiting to be worked on: generation jobs not yet taken by a worker (queued, waiting
+ * in a provider batch, paused at the budget or waiting for a pasted answer), queued narration audio, and its export
+ * if it has not finished. Work already running at a provider is left to finish: it is paid for, and a stopped run
+ * acts on nothing it returns.
+ */
+export async function pendingWork(deps: Deps, run: Run) {
+  const jobIds = run.steps.flatMap((s) => s.jobIds ?? []);
+  const batchIds = run.steps.flatMap((s) => s.audioBatchIds ?? []);
+  const exportIds = run.steps.flatMap((s) => (s.exportJobId ? [s.exportJobId] : []));
+  const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
+  return {
+    generation: jobIds.length
+      ? ids(
+          await deps.db
+            .select({ id: generationJobs.id })
+            .from(generationJobs)
+            .where(
+              and(
+                inArray(generationJobs.id, jobIds),
+                inArray(generationJobs.status, ["queued", "submitted", "paused", "awaiting_input"]),
+              ),
+            ),
+        )
+      : [],
+    audio: batchIds.length
+      ? ids(
+          await deps.db
+            .select({ id: audioJobs.id })
+            .from(audioJobs)
+            .where(and(inArray(audioJobs.batchId, batchIds), eq(audioJobs.status, "queued"))),
+        )
+      : [],
+    exports: exportIds.length
+      ? ids(
+          await deps.db
+            .select({ id: exportJobs.id })
+            .from(exportJobs)
+            .where(and(inArray(exportJobs.id, exportIds), inArray(exportJobs.status, ["queued", "processing"]))),
+        )
+      : [],
+  };
+}
+
+/** Cancel what `pendingWork` lists, through the same cancel paths as Generation, Narration and Exports. */
+export async function cancelRunWork(deps: Deps, run: Run) {
+  const work = await pendingWork(deps, run);
+  let cancelled = 0;
+  for (const id of work.generation) if ((await deps.jobs.cancelGeneration(id)) !== "not_cancellable") cancelled++;
+  for (const id of work.audio) if ((await deps.jobs.cancelAudio(id)) === "cancelled") cancelled++;
+  for (const id of work.exports) if ((await deps.jobs.cancelExport(id)) !== "not_cancellable") cancelled++;
+  return cancelled;
 }
 
 /** Advance every running run; called on a timer by the API process. */

@@ -13,22 +13,22 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness` |
-| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `use_expert_reply` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness`, `get_project_health` |
+| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
-| `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis` |
-| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `use_expert_reply` |
+| `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
+| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter`, `get_page` |
-| `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page` |
+| `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
-| `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment` |
+| `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
-| `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status` |
-| `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
-| `exports:read` | Read export status and files. | `suggest_shorts`, `list_exports` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
+| `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
+| `exports:read` | Read export status and files. | `suggest_shorts`, `suggest_repurpose`, `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
@@ -46,6 +46,7 @@ requests) need no scope.
 | [`get_approval_request`](#get_approval_request) | read | — |
 | [`list_projects`](#list_projects) | read | `projects:read` |
 | [`get_project`](#get_project) | read | `projects:read` |
+| [`list_channel_profiles`](#list_channel_profiles) | read | `projects:read` |
 | [`create_project`](#create_project) | write | `projects:create` |
 | [`update_project`](#update_project) | sensitive-write | `projects:write` |
 | [`set_project_status`](#set_project_status) | delete | `projects:write` |
@@ -62,6 +63,14 @@ requests) need no scope.
 | [`edit_story_analysis`](#edit_story_analysis) | write | `story:write` |
 | [`apply_story_analysis`](#apply_story_analysis) | sensitive-write | `story:write` `library:write` `chapters:write` |
 | [`run_story_rewrite`](#run_story_rewrite) | spend | `story:write` `generations:run` |
+| [`get_story_coverage`](#get_story_coverage) | read | `story:read` |
+| [`run_story_coverage`](#run_story_coverage) | spend | `story:read` `generations:run` |
+| [`get_story_bible`](#get_story_bible) | read | `story:read` |
+| [`manage_story_bible`](#manage_story_bible) | delete | `story:write` |
+| [`run_bible_extraction`](#run_bible_extraction) | spend | `story:write` `generations:run` |
+| [`apply_bible_extraction`](#apply_bible_extraction) | write | `story:write` |
+| [`run_continuity_check`](#run_continuity_check) | spend | `story:read` `generations:run` |
+| [`get_continuity_report`](#get_continuity_report) | read | `story:read` |
 | [`list_library`](#list_library) | read | `library:read` |
 | [`get_library_item`](#get_library_item) | read | `library:read` |
 | [`create_library_item`](#create_library_item) | write | `library:write` |
@@ -107,12 +116,25 @@ requests) need no scope.
 | [`edit_narration`](#edit_narration) | delete | `narration:write` |
 | [`run_narration_generation`](#run_narration_generation) | spend | `narration:write` `generations:run` |
 | [`synthesize_narration`](#synthesize_narration) | spend | `narration:write` |
+| [`run_narration_lint`](#run_narration_lint) | spend | `narration:write` `generations:run` |
+| [`get_narration_qa`](#get_narration_qa) | read | `narration:read` |
+| [`update_narration_finding`](#update_narration_finding) | write | `narration:write` |
+| [`propose_narration_fix`](#propose_narration_fix) | spend | `narration:write` `generations:run` |
+| [`apply_narration_fix`](#apply_narration_fix) | spend | `narration:write` |
 | [`delete_narration_audio`](#delete_narration_audio) | delete | `narration:write` |
+| [`get_timing`](#get_timing) | read | `narration:read` |
+| [`apply_timing_fix`](#apply_timing_fix) | write | `narration:write` `panels:write` |
+| [`retime_narration`](#retime_narration) | spend | `narration:write` `generations:run` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
+| [`suggest_repurpose`](#suggest_repurpose) | read | `exports:read` |
+| [`write_social_copy`](#write_social_copy) | spend | `generations:run` `projects:write` |
 | [`list_exports`](#list_exports) | read | `exports:read` |
 | [`delete_exports`](#delete_exports) | delete | `exports:create` |
 | [`get_staleness`](#get_staleness) | read | `projects:read` |
+| [`get_project_health`](#get_project_health) | read | `projects:read` |
+| [`keep_publishing_text`](#keep_publishing_text) | write | `projects:write` |
+| [`keep_stale_chapter`](#keep_stale_chapter) | write | `chapters:write` |
 | [`start_production_run`](#start_production_run) | spend | `generations:run` |
 | [`update_production`](#update_production) | spend | `generations:run` |
 | [`get_production_run`](#get_production_run) | read | `generations:read` |
@@ -186,12 +208,19 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "ScenePages",
         "PanelPromptDraft",
         "NarrationDraft",
+        "NarrationLintReport",
+        "NarrationFix",
+        "StoryCoverageMap",
+        "NarrationRetime",
+        "SocialCopy",
         "ImageDescription",
         "PanelCheck",
         "YoutubePackage",
         "ProjectConcept",
         "ProjectPremise",
-        "StoryOutline"
+        "StoryOutline",
+        "BibleExtraction",
+        "ContinuityReport"
       ]
     }
   },
@@ -527,9 +556,56 @@ One project's overview: settings (format, language, budget, narration, lettering
 
 </details>
 
+### list_channel_profiles
+
+The user's channel profiles: publication identities (default preset, target runtime, narrator voice and speed, image quality, reference and batch policy, branding, thumbnail style, YouTube title rules, description template and tags, video output). Pass a profile's id as create_project's profileId. Read-only.
+
+- **Scopes:** `projects:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/channel-profiles`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {}
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "profiles"
+  ]
+}
+```
+
+</details>
+
 ### create_project
 
-Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
+Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
 
 - **Scopes:** `projects:create`
 - **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
@@ -556,7 +632,6 @@ Create a new project (optionally with its first story revision in `story`). Need
       "maxLength": 5000
     },
     "projectType": {
-      "default": "manhwa",
       "type": "string",
       "enum": [
         "manga",
@@ -567,7 +642,6 @@ Create a new project (optionally with its first story revision in `story`). Need
       ]
     },
     "language": {
-      "default": "en",
       "type": "string",
       "minLength": 2,
       "maxLength": 16
@@ -581,7 +655,6 @@ Create a new project (optionally with its first story revision in `story`). Need
       ]
     },
     "colorMode": {
-      "default": "full_color",
       "type": "string",
       "enum": [
         "full_color",
@@ -594,12 +667,10 @@ Create a new project (optionally with its first story revision in `story`). Need
       "maxLength": 64
     },
     "customStyle": {
-      "default": "",
       "type": "string",
       "maxLength": 4000
     },
     "format": {
-      "default": "comic",
       "type": "string",
       "enum": [
         "comic",
@@ -610,6 +681,11 @@ Create a new project (optionally with its first story revision in `story`). Need
     "preset": {
       "type": "string",
       "maxLength": 80
+    },
+    "profileId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
     },
     "story": {
       "type": "object",
@@ -679,7 +755,7 @@ Create a new project (optionally with its first story revision in `story`). Need
 
 ### update_project
 
-Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
+Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
 
 - **Scopes:** `projects:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -914,6 +990,20 @@ Change a project's title, description, type, language, reading direction, colour
             }
           }
         },
+        "publishingSources": {
+          "type": "object",
+          "properties": {
+            "youtubeText": {
+              "type": "string"
+            },
+            "youtubeTextAt": {
+              "type": "string"
+            },
+            "thumbnailTitle": {
+              "type": "string"
+            }
+          }
+        },
         "thumbnail": {
           "type": "object",
           "properties": {
@@ -943,6 +1033,73 @@ Change a project's title, description, type, language, reading direction, colour
           },
           "required": [
             "assetId"
+          ]
+        },
+        "thumbnailStyle": {
+          "type": "object",
+          "properties": {
+            "side": {
+              "default": "left",
+              "type": "string",
+              "enum": [
+                "left",
+                "right"
+              ]
+            }
+          }
+        },
+        "youtubeRules": {
+          "type": "object",
+          "properties": {
+            "titleRules": {
+              "default": "",
+              "type": "string",
+              "maxLength": 1000
+            },
+            "descriptionTemplate": {
+              "default": "",
+              "type": "string",
+              "maxLength": 4000
+            },
+            "tags": {
+              "default": [],
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            }
+          }
+        },
+        "channelProfile": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "appliedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "appliedAt"
+              ]
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "lettering": {
@@ -1364,6 +1521,37 @@ Change a project's title, description, type, language, reading direction, colour
           "type": "string",
           "maxLength": 500
         },
+        "pronunciation": {
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "term": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "spoken": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "caseSensitive": {
+                "default": false,
+                "type": "boolean"
+              },
+              "wholeWord": {
+                "default": true,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "term",
+              "spoken"
+            ]
+          }
+        },
         "video": {
           "type": "object",
           "properties": {
@@ -1468,6 +1656,115 @@ Change a project's title, description, type, language, reading direction, colour
                   "type": "null"
                 }
               ]
+            },
+            "output": {
+              "type": "object",
+              "properties": {
+                "aspect": {
+                  "default": "16:9",
+                  "type": "string",
+                  "enum": [
+                    "16:9",
+                    "9:16",
+                    "1:1"
+                  ]
+                },
+                "height": {
+                  "default": 1080,
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "const": 720
+                    },
+                    {
+                      "type": "number",
+                      "const": 1080
+                    },
+                    {
+                      "type": "number",
+                      "const": 1440
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "repurpose": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "default": [],
+              "maxItems": 40,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "short",
+                      "trailer",
+                      "teaser",
+                      "carousel",
+                      "quote"
+                    ]
+                  },
+                  "label": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "panelIds": {
+                    "default": [],
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "lengthSeconds": {
+                    "type": "integer",
+                    "minimum": 15,
+                    "maximum": 600
+                  },
+                  "aspect": {
+                    "type": "string",
+                    "enum": [
+                      "16:9",
+                      "9:16",
+                      "1:1",
+                      "4:5"
+                    ]
+                  },
+                  "text": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 300
+                  },
+                  "title": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 150
+                  },
+                  "caption": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 2200
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind"
+                ]
+              }
             }
           }
         },
@@ -2446,6 +2743,843 @@ Queue an AI rewrite of a revision following `instruction`; the result is a new r
   "required": [
     "job"
   ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_story_coverage
+
+The newest story coverage report for a project: source paragraphs left out of the plan, told in more than one chapter, or given far more or less room (share of panels) than their weight; each finding has its source spans (character offsets in the revision, with an excerpt) and its chapters and scenes. Also the source, panel and narration share of every chapter, whether the story or the plan changed since the report (stale), and a check still running. Read-only; run_story_coverage makes a new one.
+
+- **Scopes:** `story:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/story/coverage`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### run_story_coverage
+
+Queue a story coverage check: the applied story revision (or storyRevisionId) is mapped part by part to the chapters and scenes. Asynchronous: returns a job; poll get_job, then read get_story_coverage. Manual mode (ai.manual=true) asks you for one StoryCoverageMap per part of the source via get_manual_prompt / submit_manual_answer; a provider run spends credits (may need approval).
+
+- **Scopes:** `story:read`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `story.coverage`
+- **Wraps:** `POST /api/projects/:projectId/story/coverage`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "storyRevisionId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_story_bible
+
+A project's story bible: facts (kind, subject, text, chapter range by chapter id, fixed = a rule that must hold, visual = reaches image prompts) and character states (a character's injury, look, outfit, item, location, rank or knowledge from a chapter and optional scene number on), with the chapters and cast they refer to and the latest extraction job. With chapterId (and sceneNumber), also inEffect: exactly what planning and narration of that chapter receive. Read-only.
+
+- **Scopes:** `story:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/bible`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "sceneNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### manage_story_bible
+
+add_fact (projectId, fact: kind, text, optional subject, fixed, visual, fromChapterId, untilChapterId — inclusive chapter ids), edit_fact / delete_fact (id), add_state (projectId, state: characterId, kind, text, optional chapterId, sceneNumber, untilChapterId, outfitId), edit_state / delete_state (id). Facts and states in effect reach chapter planning, panel prompts, narration and panel images from then on. Deleting is the delete class (may need approval).
+
+- **Scopes:** `story:write`
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `bible.fact.create`, `bible.fact.update`, `bible.fact.delete`, `bible.state.create`, `bible.state.update`, `bible.state.delete`
+- **Wraps:** `POST /api/projects/:projectId/bible/facts`, `PATCH /api/bible-facts/:id`, `DELETE /api/bible-facts/:id`, `POST /api/projects/:projectId/bible/states`, `PATCH /api/character-states/:id`, `DELETE /api/character-states/:id`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "add_fact",
+        "edit_fact",
+        "delete_fact",
+        "add_state",
+        "edit_state",
+        "delete_state"
+      ]
+    },
+    "projectId": {
+      "description": "For add_fact and add_state.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "id": {
+      "description": "The fact or state, for edit and delete.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "fact": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "character",
+            "relationship",
+            "power",
+            "organisation",
+            "place",
+            "object",
+            "term",
+            "rule"
+          ]
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "fixed": {
+          "type": "boolean"
+        },
+        "visual": {
+          "type": "boolean"
+        },
+        "fromChapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "untilChapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "characterId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "injury",
+            "look",
+            "outfit",
+            "item",
+            "location",
+            "rank",
+            "knowledge",
+            "other"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "chapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sceneNumber": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "untilChapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outfitId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### run_bible_extraction
+
+Queue a text job that proposes story bible facts and character states from the project's chapters (or one chapter) and their chapter memory. Saves nothing: review the proposal in get_job's result.data (or get_story_bible's extraction), then apply_bible_extraction. Asynchronous: returns a job; poll get_job. ai.manual=true (no provider, no spending) parks it for a BibleExtraction answer via get_manual_prompt / submit_manual_answer; a provider run spends the user's credits (may need approval).
+
+- **Scopes:** `story:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `bible.extract`
+- **Wraps:** `POST /api/projects/:projectId/bible/extract`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "description": "Only this chapter; omitted for all chapters.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "batch": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### apply_bible_extraction
+
+Save a completed extraction's facts and states into the story bible: all of them, or the reviewed lists you pass (BibleExtraction shape: characters by name, chapters by number). Entries naming no character or chapter are skipped and listed. Applying twice is refused (409 already_applied) unless again=true. Not asynchronous.
+
+- **Scopes:** `story:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `bible.extraction.apply`
+- **Wraps:** `POST /api/bible-extractions/:id/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "jobId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "facts": {
+      "maxItems": 300,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "character",
+              "relationship",
+              "power",
+              "organisation",
+              "place",
+              "object",
+              "term",
+              "rule"
+            ]
+          },
+          "subject": {
+            "default": "",
+            "type": "string",
+            "maxLength": 200
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "fromChapter": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "untilChapter": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fixed": {
+            "default": false,
+            "type": "boolean"
+          },
+          "visual": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ]
+      }
+    },
+    "states": {
+      "maxItems": 300,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "character": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "injury",
+              "look",
+              "outfit",
+              "item",
+              "location",
+              "rank",
+              "knowledge",
+              "other"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "fromChapter": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fromScene": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "untilChapter": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outfit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "character",
+          "kind",
+          "text"
+        ]
+      }
+    },
+    "again": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "jobId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### run_continuity_check
+
+Compare one chapter (chapterId) or every chapter with panels or narration against the story bible (facts, character states, fixed rules) and the neighbouring chapters: one text job per chapter. Without confirm=true returns only the chapter count and estimated cost; with it, queues the jobs (asynchronous; poll get_job, then get_continuity_report). Findings replace the chapter's open ones; each fixed rule gets pass/warn/fail. ai.manual=true (no provider, no spending) asks you for a ContinuityReport per chapter via get_manual_prompt / submit_manual_answer; a provider run spends the user's credits (may need approval).
+
+- **Scopes:** `story:read`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `continuity.check`
+- **Wraps:** `POST /api/projects/:projectId/continuity-checks`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "confirm": {
+      "default": false,
+      "type": "boolean"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "batch": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_continuity_report
+
+A project's continuity findings (severity, message, the quoted line or beat, the bible entry or neighbouring chapter it contradicts, where: a panel ref with panelId/pageId, a narration line, a scene or the chapter; status open, fixed, ignored or explained) and every fixed rule's pass/warn/fail per chapter from its latest check. Filter by chapterId and status (open, resolved, all). Read-only.
+
+- **Scopes:** `story:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/continuity`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "status": {
+      "default": "open",
+      "type": "string",
+      "enum": [
+        "open",
+        "resolved",
+        "all"
+      ]
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": {}
 }
 ```
@@ -5467,6 +6601,19 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
             "disabled": {
               "default": false,
               "type": "boolean"
+            },
+            "holdMs": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 500,
+                  "maximum": 60000
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         },
@@ -7868,6 +9015,409 @@ Queue speech synthesis for one segment (segmentId) or every missing/stale segmen
 
 </details>
 
+### run_narration_lint
+
+Narration QA for a chapter (chapterId) or every chapter with narration (projectId). The deterministic checks (repeated sentence openings, flat rhythm, a name used too often, near-duplicate lines, narration restating the panel's dialogue, chapters that open or end alike, crowded shots, silent stretches, pace from real audio) run at once and are stored as findings; the answer says how many were found, are new, remain and were resolved since the last run. semantic=true also queues the AI check per chapter (meaning repeated in other words, facts explained again, lines that only describe the frame) as narration_lint jobs: manual mode (ai.manual=true) asks you for a NarrationLintReport; a provider run spends credits (may need approval). Read findings with get_narration_qa.
+
+- **Scopes:** `narration:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `narration.lint`
+- **Wraps:** `POST /api/chapters/:id/narration/lint`, `POST /api/projects/:projectId/narration/lint`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16
+    },
+    "semantic": {
+      "default": false,
+      "type": "boolean"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  }
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_narration_qa
+
+view=findings: a project's narration QA findings (type, chapter, line ids, severity, explanation, status open/ignored/fixed, whether a rewrite can fix it) with counts by status, type and chapter and the text of the flagged lines; filter by chapterId, status or kind. view=density: words, words per shot, silent shots and words per minute (from current audio) per chapter, and shot by shot with chapterId. Read-only.
+
+- **Scopes:** `narration:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/narration/findings`, `GET /api/projects/:projectId/narration/density`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "view": {
+      "default": "findings",
+      "type": "string",
+      "enum": [
+        "findings",
+        "density"
+      ]
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "ignored",
+        "fixed"
+      ]
+    },
+    "kind": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 16
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### update_narration_finding
+
+status=ignored: dismiss a narration QA finding; it stays ignored while later checks find the same problem on the same lines. status=open reopens it.
+
+- **Scopes:** `narration:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=false, idempotent=true, openWorld=false
+- **Approval action keys:** `narration.finding`
+- **Wraps:** `PATCH /api/narration-findings/:id`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "findingId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "ignored"
+      ]
+    }
+  },
+  "required": [
+    "findingId",
+    "status"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### propose_narration_fix
+
+Queue a narration_fix job that rewrites only the lines the chosen findings (from get_narration_qa, all on this chapter) flag, keeping every other line. The job result holds proposals as { lineId, before, after }; nothing changes until apply_narration_fix. Silences and pace cannot be fixed by rewriting and are refused. Manual mode (ai.manual=true) asks you for a NarrationFix; a provider run spends credits (may need approval).
+
+- **Scopes:** `narration:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `narration.fix`
+- **Wraps:** `POST /api/chapters/:id/narration/fix`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "findingIds": {
+      "minItems": 1,
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "findingIds",
+    "chapterId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### apply_narration_fix
+
+Apply a completed propose_narration_fix job (jobId): rewrites its lines (or only lineIds), skipping any line edited since; marks its findings fixed; re-voices only the changed segments of lines that had audio (revoice, default true: the local voice unless ai names a speech key, which spends); and re-runs the deterministic checks on the chapter, returning how they compare (found, introduced, remaining, resolved). recheck=true also queues the AI check again on the model the fix used.
+
+- **Scopes:** `narration:write`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `narration.fix_apply`
+- **Wraps:** `POST /api/chapters/:id/narration/fix/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "jobId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "lineIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "revoice": {
+      "default": true,
+      "type": "boolean"
+    },
+    "recheck": {
+      "default": false,
+      "type": "boolean"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "credentialId": {
+          "description": "A saved speech-provider key; omit for the server's local voice (free).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  },
+  "required": [
+    "jobId",
+    "chapterId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### delete_narration_audio
 
 Delete synthesized narration audio from disk: a chapter's (chapterId; every take, or one track with language) or the whole project's (projectId, including takes of deleted lines). The narration text is kept and can be synthesized again with synthesize_narration. Refused while synthesis is running there. Cannot be undone. Always a delete-class action (may need the user's approval).
@@ -7936,9 +9486,305 @@ Delete synthesized narration audio from disk: a chapter's (chapterId; every take
 
 </details>
 
+### get_timing
+
+The timing pass, from the real narration audio (panel cut). chapterId: each shot's hold, what is off (long: past the longest-shot setting; flash: under the shortest; still: one picture too long; silence: dead air), the chapter's length against its share of the target runtime, and the fixes on offer, each with its effect on the holds and the length: spread (a long line over the next shots of its scene), holds (a shot's own minimum hold) and trim (word budgets to land on target). projectId: every chapter's length, target and issue counts. Apply with apply_timing_fix and retime_narration. Read-only.
+
+- **Scopes:** `narration:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/chapters/:id/timing`, `GET /api/projects/:projectId/timing`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "minHoldMs": {
+      "description": "The export minimum hold to time against.",
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 30000
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 16
+    }
+  }
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### apply_timing_fix
+
+Apply a fix get_timing offered, in a chapter. spread: stretch a narration line over the shots up to untilPanelId (null undoes it). hold: set a panel's own minimum hold as a video shot, in ms (null back to the export's). Existing art only; nothing is generated or spent.
+
+- **Scopes:** `narration:write`, `panels:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=false, idempotent=true, openWorld=false
+- **Approval action keys:** `timing.apply`
+- **Wraps:** `POST /api/chapters/:id/timing/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "spread": {
+      "type": "object",
+      "properties": {
+        "lineId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "untilPanelId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "lineId",
+        "untilPanelId"
+      ]
+    },
+    "hold": {
+      "type": "object",
+      "properties": {
+        "panelId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "holdMs": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 60000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "panelId",
+        "holdMs"
+      ]
+    }
+  },
+  "required": [
+    "chapterId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### retime_narration
+
+The timing pass's trim or expand. start: a text job rewrites only the given lines, each to its word budget (get_timing fixes.trim suggests them); nothing changes until applied, and the job's result (get_job) lists each line before and after. apply: keep the rewrites for lineIds from that job, then only those lines are re-voiced (their unchanged segments keep their audio). start spends text-provider credits unless ai.manual; apply re-voices with the local voice for free, or spends with a speech key (ttsAi). Either may need approval.
+
+- **Scopes:** `narration:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `narration.retime`, `narration.retime_apply`
+- **Wraps:** `POST /api/chapters/:id/narration/retime`, `POST /api/chapters/:id/narration/retime/:jobId/apply`, `POST /api/chapters/:id/narration/synthesize`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "start",
+        "apply"
+      ]
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "lines": {
+      "description": "start: the lines and their word budgets.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "words": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 400
+          }
+        },
+        "required": [
+          "lineId",
+          "words"
+        ]
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "jobId": {
+      "description": "apply: the finished start job.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "lineIds": {
+      "description": "apply: the rewrites to keep.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "ttsAi": {
+      "type": "object",
+      "properties": {
+        "credentialId": {
+          "description": "A saved speech-provider key; omit for the server's local voice (free).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action",
+    "chapterId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts: 30–60 s, vertical by default). Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -7971,7 +9817,9 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "video_pages",
         "video_panels",
         "video_shorts",
-        "youtube_package"
+        "youtube_package",
+        "carousel",
+        "quote_image"
       ]
     },
     "chapterId": {
@@ -8004,6 +9852,47 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "type": "string",
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "label": {
+      "type": "string",
+      "maxLength": 60
+    },
+    "social": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "default": "",
+          "type": "string",
+          "maxLength": 150
+        },
+        "caption": {
+          "default": "",
+          "type": "string",
+          "maxLength": 2200
+        }
+      }
+    },
+    "still": {
+      "default": {
+        "aspect": "4:5",
+        "text": ""
+      },
+      "type": "object",
+      "properties": {
+        "aspect": {
+          "default": "4:5",
+          "type": "string",
+          "enum": [
+            "1:1",
+            "4:5"
+          ]
+        },
+        "text": {
+          "default": "",
+          "type": "string",
+          "maxLength": 300
+        }
       }
     },
     "scale": {
@@ -8136,7 +10025,6 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
     },
     "video": {
       "default": {
-        "height": 1080,
         "fps": 30,
         "minHoldMs": 2500,
         "framing": "width",
@@ -8148,7 +10036,6 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
       "type": "object",
       "properties": {
         "height": {
-          "default": 1080,
           "anyOf": [
             {
               "type": "number",
@@ -8229,7 +10116,7 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         },
         "shortsSeconds": {
           "type": "integer",
-          "minimum": 30,
+          "minimum": 15,
           "maximum": 600
         }
       }
@@ -8356,6 +10243,160 @@ Candidate shots for a Shorts cut (a trailer of key shots) of a chapter or the wh
   },
   "required": [
     "shots"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### suggest_repurpose
+
+Repurposing a finished project: `items` is the saved plan (settings.repurpose), `suggestion` a fresh one (`shorts` non-overlapping Shorts of 30–60 s from distinct parts of the story, a 60–90 s trailer, a 15–30 s teaser, a 10-panel carousel and 3 quote images with their lines), `candidates` every panel with its hold, narration, art and quotable lines. Save an edited plan with update_project settings.repurpose.items, write titles and captions with write_social_copy, then render each item with create_export (short/trailer/teaser: video_shorts with panelIds, label, video.shortsSeconds and video.aspect; carousel; quote_image), passing its title and caption as `social`. Read-only.
+
+- **Scopes:** `exports:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/repurpose`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "shorts": {
+      "description": "How many Shorts to suggest (default 3).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 16
+    },
+    "minHoldMs": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 30000
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### write_social_copy
+
+A text job that writes a social title and caption for each saved repurposing item (itemIds, default all), from its narration; they replace the items' current title and caption in settings.repurpose when the job completes (poll get_job). Spends text-provider credits unless ai.manual; may need approval.
+
+- **Scopes:** `generations:run`, `projects:write`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `repurpose.copy`
+- **Wraps:** `POST /api/projects/:projectId/repurpose/copy`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "itemIds": {
+      "maxItems": 40,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 40
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
   ],
   "additionalProperties": {}
 }
@@ -8496,7 +10537,7 @@ Delete export files from disk now instead of waiting for their 30-day expiry: on
 
 ### get_staleness
 
-What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). update_production runs only these steps. Read-only.
+What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. Also publishing: the YouTube text and the thumbnail headline, flagged (stale, with reasons) when the title, the chapters or the rendered video changed after they were written; never regenerated on their own: the user regenerates them (Exports → YouTube package in the app; a new headline is settings.thumbnail.title via update_project) or they are kept with keep_publishing_text. update_production runs only the stale steps. Read-only.
 
 - **Scopes:** `projects:read`
 - **Sensitivity:** read
@@ -8540,11 +10581,219 @@ What is out of date in a project along story → plan → prompts → art → na
         "properties": {},
         "additionalProperties": {}
       }
+    },
+    "stalePlans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    },
+    "staleNarration": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    },
+    "publishing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
     }
   },
   "required": [
-    "stages"
+    "stages",
+    "stalePlans",
+    "staleNarration",
+    "publishing"
   ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_project_health
+
+A project's health in one report: verdict.ready (ready to publish) or verdict.blocking (how many blocking issues), and items, each with a count, a severity (block: not ready while it stands; info: worth knowing) and the app page where it is fixed: export readiness (panels without artwork, chapters without or with patchy narration, segments without audio, superseded versions), a missing or out-of-date video, panels that failed a visual check, what is out of date (as get_staleness), the YouTube text and thumbnail headline, jobs still running and failed ones, open comment threads; plus spend against the budget and disk use. Read-only.
+
+- **Scopes:** `projects:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/health`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "verdict": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    },
+    "spend": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    },
+    "disk": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "verdict",
+    "items",
+    "spend",
+    "disk"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### keep_publishing_text
+
+Keep the YouTube text (item=youtube_text) or the thumbnail headline (item=thumbnail) as it is although get_staleness flags it as possibly out of date (the title, the chapters or the video changed after it was written): records what it is current for, so it is no longer flagged. Nothing is regenerated.
+
+- **Scopes:** `projects:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=false, idempotent=true, openWorld=false
+- **Approval action keys:** `project.keep_current`
+- **Wraps:** `POST /api/projects/:projectId/keep-current`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "item": {
+      "type": "string",
+      "enum": [
+        "youtube_text",
+        "thumbnail"
+      ]
+    }
+  },
+  "required": [
+    "projectId",
+    "item"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### keep_stale_chapter
+
+Keep a chapter's current plan (stage=plan) or narration (stage=narration) although what it was made from changed since (get_staleness lists them as stalePlans / staleNarration, and a production run waits at a review for them): it is then no longer out of date, and nothing is regenerated. The alternative is redoing it: run_chapter_plan with replace=true (replaces the chapter's pages and artwork) or run_narration_generation with replace=true. Continue the waiting run with continue_production_run when every chapter is decided.
+
+- **Scopes:** `chapters:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** yes
+- **Annotations:** readOnly=false, destructive=false, idempotent=true, openWorld=false
+- **Approval action keys:** `chapter.keep`
+- **Wraps:** `POST /api/chapters/:id/keep`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "narration"
+      ]
+    }
+  },
+  "required": [
+    "chapterId",
+    "stage"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": {}
 }
 ```
@@ -8684,7 +10933,7 @@ Run the whole pipeline for a project (analysis, references, chapter plans, promp
 
 ### update_production
 
-Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work), then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.
+Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work); chapters whose text changed after they were planned (or after their narration was written) are never redone on their own: the run waits at a review listing them (get_staleness stalePlans / staleNarration) until each is kept (keep_stale_chapter) or redone (run_chapter_plan / run_narration_generation with replace=true) and the run is continued; then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.
 
 - **Scopes:** `generations:run`
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
@@ -8815,7 +11064,7 @@ Run only what is out of date (see get_staleness), from the first stale stage on:
 
 ### get_production_run
 
-A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, failed, cancelled), the reason, and every step with its status and note. Read-only.
+A project's recent production runs (newest first), or one run by runId: its status (running, waiting at a review, paused at the budget cap, completed, completed_with_warnings, failed, cancelled), the reason, every step with its status and note, warnings when it finished with unresolved items (failedJobs the run queued and nobody retried — retry them with control_job —, failedExports, and the project's panelsWithoutArt, segmentsWithoutAudio and panelsNeedingReview), and pendingJobs (how many queued jobs stopping it would cancel). Read-only.
 
 - **Scopes:** `generations:read`
 - **Sensitivity:** read
@@ -8914,7 +11163,7 @@ Continue a run: past the review step it is waiting at (only after the user has r
 
 ### cancel_production_run
 
-Stop a production run. Jobs it already queued finish on their own (cancel them with control_job if needed); nothing made so far is removed.
+Stop a production run. By default it also cancels what the run queued that has not started (generation jobs that are queued, in a provider batch, paused or waiting for an answer; queued narration audio; its export); get_production_run's pendingJobs says how many. Jobs already running at a provider finish, and the stopped run acts on nothing they return. jobs=false stops the run only and leaves its queued jobs to finish. Nothing made so far is removed.
 
 - **Scopes:** `generations:run`
 - **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
@@ -8934,6 +11183,11 @@ Stop a production run. Jobs it already queued finish on their own (cancel them w
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "jobs": {
+      "default": true,
+      "description": "Also cancel the run's queued jobs (default). false stops the orchestration only.",
+      "type": "boolean"
     }
   },
   "required": [

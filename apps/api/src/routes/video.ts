@@ -1,18 +1,23 @@
-import { assets, eq, pages } from "@openmanga/db";
+import { and, assets, chapters, eq, narrationLines, pages, panels } from "@openmanga/db";
 import {
   cropsToFrame,
   frameSizeFor,
   pickShorts,
+  runtimeBudget,
   SHORTS_DEFAULT_MS,
   SHORTS_LIMIT_MS,
   SHORTS_MIN_MS,
   shortsLengthWarning,
   shortsScore,
+  type TimingShot,
   timeGroup,
+  timingFixes,
+  timingIssues,
+  timingSettings,
   type VideoAspect,
 } from "@openmanga/domain";
 import { computeCrop } from "@openmanga/image-utils";
-import type { ProjectSettings } from "@openmanga/schemas";
+import { NarrationLineVideo, type ProjectSettings, ShotVideo } from "@openmanga/schemas";
 import {
   type BrandedProject,
   loadRenderPage,
@@ -27,7 +32,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { entityAccess, projectAccess } from "../lib/access.ts";
-import { badRequest, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -73,6 +78,187 @@ videoRoutes.get("/video-preview", async (c) => {
   return c.json(
     await previewPayload(c.get("deps").db, project, q, cut, q.language || project.language, { aspect: q.aspect }),
   );
+});
+
+const TimingQuery = z.object({
+  /** The export's minimum hold to time against (default: the target runtime's shortest shot, else 2.5 s). */
+  minHoldMs: z.coerce.number().int().min(500).max(30_000).optional(),
+  language: z.string().trim().min(2).max(16).optional(),
+});
+
+/** Each chapter's share of the project's target runtime in ms, or an empty map without one. */
+async function targetShares(db: AppEnv["Variables"]["deps"]["db"], project: { id: string; settings: ProjectSettings }) {
+  const t = project.settings.targetRuntime;
+  if (!t) return new Map<string, number>();
+  const chs = await db
+    .select({ id: chapters.id, source: chapters.sourceExcerpt, summary: chapters.summary })
+    .from(chapters)
+    .where(eq(chapters.projectId, project.id));
+  const budget = runtimeBudget(
+    t,
+    chs.map((c) => ({ id: c.id, sourceChars: (c.source || c.summary).length })),
+    project.settings.format,
+  );
+  return new Map(budget.chapters.map((c) => [c.id, Math.round((c.words / t.wordsPerMinute) * 60_000)]));
+}
+
+/**
+ * A chapter's timing pass (panel cut): the shared timeline of its voiced narration, what is off and what could fix
+ * it. Lines without audio yet count as silent, and `audio` says how much is voiced.
+ */
+export async function chapterTiming(
+  db: AppEnv["Variables"]["deps"]["db"],
+  project: Parameters<typeof previewPayload>[1] & { settings: ProjectSettings; language: string },
+  chapterId: string,
+  q: z.infer<typeof TimingQuery>,
+  targetMs: number | null,
+) {
+  const payload = await previewPayload(db, project, { chapterId }, "panel", q.language || project.language);
+  const shots: TimingShot[] = payload.shots.map((s) => ({
+    key: s.key,
+    label: s.label,
+    panelId: s.panel?.id ?? null,
+    sceneId: s.sceneId,
+    joinNext: s.joinNext,
+    minHoldMs: s.minHoldMs,
+    lines: s.lines.map((l) => ({
+      id: l.id,
+      text: l.text,
+      startOffsetMs: l.startOffsetMs,
+      endOffsetMs: l.endOffsetMs,
+      segments: l.segments.flatMap((x) => (x.durationMs ? [{ ms: x.durationMs, pauseAfterMs: x.pauseAfterMs }] : [])),
+    })),
+  }));
+  const settings = timingSettings(project.settings.targetRuntime, q.minHoldMs);
+  const { film, issues } = timingIssues(shots, settings);
+  const segments = payload.shots.flatMap((s) => s.lines.flatMap((l) => l.segments));
+  return {
+    chapterId,
+    settings,
+    audio: { segments: segments.length, voiced: segments.filter((x) => x.durationMs).length },
+    totalMs: Math.round(film.totalMs),
+    targetMs,
+    shots: shots.map((s, i) => ({
+      key: s.key,
+      label: s.label,
+      panelId: s.panelId,
+      joinNext: s.joinNext,
+      minHoldMs: s.minHoldMs,
+      startMs: Math.round(film.shots[i]!.startMs),
+      holdMs: Math.round(film.shots[i]!.holdMs),
+      narrationMs: s.lines.reduce((n, l) => n + l.segments.reduce((m, x) => m + x.ms, 0), 0),
+      lines: s.lines.map((l) => ({ id: l.id, text: l.text, words: l.text.split(/\s+/).filter(Boolean).length })),
+    })),
+    issues,
+    fixes: timingFixes(shots, settings, targetMs),
+  };
+}
+
+doc({
+  method: "GET",
+  path: "/api/chapters/:id/timing",
+  summary:
+    "Timing pass for a chapter (panel cut), from its real narration audio: each shot's hold, what is off (shots past the longest-shot setting or under the shortest, a single picture held too long, dead air), the chapter's length against its share of the target runtime, and the fixes on offer with their effect: spread a long line over the next shots of its scene, set a shot's own hold, or rewrite lines to a word budget.",
+  tag: "narration",
+  query: TimingQuery,
+});
+videoRoutes.get("/chapters/:id/timing", async (c) => {
+  const chapterId = uuidParam(c, "id");
+  const project = await entityAccess(c, "chapter", chapterId, "read");
+  const q = query(c, TimingQuery);
+  const db = c.get("deps").db;
+  return c.json(
+    await chapterTiming(db, project, chapterId, q, (await targetShares(db, project)).get(chapterId) ?? null),
+  );
+});
+
+const ApplyTiming = z.union([
+  z.object({ spread: z.object({ lineId: z.string().uuid(), untilPanelId: z.string().uuid().nullable() }) }),
+  z.object({
+    hold: z.object({ panelId: z.string().uuid(), holdMs: z.number().int().min(500).max(60_000).nullable() }),
+  }),
+]);
+doc({
+  method: "POST",
+  path: "/api/chapters/:id/timing/apply",
+  summary:
+    "Apply a timing fix in a chapter: `spread` stretches a narration line over the shots up to untilPanelId (null undoes it), keeping its offsets; `hold` sets a panel's own minimum hold as a video shot (null back to the export's). Existing art only; nothing is generated.",
+  tag: "narration",
+  body: ApplyTiming,
+});
+videoRoutes.post("/chapters/:id/timing/apply", async (c) => {
+  const chapterId = uuidParam(c, "id");
+  const p = await entityAccess(c, "chapter", chapterId, "write");
+  const input = await body(c, ApplyTiming);
+  const { db } = c.get("deps");
+  const panelIn = async (id: string) =>
+    (
+      await db
+        .select({ panel: panels })
+        .from(panels)
+        .innerJoin(pages, eq(pages.id, panels.pageId))
+        .where(and(eq(panels.id, id), eq(pages.chapterId, chapterId)))
+    )[0]?.panel;
+  if ("spread" in input) {
+    const [line] = await db
+      .select()
+      .from(narrationLines)
+      .where(and(eq(narrationLines.id, input.spread.lineId), eq(narrationLines.chapterId, chapterId)));
+    if (!line) throw notFound("Narration line");
+    if (input.spread.untilPanelId && !(await panelIn(input.spread.untilPanelId))) throw notFound("Panel");
+    const video = { ...NarrationLineVideo.parse(line.video ?? {}), untilPanelId: input.spread.untilPanelId };
+    await db.update(narrationLines).set({ video }).where(eq(narrationLines.id, line.id));
+  } else {
+    const panel = await panelIn(input.hold.panelId);
+    if (!panel) throw notFound("Panel");
+    if (panel.approvalStatus === "locked") throw conflict("Panel is locked");
+    const video = { ...ShotVideo.parse(panel.video ?? {}), holdMs: input.hold.holdMs };
+    await db.update(panels).set({ video }).where(eq(panels.id, panel.id));
+  }
+  await recordAudit(db, {
+    userId: user(c).id,
+    projectId: p.id,
+    action: "chapter.timing_apply",
+    targetType: "chapter",
+    targetId: chapterId,
+    metadata: input,
+    requestId: c.get("requestId"),
+  });
+  return c.json({ ok: true });
+});
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/timing",
+  summary:
+    "Timing pass for every chapter of a project: its length against its target share, how much of its narration is voiced, and how many shots are off by kind.",
+  tag: "narration",
+  query: TimingQuery,
+});
+videoRoutes.get("/projects/:projectId/timing", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const q = query(c, TimingQuery);
+  const db = c.get("deps").db;
+  const shares = await targetShares(db, p);
+  const chs = await db
+    .select({ id: chapters.id, order: chapters.order, title: chapters.title })
+    .from(chapters)
+    .where(eq(chapters.projectId, p.id))
+    .orderBy(chapters.order);
+  const out = [];
+  for (const ch of chs) {
+    const t = await chapterTiming(db, p, ch.id, q, shares.get(ch.id) ?? null).catch(() => null);
+    const count = (kind: string) => t?.issues.filter((i) => i.kind === kind).length ?? 0;
+    out.push({
+      ...ch,
+      shots: t?.shots.length ?? 0,
+      audio: t?.audio ?? { segments: 0, voiced: 0 },
+      totalMs: t?.totalMs ?? 0,
+      targetMs: shares.get(ch.id) ?? null,
+      issues: { long: count("long"), flash: count("flash"), still: count("still"), silence: count("silence") },
+    });
+  }
+  return c.json({ chapters: out });
 });
 
 const ShortsQuery = z.object({
@@ -315,6 +501,8 @@ export async function previewPayload(
         key: s.key,
         label: s.label,
         joinNext: s.joinNext,
+        minHoldMs: s.panel?.video?.holdMs ?? null,
+        sceneId: s.panel?.sceneId ?? s.page.sceneId,
         fade: s.fade,
         motion: s.motion,
         page: {
@@ -349,6 +537,7 @@ export async function previewPayload(
           const v = lineById.get(id)?.video;
           return {
             id,
+            text: lineById.get(id)?.text ?? "",
             startOffsetMs: v?.startOffsetMs ?? 0,
             endOffsetMs: v?.endOffsetMs ?? 0,
             segments: (byLine.get(id) ?? []).map(({ s: seg, a }) => ({

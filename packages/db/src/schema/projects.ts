@@ -158,6 +158,13 @@ export const chapters = pgTable(
     beats: jsonb("beats").$type<string[]>().notNull().default([]),
     lastPlan: jsonb("last_plan").$type<ChapterPlan>(),
     planStatus: approvalStatus("plan_status").notNull().default("draft"),
+    /**
+     * md5 of the chapter text its plan was made from, and of the text and panels its narration was written from
+     * (`planSourceFingerprint` / `narrationSourceFingerprint` in packages/services): a current fingerprint that
+     * differs means the plan or narration is out of date. Null: never planned or written by the pipeline.
+     */
+    planFingerprint: text("plan_fingerprint"),
+    narrationFingerprint: text("narration_fingerprint"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -398,10 +405,35 @@ export type ProductionStep = {
   note?: string;
   jobIds?: string[];
   exportJobId?: string;
+  /** Narration synthesis batches the step queued (`audio_jobs.batch_id`), so stopping the run can cancel them. */
+  audioBatchIds?: string[];
+  /** The audio step queued the segments it had missed once more (it does so only once). */
+  requeued?: boolean;
   /** What a later step needs from this one, e.g. the analysis the apply step applies. */
   ref?: string;
   startedAt?: string;
   finishedAt?: string;
+};
+
+/**
+ * What a run left unresolved when it reached the end (`completed_with_warnings`): failed jobs it queued that were
+ * not retried, and the project's panels without artwork, narration segments without current audio, panels flagged
+ * for review and the run's failed exports.
+ */
+export type ProductionWarnings = {
+  /** At most 500 listed; `failedJobCount` is the full number. */
+  failedJobs: { id: string; kind: string; step: string; reason: string | null }[];
+  failedJobCount: number;
+  panelsWithoutArt: number;
+  segmentsWithoutAudio: number;
+  panelsNeedingReview: number;
+  failedExports: { id: string; kind: string; reason: string | null }[];
+  /** Chapters with panels but no narration in the project's language. */
+  chaptersWithoutNarration?: number;
+  /** Panels whose current artwork a visual check found not to match. */
+  failedChecks?: number;
+  /** When the run renders: what is wrong with the video (not rendered, or shorter than its narration). */
+  video?: string | null;
 };
 
 /**
@@ -419,7 +451,7 @@ export const productionRuns = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status")
-      .$type<"running" | "waiting" | "paused" | "completed" | "failed" | "cancelled">()
+      .$type<"running" | "waiting" | "paused" | "completed" | "completed_with_warnings" | "failed" | "cancelled">()
       .notNull()
       .default("running"),
     steps: jsonb("steps").$type<ProductionStep[]>().notNull().default([]),
@@ -428,6 +460,11 @@ export const productionRuns = pgTable(
       .notNull(),
     /** Why the run is paused or failed, in words for the person. */
     reason: text("reason"),
+    /** Set when the run finished `completed_with_warnings`. */
+    warnings: jsonb("warnings").$type<ProductionWarnings>(),
+    /** The advance working on the run now, and until when (see advanceRun); null when nothing is. */
+    leaseOwner: text("lease_owner"),
+    leaseUntil: ts("lease_until"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -27,7 +27,7 @@ import {
   PRIORITY,
   providerSupports,
 } from "@openmanga/domain";
-import { youtubePackageV1 } from "@openmanga/prompts";
+import { youtubePackageV2 } from "@openmanga/prompts";
 import { ANSWER_FIELD_DOCS, ProjectSettings, renderInterface, schemaFromPrompt } from "@openmanga/schemas";
 import { generationPreflight, projectBudget, recordAudit, renderThumbnail } from "@openmanga/services";
 import { mockTextCompletion } from "@openmanga/testing";
@@ -1056,7 +1056,8 @@ generationRoutes.post("/projects/:projectId/cover", async (c) => {
   return c.json({ job }, 202);
 });
 
-const ThumbnailInput = CoverInput.extend({ side: z.enum(["left", "right"]).default("left") });
+/** Without a side, the project's thumbnail style decides (left when it has none). */
+const ThumbnailInput = CoverInput.extend({ side: z.enum(["left", "right"]).optional() });
 doc({
   method: "POST",
   path: "/api/projects/:projectId/thumbnail",
@@ -1071,7 +1072,9 @@ generationRoutes.post("/projects/:projectId/thumbnail", async (c) => {
   await assertBudget(c, p.id);
   await checkImageChoice(c, input.ai);
   const deps = c.get("deps");
-  const job = await deps.planner.enqueueCover(p.id, user(c).id, input, { side });
+  const job = await deps.planner.enqueueCover(p.id, user(c).id, input, {
+    side: side ?? p.settings.thumbnailStyle?.side ?? "left",
+  });
   await deps.jobs.kick();
   return c.json({ job }, 202);
 });
@@ -1104,8 +1107,8 @@ generationRoutes.post("/projects/:projectId/youtube-package", async (c) => {
         targetType: "project",
         targetId: p.id,
         batchId,
-        templateName: youtubePackageV1.name,
-        templateVersion: youtubePackageV1.version,
+        templateName: youtubePackageV2.name,
+        templateVersion: youtubePackageV2.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(batch) },

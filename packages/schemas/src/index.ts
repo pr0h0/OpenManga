@@ -1,6 +1,7 @@
 export * from "./answer-docs.ts";
 export * from "./answer-format.ts";
 export * from "./answer-reference.ts";
+export * from "./bible.ts";
 export * from "./editor.ts";
 export * from "./experts.ts";
 export * from "./interchange.ts";

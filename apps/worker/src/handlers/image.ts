@@ -429,9 +429,14 @@ export async function coverGeneration(deps: WorkerDeps, job: ProjectJob) {
       subtitle: String(job.parameters.subtitle ?? ""),
       side: job.parameters.side === "right" ? "right" : "left",
     };
+    // The project title as it is now, so a later rename shows the headline may be out of date.
     await deps.db
       .update(projects)
-      .set({ settings: sql`${projects.settings} || jsonb_build_object('thumbnail', ${JSON.stringify(t)}::jsonb)` })
+      .set({
+        settings: sql`${projects.settings} || jsonb_build_object('thumbnail', ${JSON.stringify(t)}::jsonb,
+          'publishingSources', coalesce(${projects.settings} -> 'publishingSources', '{}'::jsonb)
+            || jsonb_build_object('thumbnailTitle', ${projects.title}))`,
+      })
       .where(eq(projects.id, job.projectId));
   } else await deps.db.update(projects).set({ coverAssetId: asset.id }).where(eq(projects.id, job.projectId));
   await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));

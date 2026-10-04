@@ -2,6 +2,7 @@ import {
   and,
   asc,
   assets,
+  chapters,
   characterOutfits,
   characters,
   characterVersions,
@@ -25,7 +26,7 @@ import {
   sql,
   stylePresets,
 } from "@openmanga/db";
-import { aspectRatioOf, COLOR_MODE_DIRECTIVES } from "@openmanga/domain";
+import { aspectRatioOf, bibleLines, COLOR_MODE_DIRECTIVES } from "@openmanga/domain";
 import type { ReferenceParams } from "@openmanga/image-utils";
 import {
   characterReferenceV1,
@@ -42,6 +43,7 @@ import {
 } from "@openmanga/prompts";
 import { CharacterBible, type PanelSpec, type ProjectSettings } from "@openmanga/schemas";
 import type { AssetRecord, AssetService } from "./assets.ts";
+import { bibleFor, loadBible } from "./bible.ts";
 import type { JobService, NewGenerationInput } from "./jobs.ts";
 import { outfitReferenceAssets, resolveOutfits, wardrobeText } from "./outfits.ts";
 import { type AiChoice, MISSING_CREDENTIAL, type ProviderResolver } from "./providers.ts";
@@ -463,6 +465,27 @@ export class GenerationPlanner {
       }
     }
 
+    // What the story bible says must be visible here: visual rules and facts about who and what is in the panel, and
+    // their injuries, looks and carried items in force at this chapter and scene. Worn outfits come in as WARDROBE.
+    const [chapterRow] = await this.db
+      .select({ order: chapters.order })
+      .from(chapters)
+      .where(eq(chapters.id, page.chapterId));
+    const canon = chapterRow
+      ? bibleLines(
+          bibleFor(
+            await loadBible(this.db, panel.projectId),
+            { chapter: chapterRow.order, scene: scene?.order ?? null },
+            {
+              names: [...chars.map((c) => c.name), ...(location ? [location.name] : []), ...propCtx.map((p) => p.name)],
+              visualOnly: true,
+              maxFacts: 12,
+              maxStates: 12,
+            },
+          ),
+        )
+      : [];
+
     let previousPanelImageIndex: number | undefined;
     if (opts.includePreviousPanel !== false && panel.sceneId && refs.length < MAX_REFERENCES) {
       const prev = await this.previousPanelArtwork(panel.sceneId, page.order, panel.order);
@@ -494,6 +517,7 @@ export class GenerationPlanner {
       guide: guideInput,
       previousPanelImageIndex,
       continuity: [...new Set(continuity)].slice(0, 12),
+      canon,
       reserveTextSpace: await this.panelHasLettering(panel.id),
       film: settings.format === "film",
       draft,

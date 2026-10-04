@@ -17,12 +17,19 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [ScenePages](#scenepages)
 - [PanelPromptDraft](#panelpromptdraft)
 - [NarrationDraft](#narrationdraft)
+- [NarrationLintReport](#narrationlintreport)
+- [NarrationFix](#narrationfix)
+- [StoryCoverageMap](#storycoveragemap)
+- [NarrationRetime](#narrationretime)
+- [SocialCopy](#socialcopy)
 - [ImageDescription](#imagedescription)
 - [PanelCheck](#panelcheck)
 - [YoutubePackage](#youtubepackage)
 - [ProjectConcept](#projectconcept)
 - [ProjectPremise](#projectpremise)
 - [StoryOutline](#storyoutline)
+- [BibleExtraction](#bibleextraction)
+- [ContinuityReport](#continuityreport)
 
 ## StoryAnalysis
 
@@ -1499,6 +1506,261 @@ interface NarrationDraft {
 
 </details>
 
+## NarrationLintReport
+
+Asked by **Narration QA → Check with AI** — meaning repeated, facts explained again and lines that only describe the frame.
+
+```ts
+/** Problems a listener would notice in one chapter's narration. An empty findings list is a good answer. */
+interface NarrationLintReport {
+  /**
+   * Each problem found, worst first. Report only real problems, not style preferences or deliberate refrains.
+   * At most 60 items.
+   */
+  findings: {
+    /**
+     * repeated_meaning: lines of this chapter that say the same thing in other words; cross_chapter_repeat: a line that re-tells what an earlier chapter's narration told; fact_overexplained: a fact explained again after the listener has heard it twice; describes_frame: a line that only describes what its frame already shows.
+     * @example "repeated_meaning"
+     */
+    type: "repeated_meaning" | "cross_chapter_repeat" | "fact_overexplained" | "describes_frame";
+    /**
+     * The keys of the lines involved (L1, L2, … as the prompt lists them), the line that should change first.
+     * Between 1 and 12 items.
+     * @example ["L7","L3"]
+     */
+    lines: string[];
+    /**
+     * For cross_chapter_repeat and fact_overexplained: the numbers of the earlier chapters that already said it.
+     * At most 10 items.
+     * Optional — defaults to [] when left out.
+     * @example []
+     */
+    relatedChapters?: number[];
+    /**
+     * How much the listener would notice: low, medium or high.
+     * Optional — defaults to "medium" when left out.
+     * @example "medium"
+     */
+    severity?: "low" | "medium" | "high";
+    /**
+     * One or two sentences a writer can act on: what repeats or what the frame already shows.
+     * Between 1 and 600 characters.
+     * @example "L7 tells again that Tomas never left the light, which L3 already said in nearly the same way."
+     */
+    explanation: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "findings": [
+    {
+      "type": "repeated_meaning",
+      "lines": [
+        "L7",
+        "L3"
+      ],
+      "relatedChapters": [],
+      "severity": "medium",
+      "explanation": "L7 tells again that Tomas never left the light, which L3 already said in nearly the same way."
+    }
+  ]
+}
+```
+
+</details>
+
+## NarrationFix
+
+Asked by **Narration QA → Fix flagged** — rewrites of the flagged lines only, shown as a diff before applying.
+
+```ts
+/** Rewrites of the flagged narration lines only. Every line left out stays exactly as it is. */
+interface NarrationFix {
+  /**
+   * One entry per flagged line you rewrite. Lines no finding names are refused.
+   * At most 200 items.
+   */
+  lines: {
+    /**
+     * The key of the flagged line (L1, L2, …) as the prompt lists it.
+     * At least 1 characters.
+     * @example "L7"
+     */
+    line: string;
+    /**
+     * The new line: same meaning, facts, names, tense and roughly the same length, without the problem.
+     * Between 1 and 4000 characters.
+     * @example "By the time the storm reached Vell, the lamp was the only light left on the coast."
+     */
+    text: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "lines": [
+    {
+      "line": "L7",
+      "text": "By the time the storm reached Vell, the lamp was the only light left on the coast."
+    }
+  ]
+}
+```
+
+</details>
+
+## StoryCoverageMap
+
+Asked by **Story → Check coverage**, one question per part of the source — which scenes tell each paragraph, and its weight.
+
+```ts
+/** How the adaptation's plan covers one part of the source story, paragraph by paragraph. */
+interface StoryCoverageMap {
+  /**
+   * One entry for EVERY paragraph of the part, by its key; an answer missing any is sent back.
+   */
+  paragraphs: {
+    /**
+     * The paragraph's key as the prompt numbers it (P1, P2, …).
+     * At least 1 characters.
+     * @example "P12"
+     */
+    paragraph: string;
+    /**
+     * How much the paragraph matters to the story: 1 (texture that could go) to 5 (a turning point it needs).
+     * Between 1 and 5.
+     * @example 4
+     */
+    weight: number;
+    /**
+     * The keys of the scenes that tell what the paragraph tells (C2.S1), or a chapter key (C2) when that chapter tells it but its scenes are not listed. Empty when nothing in the plan tells it; more than one only when the plan really tells it twice.
+     * At most 12 items.
+     * Optional — defaults to [] when left out.
+     * @example ["C2.S1"]
+     */
+    coveredBy?: string[];
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "paragraphs": [
+    {
+      "paragraph": "P12",
+      "weight": 4,
+      "coveredBy": [
+        "C2.S1"
+      ]
+    }
+  ]
+}
+```
+
+</details>
+
+## NarrationRetime
+
+Asked by **Timing: trim or expand narration** — the lines you picked in a chapter's Timing view, rewritten to their word budgets.
+
+```ts
+/** The narration lines you were given, each rewritten to its word budget. Only these lines change. */
+interface NarrationRetime {
+  /**
+   * One entry per line you were given, in the same order.
+   * Between 1 and 200 items.
+   */
+  lines: {
+    /**
+     * The line's id, exactly as given.
+     * At least 1 characters.
+     * @example "line-1"
+     */
+    lineId: string;
+    /**
+     * The rewritten line: the same meaning, voice and facts, close to its word budget (within about 15%).
+     * Between 1 and 4000 characters.
+     * @example "The lamp turned at three in the morning, and Ines wrote the hour down."
+     */
+    text: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "lines": [
+    {
+      "lineId": "line-1",
+      "text": "The lamp turned at three in the morning, and Ines wrote the hour down."
+    }
+  ]
+}
+```
+
+</details>
+
+## SocialCopy
+
+Asked by **Repurpose → Write titles and captions** — a social title and caption for each Short, trailer, teaser, carousel and quote image of the plan.
+
+```ts
+/** A social title and caption for each piece of the repurposing plan you were given, matched by id. */
+interface SocialCopy {
+  /**
+   * One entry per item you were given.
+   * Between 1 and 40 items.
+   */
+  items: {
+    /**
+     * The item's id, exactly as given.
+     * Between 1 and 40 characters.
+     * @example "short-1"
+     */
+    id: string;
+    /**
+     * A short, curious title for the post (under 100 characters).
+     * Between 1 and 150 characters.
+     * @example "She came to switch off the last lamp"
+     */
+    title: string;
+    /**
+     * The post caption: a hook line, one or two lines about this moment without spoiling the ending, and a few hashtags.
+     * Between 1 and 2200 characters.
+     * @example "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
+     */
+    caption: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "items": [
+    {
+      "id": "short-1",
+      "title": "She came to switch off the last lamp",
+      "caption": "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
+    }
+  ]
+}
+```
+
+</details>
+
 ## ImageDescription
 
 Asked by **Describe image** — what a reference image shows, by the aspects you asked for. Attach the image.
@@ -2441,6 +2703,250 @@ interface StoryOutline {
     {
       "title": "Arrival at Vell",
       "summary": "Ines reaches Vell and meets Tomas, who refuses to leave; she agrees to stay until the storm passes."
+    }
+  ]
+}
+```
+
+</details>
+
+## BibleExtraction
+
+Asked by **Extract bible from story** — proposes story bible facts and character states from the chapters, for review.
+
+```ts
+/** A proposed story bible: facts and character states for the user to review. Nothing is saved until applied. */
+interface BibleExtraction {
+  /**
+   * Statements of canon, one per item. Empty when there is nothing to add.
+   * At most 300 items.
+   * Optional — defaults to [] when left out.
+   */
+  facts?: {
+    /**
+     * What the fact is about: character, relationship, power, organisation, place, object, term or rule.
+     * @example "character"
+     */
+    kind: "character" | "relationship" | "power" | "organisation" | "place" | "object" | "term" | "rule";
+    /**
+     * Who or what it is about, by name as in the project; empty for a rule of the whole story.
+     * At most 200 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Tomas"
+     */
+    subject?: string;
+    /**
+     * The fact, short and specific.
+     * Between 1 and 1000 characters.
+     * @example "Has kept the light for forty years and never left the island."
+     */
+    text: string;
+    /**
+     * First chapter it holds in (a number); null or left out for from the start.
+     * Optional — may be left out.
+     * @example 1
+     */
+    fromChapter?: number | null;
+    /**
+     * Last chapter it holds in; null or left out for to the end.
+     * Optional — may be left out.
+     * @example null
+     */
+    untilChapter?: number | null;
+    /**
+     * True only for a hard rule that later steps must never break.
+     * Optional — defaults to false when left out.
+     * @example true
+     */
+    fixed?: boolean;
+    /**
+     * True when it can be seen in a picture, so it reaches image prompts too.
+     * Optional — defaults to false when left out.
+     * @example false
+     */
+    visual?: boolean;
+  }[];
+  /**
+   * How each character stands from a point of the story on, one item per change.
+   * At most 300 items.
+   * Optional — defaults to [] when left out.
+   */
+  states?: {
+    /**
+     * The character's name exactly as in the project.
+     * Between 1 and 200 characters.
+     * @example "Ines"
+     */
+    character: string;
+    /**
+     * injury, look, outfit, item, location, rank, knowledge or other. A later look, outfit, location or rank replaces the earlier one; the others hold until untilChapter.
+     * @example "item"
+     */
+    kind: "injury" | "look" | "outfit" | "item" | "location" | "rank" | "knowledge" | "other";
+    /**
+     * The state.
+     * Between 1 and 1000 characters.
+     * @example "Carries her weather notebook everywhere."
+     */
+    text: string;
+    /**
+     * Chapter number it starts in; null or left out for from the start.
+     * Optional — may be left out.
+     * @example 1
+     */
+    fromChapter?: number | null;
+    /**
+     * Scene number within that chapter (from 1) when it starts part-way through; null or left out otherwise.
+     * Optional — may be left out.
+     * @example null
+     */
+    fromScene?: number | null;
+    /**
+     * Last chapter it holds in; null or left out for to the end.
+     * Optional — may be left out.
+     * @example null
+     */
+    untilChapter?: number | null;
+    /**
+     * For an outfit: the name of one of the character's outfits, when one matches. Null or left out otherwise.
+     * Optional — may be left out.
+     * @example null
+     */
+    outfit?: string | null;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "facts": [
+    {
+      "kind": "character",
+      "subject": "Tomas",
+      "text": "Has kept the light for forty years and never left the island.",
+      "fromChapter": 1,
+      "untilChapter": null,
+      "fixed": true,
+      "visual": false
+    }
+  ],
+  "states": [
+    {
+      "character": "Ines",
+      "kind": "item",
+      "text": "Carries her weather notebook everywhere.",
+      "fromChapter": 1,
+      "fromScene": null,
+      "untilChapter": null,
+      "outfit": null
+    }
+  ]
+}
+```
+
+</details>
+
+## ContinuityReport
+
+Asked by **Check continuity** — contradictions in one chapter against the story bible and its neighbours, and a verdict per fixed rule.
+
+```ts
+/** Contradictions found in one chapter, and a verdict for each fixed rule of the story bible. */
+interface ContinuityReport {
+  /**
+   * Each contradiction with the bible or a neighbouring chapter. Empty when there is none.
+   * At most 200 items.
+   * Optional — defaults to [] when left out.
+   */
+  findings?: {
+    /**
+     * high (breaks a fixed rule, or plainly wrong), medium (likely wrong) or low (doubtful or minor).
+     * @example "high"
+     */
+    severity: "high" | "medium" | "low";
+    /**
+     * One sentence naming who and what is wrong.
+     * Between 1 and 1000 characters.
+     * @example "Tomas lights the lamp with a match, but the bible says the lamp is electric."
+     */
+    message: string;
+    /**
+     * The panel (p<page>.<panel>) or narration line (n<number>) ref from the prompt, 'scene N', or 'chapter'.
+     * At most 40 characters.
+     * Optional — defaults to "chapter" when left out.
+     * @example "p2.3"
+     */
+    where?: string;
+    /**
+     * The offending beat, line or dialogue, short and verbatim.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Tomas strikes a match."
+     */
+    quote?: string;
+    /**
+     * The bible ref it contradicts (R1, F2, S4), or null for a neighbouring chapter.
+     * Optional — defaults to null when left out.
+     * @example "R1"
+     */
+    against?: string | null;
+    /**
+     * That bible entry's text, or what the neighbouring chapter says.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "(rule) The lamp is electric."
+     */
+    evidence?: string;
+  }[];
+  /**
+   * One verdict per fixed rule (R<n>) of the prompt.
+   * At most 200 items.
+   * Optional — defaults to [] when left out.
+   */
+  rules?: {
+    /**
+     * The fixed rule's ref.
+     * Between 1 and 40 characters.
+     * @example "R1"
+     */
+    rule: string;
+    /**
+     * fail (broken here), warn (may be broken) or pass (holds, or does not come up).
+     * @example "fail"
+     */
+    verdict: "pass" | "warn" | "fail";
+    /**
+     * Why, in one short sentence, for warn and fail.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Panel p2.3 shows a match."
+     */
+    note?: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "findings": [
+    {
+      "severity": "high",
+      "message": "Tomas lights the lamp with a match, but the bible says the lamp is electric.",
+      "where": "p2.3",
+      "quote": "Tomas strikes a match.",
+      "against": "R1",
+      "evidence": "(rule) The lamp is electric."
+    }
+  ],
+  "rules": [
+    {
+      "rule": "R1",
+      "verdict": "fail",
+      "note": "Panel p2.3 shows a match."
     }
   ]
 }

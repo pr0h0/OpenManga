@@ -1,13 +1,16 @@
 import {
+  asc,
+  chapters,
   characterVersions,
   type Database,
   type DbOrTx,
+  eq,
   inArray,
   locationVersions,
   propVersions,
   sql,
 } from "@openmanga/db";
-import { hashOf, promptVisibleCharacter } from "@openmanga/domain";
+import { hashOf, type Pronunciation, promptVisibleCharacter, segmentTextSha } from "@openmanga/domain";
 
 export type ReferenceSubject = "character" | "location" | "prop" | "style";
 
@@ -64,6 +67,185 @@ export async function revisedStory(db: Database, projectId: string) {
   return row?.id ?? null;
 }
 
+/**
+ * `from … where …` over the project's narration segments (alias `s`) in its own language that have no audio, or audio
+ * made from other text, voice or speed: what the audio stage counts and a production run's audio step waits for.
+ */
+export const staleAudioFrom = (project: {
+  id: string;
+  language: string;
+  settings: { narrationVoice: string; narrationSpeed: number };
+}) => sql`from narration_segments s
+  join narration_lines nl on nl.id = s.narration_line_id
+  left join audio_assets a on a.asset_id = s.active_audio_asset_id
+  where nl.project_id = ${project.id} and nl.language = ${project.language}
+    and (a.asset_id is null or a.text_sha256 <> s.text_sha256
+      or a.voice <> coalesce(s.voice, ${project.settings.narrationVoice})
+      or abs(a.speed - coalesce(s.speed, ${project.settings.narrationSpeed})) > 0.001)`;
+
+/**
+ * Re-hashes the project's narration segments after its pronunciation dictionary changed. A segment's hash is of what
+ * the voice says, so only segments whose spoken text changed get a new hash: their audio reads as stale (the audio
+ * stage, the narration page, "synthesize missing"), and every other segment keeps its audio. Returns how many changed.
+ */
+export async function rehashNarrationSegments(
+  db: Database | DbOrTx,
+  projectId: string,
+  dictionary: readonly Pronunciation[],
+) {
+  const rows = await db.execute<{ id: string; text: string; text_sha256: string }>(
+    sql`select id, text, text_sha256 from narration_segments where project_id = ${projectId}`,
+  );
+  const changed = [...rows]
+    .map((r) => ({ id: r.id, sha: segmentTextSha(r.text, dictionary), was: r.text_sha256 }))
+    .filter((r) => r.sha !== r.was);
+  // Chunked so a project with thousands of segments stays within a statement's parameter limit.
+  for (let i = 0; i < changed.length; i += 1000) {
+    const chunk = changed.slice(i, i + 1000);
+    await db.execute(sql`update narration_segments s set text_sha256 = v.sha, updated_at = now()
+      from (values ${sql.join(
+        chunk.map((r) => sql`(${r.id}::uuid, ${r.sha})`),
+        sql`, `,
+      )}) as v(id, sha) where s.id = v.id`);
+  }
+  return changed.length;
+}
+
+/**
+ * The chapter text a plan is made from, as the planner reads it (the source excerpt, or the summary when there is
+ * none), trimmed: a re-analysis that only moves the whitespace around a chapter does not change it. `c` is the SQL
+ * name or alias of the chapters row.
+ */
+const chapterText = (c: string) =>
+  sql.raw(`btrim(coalesce(nullif(btrim(${c}.source_excerpt, E' \\n\\r\\t'), ''), ${c}.summary), E' \\n\\r\\t')`);
+
+/**
+ * Fingerprint of what a chapter's plan is made from: recorded when the chapter is planned (or the person keeps the
+ * plan), and compared with the current one to tell a plan made from text that has changed since.
+ */
+export const planSourceFingerprint = (c: string) => sql`md5(${chapterText(c)})`;
+
+/**
+ * Fingerprint of what a chapter's narration is written from: its panels in reading order with their story beat and
+ * dialogue (what the narration prompt narrates, panel by panel).
+ */
+export const narrationSourceFingerprint = (c: string) => sql`md5(coalesce((
+  select string_agg(pn.id::text || ':' || pn.story_beat || ':' || coalesce((
+      select string_agg(d.text, '|' order by d."order", d.id) from dialogue_lines d where d.panel_id = pn.id), ''),
+    E'\\n' order by p."order", pn."order", pn.id)
+  from panels pn join pages p on p.id = pn.page_id where p.chapter_id = ${sql.raw(c)}.id), ''))`;
+
+/** Record a chapter's plan fingerprint as of now (it was just planned, or the person keeps the plan as it is). */
+export async function recordPlanFingerprint(db: Database | DbOrTx, chapterId: string) {
+  await db.execute(
+    sql`update chapters set plan_fingerprint = ${planSourceFingerprint("chapters")} where id = ${chapterId}`,
+  );
+}
+
+/** Record a chapter's narration fingerprint as of now (its narration was just written, or the person keeps it). */
+export async function recordNarrationFingerprint(db: Database | DbOrTx, chapterId: string) {
+  await db.execute(
+    sql`update chapters set narration_fingerprint = ${narrationSourceFingerprint("chapters")} where id = ${chapterId}`,
+  );
+}
+
+/**
+ * Chapters that have pages but whose text changed after they were planned, and chapters that have narration but
+ * whose panels or dialogue changed after it was written (in the project's language). Neither is redone on its own:
+ * re-planning replaces pages and artwork, so a person keeps the current one or asks for it again.
+ */
+export async function staleChapters(db: Database, project: { id: string; language: string }) {
+  const rows = await db.execute<{
+    id: string;
+    title: string;
+    order: number;
+    pages: number;
+    panels: number;
+    drawn: number;
+    lines: number;
+    plan: boolean;
+    narration: boolean;
+  }>(sql`
+    select * from (
+      select c.id, c.title, c."order",
+        (select count(*)::int from pages p where p.chapter_id = c.id) as pages,
+        (select count(*)::int from panels pn join pages p on p.id = pn.page_id where p.chapter_id = c.id) as panels,
+        (select count(*)::int from panels pn join pages p on p.id = pn.page_id
+          where p.chapter_id = c.id and pn.active_artwork_asset_id is not null) as drawn,
+        (select count(*)::int from narration_lines nl where nl.chapter_id = c.id and nl.language = ${project.language})
+          as lines,
+        c.plan_fingerprint is not null and c.plan_fingerprint <> ${planSourceFingerprint("c")} as plan,
+        c.narration_fingerprint is not null and c.narration_fingerprint <> ${narrationSourceFingerprint("c")}
+          as narration
+      from chapters c where c.project_id = ${project.id}) x
+    where (x.plan and x.pages > 0) or (x.narration and x.lines > 0)
+    order by x."order"`);
+  const view = (r: (typeof rows)[number]) => ({
+    chapterId: r.id,
+    title: r.title,
+    pages: r.pages,
+    panels: r.panels,
+    drawnPanels: r.drawn,
+    narrationLines: r.lines,
+  });
+  return {
+    plans: rows.filter((r) => r.plan && r.pages > 0).map(view),
+    narration: rows.filter((r) => r.narration && r.lines > 0).map(view),
+  };
+}
+
+/**
+ * Fingerprint of what the YouTube text is written from that can go stale: the project title and its chapter titles in
+ * order (by title, not id, so a duplicated project's text stays current).
+ */
+export async function youtubeSourceFingerprint(db: Database | DbOrTx, project: { id: string; title: string }) {
+  const chs = await db
+    .select({ title: chapters.title })
+    .from(chapters)
+    .where(eq(chapters.projectId, project.id))
+    .orderBy(asc(chapters.order));
+  return hashOf({ title: project.title, chapters: chs });
+}
+
+/**
+ * The YouTube text and the thumbnail headline, which only a person or a run asked to write them changes: whether each
+ * may be out of date, and why. Never regenerated on their own: the person regenerates or keeps them.
+ */
+export async function publishingStaleness(
+  db: Database,
+  project: { id: string; title: string; settings: ProjectSettingsLike },
+) {
+  const src = project.settings.publishingSources ?? {};
+  const youtube: string[] = [];
+  if (project.settings.youtubePackage?.titles.length) {
+    if (src.youtubeText && src.youtubeText !== (await youtubeSourceFingerprint(db, project)))
+      youtube.push("the title or the chapters changed since it was written");
+    // The package export adds chapter timestamps from the newest whole-project video; a newer video moves them.
+    const [r] = await db.execute<{ newer: boolean }>(sql`
+      select coalesce((select max(v.finished_at) from export_jobs v
+        where v.project_id = ${project.id} and v.kind in ('video_pages', 'video_panels') and v.status = 'completed'
+          and v.chapter_id is null and v.options -> 'pageIds' is null and v.options -> 'video' -> 'maxDurationMs' is null)
+        > (select max(y.finished_at) from export_jobs y
+          where y.project_id = ${project.id} and y.kind = 'youtube_package' and y.status = 'completed'
+            and y.chapter_id is null), false) as newer`);
+    if (r?.newer) youtube.push("the video was rendered again after the package was exported, moving its timestamps");
+  }
+  const thumb = project.settings.thumbnail;
+  const thumbnail =
+    thumb && src.thumbnailTitle !== undefined && src.thumbnailTitle !== project.title
+      ? [`the project title changed from "${src.thumbnailTitle}" after the headline was set`]
+      : [];
+  return [
+    { key: "youtube_text" as const, stale: youtube.length > 0, reasons: youtube },
+    { key: "thumbnail" as const, stale: thumbnail.length > 0, reasons: thumbnail },
+  ];
+}
+type ProjectSettingsLike = {
+  youtubePackage?: { titles: string[] };
+  thumbnail?: { title: string };
+  publishingSources?: { youtubeText?: string; thumbnailTitle?: string };
+};
+
 /** The production pipeline's stages, in order: each one is made from the ones before it. */
 export const PIPELINE_STAGES = ["story", "plan", "prompts", "art", "narration", "audio", "render"] as const;
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
@@ -74,10 +256,11 @@ export type PipelineStage = (typeof PIPELINE_STAGES)[number];
  *
  * - story: the latest story revision is not the one the applied analysis read (a run re-analyses it and always
  *   stops for the user to review the changes before applying);
- * - plan: chapters with no pages;
+ * - plan: chapters with no pages, and chapters whose text changed after they were planned (`stale.plans`);
  * - prompts: pages with a panel still to draw and no prepared prompt;
  * - art: panels without artwork, and panels whose spec was edited after their artwork was made (`staleArt`);
- * - narration: chapters with panels but no narration;
+ * - narration: chapters with panels but no narration, and chapters whose panels or dialogue changed after their
+ *   narration was written (`stale.narration`);
  * - audio: segments without audio, or whose audio was made from other text, voice or speed;
  * - render: no whole-project video yet, or anything it is drawn from changed after the newest one was queued.
  */
@@ -87,6 +270,7 @@ export async function pipelineStaleness(
 ) {
   const one = async <T>(q: ReturnType<typeof sql>) => (await db.execute<T & Record<string, unknown>>(q))[0]!;
   const story = { stale: Boolean(await revisedStory(db, project.id)) };
+  const stale = await staleChapters(db, project);
   const counts = await one<{
     plan: number;
     prompts: number;
@@ -105,13 +289,7 @@ export async function pipelineStaleness(
         and exists (select 1 from panels pn join pages p on p.id = pn.page_id where p.chapter_id = c.id)
         and not exists (select 1 from narration_lines nl where nl.chapter_id = c.id and nl.language = ${project.language}))
         as narration,
-      (select count(*)::int from narration_segments s
-        join narration_lines nl on nl.id = s.narration_line_id
-        left join audio_assets a on a.asset_id = s.active_audio_asset_id
-        where nl.project_id = ${project.id} and nl.language = ${project.language}
-          and (a.asset_id is null or a.text_sha256 <> s.text_sha256
-            or a.voice <> coalesce(s.voice, ${project.settings.narrationVoice})
-            or abs(a.speed - coalesce(s.speed, ${project.settings.narrationSpeed})) > 0.001)) as audio`);
+      (select count(*)::int ${staleAudioFrom(project)}) as audio`);
   const staleArt = (
     await db.execute<{ id: string }>(sql`
       select pn.id from panels pn join assets a on a.id = pn.active_artwork_asset_id
@@ -144,14 +322,22 @@ export async function pipelineStaleness(
       count: story.stale ? 1 : 0,
       note: "The story was revised after it was analysed: an update re-analyses it and waits for your review",
     },
-    { key: "plan", count: counts.plan, note: "chapters without a plan" },
+    {
+      key: "plan",
+      count: counts.plan + stale.plans.length,
+      note: `${counts.plan} chapter(s) without a plan, ${stale.plans.length} whose text changed after planning`,
+    },
     { key: "prompts", count: counts.prompts, note: "pages with panels to draw and no prepared prompt" },
     {
       key: "art",
       count: counts.missing_art + staleArt.length,
       note: `${counts.missing_art} panel(s) without artwork, ${staleArt.length} edited after their artwork`,
     },
-    { key: "narration", count: counts.narration, note: "chapters with panels but no narration" },
+    {
+      key: "narration",
+      count: counts.narration + stale.narration.length,
+      note: `${counts.narration} chapter(s) with panels but no narration, ${stale.narration.length} changed after it was written`,
+    },
     { key: "audio", count: counts.audio, note: "narration segments without up-to-date audio" },
     {
       key: "render",
@@ -159,5 +345,5 @@ export async function pipelineStaleness(
       note: render.rendered ? "the video is older than what it is drawn from" : "no whole-project video yet",
     },
   ];
-  return { stages, staleArt };
+  return { stages, staleArt, stale };
 }

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
 import { cardFrames, shotGroups, timeGroup, watermarkBox } from "@openmanga/domain";
 import { sharp } from "@openmanga/image-utils";
+import { unzipSync } from "fflate";
 import { advanceRun } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -860,4 +861,210 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     await u.del(`/api/projects/${projectId}/exports`);
     expect(await cached()).toBe(0);
   }, 900_000);
+  test("timing pass: real audio lengths, fixes previewed then applied, and the render runs as long as reported", async () => {
+    const { projectId, chapterId } = await narratedChapter("Timing");
+    // Shots of 1–2 s at most: every narrated shot runs long, so the pass has something to say.
+    await u.patch(`/api/projects/${projectId}`, {
+      settings: { targetRuntime: { minutes: 1, wordsPerMinute: 150, minShotSeconds: 1, maxShotSeconds: 2 } },
+    });
+    type Hold = { key: string; beforeMs: number; afterMs: number };
+    type Report = {
+      totalMs: number;
+      targetMs: number | null;
+      audio: { segments: number; voiced: number };
+      shots: { key: string; panelId: string; holdMs: number; joinNext: boolean; lines: { id: string }[] }[];
+      issues: { kind: string; key: string }[];
+      fixes: {
+        spread: { lineId: string; fromKey: string; untilPanelId: string; holds: Hold[]; deltaMs: number }[];
+        holds: { panelId: string; key: string; holdMs: number; holds: Hold[]; deltaMs: number }[];
+        trim: { lineId: string; words: number; budget: number }[];
+      };
+    };
+    const report = (minHoldMs = 1500) => u.get<Report>(`/api/chapters/${chapterId}/timing?minHoldMs=${minHoldMs}`);
+    const r1 = await report();
+    expect(r1.audio.voiced).toBe(r1.audio.segments);
+    expect(r1.targetMs).toBe(60_000);
+    expect(r1.issues.some((i) => i.kind === "long" || i.kind === "still")).toBe(true);
+    const projectView = await u.get<{ chapters: { id: string; totalMs: number }[] }>(
+      `/api/projects/${projectId}/timing?minHoldMs=1500`,
+    );
+    expect(projectView.chapters.find((c) => c.id === chapterId)!.totalMs).toBe(r1.totalMs);
+
+    // (a) Spread the first long line over the next shot(s) of its scene, then the report is what the fix promised.
+    const spread = r1.fixes.spread[0]!;
+    expect(spread).toBeTruthy();
+    await u.post(`/api/chapters/${chapterId}/timing/apply`, {
+      spread: { lineId: spread.lineId, untilPanelId: spread.untilPanelId },
+    });
+    const r2 = await report();
+    expect(r2.shots.find((s) => s.key === spread.fromKey)!.joinNext).toBe(true);
+    for (const h of spread.holds) expect(r2.shots.find((s) => s.key === h.key)!.holdMs).toBe(h.afterMs);
+    expect(Math.abs(r2.totalMs - (r1.totalMs + spread.deltaMs))).toBeLessThanOrEqual(1);
+
+    // (b) A high export minimum pads short shots; a shot's own hold takes it back, within the settings.
+    const padded = await report(12_000);
+    const hold = padded.fixes.holds[0]!;
+    // Never below its narration: the hold the narration needs, not the 12 s minimum.
+    expect(hold.holdMs).toBeLessThan(12_000);
+    await u.post(`/api/chapters/${chapterId}/timing/apply`, { hold: { panelId: hold.panelId, holdMs: hold.holdMs } });
+    const r3 = await report(12_000);
+    expect(Math.abs(r3.totalMs - (padded.totalMs + hold.deltaMs))).toBeLessThanOrEqual(1);
+    // The render holds exactly what the report says (frame-exact holds, real ffmpeg duration).
+    const out = await runExport(projectId, {
+      kind: "video_panels",
+      chapterId,
+      video: { height: 720, fps: 30, minHoldMs: 12_000 },
+    });
+    const mp4 = await probe(out.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect(Math.abs(mp4.ms - r3.totalMs)).toBeLessThan(80 + 10 * r3.shots.length);
+
+    // (c) Rewrite one line to a longer budget: proposed as a diff, applied to that line only, then only it re-voiced.
+    const target = r3.shots.flatMap((s) => s.lines)[0]!;
+    type Narr = {
+      lines: { id: string; text: string; segments: { id: string; activeAudioAssetId: string | null }[] }[];
+    };
+    const before = await u.get<Narr>(`/api/chapters/${chapterId}/narration`);
+    const others = before.lines.filter((l) => l.id !== target.id).flatMap((l) => l.segments);
+    const job = await u.post<{ job: { id: string } }>(
+      `/api/chapters/${chapterId}/narration/retime`,
+      { lines: [{ lineId: target.id, words: 40 }] },
+      202,
+    );
+    const done = await waitJob(job.job.id);
+    expect(done.status).toBe("completed");
+    const { job: finished } = await u.get<{
+      job: { result: { lines: { lineId: string; text: string; after: string; afterWords: number }[] } };
+    }>(`/api/generations/${job.job.id}`);
+    const proposal = finished.result.lines[0]!;
+    expect(proposal.lineId).toBe(target.id);
+    expect(proposal.afterWords).toBe(40);
+    // Nothing changed before applying.
+    expect(
+      (await u.get<Narr>(`/api/chapters/${chapterId}/narration`)).lines.find((l) => l.id === target.id)!.text,
+    ).toBe(proposal.text);
+    const applied = await u.post<{ applied: { lineId: string }[] }>(
+      `/api/chapters/${chapterId}/narration/retime/${job.job.id}/apply`,
+      { lineIds: [target.id] },
+    );
+    expect(applied.applied.map((a) => a.lineId)).toEqual([target.id]);
+    await u.post(`/api/chapters/${chapterId}/narration/synthesize`, { lineIds: [target.id] }, 202);
+    const after = await waitFor(
+      async () => {
+        const n = await u.get<Narr>(`/api/chapters/${chapterId}/narration`);
+        return n.lines.every((l) => l.segments.every((s) => s.activeAudioAssetId)) ? n : null;
+      },
+      { label: "re-voiced line", timeoutMs: 60_000 },
+    );
+    expect(after.lines.find((l) => l.id === target.id)!.text).toBe(proposal.after);
+    // Every other segment kept its audio: only the rewritten line was voiced again.
+    const kept = new Map(after.lines.flatMap((l) => l.segments).map((s) => [s.id, s.activeAudioAssetId]));
+    for (const s of others) expect(kept.get(s.id)).toBe(s.activeAudioAssetId);
+  }, 600_000);
+  test("repurposing: a reviewed plan, social copy, a trailer, a carousel and a quote image", async () => {
+    const { projectId } = await narratedChapter("Repurpose");
+    type Item = {
+      id: string;
+      kind: string;
+      label: string;
+      panelIds: string[];
+      lengthSeconds?: number;
+      aspect?: string;
+      text: string;
+      title: string;
+      caption: string;
+    };
+    type Plan = {
+      items: Item[];
+      suggestion: Item[];
+      candidates: { id: string; hasArt: boolean; holdMs: number; quotes: string[] }[];
+    };
+    const plan = await u.get<Plan>(`/api/projects/${projectId}/repurpose?shorts=2&minHoldMs=1500`);
+    expect(plan.items).toEqual([]);
+    const art = new Set(plan.candidates.filter((c) => c.hasArt).map((c) => c.id));
+    expect(art.size).toBeGreaterThan(0);
+    const shorts = plan.suggestion.filter((i) => i.kind === "short");
+    expect(shorts.length).toBeGreaterThan(0);
+    // Shorts of one plan never share a shot, and everything is picked from panels with art.
+    const shortIds = shorts.flatMap((s) => s.panelIds);
+    expect(new Set(shortIds).size).toBe(shortIds.length);
+    expect(plan.suggestion.every((i) => i.panelIds.every((id) => art.has(id)))).toBe(true);
+    const trailer = plan.suggestion.find((i) => i.kind === "trailer")!;
+    expect(trailer.lengthSeconds).toBe(90);
+    expect(trailer.aspect).toBe("16:9");
+    expect(plan.suggestion.find((i) => i.kind === "teaser")!.lengthSeconds).toBe(30);
+    const carousel = plan.suggestion.find((i) => i.kind === "carousel")!;
+    expect(carousel.panelIds.length).toBe(Math.min(10, art.size));
+
+    // The review step: the plan is edited (a quote written by hand, the carousel square) and saved.
+    const first = [...art][0]!;
+    const items: Item[] = [
+      ...plan.suggestion.filter((i) => i.kind !== "quote"),
+      {
+        id: "quote-1",
+        kind: "quote",
+        label: "Quote",
+        panelIds: [first],
+        aspect: "4:5",
+        text: "Who's there?",
+        title: "",
+        caption: "",
+      },
+    ].map((i) => (i.kind === "carousel" ? { ...i, aspect: "1:1" } : i));
+    await u.patch(`/api/projects/${projectId}`, { settings: { repurpose: { items } } });
+    // Social copy: a text job writes a title and caption into each saved item.
+    const copy = await u.post<{ job: { id: string } }>(`/api/projects/${projectId}/repurpose/copy`, {}, 202);
+    expect((await waitJob(copy.job.id)).status).toBe("completed");
+    const saved = (await u.get<Plan>(`/api/projects/${projectId}/repurpose`)).items;
+    expect(saved.map((i) => i.id)).toEqual(items.map((i) => i.id));
+    expect(saved.every((i) => i.title.startsWith("Mock title:") && i.caption.length > 0)).toBe(true);
+    expect(saved.find((i) => i.id === "quote-1")!.text).toBe("Who's there?");
+
+    // The trailer renders as a Shorts cut named after it, landscape, within its length, with its caption.
+    const t = saved.find((i) => i.kind === "trailer")!;
+    const film = await runExport(projectId, {
+      kind: "video_shorts",
+      panelIds: t.panelIds,
+      label: t.label,
+      social: { title: t.title, caption: t.caption },
+      video: { height: 720, fps: 12, shortsSeconds: t.lengthSeconds, aspect: t.aspect },
+    });
+    const mp4 = film.files.find((f) => f.mimeType === "video/mp4")!;
+    expect(mp4.fileName).toContain("_trailer_720p.mp4");
+    const m = await probe(mp4.assetId);
+    expect({ width: m.width, height: m.height }).toEqual({ width: 1280, height: 720 });
+    expect(m.ms).toBeLessThanOrEqual(90_000 + 200);
+    const txt = film.files.find((f) => f.fileName.endsWith("_caption.txt"))!;
+    expect(await (await u.raw("GET", `/cdn/a/${txt.assetId}`)).text()).toContain(t.title);
+
+    // The carousel: one square image per picked panel, cropped from its art, and the caption, zipped.
+    const c = saved.find((i) => i.kind === "carousel")!;
+    const zip = await runExport(projectId, {
+      kind: "carousel",
+      panelIds: c.panelIds,
+      label: c.label,
+      social: { title: c.title, caption: c.caption },
+      still: { aspect: "1:1" },
+    });
+    const entries = unzipSync(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${zip.files[0]!.assetId}`)).arrayBuffer()),
+    );
+    const pngs = Object.keys(entries).filter((n) => n.endsWith(".png"));
+    expect(pngs.length).toBe(c.panelIds.length);
+    expect(Object.keys(entries).some((n) => n.endsWith("_caption.txt"))).toBe(true);
+    const slide = await sharp(entries[pngs[0]!]!).metadata();
+    expect({ width: slide.width, height: slide.height }).toEqual({ width: 1080, height: 1080 });
+
+    // The quote image: 4:5, the panel with its line set on it.
+    await u.post(`/api/projects/${projectId}/exports`, { kind: "quote_image", panelIds: [first] }, 400);
+    const q = await runExport(projectId, {
+      kind: "quote_image",
+      panelIds: [first],
+      still: { aspect: "4:5", text: "Who's there?" },
+    });
+    const png = q.files.find((f) => f.mimeType === "image/png")!;
+    const meta = await sharp(
+      new Uint8Array(await (await u.raw("GET", `/cdn/a/${png.assetId}`)).arrayBuffer()),
+    ).metadata();
+    expect({ width: meta.width, height: meta.height }).toEqual({ width: 1080, height: 1350 });
+  }, 600_000);
 });

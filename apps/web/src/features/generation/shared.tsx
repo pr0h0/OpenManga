@@ -8,6 +8,11 @@ export const KIND_LABELS: Record<string, string> = {
   chapter_plan: "Chapter planning",
   page_prompts: "Prompt prep",
   narration_text: "Narration text",
+  narration_lint: "Narration QA",
+  narration_fix: "Narration fixes",
+  story_coverage: "Story coverage",
+  narration_retime: "Narration timing",
+  social_copy: "Social copy",
   character_reference: "Character ref",
   location_reference: "Location ref",
   prop_reference: "Prop ref",
@@ -18,6 +23,8 @@ export const KIND_LABELS: Record<string, string> = {
   thumbnail: "Video thumbnail",
   youtube_package: "YouTube package",
   expert_extract: "Expert action",
+  bible_extract: "Bible extraction",
+  continuity_check: "Continuity check",
 };
 
 export const JOB_STATUSES = [

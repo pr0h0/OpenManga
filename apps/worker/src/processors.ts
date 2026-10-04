@@ -1,17 +1,23 @@
 import type { GenerationKind } from "@openmanga/db";
 import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
+import { continuityCheck } from "./handlers/continuity.ts";
 import { expertExtract } from "./handlers/expert-extract.ts";
 import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
 import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
 import { runMaintenance } from "./handlers/maintenance.ts";
+import { narrationFix, narrationLint } from "./handlers/narration-qa.ts";
 import { panelCheck } from "./handlers/qa.ts";
+import { storyCoverage } from "./handlers/story-coverage.ts";
 import {
+  bibleExtract,
   chapterPlan,
   imageDescribe,
+  narrationRetime,
   narrationText,
   pagePrompts,
+  socialCopy,
   storyAnalysis,
   storyRewrite,
   youtubePackage,
@@ -31,6 +37,8 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   chapter_plan: chapterPlan,
   page_prompts: pagePrompts,
   narration_text: narrationText,
+  narration_retime: narrationRetime,
+  social_copy: socialCopy,
   character_reference: referenceGeneration,
   location_reference: referenceGeneration,
   prop_reference: referenceGeneration,
@@ -40,6 +48,11 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   panel_check: panelCheck,
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
+  bible_extract: bibleExtract,
+  continuity_check: continuityCheck,
+  narration_lint: narrationLint,
+  narration_fix: narrationFix,
+  story_coverage: storyCoverage,
   cover: coverGeneration,
   thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,

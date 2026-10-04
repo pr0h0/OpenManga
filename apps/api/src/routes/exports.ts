@@ -14,13 +14,7 @@ import {
   sql,
 } from "@openmanga/db";
 import { providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
-import {
-  exportQueuesFor,
-  issuesForExport,
-  projectReadiness,
-  recordAudit,
-  sweepRenderSections,
-} from "@openmanga/services";
+import { issuesForExport, projectReadiness, recordAudit, sweepRenderSections } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -49,11 +43,24 @@ export const ExportOptions = z.object({
     "video_panels",
     "video_shorts",
     "youtube_package",
+    "carousel",
+    "quote_image",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),
-  /** video_shorts: the picked panels (see GET /api/projects/:projectId/shorts), played in story order. */
+  /**
+   * video_shorts, carousel, quote_image: the picked panels (see GET /api/projects/:projectId/shorts and .../repurpose),
+   * in story order. A quote image uses the first.
+   */
   panelIds: z.array(z.string().uuid()).min(1).max(100).optional(),
+  /** A name for this cut or set ("Trailer", "Short 2"), used in the file names. */
+  label: z.string().trim().max(60).optional(),
+  /** Social copy shipped next to the file as caption.txt. */
+  social: z.object({ title: z.string().max(150).default(""), caption: z.string().max(2200).default("") }).optional(),
+  /** carousel and quote_image: the image shape (1080×1080 or 1080×1350), and the quote image's line. */
+  still: z
+    .object({ aspect: z.enum(["1:1", "4:5"]).default("4:5"), text: z.string().trim().max(300).default("") })
+    .default({ aspect: "4:5", text: "" }),
   scale: z.number().min(0.25).max(3).default(1),
   jpgQuality: z.number().int().min(40).max(100).default(90),
   pdf: z
@@ -95,7 +102,8 @@ export const ExportOptions = z.object({
   includeAssets: z.boolean().default(true),
   video: z
     .object({
-      height: z.union([z.literal(720), z.literal(1080), z.literal(1440)]).default(1080),
+      /** The frame's short side. Default: the project's video output setting, else 1080. */
+      height: z.union([z.literal(720), z.literal(1080), z.literal(1440)]).optional(),
       fps: z.number().int().min(12).max(60).default(30),
       minHoldMs: z.number().int().min(500).max(30_000).default(2500),
       /** "scroll": 3/5 width, travelling the whole page top to bottom over its hold (the continuous scroll cut). */
@@ -110,16 +118,18 @@ export const ExportOptions = z.object({
       breathMs: z.number().int().min(0).max(2000).default(150),
       /** A partial render for checking: stop after the shot that reaches this length (whole shots only). */
       maxDurationMs: z.number().int().min(10_000).max(86_400_000).optional(),
-      /** Frame shape: landscape, vertical (Shorts, Reels) or square. Default 16:9, and 9:16 for video_shorts. */
+      /**
+       * Frame shape: landscape, vertical (Shorts, Reels) or square. Default: the project's video output setting, else
+       * 16:9; video_shorts always defaults to 9:16.
+       */
       aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
       /**
        * video_shorts: the cut's length in seconds (default 180, YouTube's Shorts limit; up to 600). The film ends before
        * the shot that would pass it. Over 180 the response carries a warning: YouTube uploads it as a regular video.
        */
-      shortsSeconds: z.number().int().min(30).max(600).optional(),
+      shortsSeconds: z.number().int().min(15).max(600).optional(),
     })
     .default({
-      height: 1080,
       fps: 30,
       minHoldMs: 2500,
       framing: "width",
@@ -146,6 +156,10 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
   // Viewers download what exists; making a new export queues server work every member then sees, so it is an edit.
   const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const input = await body(c, ExportOptions);
+  // Filled here, so the stored options say what was rendered whoever asked: the app, an agent or a production run.
+  const output = p.settings.video?.output;
+  input.video.height ??= output?.height ?? 1080;
+  if (input.kind !== "video_shorts") input.video.aspect ??= output?.aspect;
   if (
     // Narration and its timeline are built per chapter; every page-based kind streams, so it can take the project.
     ["narration_audio", "timeline"].includes(input.kind) &&
@@ -166,8 +180,9 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
       .where(and(eq(pages.projectId, p.id), inArray(pages.id, input.pageIds)));
     if (own.length !== new Set(input.pageIds).size) throw notFound("Page");
   }
-  if (input.kind === "video_shorts") {
-    if (!input.panelIds?.length) throw badRequest("Pick the shots of the Short (panelIds)");
+  if (input.kind === "quote_image" && !input.still.text) throw badRequest("Write the quote (still.text)");
+  if (["video_shorts", "carousel", "quote_image"].includes(input.kind)) {
+    if (!input.panelIds?.length) throw badRequest("Pick the panels (panelIds)");
     const own = await deps.db
       .select({ id: panels.id })
       .from(panels)
@@ -309,16 +324,9 @@ exportRoutes.post("/exports/:id/cancel", async (c) => {
   const [job] = await deps.db.select().from(exportJobs).where(eq(exportJobs.id, id));
   if (!job) throw notFound("Export");
   await projectAccess(c, job.projectId, "write");
-  if (job.status === "queued") {
-    for (const q of exportQueuesFor(job.kind)) await deps.queue.removeWaiting(q, job.id);
-    await deps.db.update(exportJobs).set({ status: "cancelled", finishedAt: new Date() }).where(eq(exportJobs.id, id));
-    return c.json({ result: "cancelled" });
-  }
-  if (job.status === "processing") {
-    await deps.db.update(exportJobs).set({ status: "cancel_requested" }).where(eq(exportJobs.id, id));
-    return c.json({ result: "cancel_requested" });
-  }
-  throw conflict(`Export is already ${job.status}`);
+  const result = await deps.jobs.cancelExport(id);
+  if (result === "not_cancellable") throw conflict(`Export is already ${job.status}`);
+  return c.json({ result });
 });
 
 doc({

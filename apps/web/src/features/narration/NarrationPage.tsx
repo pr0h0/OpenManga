@@ -1,7 +1,7 @@
 import { NARRATION_LANGUAGES, voiceMatchesLanguage } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { AlertTriangle, CheckCircle2, Download, Mic, Plus, Trash2, Volume2, Wand2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, ListChecks, Mic, Plus, Trash2, Volume2, Wand2 } from "lucide-react";
 import { useState } from "react";
 import { api, del, get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
@@ -354,10 +354,19 @@ export function NarrationPage() {
 
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <ChapterPlayer segments={allSegments} onCurrent={setCurrent} />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button type="button" className="btn-secondary" onClick={() => exportKind.mutate("narration_audio")}>
                 <Download className="size-4" /> Download audio
               </button>
+              <Link
+                to="/projects/$projectId/narration/qa"
+                params={{ projectId }}
+                search={{ chapterId }}
+                className="btn-ghost"
+                title="Repetition, restated dialogue, density and pace, with fixes for only the flagged lines"
+              >
+                <ListChecks className="size-4" /> Narration QA
+              </Link>
               <Link to="/projects/$projectId/exports" params={{ projectId }} className="btn-ghost">
                 Exports →
               </Link>

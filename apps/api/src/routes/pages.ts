@@ -48,7 +48,7 @@ import {
   templateFrames,
 } from "@openmanga/domain";
 import { computeCrop } from "@openmanga/image-utils";
-import { panelCheckV1, panelPromptsV4 } from "@openmanga/prompts";
+import { panelCheckV1, panelPromptsV5 } from "@openmanga/prompts";
 import {
   asPatch,
   Bubble,
@@ -575,8 +575,8 @@ pageRoutes.post("/pages/:id/prepare-prompts", async (c) => {
         targetType: "page",
         targetId: page.id,
         batchId: promptsBatchId,
-        templateName: panelPromptsV4.name,
-        templateVersion: panelPromptsV4.version,
+        templateName: panelPromptsV5.name,
+        templateVersion: panelPromptsV5.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(batch) },

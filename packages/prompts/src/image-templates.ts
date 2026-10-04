@@ -371,6 +371,8 @@ export type PanelPromptInput = {
   guide?: { imageIndex: number; strength: "loose" | "strict"; pose?: string };
   previousPanelImageIndex?: number;
   continuity: string[];
+  /** Visible canon from the story bible in effect here: fixed rules, facts and character states (injuries, looks, items). */
+  canon?: string[];
   /** Panel has app lettering (bubbles/captions); ask for calm space for it. Defaults to true. */
   reserveTextSpace?: boolean;
   /** Film project: a full-frame cinematic 16:9 shot for a narrated video, never a comic panel. */
@@ -415,10 +417,10 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 11,
+  version: 12,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
-  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
+  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
   compile(i) {
     const s = i.panel.spec;
     const d = i.draft ?? {};
@@ -520,6 +522,7 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
                 `${c.name} (design v${c.versionNumber}):\n${characterAppearance(c.name, c.bible, c.immutableTraits)}`,
             ),
           ),
+      i.canon?.length ? section("STORY CANON (must hold)", i.canon.map(clean).filter(Boolean)) : "",
       nobody
         ? ""
         : section(

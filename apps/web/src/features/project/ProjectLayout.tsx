@@ -8,6 +8,7 @@ import {
   FileText,
   GalleryVertical,
   Globe2,
+  HeartPulse,
   Images,
   LayoutDashboard,
   LayoutGrid,
@@ -15,8 +16,11 @@ import {
   Mic,
   PiggyBank,
   ScanEye,
+  ScrollText,
   Search,
   Settings,
+  Share2,
+  Timer,
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -41,18 +45,22 @@ export function useProject() {
 
 const NAV = [
   { to: "/projects/$projectId", label: "Overview", icon: LayoutDashboard, exact: true },
+  { to: "/projects/$projectId/health", label: "Health", icon: HeartPulse },
   { to: "/projects/$projectId/story", label: "Story", icon: BookText },
   { to: "/projects/$projectId/cast", label: "Cast", icon: Users },
   { to: "/projects/$projectId/world", label: "World", icon: Globe2 },
+  { to: "/projects/$projectId/bible", label: "Bible", icon: ScrollText },
   { to: "/projects/$projectId/chapters", label: "Chapters", icon: FileText },
   { to: "/projects/$projectId/pages", label: "Pages", icon: LayoutGrid },
   { to: "/projects/$projectId/storyboard", label: "Storyboard", icon: GalleryVertical },
   { to: "/projects/$projectId/comments", label: "Comments", icon: MessageSquare },
   { to: "/projects/$projectId/generation", label: "Generation", icon: Cpu },
   { to: "/projects/$projectId/narration", label: "Narration", icon: Mic },
+  { to: "/projects/$projectId/timing", label: "Timing", icon: Timer },
   { to: "/projects/$projectId/describe", label: "Describe", icon: ScanEye },
   { to: "/projects/$projectId/assets", label: "Assets", icon: Images },
   { to: "/projects/$projectId/exports", label: "Exports", icon: Download },
+  { to: "/projects/$projectId/repurpose", label: "Repurpose", icon: Share2 },
   { to: "/projects/$projectId/usage", label: "Cost", icon: PiggyBank },
   { to: "/projects/$projectId/settings", label: "Settings", icon: Settings },
 ] as const;

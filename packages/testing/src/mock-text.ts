@@ -376,6 +376,8 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "scene-strip": "scene-pages-v1",
     "panel-prompts": "panel-prompts-v1",
     "story-rewrite": "story-rewrite-v1",
+    "narration-retime": "narration-retime-v1",
+    "social-copy": "social-copy-v1",
     "json-repair": "json-repair-v1",
     "panel-check": "panel-check-v1",
     "image-describe": "image-describe-v1",
@@ -384,6 +386,12 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "expert-premise": "expert-premise-v1",
     "expert-outline": "expert-outline-v1",
     "expert-youtube": "expert-youtube-v1",
+    "narration-lint": "narration-lint-v1",
+    "narration-fix": "narration-fix-v1",
+    "bible-extract": "bible-extract-v1",
+    "continuity-check": "continuity-check-v1",
+    "youtube-package": "youtube-package-v1",
+    "story-coverage": "story-coverage-v1",
   };
   const route = tpl === "narration-v1" ? tpl : name === "narration" ? "narration-v2" : (byName[name] ?? tpl);
   switch (route) {
@@ -426,9 +434,14 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     case "youtube-package-v1": {
       const d = (data[0] ?? {}) as { project?: { title?: string }; chapters?: { title: string }[] };
       const title = d.project?.title ?? "Untitled";
+      const summary = `A narrated telling of ${title}.\n\nChapters: ${(d.chapters ?? []).map((c) => c.title).join(", ")}.`;
+      // v2: a channel's description template is filled the way a model is asked to, so tests see it arrive.
+      const rules = JSON.parse(extractTagged(user, "channel_rules")[0] ?? "{}") as { descriptionTemplate?: string };
       return {
         titles: [`${title}: The Full Story`, `What Really Happened in ${title}`],
-        description: `A narrated telling of ${title}.\n\nChapters: ${(d.chapters ?? []).map((c) => c.title).join(", ")}.`,
+        description: rules.descriptionTemplate
+          ? rules.descriptionTemplate.replace("{hook}", `The whole story of ${title}.`).replace("{summary}", summary)
+          : summary,
         tags: [title.toLowerCase(), "narrated story"],
         pinnedComment: "Which chapter surprised you most?",
         thumbnailHeadlines: ["NOBODY SAW IT COMING", "THE LAST NIGHT"],
@@ -502,6 +515,130 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         tags: [title.toLowerCase().slice(0, 60)],
         pinnedComment: "What would you have done?",
         thumbnailHeadlines: ["THE EXPERT WAS RIGHT"],
+      };
+    }
+    case "bible-extract-v1": {
+      // One fixed visual rule and one injury for the first character, a world rule, and an item from the last
+      // chapter on: enough for a test to see facts, states and chapter numbers come back.
+      const d = (data[0] ?? {}) as { characters?: { name: string }[] };
+      const numbers = [...story.matchAll(/^=== Chapter (\d+):/gm)].map((m) => Number(m[1]));
+      const first = numbers[0] ?? 1;
+      const last = numbers.at(-1) ?? first;
+      const who = d.characters?.[0]?.name;
+      return {
+        facts: [
+          { kind: "rule", subject: "", text: "No guns exist in this world.", fixed: true, visual: true },
+          ...(who
+            ? [{ kind: "character", subject: who, text: "Scar on the LEFT jaw.", fixed: true, visual: true }]
+            : []),
+        ],
+        states: who
+          ? [
+              { character: who, kind: "injury", text: "Bandaged right hand.", fromChapter: first },
+              { character: who, kind: "item", text: "Carries the brass key.", fromChapter: last },
+            ]
+          : [],
+      };
+    }
+    case "continuity-check-v1": {
+      // A panel beat or narration line carrying [[mock:contradiction]] breaks the first fixed rule.
+      const d = (data[0] ?? {}) as {
+        bible?: { fixedRules?: { ref: string; rule: string }[] };
+        panels?: { ref: string; beat: string }[];
+        narration?: { ref: string; text: string }[];
+      };
+      const rules = d.bible?.fixedRules ?? [];
+      const bad = [
+        ...(d.panels ?? []).map((p) => ({ ref: p.ref, text: p.beat })),
+        ...(d.narration ?? []).map((n) => ({ ref: n.ref, text: n.text })),
+      ].filter((x) => x.text.includes("[[mock:contradiction]]"));
+      return {
+        findings: bad.map((b) => ({
+          severity: "high",
+          message: `${b.ref} contradicts the bible`,
+          where: b.ref,
+          quote: b.text,
+          against: rules[0]?.ref ?? null,
+          evidence: rules[0]?.rule ?? "",
+        })),
+        rules: rules.map((r, i) => ({
+          rule: r.ref,
+          verdict: i === 0 && bad.length ? "fail" : "pass",
+          note: i === 0 && bad.length ? "broken in this chapter" : "",
+        })),
+      };
+    }
+    case "narration-lint-v1": {
+      // [[mock:lint]] in a line flags it, with every other line carrying the marker, as one repeated meaning.
+      const d = (data[0] ?? {}) as { lines?: { key: string; text: string }[] };
+      const marked = (d.lines ?? []).filter((l) => l.text.includes("[[mock:lint]]")).map((l) => l.key);
+      return {
+        findings: marked.length
+          ? [
+              {
+                type: "repeated_meaning",
+                lines: marked,
+                severity: "medium",
+                explanation: "These lines say the same thing.",
+              },
+            ]
+          : [],
+      };
+    }
+    case "narration-fix-v1": {
+      // Rewrites each flagged line without the marker, so a lint run afterwards finds it fixed.
+      const d = (data[0] ?? {}) as { findings?: { lines: string[] }[]; lines?: { key: string; text: string }[] };
+      const flagged = new Set((d.findings ?? []).flatMap((f) => f.lines));
+      return {
+        lines: (d.lines ?? [])
+          .filter((l) => flagged.has(l.key))
+          .map((l) => ({ line: l.key, text: `${l.text.replace("[[mock:lint]]", "").trim()} (revised)` })),
+      };
+    }
+    case "story-coverage-v1": {
+      // Every paragraph is told by the first scene listed, except [[mock:skip]] (told nowhere, weight 5) and
+      // [[mock:twice]] (told in the first two chapters).
+      const d = (data[0] ?? {}) as { chapters?: { key: string; scenes?: { key: string }[] }[] };
+      const chapters = d.chapters ?? [];
+      const first = chapters.find((c) => c.scenes?.length)?.scenes?.[0]?.key ?? chapters[0]?.key;
+      const twice = chapters.slice(0, 2).map((c) => c.scenes?.[0]?.key ?? c.key);
+      return {
+        paragraphs: [...story.matchAll(/^\[(P\d+)\] (.*)$/gm)].map(([, key, text]) => ({
+          paragraph: key,
+          weight: text!.includes("[[mock:skip]]") ? 5 : 3,
+          coveredBy: text!.includes("[[mock:skip]]")
+            ? []
+            : text!.includes("[[mock:twice]]")
+              ? twice
+              : first
+                ? [first]
+                : [],
+        })),
+      };
+    }
+    case "narration-retime-v1": {
+      // Each line cut or padded to its budget, so a test sees the lengths move.
+      const d = (data[0] ?? {}) as { lines?: { lineId: string; text: string; budget: number }[] };
+      return {
+        lines: (d.lines ?? []).map((l) => {
+          const w = l.text
+            .replace(/[.!?]+$/, "")
+            .split(/\s+/)
+            .filter(Boolean);
+          const pad = ["slowly", "in", "the", "grey", "light"];
+          while (w.length < l.budget) w.push(pad[w.length % pad.length]!);
+          return { lineId: l.lineId, text: `${w.slice(0, l.budget).join(" ")}.` };
+        }),
+      };
+    }
+    case "social-copy-v1": {
+      const d = (data[0] ?? {}) as { items?: { id: string; label: string }[] };
+      return {
+        items: (d.items ?? []).map((it) => ({
+          id: it.id,
+          title: `Mock title: ${it.label}`,
+          caption: `Mock caption for ${it.label}. #mock`,
+        })),
       };
     }
     case "story-rewrite-v1":

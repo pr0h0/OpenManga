@@ -118,7 +118,7 @@ test("generation sends the guide large and lossless (the identity reference stay
     const r = await alice.post<{ job: { id: string } }>(`/api/panels/${panelIds[0]}/generate`, body, 202);
     const done = await waitJob(r.job.id);
     expect(done.job.status).toBe("completed");
-    expect(done.job.templateVersion).toBe(11);
+    expect(done.job.templateVersion).toBe(12);
     expect(done.job.compiledPrompt).toContain("layout/pose sketch");
     expect(done.job.compiledPrompt).toContain("POSE / LAYOUT:\nCopy the pose of every figure");
     expect(done.inputs.map((i) => i.role)).toEqual(["character_ref", "layout_guide"]);

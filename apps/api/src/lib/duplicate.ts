@@ -1,9 +1,11 @@
 import {
   and,
   assets,
+  bibleFacts,
   chapters,
   characterAliases,
   characterOutfits,
+  characterStates,
   characters,
   characterVersions,
   type Database,
@@ -393,6 +395,37 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
       };
       await tx.insert(panelSpecs).values({ panelId, versionNumber: s.versionNumber, spec, source: s.source });
     }
+    // The story bible, its chapter ranges, characters and outfits pointed at the copies.
+    const facts = await tx.select().from(bibleFacts).where(eq(bibleFacts.projectId, projectId));
+    if (facts.length)
+      await tx.insert(bibleFacts).values(
+        facts.map((f) => ({
+          ...f,
+          id: undefined,
+          projectId: np,
+          fromChapterId: map(f.fromChapterId),
+          untilChapterId: map(f.untilChapterId),
+          createdAt: undefined,
+          updatedAt: undefined,
+        })),
+      );
+    const states = (await tx.select().from(characterStates).where(eq(characterStates.projectId, projectId))).filter(
+      (s) => ids.has(s.characterId),
+    );
+    if (states.length)
+      await tx.insert(characterStates).values(
+        states.map((s) => ({
+          ...s,
+          id: undefined,
+          projectId: np,
+          characterId: ids.get(s.characterId)!,
+          chapterId: map(s.chapterId),
+          untilChapterId: map(s.untilChapterId),
+          outfitId: map(s.outfitId),
+          createdAt: undefined,
+          updatedAt: undefined,
+        })),
+      );
     const style = map(src.currentStyleId);
     const cover = await copyAsset(src.coverAssetId);
     await tx.update(projects).set({ currentStyleId: style, coverAssetId: cover }).where(eq(projects.id, np));

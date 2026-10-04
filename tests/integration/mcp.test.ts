@@ -328,6 +328,85 @@ describe("manual pipeline over MCP", () => {
     expect(wrong.error?.code).toBe("estimate_changed");
   });
 
+  test("story bible: extract in paste mode, apply, edit, and read what a chapter receives", async () => {
+    const run = await allowAll.call<{ data: { job: { id: string } } }>("run_bible_extraction", {
+      projectId,
+      ai: { manual: true },
+    });
+    expect(run.isError).toBe(false);
+    const jobId = run.structured.data.job.id;
+    const status = () =>
+      allowAll
+        .call<{ data: { job: { status: string } } }>("get_job", { jobId })
+        .then((j) => j.structured.data.job.status);
+    await waitFor(async () => (await status()) === "awaiting_input", { label: "extraction parked" });
+    const p = await allowAll.call<{ data: { format: { name: string } } }>("get_manual_prompt", { jobId });
+    expect(p.structured.data.format.name).toBe("BibleExtraction");
+    await allowAll.call("submit_manual_answer", {
+      jobId,
+      answer: { facts: [{ kind: "rule", text: "The lamp never goes out.", fixed: true }], states: [] },
+    });
+    await waitFor(async () => (await status()) === "completed", { label: "extraction answered" });
+    const applied = await allowAll.call<{ data: { facts: number } }>("apply_bible_extraction", { jobId });
+    expect(applied.structured.data.facts).toBe(1);
+
+    const list = await allowAll.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    const chapterId = list.structured.data.chapters[0]!.id;
+    const added = await allowAll.call<{ data: { fact: { id: string } } }>("manage_story_bible", {
+      action: "add_fact",
+      projectId,
+      fact: { kind: "term", text: "The keeper's log is called the Book.", fromChapterId: chapterId },
+    });
+    expect(added.isError).toBe(false);
+    const read = await allowAll.call<{
+      data: { facts: unknown[]; inEffect: { fixedRules: string[]; facts: string[] } };
+    }>("get_story_bible", { projectId, chapterId });
+    expect(read.structured.data.facts).toHaveLength(2);
+    expect(read.structured.data.inEffect.fixedRules).toEqual(["(rule) The lamp never goes out."]);
+    expect(read.structured.data.inEffect.facts).toEqual(["(term) The keeper's log is called the Book."]);
+    const removed = await allowAll.call("manage_story_bible", {
+      action: "delete_fact",
+      id: added.structured.data.fact.id,
+    });
+    expect(removed.isError).toBe(false);
+  });
+
+  test("continuity: estimate a check, run it in paste mode, read the report", async () => {
+    const est = await allowAll.call<{ data: { confirmRequired: boolean; count: number } }>("run_continuity_check", {
+      projectId,
+      ai: { manual: true },
+    });
+    expect(est.structured.data.confirmRequired).toBe(true);
+    expect(est.structured.data.count).toBeGreaterThan(0);
+    const list = await allowAll.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    const chapterId = list.structured.data.chapters[0]!.id;
+    const run = await allowAll.call<{ data: { jobs: { id: string }[] } }>("run_continuity_check", {
+      projectId,
+      chapterId,
+      confirm: true,
+      ai: { manual: true },
+    });
+    const jobId = run.structured.data.jobs[0]!.id;
+    const status = () =>
+      allowAll
+        .call<{ data: { job: { status: string } } }>("get_job", { jobId })
+        .then((j) => j.structured.data.job.status);
+    await waitFor(async () => (await status()) === "awaiting_input", { label: "check parked" });
+    await allowAll.call("submit_manual_answer", {
+      jobId,
+      answer: {
+        findings: [{ severity: "medium", message: "The lamp is out in this scene.", where: "scene 1" }],
+        rules: [{ rule: "R1", verdict: "fail", note: "the lamp goes out" }],
+      },
+    });
+    await waitFor(async () => (await status()) === "completed", { label: "check answered" });
+    const r = await allowAll.call<{
+      data: { findings: { place: { ref: string } }[]; rules: { verdict: string | null }[] };
+    }>("get_continuity_report", { projectId });
+    expect(r.structured.data.findings.map((f) => f.place.ref)).toEqual(["scene 1"]);
+    expect(r.structured.data.rules[0]!.verdict).toBe("fail");
+  });
+
   test("MCP actions are audited as the connection acting for the user", async () => {
     const rows = await h.deps.db
       .select()
@@ -418,6 +497,31 @@ describe("manual questions about images", () => {
       ["asset", drawn.activeArtworkAssetId!],
     ] as const)
       expect((await scoped.call("get_image", { kind, id })).error?.code).toBe("project_not_granted");
+  });
+});
+
+describe("channel profiles over MCP", () => {
+  test("list the user's profiles and create a project from one", async () => {
+    const made = await alice.post<{ profile: { id: string } }>(
+      "/api/channel-profiles",
+      { name: "Lighthouse Tales", preset: "youtube-recap-30", settings: { narrationVoice: "am_adam" } },
+      201,
+    );
+    const list = await allowAll.call<{ data: { profiles: { id: string; name: string }[] } }>("list_channel_profiles");
+    expect(list.structured.data.profiles.map((p) => p.name)).toContain("Lighthouse Tales");
+    const created = await allowAll.call<{ data: { project: { id: string } } }>("create_project", {
+      title: "From a profile",
+      profileId: made.profile.id,
+    });
+    expect(created.isError).toBe(false);
+    const p = await allowAll.call<{
+      data: { project: { settings: { format: string; narrationVoice: string; channelProfile: { id: string } } } };
+    }>("get_project", { projectId: created.structured.data.project.id });
+    const s = p.structured.data.project.settings;
+    expect([s.format, s.narrationVoice, s.channelProfile.id]).toEqual(["film", "am_adam", made.profile.id]);
+    // An id that is not one of the user's profiles is refused.
+    const bad = await allowAll.call("create_project", { title: "Nope", profileId: crypto.randomUUID() });
+    expect(bad.error?.code).toBe("not_found");
   });
 });
 
@@ -929,6 +1033,37 @@ describe("production run tools", () => {
     expect(stop.structured.data.ok).toBe(true);
     const after = await gated.call<{ data: { run: Run } }>("get_production_run", { runId: run.id });
     expect(after.structured.data.run.status).toBe("cancelled");
+  });
+
+  test("the timing pass: a read, a free fix, and a rewrite that spends parks for approval", async () => {
+    const list = await gated.call<{ data: { chapters: { id: string }[] } }>("list_chapters", { projectId });
+    const chapterId = list.structured.data.chapters[0]!.id;
+    const t = await gated.call<{ data: { shots: { panelId: string; lines: { id: string }[] }[]; fixes: unknown } }>(
+      "get_timing",
+      { chapterId },
+    );
+    expect(t.isError).toBe(false);
+    expect(t.structured.data.fixes).toBeTruthy();
+    const project = await gated.call<{ data: { chapters: { id: string }[] } }>("get_timing", { projectId });
+    expect(project.structured.data.chapters.map((c) => c.id)).toContain(chapterId);
+    expect((await gated.call("get_timing", {})).error?.code).toBe("bad_request");
+    const shot = t.structured.data.shots.find((x) => x.panelId)!;
+    const hold = await gated.call<{ data: { ok: boolean } }>("apply_timing_fix", {
+      chapterId,
+      hold: { panelId: shot.panelId, holdMs: 4000 },
+    });
+    expect(hold.structured.data.ok).toBe(true);
+    const line = t.structured.data.shots.flatMap((x) => x.lines)[0];
+    if (line) {
+      const parked = await gated.call("retime_narration", {
+        action: "start",
+        chapterId,
+        lines: [{ lineId: line.id, words: 12 }],
+        ai: { provider: "openai" },
+      });
+      expect(parked.structured.status).toBe("pending_approval");
+      expect(parked.structured.approval!.sensitivity).toBe("spend");
+    }
   });
 
   test("update production runs the out-of-date steps only, or says nothing is out of date", async () => {

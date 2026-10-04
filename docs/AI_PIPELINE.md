@@ -4,16 +4,23 @@
 | --- | --- | --- | --- |
 | Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters; on a project that already has them it is additive (existing chapters keep their pages, new ones are inserted, nothing is removed; `GET /api/story-analyses/:id/diff` shows the changes first) |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
-| Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v2 then `scene-pages` v2 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v6, `shot-planning` v3 or `strip-planning` v2 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
-| Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v4 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
-| Narration text | `narration_text` / text-ai | `narration` v5 | narration lines → TTS segments |
+| Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v3 then `scene-pages` v3 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v7, `shot-planning` v4 or `strip-planning` v3 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
+| Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v5 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
+| Narration text | `narration_text` / text-ai | `narration` v6 | narration lines → TTS segments |
 | References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v11 | a new `panel_art` asset, activated on the panel |
+| Panels | `panel_generation` / image-generation | `panel-generation` v12 | a new `panel_art` asset, activated on the panel |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
 | Panel QA | `panel_check` / text-ai | `panel-check` v2 | `panels.qa` verdict and face boxes from a vision model (opt-in) |
-| YouTube package | `youtube_package` / text-ai | `youtube-package` v1 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
+| Narration timing | `narration_retime` / text-ai | `narration-retime` v1 | `NarrationRetime`: the chosen lines rewritten to a word budget each, kept on the job until the user applies them (`docs/VIDEO_EXPORT_REFERENCE.md`, timing pass) |
+| Social copy | `social_copy` / text-ai | `social-copy` v1 | `SocialCopy`: a title and caption per repurposing item, written into `settings.repurpose.items` by id (only the items asked for) |
+| Narration QA | `narration_lint` / text-ai | `narration-lint` v1 | `NarrationLintReport` stored as `narration_findings` (source `ai`) for the chapter |
+| Narration fixes | `narration_fix` / text-ai | `narration-fix` v1 | `NarrationFix` checked against the flagged lines, returned as before/after proposals in the job result; applied only when the user confirms |
+| Story coverage | `story_coverage` / text-ai | `story-coverage` v1 | one `StoryCoverageMap` per part of the source; the findings and shares are computed from them and kept in the job result |
+| YouTube package | `youtube_package` / text-ai | `youtube-package` v2 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
+| Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
+| Continuity check | `continuity_check` / text-ai | `continuity-check` v1 | `ContinuityReport` → `continuity_findings` (the chapter's open findings replaced) and each fixed rule's verdict on the job result |
 | Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
 
 Narration synthesis and exports are separate job families (`audio_jobs` on the `tts` queue, `export_jobs` on
@@ -40,7 +47,10 @@ the headline or moving it to the other side costs nothing. It never replaces the
 The YouTube package (`POST /api/projects/:projectId/youtube-package`, `ai` and `batch` like any text step; Exports →
 YouTube package in the app) writes the publishing text from the project's title, description, chapter summaries and
 cast, and the current thumbnail headline. The result is saved to `settings.youtubePackage` and edited there; the job
-keeps no copy. A video render that spans more than one chapter also writes `<name>.chapters.txt`, one
+keeps no copy. A project's `settings.youtubeRules` (Settings → Thumbnail & YouTube text, usually from its channel
+profile) go along as `<channel_rules>`: `titleRules` the titles follow, a `descriptionTemplate` whose fixed text is
+kept and whose `{hook}` and `{summary}` the model writes (`{title}` and `{author}` are filled in by the worker first),
+and `tags`, which the worker puts first on every package as written. A video render that spans more than one chapter also writes `<name>.chapters.txt`, one
 `m:ss Chapter N: title` line per chapter with the first pinned at `0:00`. The `youtube_package` export makes no AI
 call: it zips the newest full video of the same scope (never a partial or page-selection render; with its `.srt` and
 `.chapters.txt`), the composited
@@ -168,10 +178,73 @@ Each step's instructions are fixed per template version; what varies is the proj
 - **Panel images** (`GenerationPlanner.panelContext`): continuity is the scene's notes and starting state, what
   earlier scenes of the chapter changed for good (`continuityDeltas`), the previous scene's end state when this scene
   sets none, and earlier panels' requirements, each kept only when it concerns someone in the panel (or no one).
+- **The story bible** (since `page-planning` v7, `panel-prompts` v5, `narration` v6, `panel-generation` v12): see
+  [Story bible](#story-bible) below for what each step receives from it.
 
 Applying a story analysis writes its setting, rules, technology, magic, factions, uniforms, recurring scenery,
 vehicles, genre, tone, themes, motifs and notes into empty world notes, and its summary into an empty project
 description (which the cover is drawn from).
+
+## Story bible
+
+The project's canon, on the **Bible** page (`/projects/:id/bible`; `GET /api/projects/:projectId/bible`, data model
+in [DATA_MODEL](DATA_MODEL.md#story-bible-biblets)): **facts** (kind, subject, text, an optional inclusive chapter
+range, `fixed` for a rule that must hold, `visual` for what can be seen) and a **character state timeline** (injury,
+look, outfit, item, location, rank, knowledge or other, from a chapter and scene number on; a later look, outfit,
+location or rank replaces the earlier one, the rest hold until their end chapter).
+
+**What each step receives** (`bibleInEffect`, `packages/domain/src/bible.ts`, through `bibleFor` in
+`packages/services/src/bible.ts`). Facts whose range covers the chapter and whose subject is the whole story (empty,
+"world") or is someone or something the step is about; states in force there for the characters it is about; fixed
+rules first; at most 40 facts and 40 states. An empty bible sends nothing.
+
+| Step | Where it lands | About whom and what | At |
+| --- | --- | --- | --- |
+| Chapter planning | `project_data.bible` | characters and subjects the chapter's title, summary, text and beats mention | the chapter: states at its start plus changes during it, marked "from scene N" |
+| Narration | `project_data.bible` | the chapter's cast on its panels, and what its text mentions | the chapter, as for planning |
+| Panel prompt prep | `context.bible` | the page's characters, location and props, and what its beats mention | the page's scene |
+| Panel images | `STORY CANON (must hold)` | the panel's characters, location and props | the panel's scene; visual facts and injury, look and item states only, at most 12 of each |
+
+An outfit state that names one of the character's outfits also dresses them: outfit resolution
+(`resolveOutfits`) uses it, reference image included, where no panel assignment or panel outfit text says
+otherwise (source `bible`, before the default outfit). The image prompt leaves other outfit states out, since the
+`WARDROBE` line already carries the worn outfit. `GET /api/projects/:projectId/bible?chapterId=` returns `inEffect`,
+exactly what planning and narration of that chapter receive.
+
+**Extract from story** (`POST /api/projects/:projectId/bible/extract`, `chapterId` for one chapter, `ai` and `batch`
+as for any text step, paste mode included) queues a `bible_extract` job. `bible-extract` v1 reads the chapters'
+text (headed `=== Chapter N: title ===`), the cast with aliases and outfits, places, props, world notes,
+relationships, each chapter's memory (state changes and revealed facts) and the bible already there, and returns
+`BibleExtraction`: facts with chapter numbers and states naming characters by name. Nothing is saved by the job.
+The page shows the proposal to tick through; `POST /api/bible-extractions/:id/apply` saves the reviewed lists (or
+the whole proposal), matching characters by name or alias (any case) and chapters by number, and skipping (and
+listing) entries that match neither. It is claimed on the job in the same transaction, so a second apply is
+refused with 409 `already_applied` unless `again: true`. **Discard** applies an empty list.
+
+## Continuity check
+
+`POST /api/projects/:projectId/continuity-checks` (`chapterId` for one chapter, else every chapter with panels or
+narration; `ai` and `batch` as for any text step) answers with the chapter count and an estimate (about 2,500 tokens
+plus some per panel, narration line and bible entry, priced at the chosen model's rate) until it is sent with
+`confirm: true`; then it checks the budget against that estimate and queues one `continuity_check` job per chapter.
+On the Bible page this is the *Continuity* and *Rule checks* tabs; MCP `run_continuity_check`.
+
+`continuity-check` v1 receives, as data, the chapter's scenes (states and changes), its panels (ref `p<page>.<panel>`,
+beat, cast with outfits and actions, continuity requirements, up to six lines of dialogue), its narration lines in the
+project language (ref `n<number>`), at most 400 of each; the bible in effect at the chapter with refs (every fixed
+rule in effect as `R<n>`, whoever it is about; facts `F<n>` and states `S<n>` about who and what the chapter
+mentions); the previous chapter's summary, closing state, changes and revealed facts, earlier revealed facts, and the
+next chapter's summary. It returns `ContinuityReport`: findings (severity, message, where, the quoted line, the ref it
+contradicts and that entry's text) and a pass, warn or fail for every `R<n>` (one it leaves out counts as pass). It is
+told to report only real contradictions with the data, not style or quality.
+
+The handler resolves refs to the panel (and its page), the narration line, the scene or the chapter and to the
+bible fact, replaces the chapter's open findings and skips any that matches (place and quote) one already ignored or
+explained. The queue (`GET /api/projects/:projectId/continuity`, MCP `get_continuity_report`) links each finding to
+where it is fixed; `PATCH /api/continuity-findings/:id` marks it `fixed`, `ignored` (with a reason) or `open` again,
+and `POST /api/continuity-findings/:id/explain` saves a new bible fact (source `continuity`) and marks it `explained`.
+The same report lists every fixed rule with its verdict per chapter from that chapter's latest finished check, and
+the worst of them. Rules are checked against the text of the production only: no vision model looks at the artwork.
 
 ## Colour mode, format and audio timing
 
@@ -203,7 +276,7 @@ itself is deterministic ffmpeg work in the worker: see `docs/DEPLOYMENT.md` for 
 ## Prompt quality rules
 
 Rules that came from production output, all versioned (old text versions stay registered for reproducibility) —
-`story-analysis` v3, `page-planning` v6, `shot-planning` v3, `panel-prompts` v4, `narration` v5 and the image
+`story-analysis` v3, `page-planning` v7, `shot-planning` v4, `panel-prompts` v5, `narration` v6 and the image
 templates:
 
 - **Bibles are drawable**: concrete descriptors, apparent age as a range, one default outfit with colours and
@@ -235,7 +308,7 @@ of the time. Five layers, all visible to the user:
   description when the image was made. When a draft description changes, its references report `stale: true` — the old
   image still shows the old look and is attached to every panel. Migrating panels onto a version with no fresh
   approved reference returns 409 `no_approved_reference` unless `force: true`.
-- **Art direction binds planning**: since `page-planning` v4 and `panel-prompts` v2 (live: v6 and v4) the planner
+- **Art direction binds planning**: since `page-planning` v4 and `panel-prompts` v2 (live: v7 and v5) the planner
   receives `artDirection` (preset, lighting, custom style) and must keep `lighting` and `emotion` inside it — no
   horror lighting or distressed moods in a warm comedy, and never lone figure + underlighting + distressed mood +
   high or tilted camera together.
@@ -275,6 +348,82 @@ Segments get `narrationPauseMs` (default 350 ms) after them; the last segment of
 `sceneBreakPauseMs` (700 ms). Pauses are applied at compose time, so `POST /api/chapters/:id/narration/pauses`
 re-applies the settings without touching audio. `narrationStyle` is stored in project settings and used when a
 narration request has no explicit style, so every chapter is written in the same voice.
+
+## Pronunciation dictionary
+
+`settings.pronunciation` is a list of `{ term, spoken, caseSensitive (false), wholeWord (true) }` ("Qi" → "chee").
+The TTS worker replaces each term with its spoken form (`spokenText` in `packages/domain`, one pass, earlier then
+longer match first) in the text it sends to the voice, for every provider; narration, subtitles and lettering keep the
+written text. A segment's `text_sha256` is the hash of that spoken text, so the audio cache is keyed on what is said.
+Saving a different dictionary re-hashes the project's segments (`rehashNarrationSegments`): only those whose spoken
+text changed read as stale, and *Synthesize missing* or a production run's audio step re-voices just those. Project
+templates carry the dictionary like any other setting, so a new project made from one starts with it.
+
+## Narration QA
+
+`POST /api/chapters/:id/narration/lint` (or `/api/projects/:projectId/narration/lint` for every chapter with
+narration) runs the deterministic checks in `packages/domain/src/narration-lint.ts` at once, over the chapter's lines,
+its panels in reading order (the video's shots) with their dialogue, and its current audio:
+
+- repeated sentence openings (the same first two words three times within five sentences), and a flat rhythm (six
+  or more sentences in a row of nearly the same length);
+- a cast name said more than three times within five sentences;
+- near-duplicate lines (word-bigram similarity of 0.7 or more);
+- a line that restates its panel's dialogue (a shared run of five words, or most of the dialogue's content words);
+- a chapter whose first or last line opens or ends like another chapter's;
+- density: a shot carrying more than twice the words-per-panel target, three or more shots in a row with no
+  narration (a line spanning shots covers them), and words per minute of the voiced audio more than 25% off the
+  target runtime's (150 by default).
+
+`semantic: true` also queues one `narration_lint` job per chapter for what counting cannot find: meaning repeated in
+other words (within the chapter and against earlier chapters), a fact explained a third time, and a line that only
+describes its frame. The prompt names lines `L1…Ln` with each line's frame (from its panel spec: beat, action,
+composition, mood) and dialogue; earlier chapters go in as their summary and the first sentence of each line, nearest
+first, within a 30,000-character budget, so a long project stays within context.
+
+Findings are stored in `narration_findings` per chapter, language and source (`rule` or `ai`) with a fingerprint of
+their kind, lines and related chapters. A run replaces its source's findings and returns how they compare with the
+last run (`found`, `introduced`, `remaining`, `resolved`): a finding found again keeps its status (an ignored one stays
+ignored, a fixed one reopens), one no longer found is removed. `GET /api/projects/:projectId/narration/findings`
+lists them with counts by status, kind and chapter; `PATCH /api/narration-findings/:id` ignores or reopens one;
+`GET /api/projects/:projectId/narration/density` gives words, words per shot, silent shots and words per minute per
+chapter, and shot by shot for one chapter.
+
+**Fix only what was flagged.** `POST /api/chapters/:id/narration/fix` with finding ids queues a `narration_fix` job
+that sees every line for context but may rewrite only the flagged ones; an answer naming any other line has that
+entry dropped. The job result is a list of `{ lineId, before, after }`; nothing is written yet. `POST
+/api/chapters/:id/narration/fix/apply` applies all or some of them (a line edited since is skipped), marks the findings
+fixed, re-segments the lines (sentences that did not change keep their audio), queues synthesis for just the changed
+segments of lines that were voiced, re-runs the deterministic checks on the chapter and returns the comparison, and
+with `recheck: true` queues the AI check again on the model the fix used. Silent stretches and pace need lines added or
+the voice changed and are not offered for a rewrite.
+
+## Story coverage
+
+`POST /api/projects/:projectId/story/coverage` queues a `story_coverage` job against the applied story revision (the
+one the newest applied analysis read; `storyRevisionId` picks another). The worker (`handlers/story-coverage.ts`)
+splits the revision into paragraphs with their character offsets (`splitParagraphs` in
+`packages/domain/src/coverage.ts`: blank lines, else line breaks, and anything over 2,400 characters cut at sentence
+ends) and groups them into parts of at most 12,000 characters. Each part is one `story-coverage` request: the
+paragraphs as `[P12] …` in `<story_content>`, and the plan as every chapter's key (`C3`), title and summary plus,
+for the chapters around that part, their scenes (`C3.S2`) with summary and panel beats, within a 24,000-character
+budget. Where a part falls is found from each chapter's source excerpt in the text, or by proportion when the
+excerpts cannot be found. The answer weighs every paragraph 1–5 and names the scenes or chapters that tell it; an
+answer missing a paragraph is sent back for repair (or, pasted, rejected with the missing keys).
+
+From the map, `coverageFindings` reports:
+
+- **left out** — paragraphs of weight 3 or more that nothing tells, consecutive ones joined into one span;
+- **told twice** — a paragraph told in two or more chapters;
+- **more or less room than its weight** — a chapter (and, when it points the other way, one of its scenes) whose
+  share of the panels is 2.5 times its share of the story or less than 1/2.5 of it, the story share being each
+  paragraph's weight × length split across what tells it. Shares under 2% of both are not judged.
+
+The result keeps every finding with its source spans (offsets in the revision) and chapter and scene ids, each
+chapter's share of the story, the panels and the narration words, and the paragraph map.
+`GET /api/projects/:projectId/story/coverage` returns the newest report with an excerpt of each span, whether the
+applied story or the plan (chapters, scenes, pages, panels) changed since, and any check still running. Paste mode asks
+one question per part.
 
 ## Narration languages
 
@@ -377,7 +526,7 @@ your own.
 
 Bulk image generation (panels, or every character, location or prop reference) and the text steps (story
 analysis and rewrite, chapter planning, panel prompts, narration text, consistency check, image description,
-YouTube package) can be sent to a
+YouTube package, story bible extraction, continuity check) can be sent to a
 provider's batch API instead of running now, at half the interactive price: `batch: true` on the request, or
 **Send as a provider batch** in the bulk dialog. OpenAI and Google only; a batch request on any other provider is
 refused with 400 (in `AI_MOCK_MODE` it simply runs normally). A consistency check queued after a batched panel is
@@ -464,6 +613,31 @@ stores a project's type, format, colour mode, language, style and settings in th
 (`projectTemplates`, at most 50; the thumbnail, YouTube text and page size are left out); story, cast and files are
 never copied. Templates are listed and deleted (`DELETE /api/auth/templates/:id`) in Account.
 
+**Channel profiles** sit one level above: a template is a kind of project, a profile is who publishes it. A profile
+(Profiles in the top bar; `GET/POST /api/channel-profiles`, `PATCH`/`DELETE /api/channel-profiles/:id`) names a
+`preset` (a preset key or `template:<id>`) and carries the settings in `PROFILE_SETTING_KEYS`
+(`packages/schemas/src/editor.ts`): image quality, reference and batch policy, target runtime, narrator voice and
+speed, the pronunciation dictionary (replaced as a whole; applying it re-hashes the narration segments it changes,
+so only their audio goes stale), lettering (the font the video cards use), `video` (scene-break fades, logo watermark, intro and outro cards,
+`output` aspect and resolution), `thumbnailStyle` (headline side) and `youtubeRules`. A key the profile leaves out
+stays as the preset or project has it. `profileId` on `POST /api/projects` (the wizard's *Channel profile*, MCP
+`create_project`) uses the profile's preset when `preset` is not given, then copies its settings on top and records
+`settings.channelProfile` `{id, name, appliedAt}`. Nothing stays linked: **Re-apply profile** on the overview calls
+`POST /api/projects/:projectId/apply-profile`, which lists the changes (`from` → `to`, `video` per part) and copies
+them only with `confirm: true`; format, type and style are never changed. **Save as channel profile** in Project
+settings (`POST /api/projects/:projectId/channel-profile`) makes one from a project. Profiles live in the owner's
+`users.settings.channelProfiles` (at most 50), so another user's profile id is simply not found.
+
+The logo: assets belong to a project, so a profile's logo is an account asset instead (`project_id` null, owned by
+the user, `metadata.role = "profile_logo"`, uploaded with `POST /api/channel-profiles/logo`), served only to its
+owner like an expert chat's images. Applying the profile copies it into the project as a new asset of the project, so
+the video renderer's "a watermark is an image of this project" rule holds and either can be deleted on its own;
+re-applying compares the logos by hash and copies nothing when it is unchanged. Saving a profile from a project
+copies the project's logo out the same way, and deleting a profile (or replacing its logo) removes the account copy.
+
+A video export with no `video.height` or `video.aspect` uses the project's `settings.video.output` (else 1080 and
+16:9; Shorts stay 9:16), and a thumbnail with no `side` uses `settings.thumbnailStyle.side`.
+
 Two settings, under Project settings → Production:
 
 - `referencePolicy` — `all` (default) or `main`: bulk reference runs skip minor characters, and locations and props
@@ -481,13 +655,24 @@ Two settings, under Project settings → Production:
 whole pipeline as a list of steps, stored in `production_runs` (migration `0020`), each calling the same API route a
 person would, as the user who started it (`apps/api/src/lib/production.ts`):
 
-analyse → review → apply → references (characters, locations, props) → review → plan every chapter → prepare panel
-prompts → generate missing artwork → write narration → synthesize narration → video thumbnail → YouTube package text
+analyse → review → apply → references (characters, locations, props) → review → changed chapters → plan every
+chapter → prepare panel prompts → generate missing artwork → changed narration → write narration → synthesize narration → video thumbnail → YouTube package text
 → review → render the video → YouTube package export.
 
 - **Reuse.** Every step does only what is missing: analysis is skipped once the project has chapters, references
   and artwork are drawn only where missing, only unplanned chapters are planned, narration is written only for
   chapters without lines, and the thumbnail and YouTube text are skipped when they exist.
+- **Changed chapters.** Each chapter records a fingerprint of what its plan was made from (its text, as the planner
+  reads it) and of what its narration was written from (its panels, beats and dialogue). A chapter with pages whose
+  text changed since, or with narration whose panels changed since, is out of date (the plan and narration stages of
+  *What is out of date* count it), but a run **never redoes it on its own**: re-planning replaces pages and artwork.
+  The *changed chapters* review (before planning) and *changed narration* review (before writing narration) wait with
+  the list, and for each chapter the person chooses **Keep current** (`POST /api/chapters/:id/keep`, which records
+  the current fingerprint) or **Re-plan** / **Write again** (the ordinary chapter-plan or narration route with
+  `replace: true`; the confirmation says how many pages, panels, drawn panels or lines it replaces). The run waits
+  for those jobs before it carries on; undecided chapters keep what they have. Both reviews are skipped when nothing
+  changed, whatever `reviewGates` says. The Story page lists the same chapters with the same choice after a revised
+  story is applied.
 - **Options.** `reviewGates` (default on) pauses the run as `waiting` after the analysis, after the references and
   before the render, until **Continue** (`POST /api/production-runs/:id/continue`). With gates off, the newest draft
   reference of each subject without an approved one is approved automatically. `preparePrompts` and `render` default
@@ -498,7 +683,47 @@ prompts → generate missing artwork → write narration → synthesize narratio
   the text choice a text step waits for its answers the same way (see
   [WITHOUT_API_KEYS](WITHOUT_API_KEYS.md#production-runs)).
 - **Failures.** A failed analysis, or a step whose jobs all failed, fails the run; elsewhere a partial failure is
-  noted on the step and the run carries on. Continue retries the failed step, reusing whatever it already made.
-  Stop (`POST /api/production-runs/:id/cancel`) ends the run; jobs it already queued still finish.
+  noted on the step and the run carries on. Continue retries the failed step, reusing whatever it already made. A
+  failed render or YouTube package export is noted the same way (the package is skipped when the video did not
+  render).
+- **Audio is verified.** The synthesis step is done only when no narration job is queued or running *and* no
+  segment lacks current audio (the audio stage's definition: no audio, or audio of other text, voice or speed).
+  Segments it never queued (a refused or capped chapter request) are queued once more, through
+  `POST /api/chapters/:id/narration/synthesize` with `segmentIds`; segments whose synthesis failed are not retried
+  in a loop but noted on the step and listed in the run's warnings.
+- **YouTube text and thumbnail headline.** *What is out of date* also flags (as `publishing`, not as stages) the
+  YouTube text when the project title or the chapter list changed after it was written, or the whole-project video
+  was rendered again after the YouTube package was exported (its chapter timestamps come from the video), and the
+  thumbnail headline when the project title changed after it was set. What they were made from is recorded in
+  `settings.publishingSources` by the writer, the thumbnail job and a headline edit. An update never regenerates them:
+  it finishes with the note "YouTube text may be out of date" / "thumbnail headline may be out of date", and the run
+  card offers **Regenerate** (the YouTube package route, or the headline set to the current title) and **Keep
+  current** (`POST /api/projects/:projectId/keep-current`).
+- **Completed with warnings (the final-output gate).** Before a run reports success it checks the output: every
+  panel has artwork, every chapter with panels is narrated, every segment has current audio (the audio stage's
+  definition), when the run renders the whole-project video exists and is not shorter than its narration (the voiced
+  segments end to end) by more than the render's own drift tolerance (`videoDriftToleranceMs`), and nothing is known
+  to be broken: failed jobs it queued that nobody retried, failed exports, panels flagged for review, panels whose
+  artwork failed a visual check. Anything found finishes the run as `completed_with_warnings` instead of `completed`,
+  with a `warnings` summary. The run card shows "Finished with N unresolved
+  items", each linking to where it is fixed (Generation, the storyboard on its *No artwork* or *Needs review* filter,
+  Narration, Exports), with **Retry failed** (the usual `POST /api/generations/:id/retry` for each listed job),
+  **Review** and, when the video failed, **Render anyway**. A finished run cannot be continued.
+- **Stop** (`POST /api/production-runs/:id/cancel`) ends the run and, by default, cancels what it queued that has
+  not started, through the usual cancel paths: its generation jobs that are queued, waiting in a provider batch,
+  paused at the budget or waiting for a pasted answer; narration audio still queued from the batches the audio step
+  started (`audioBatchIds` on the step); and its export if it has not finished. Jobs already running at a provider
+  finish, and the stopped run acts on nothing they return. `{ "jobs": false }` stops the run only. An active run's
+  `pendingJobs` says how many jobs stopping it would cancel; the card's Stop dialog shows it.
 
-The API process advances running runs every 10 seconds; one project has at most one active run.
+**Project health** (`GET /api/projects/:projectId/health`, the **Health** page and the overview's Health card, MCP
+`get_project_health`) puts it all in one report: a verdict (*ready to publish*, or *N blocking issues*) and items,
+each with a severity and a link to where it is fixed. Blocking: export readiness (panels without artwork, chapters
+without or with patchy narration, segments without audio, superseded versions), a missing or out-of-date
+whole-project video, panels that failed a visual check. Worth knowing: every stale stage and changed chapter, the
+YouTube text and thumbnail headline, jobs still running and failed ones not retried, open comment threads. It also
+shows spend against the budget and disk use.
+
+The API process advances running runs every 10 seconds; one project has at most one active run. A pass holds a
+lease on the run's row (`lease_owner`, `lease_until`), so two API processes never advance the same run at once, and an
+expired lease (its holder died) is taken over.

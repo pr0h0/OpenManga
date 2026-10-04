@@ -1,9 +1,10 @@
 # Data model
 
-PostgreSQL via Drizzle. 66 tables in six schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
-`media.ts`, `jobs.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every `pgEnum` in `common.ts`). UUID
+PostgreSQL via Drizzle. 73 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+`bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
+`pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0020_production_runs.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0033_chapter_source_fingerprints.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -22,7 +23,11 @@ slot).
 - `users` — username and email (lower-cased, each uniquely indexed), display name, role, status, and `settings`
   (JSON `UserSettings`: per-account preferences that seed new projects, and `projectTemplates` — up to 50 saved
   project setups `{id, name, projectType, format, colorMode, language, readingDirection, stylePresetKey, customStyle,
-  settings, createdAt}`, never a story, cast or files).
+  settings, createdAt}`, never a story, cast or files; and `channelProfiles` — up to 50 channel profiles `{id, name,
+  description, preset, settings, createdAt, updatedAt}`, whose `settings` are the `PROFILE_SETTING_KEYS` subset of
+  `ProjectSettings` and whose logo (`settings.video.watermark.assetId`) is an asset with no project, owned by the
+  user). A project made from a profile records it in `projects.settings.channelProfile`; see
+  [AI_PIPELINE](AI_PIPELINE.md#production-presets-templates-and-policies).
 - `auth_identities` — `(provider, provider_subject)` unique; only `local` rows are written today (`docs/AUTH.md`).
 - `password_credentials` — Argon2id hash, one row per user. `sessions` — HMAC-SHA256 of an opaque token (unique),
   expiry, last use, IP, user agent, revoked.
@@ -59,14 +64,21 @@ slot).
   | `referencePolicy` | `all` (default) or `main` — `main` makes bulk reference runs skip minor characters and places or props used in fewer than two panels. |
   | `batchPolicy` | `interactive` (default), `images` (text now, images through provider batches), `hybrid` (text in batches, images now) or `cheapest` (both through provider batches) — how a production run spends; only keys whose provider has a batch API are batched. |
   | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
+  | `repurpose` | `{items: [{id, kind, label, panelIds, lengthSeconds?, aspect?, text, title, caption}]}` — the repurposing plan: Shorts, trailer, teaser (`short`/`trailer`/`teaser`, rendered as `video_shorts`), a `carousel` and `quote` images, each with its social title and caption (written by a `social_copy` job or by hand). Not carried by templates. |
+  | `publishingSources` | `{youtubeText, youtubeTextAt, thumbnailTitle}` — written by the app: a fingerprint of the title and chapters the YouTube text was written from, and the project title the thumbnail headline was set for; staleness compares them (`docs/AI_PIPELINE.md`). |
   | `video` | `{fadeAtSceneBreaks, watermark, intro, outro}` — video export settings: fade to black where the scene changes (each shot can override it), a logo watermark `{assetId, corner, opacity, size}` (an image of the project) and intro/outro cards `{title, subtitle, durationMs}`. |
 
 - `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
-  `user_id` it acts as, `status` (`running|waiting|paused|completed|failed|cancelled`; `waiting` is a review step,
-  `paused` a budget cap or a disabled account), `steps` (JSON, in order: `key`, status
-  `pending|running|review|done|skipped|failed`, a note, the generation `jobIds` or `exportJobId` it waits on, a `ref`
-  a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`, `youtube` and the run's `ai` choice) and a
-  `reason` for the person. Advanced by the API (`docs/ARCHITECTURE.md`).
+  `user_id` it acts as, `status` (`running|waiting|paused|completed|completed_with_warnings|failed|cancelled`;
+  `waiting` is a review step, `paused` a budget cap or a disabled account), `steps` (JSON, in order: `key`, status
+  `pending|running|review|done|skipped|failed`, a note, the generation `jobIds`, narration `audioBatchIds` or
+  `exportJobId` it waits on, a `ref` a later step needs), `options` (`reviewGates`, `preparePrompts`, `render`,
+  `youtube` and the run's `ai` choice), a `reason` for the person and `warnings` (JSON, migration
+  `0028_production_run_warnings`; set when it finished `completed_with_warnings`: `failedJobs` (at most 500, with
+  `failedJobCount`), `panelsWithoutArt`, `segmentsWithoutAudio`, `panelsNeedingReview`, `failedExports`,
+  `chaptersWithoutNarration`, `failedChecks`, and `video`, what is wrong with the rendered video), and
+  `lease_owner` / `lease_until` (migration `0030_production_run_lease`): the pass advancing it now, so two API
+  processes never advance one run at once. Advanced by the API (`docs/ARCHITECTURE.md`).
 - `share_links` — an unlisted, read-only reader link: project, optional chapter (null = the whole project), a
   random `token` (unique), creator, `revoked_at`. Served without a session under `/api/public/shares/:token`
   (`docs/SECURITY.md`).
@@ -85,7 +97,10 @@ slot).
 ## Structure (`projects.ts`, `media.ts`)
 
 - `chapters` — order, title, summary, source excerpt, and **chapter memory**: opening/closing state, character and
-  location state changes, revealed facts, beats, `last_plan` (the `ChapterPlan`) and `plan_status`.
+  location state changes, revealed facts, beats, `last_plan` (the `ChapterPlan`) and `plan_status`, and
+  `plan_fingerprint` / `narration_fingerprint` (migration `0033_chapter_source_fingerprints`, backfilled for chapters
+  already planned or narrated): md5 of what the plan and the narration were made from, which staleness compares with
+  the current ones (`docs/ARCHITECTURE.md`).
 - `scenes` (location, time, weather, characters, purpose/opening/progression/climax/ending, continuity notes,
   initial/final state, continuity deltas) and `story_beats` (ordered within a scene).
 - `pages` — order, purpose, pacing, visual emphasis, page-turn hook, layout template key, pixel width/height, optional
@@ -100,7 +115,7 @@ slot).
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
   plan* places them and clears it. `seam` (JSON) is how a vertical strip panel meets the one before it. `video`
-  (JSON `ShotVideo`, migration `0021_video_shots`: `motion`, `fade`, `disabled`; null = defaults) is the panel as a
+  (JSON `ShotVideo`, migration `0021_video_shots`: `motion`, `fade`, `disabled`, `holdMs`; null = defaults) is the panel as a
   video shot (`docs/VIDEO_EXPORT_REFERENCE.md`). `guide` (JSON `{assetId, strength}`, migration `0026_panel_guide`) is
   the layout sketch sent with its generation (`docs/IMAGE_REFERENCES.md`).
 - `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
@@ -110,7 +125,11 @@ slot).
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
   can carry several narration tracks over the same artwork; optional on-page box; `video` JSON
   `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
-  text, `text_sha256`, voice/speed overrides, `pause_after_ms`, active audio asset).
+  text, `text_sha256` (of the spoken text: the text with the project's pronunciation dictionary applied), voice/speed
+  overrides, `pause_after_ms`, active audio asset).
+- `narration_findings` — narration QA findings per chapter track: `source` (`rule` or `ai`), `kind`, `severity`,
+  `line_ids`, `related_chapter_ids`, `message`, `status` (`open|ignored|fixed`) and a `fingerprint` unique per
+  `(chapter, language, source)`, which is how a re-run keeps an ignored finding ignored.
 
 ## Cast & world (`projects.ts`)
 
@@ -128,6 +147,28 @@ slot).
   prompt-visible description when the reference was made, which is how staleness is detected
   (`docs/AI_PIPELINE.md`).
 
+## Story bible (`bible.ts`)
+
+Migration `0029_story_bible`. Chapter references are by chapter id and read in the chapters' current order, so a
+range moves with its chapters; deleting a chapter leaves the range open on that side. `source` is `user`,
+`extracted` (saved from a reviewed `bible_extract` job) or `continuity`.
+
+- `bible_facts` — project, `kind` (`character|relationship|power|organisation|place|object|term|rule`), `subject`
+  (who or what by name; empty for the whole story), `text`, `fixed` (a rule that must hold), `visual` (can be seen,
+  so it reaches image prompts), `from_chapter_id` and `until_chapter_id` (inclusive; null = open), `source`, author.
+- `character_states` — one entry of a character's state timeline: project, character (cascade), `kind`
+  (`injury|look|outfit|item|location|rank|knowledge|other`), `text`, `chapter_id` (null = from the start),
+  `scene_number` (1-based within that chapter; null = its start), `until_chapter_id`, `outfit_id` (one of the
+  character's outfits, for an outfit state), `source`, author. A later look, outfit, location or rank replaces the
+  earlier one; the other kinds hold until `until_chapter_id`.
+- `continuity_findings` — a contradiction a `continuity_check` job found (migration `0031_continuity_findings`):
+  project, chapter (cascade), the job, `severity` (`high|medium|low`), `message`, `quote` (the offending line or
+  beat), `evidence` (what it contradicts), `place` (JSON `{ref, panelId, pageId, narrationLineId, sceneNumber}`:
+  where to fix it), `fact_id` (the bible fact it breaks), `status` (`open|fixed|ignored|explained`), `resolution`
+  (why ignored, or the explaining fact's text), resolver and time. A new check of a chapter replaces its open
+  findings and skips any it finds again that was ignored or explained (same place and quote). Each fixed rule's
+  verdict is kept on the job's result (`rules: [{factId, verdict, note}]`).
+
 ## Assets (`media.ts`)
 
 - `assets` — one abstraction for every file: owner, project, `type`, visibility, opaque `storage_key` (unique), MIME,
@@ -143,8 +184,8 @@ slot).
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
+  `expert_extract`, `bible_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry
@@ -158,7 +199,8 @@ slot).
 - `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`,
   `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**, **`video_shorts`**,
   `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
-  publishing text, zipped), and `project_import` (an import reuses the export job machinery and reports
+  publishing text, zipped), `carousel` and `quote_image` (repurposed stills, see `docs/VIDEO_EXPORT_REFERENCE.md`),
+  and `project_import` (an import reuses the export job machinery and reports
   `{projectId, warnings}` in `result`; a video render keeps its `series`, the `sectionKeys` of its cached sections and
   `sections: {reused, encoded}` there). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
   job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made). Deleting an
@@ -215,5 +257,6 @@ unique provider-batch idempotency key; every `*_versions` table unique on `(subj
 ## Interchange format
 
 `ProjectInterchange` (`packages/schemas/src/interchange.ts`, `schemaVersion: 1`) is the stable export and import
-format: references and a manifest of assets by id, never raw database rows. It backs the `zip_package`,
+format: references and a manifest of assets by id, never raw database rows. The story bible travels in `bible`
+(facts and states with chapters, characters and outfits by ref); a package written before it imports with none. It backs the `zip_package`,
 `project_json` and `project_import` kinds.

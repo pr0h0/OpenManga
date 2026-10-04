@@ -8,8 +8,7 @@ import {
   pageShotBox,
   panelShotBox,
   scrollPlan,
-  shotGroups,
-  timeGroup,
+  timeShots,
   type VideoAspect,
   watermarkBox,
 } from "@openmanga/domain/browser";
@@ -43,6 +42,8 @@ type PreviewShot = {
   label: string;
   /** Shares one hold with the next shot: a narration line spans the cut. */
   joinNext: boolean;
+  /** This shot's own minimum hold (`ShotVideo.holdMs`), in place of the preview's. */
+  minHoldMs: number | null;
   fade: { in: boolean; out: boolean };
   /** Panel cut: the resolved camera move. */
   motion: Motion | null;
@@ -152,45 +153,45 @@ function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Brandi
     frames += n;
   };
   card("intro");
-  for (const g of shotGroups(shots.map((s) => s.joinNext))) {
-    const members = shots.slice(g.first, g.last + 1);
-    const lines = members.flatMap((s) =>
-      s.lines.map((l) => ({ ...l, voiced: l.segments.filter((x) => x.audioAssetId && x.durationMs) })),
-    );
-    const timing = timeGroup(
-      lines.map((l) => ({
+  const voiced = (l: PreviewShot["lines"][number]) => l.segments.filter((x) => x.audioAssetId && x.durationMs);
+  // The shared timeline (`timeShots`): the render and the timing report time the film the same way. A Shorts cut ends
+  // before the shot that would pass its length limit.
+  const film = timeShots(
+    shots.map((s) => ({
+      joinNext: s.joinNext,
+      minHoldMs: s.minHoldMs,
+      lines: s.lines.map((l) => ({
         ...l,
-        segments: l.voiced.map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
+        segments: voiced(l).map((x) => ({ ms: x.durationMs!, pauseAfterMs: x.pauseAfterMs })),
       })),
-      members.length,
-      { minHoldMs, fps: FPS },
-    );
-    // A Shorts cut ends before the shot that would pass its length limit, as the render does.
-    if (capMs && timed.length && at(frames + timing.totalFrames) > capMs) break;
-    const groupMs = at(frames);
+    })),
+    { minHoldMs, fps: FPS, capMs: capMs ? capMs - at(frames) : undefined },
+  );
+  const offset = at(frames);
+  for (const g of film.groups) {
+    const lines = shots.slice(g.first, g.last + 1).flatMap((s) => s.lines);
     lines.forEach((l, k) => {
-      l.voiced.forEach((x, j) => {
-        const start = groupMs + timing.starts[k]![j]!;
+      voiced(l).forEach((x, j) => {
+        const start = offset + g.startMs + g.starts[k]![j]!;
         cues.push({ startMs: start, endMs: start + x.durationMs!, audioAssetId: x.audioAssetId! });
       });
     });
-    members.forEach((shot, m) => {
-      const n = timing.frames[m]!;
-      const all = shot.lines.flatMap((l) => l.segments);
-      const voiced = all.filter((x) => x.audioAssetId && x.durationMs).length;
-      timed.push({
-        key: shot.key,
-        label: shot.label,
-        shot,
-        card: null,
-        startMs: at(frames),
-        holdMs: at(n),
-        frames: n,
-        missingAudio: all.length - voiced,
-      });
-      frames += n;
-    });
   }
+  film.shots.forEach((t, i) => {
+    const shot = shots[i]!;
+    const all = shot.lines.flatMap((l) => l.segments);
+    timed.push({
+      key: shot.key,
+      label: shot.label,
+      shot,
+      card: null,
+      startMs: offset + t.startMs,
+      holdMs: t.holdMs,
+      frames: t.frames,
+      missingAudio: all.length - all.filter((x) => x.audioAssetId && x.durationMs).length,
+    });
+  });
+  frames += film.totalFrames;
   card("outro");
   return { timed, cues, totalMs: at(frames) };
 }

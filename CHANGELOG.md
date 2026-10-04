@@ -7,6 +7,147 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-04
+
+Upgrading: pull the new images and restart. Six migrations (`0028`–`0033`) run on start through the migrate service;
+`0033` records what each chapter's existing plan and narration were made from, so nothing shows as out of date after
+the upgrade. No new settings. Reload open tabs to get the new web app.
+
+Upgrading: six migrations: `0028_production_run_warnings` adds a nullable JSON column, `0029_story_bible` adds the
+story bible's two tables, `0030_production_run_lease` two nullable columns to `production_runs`,
+`0031_continuity_findings` the continuity findings, `0032_narration_findings` a table for narration QA findings, and
+`0033_chapter_source_fingerprints` two columns to `chapters`, filled for chapters already planned or narrated so
+nothing becomes out of date on upgrade.
+
+### Added
+
+- **Story bible.** A Bible page in each project holds facts (character, relationship, power, organisation, place,
+  object, term or rule; a subject; an optional chapter range; *fixed* for rules that must hold, *visual* for what
+  can be seen) and a per-character state timeline (injury, look, outfit in force, item, location, rank, knowledge,
+  from a chapter and scene on). **Extract from story** is a text job (`bible-extract` v1, paste mode works) that
+  proposes facts and states from the chapters and their memory for review; nothing is saved until you apply what you
+  keep. Chapter planning (`page-planning` v7 and its shot, strip and split-pass versions), panel prompts
+  (`panel-prompts` v5) and narration (`narration` v6) now receive the entries in effect at that chapter or scene,
+  about who and what they concern; panel images (`panel-generation` v12) get the visible ones in a `STORY CANON`
+  section, and an outfit state that names an outfit dresses the character in it wherever no panel sets another. The
+  bible is copied with a duplicated project and kept in project exports and imports. MCP: `get_story_bible`,
+  `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`.
+- **Continuity check.** The Bible page's *Continuity* tab checks one chapter or all of them (a `continuity_check`
+  text job per chapter, `continuity-check` v1, priced before it runs, budget-gated, batches and paste mode work):
+  each chapter's scenes, panel specs, dialogue and narration are compared with the bible in effect there and with the
+  chapters around it. Contradictions land in a queue with severity, the quoted line or beat, the entry it breaks and a
+  link to the panel, narration or chapter: mark them fixed, ignore them with a reason (a later check does not raise
+  them again) or explain them with a new bible fact. *Rule checks* lists every fixed rule as pass, warn or fail per
+  chapter from the latest check. Checked by text only; the artwork is not looked at. MCP: `run_continuity_check`,
+  `get_continuity_report`.
+- **Project health.** A **Health** page (and a card on the overview) says whether the project is ready to publish or
+  how many blocking issues it has, and lists them with where each is fixed: panels without artwork, chapters without
+  or with patchy narration, segments without audio, a missing or out-of-date video, panels that failed a visual
+  check; then what is out of date, the YouTube text and thumbnail headline, unfinished and failed generation, open
+  comments, spend against the budget and disk use. `GET /api/projects/:projectId/health`; MCP `get_project_health`.
+- **Final-output gate for production runs.** Before a run reports success it now also checks that every chapter is
+  narrated, that no panel's artwork failed a visual check and, when it renders, that the video exists and is not
+  shorter than its narration beyond the render's drift tolerance. Anything found is listed in its unresolved items
+  (`completed_with_warnings`) instead of passing silently.
+- **Pronunciation dictionary.** Project settings → Pronunciation maps names and terms to how the narrator says them
+  ("Qi" → "chee", "Seo Jinhyeok" → "suh jin-hyuk"), with match-case and whole-word options and a preview in the
+  project's voice. It applies only to the text sent to the voice, for every TTS provider: narration, subtitles and
+  lettering keep the written form. Changing it marks the audio of the affected segments stale, so the next synthesis
+  re-voices only those. Saved in `settings.pronunciation` (also through `update_project` over MCP) and carried by
+  project templates.
+- **Story coverage check.** Story → *Check coverage* maps the applied story revision to the plan with a text job,
+  part by part so long stories stay within context, and lists source paragraphs left out, told in more than one
+  chapter, or given far more or less room (share of panels) than their weight, each linked to its span in the story
+  (*Show in story* selects it) and to its chapter and scene, beside every chapter's share of the story, the panels
+  and the narration. Says when the story or the plan changed since. Works in paste mode (one question per part);
+  over MCP as `get_story_coverage` and `run_story_coverage`.
+- **Narration QA.** Narration → Narration QA checks a chapter or the whole project. Deterministic checks run at once
+  and spend nothing: repeated sentence openings, a flat rhythm, a name used too often, near-duplicate lines, narration that restates
+  its panel's dialogue, chapters that open or end alike, and density (crowded shots, stretches of silent shots, and
+  words per minute from the real audio). *Check with AI* adds a text job per chapter for meaning repeated in other
+  words (also against earlier chapters, given as compact summaries), facts explained a third time and lines that only
+  describe their frame. Findings are counted by type and can be reviewed, ignored (they stay ignored on later runs)
+  or fixed; a Density tab shows words per shot and per minute, chapter by chapter and shot by shot.
+- **Fix only what was flagged.** Select findings and *Fix selected*: a text job rewrites only their lines, the
+  changes are shown as a diff to accept line by line, and applying them re-voices only the changed sentences and runs
+  the checks again, reporting what is new and what was resolved (optionally the AI check too). Works in paste mode;
+  over MCP as `run_narration_lint`, `get_narration_qa`, `update_narration_finding`, `propose_narration_fix` and
+  `apply_narration_fix`, with spending behind approval.
+- **Channel profiles.** A publication identity one level above templates (Profiles in the top bar): a default preset
+  or template, target runtime, narrator voice and speed, pronunciation dictionary, image quality, reference and batch policy, logo watermark,
+  scene fades and intro/outro cards, lettering (the cards' font), thumbnail headline side, YouTube title rules, a
+  description template with `{hook}`, `{summary}`, `{title}` and `{author}`, default tags, and the shape and resolution
+  video exports default to. Create one from scratch or with *Save as channel profile* in a project's settings; the
+  new-project wizard's *Channel profile* copies it in, and the project records where it came from. *Re-apply profile*
+  on the overview lists what would change before applying. A profile's logo belongs to the account and each project
+  gets its own copy. MCP: `list_channel_profiles`, and `profileId` on `create_project`.
+
+- **Browser tests for the recent features.** Four new Playwright specs next to the studio flow, each with its own
+  users and one seeded project: `story.spec.ts` (story bible, story coverage, narration QA, timing, pronunciation),
+  `video.spec.ts` (repurposing, the Shorts suggestion, shot settings, layout guide, video branding, the reader
+  link's video preview), `production.spec.ts` (a production run to the final-output gate and Health, Update
+  production with *Keep current*, stopping a run and its jobs) and `collab.spec.ts` (members in a second browser,
+  comment mentions and the notification bell, channel profiles, expert output actions). `docs/TESTING.md` lists what
+  each covers and how to run them on a host with an install, without compose.
+
+### Changed
+
+- **The YouTube package follows the channel's rules** (`youtube-package` v2): title rules and the description template
+  go to the model as the owner's instructions, and the default tags lead every package.
+- **Video exports default to the project's output setting** (Settings → Video: frame and resolution) when the request
+  names no `video.aspect` or `video.height`; thumbnails default to the project's headline side.
+- **`POST /api/projects` with a `preset` fills the type, format, colour mode, language and style from it** when the
+  request leaves them out, as the wizard already did; a template's own lettering is no longer replaced on a vertical
+  project.
+- **Stopping a production run cancels its queued jobs.** Stop used to end only the orchestration while the jobs the
+  run had queued kept running and spending. It now also cancels its generation jobs that have not started (queued,
+  in a provider batch, paused or waiting for an answer), its queued narration audio and an unfinished export; jobs
+  already running at a provider finish and nothing further happens with them. The Stop dialog shows how many jobs
+  would be cancelled and offers *Stop the run only* (`{ "jobs": false }` on the API, `jobs: false` on the
+  `cancel_production_run` MCP tool).
+
+### Fixed
+
+- The production run card did not show the chapters changed since they were planned after you pressed Continue
+  at the analysis review, until the page was reloaded: it refreshed only when the run's status changed, and going
+  from one review to the next keeps it "waiting". It now refreshes on every change to the run.
+- *Extract from story* read only a chapter's stored source text or summary. Chapters built without an analysis
+  have neither, so the model was sent empty chapters and every extraction came back with no facts, shown as a normal
+  result. It now reads such a chapter's narration (cut to a share of a 120,000-character budget across chapters),
+  and fails with "These chapters have no text to read yet" when there is nothing at all.
+- **The YouTube text and thumbnail headline show when they may be out of date.** Renaming the project, changing its
+  chapters or rendering the video again left them looking current. *What is out of date* now flags the YouTube text
+  (title or chapters changed since it was written, or the video re-rendered after the package was exported) and the
+  thumbnail headline (title changed since it was set). They are never regenerated on their own: Update production
+  ends with "YouTube text may be out of date" / "thumbnail headline may be out of date", and the card offers
+  **Regenerate** and **Keep current** (`POST /api/projects/:projectId/keep-current`; MCP `keep_publishing_text`).
+
+- **Plans and narration go out of date when what they were made from changes.** A chapter whose text changed after it
+  was planned counted as up to date (staleness only looked for chapters without pages), so Update production skipped
+  it; the same for narration whose panels changed. Chapters now record a fingerprint of what their plan and narration
+  were made from, and *What is out of date* counts the ones that differ. Update production never re-plans a chapter
+  that has pages on its own: it stops at a review listing them, where each is kept (**Keep current**) or redone
+  (**Re-plan** / **Write again**, saying how many pages, drawn panels or lines that replaces), and the Story page offers
+  the same choice after a revised story is applied. Agents get `stalePlans` / `staleNarration` from `get_staleness`
+  and the new `keep_stale_chapter` tool; `POST /api/chapters/:id/keep` is the route.
+
+- **Production runs are safe with several API processes.** A run was guarded against two passes at once by an
+  in-memory set, so two `api` replicas (or a stale process) could advance the same run twice and queue its work
+  twice. A pass now holds a lease on the run's row (`lease_owner`, `lease_until`), extended while it works and
+  released when it returns; an expired lease is taken over, and a pass no longer overwrites a run stopped meanwhile.
+
+- **A production run with failures no longer ends as plain completed.** A run that reached the end while some steps
+  had noted failures ("3 of 400 failed") reported `completed`. It now finishes `completed_with_warnings` with a
+  summary of what is unresolved: failed jobs nobody retried, panels without artwork, narration segments without
+  current audio, panels needing review and failed exports. The run card shows "Finished with N unresolved items"
+  with links and **Retry failed**, **Review** and **Render anyway**; `get_production_run` returns the `warnings`. A
+  failed render no longer fails the whole run: it is listed with the rest.
+- **A production run's audio step checks the audio.** It used to finish as soon as no narration job was queued or
+  running, so a segment whose synthesis failed passed silently. It now also checks every segment has current audio
+  (the same definition as the audio stage of *What is out of date*): segments it never queued are queued once more,
+  and failed ones are noted on the step and listed in the run's warnings instead of being retried forever. The
+  chapter synthesize route takes an optional `segmentIds`.
+
 ## [0.13.0] — 2026-10-03
 
 Upgrading: pull the new images and restart. Seven migrations (`0021`–`0027`) run on start through the migrate service;
@@ -25,6 +166,23 @@ Upgrading: run migrations (`0021_video_shots` adds two nullable JSON columns, `0
 
 ### Added
 
+- **Repurposing.** A *Repurpose* page plans what one finished project is cut into, from its own panel art: several
+  Shorts that never share a shot (each from its own part of the story), a 60–90 s trailer, a 15–30 s teaser, a
+  10-panel Instagram carousel and quote images (a panel with a line of its narration or dialogue). Review and adjust
+  every pick, length, frame and quote, preview the videos, then render each item or all of them as exports: the
+  videos as Shorts cuts named after the item, the carousel as a ZIP of 1:1 or 4:5 images cropped with each panel's
+  framing, a quote image as a PNG with the line in the lettering font. *Write titles and captions* is a text job
+  (`social-copy` v1, paste mode works) that writes a social title and caption for each item, shipped as a caption
+  file with its export. Agents use `suggest_repurpose`, `write_social_copy` and `create_export` (`carousel`,
+  `quote_image`, `label`, `social`). Hook lines per Short are not included yet (on the roadmap). A Shorts cut can now
+  be as short as 15 s.
+- **Timing pass.** Once a chapter's narration is voiced, a *Timing* page times it with the real audio lengths (the
+  same timeline as the preview and the render): shots past the longest-shot setting or under the shortest, one
+  picture held too long, dead air, and the chapter's length against its target. Each fix shows the holds it changes
+  and the new length before it is applied: spread a long line over the next shots of its scene, give a shot its own
+  minimum hold (also in the panel's *Video shot* settings), or have a text job rewrite chosen lines to a word budget,
+  read as a diff, with only the kept lines voiced again. Nothing generates new images. Agents use `get_timing`,
+  `apply_timing_fix` and `retime_narration`.
 - **Type a pose for a layout guide.** *Pose, in words* under a panel's guide takes the pose as text (e.g. "standing
   centred, hands on hips"), no AI needed. `panel-generation` v11 puts it in the `POSE / LAYOUT` section beside the
   sketch, so it outranks the written composition like a strict sketch does. *Describe pose* now fills this text

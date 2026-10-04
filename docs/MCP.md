@@ -218,15 +218,16 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | --- | --- |
 | System | `get_server_info`, `get_answer_schema`, `describe_api`, `get_approval_request` |
 | Projects | `list_projects`, `get_project`, `create_project`, `update_project`, `set_project_status`, `delete_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_project_usage` |
-| Story | `get_story`, `get_story_revision`, `save_story_revision`, `run_story_analysis`, `get_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite` |
+| Story | `get_story`, `get_story_revision`, `save_story_revision`, `run_story_analysis`, `get_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `get_story_coverage`, `run_story_coverage` |
+| Story bible | `get_story_bible` (with `chapterId`, what that chapter's planning and narration receive), `manage_story_bible` (facts and character states), `run_bible_extraction`, `apply_bible_extraction`, `run_continuity_check` (estimate first, then `confirm`), `get_continuity_report` |
 | Cast, world, style | `list_library`, `get_library_item`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
 | Chapters | `list_chapters`, `get_chapter`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `list_chapter_panels` |
 | Pages and panels | `get_page`, `manage_page`, `manage_lettering`, `get_panel`, `update_panel`, `manage_panel_outfits`, `get_panel_prompt`, `prepare_page_prompts`, `generate_panel`, `manage_panel_artwork`, `run_panel_check`, `manage_panel` |
 | Images | `get_image`: the picture itself (panel artwork, the lettered page, a reference, any project image) as MCP image content, `thumbnail` (384 px), `preview` (1024 px, default) or `large` (2048 px; a lettered page is capped at 1600 px). Images in the trash are refused. `manage_assets`: list the project's assets or its trash, trash, restore and permanently delete |
 | Jobs | `list_jobs`, `get_job`, `get_manual_prompt`, `submit_manual_answer`, `control_job`, `estimate_bulk_generation`, `run_bulk_generation`, `manage_batch`, `generate_cover` |
-| Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio` |
-| Exports | `create_export`, `suggest_shorts`, `list_exports`, `delete_exports` |
-| Production runs | `get_staleness` (what is out of date, story to video), `start_production_run`, `update_production` (only the stale steps), `get_production_run`, `continue_production_run`, `cancel_production_run` |
+| Narration | `get_chapter_narration`, `get_narration_status`, `edit_narration`, `run_narration_generation`, `synthesize_narration`, `delete_narration_audio`, `run_narration_lint`, `get_narration_qa`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `get_timing`, `apply_timing_fix`, `retime_narration` (the timing pass) |
+| Exports | `create_export`, `suggest_shorts`, `suggest_repurpose`, `write_social_copy`, `list_exports`, `delete_exports` |
+| Production runs | `get_staleness` (what is out of date, story to video), `start_production_run`, `update_production` (only the stale steps), `get_production_run`, `continue_production_run`, `cancel_production_run`, `keep_stale_chapter` (keep a chapter's plan or narration made from text that changed since), `keep_publishing_text` (keep the YouTube text or thumbnail headline flagged as possibly out of date), `get_project_health` (ready to publish, or the blocking issues, with where each is fixed) |
 | Experts | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` (extract a concept, premise, outline or YouTube text from a reply, then apply it; applying is sensitive) |
 
 Not exposed (UI/REST only): multipart uploads (project import, own artwork, masks, own references, expert image
@@ -237,11 +238,11 @@ Some production features reach agents only through the schemas of existing tools
 export body as is, so it accepts the `youtube_package` kind, a `pageIds` page selection, `video.framing: "scroll"`
 and a partial render's `video.maxDurationMs` (its description names the YouTube package; the others are in its
 schema). `create_project` takes a
-production `preset` key, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
+production `preset` key or a `profileId` from `list_channel_profiles`, and `update_project` edits `settings.targetRuntime`, `referencePolicy`, `batchPolicy` and
 the saved `youtubePackage` text. No tool calls these newer routes directly: writing the YouTube
 package text (`POST /api/projects/:projectId/youtube-package`), checking every panel at once
-(`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list and saving or deleting
-project templates are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
+(`POST /api/projects/:projectId/checks`), the runtime report, the production-preset list, saving or deleting
+project templates, and editing or re-applying channel profiles are UI/REST only, and `run_bulk_generation`'s `references` scope covers locations and props but not
 characters. A YouTube package text job started in paste mode from the app can still be answered with
 `get_manual_prompt` / `submit_manual_answer`, like any parked job.
 

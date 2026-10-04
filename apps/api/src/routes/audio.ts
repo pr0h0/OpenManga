@@ -7,6 +7,7 @@ import {
   chapters,
   dialogueLines,
   eq,
+  generationJobs,
   inArray,
   narrationLines,
   narrationSegments,
@@ -23,8 +24,9 @@ import {
   placeBubble,
   resolveLettering,
   segmentNarration,
+  segmentTextSha,
 } from "@openmanga/domain";
-import { narrationV5 } from "@openmanga/prompts";
+import { narrationRetimeV1, narrationV6 } from "@openmanga/prompts";
 import { Bubble, type Frame, NarrationLineVideo, type ProjectSettings } from "@openmanga/schemas";
 import { applyNarrationPauses, recordAudit } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -66,7 +68,7 @@ async function segmentWithAccess(c: Context<AppEnv>, id: string, action: "read" 
   return { segment: s, project };
 }
 
-async function resegment(c: Context<AppEnv>, lineId: string, projectId: string, text: string, maxChars: number) {
+export async function resegment(c: Context<AppEnv>, lineId: string, projectId: string, text: string, maxChars: number) {
   const { db } = c.get("deps");
   const old = await db
     .select()
@@ -90,7 +92,7 @@ async function resegment(c: Context<AppEnv>, lineId: string, projectId: string, 
           narrationLineId: lineId,
           order: i,
           text: s.text,
-          textSha256: sha256Hex(s.text),
+          textSha256: segmentTextSha(s.text, proj?.settings.pronunciation),
           pauseAfterMs: s.pauseAfterMs,
           voice: prior?.voice ?? null,
           speed: prior?.speed ?? null,
@@ -430,8 +432,8 @@ audioRoutes.post("/chapters/:id/narration/generate", async (c) => {
         targetType: "chapter",
         targetId: chapterId,
         batchId: narrationBatchId,
-        templateName: narrationV5.name,
-        templateVersion: narrationV5.version,
+        templateName: narrationV6.name,
+        templateVersion: narrationV6.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(batch) },
@@ -443,6 +445,112 @@ audioRoutes.post("/chapters/:id/narration/generate", async (c) => {
   if (narrationBatchId) await queueTextBatchSubmit(c, { projectId: project.id, batchId: narrationBatchId, ai });
   await deps.jobs.kick();
   return c.json({ job }, 202);
+});
+
+const Retime = z.object({
+  /** The lines to rewrite, each to a word budget (the Timing view's trim or expand). */
+  lines: z
+    .array(z.object({ lineId: z.string().uuid(), words: z.number().int().min(3).max(400) }))
+    .min(1)
+    .max(200),
+  ai: AiChoiceInput,
+});
+doc({
+  method: "POST",
+  path: "/api/chapters/:id/narration/retime",
+  summary:
+    "Timing pass: queue a text job that rewrites the chosen narration lines to a word budget each. Nothing changes yet: the job's result lists each line before and after, to apply with .../retime/:jobId/apply.",
+  tag: "narration",
+  body: Retime,
+});
+audioRoutes.post("/chapters/:id/narration/retime", async (c) => {
+  const chapterId = uuidParam(c, "id");
+  const project = await entityAccess(c, "chapter", chapterId, "generate");
+  const { ai, lines } = await body(c, Retime);
+  const deps = c.get("deps");
+  const own = await deps.db
+    .select({ id: narrationLines.id })
+    .from(narrationLines)
+    .where(
+      and(
+        eq(narrationLines.chapterId, chapterId),
+        inArray(
+          narrationLines.id,
+          lines.map((l) => l.lineId),
+        ),
+      ),
+    );
+  if (own.length !== new Set(lines.map((l) => l.lineId)).size) throw notFound("Narration line");
+  await assertBudget(c, project.id);
+  const run = await textRun(c, ai);
+  const job = await deps.db.transaction((tx) =>
+    deps.jobs.createGenerationJob(tx, {
+      projectId: project.id,
+      userId: user(c).id,
+      kind: "narration_retime",
+      priority: PRIORITY.single,
+      targetType: "chapter",
+      targetId: chapterId,
+      templateName: narrationRetimeV1.name,
+      templateVersion: narrationRetimeV1.version,
+      provider: run.provider,
+      model: run.model,
+      parameters: run.parameters,
+      input: { chapterId, lines },
+    }),
+  );
+  await deps.jobs.kick();
+  return c.json({ job }, 202);
+});
+
+const ApplyRetime = z.object({ lineIds: z.array(z.string().uuid()).min(1).max(200) });
+doc({
+  method: "POST",
+  path: "/api/chapters/:id/narration/retime/:jobId/apply",
+  summary:
+    "Apply a finished retime job to the lines you keep (lineIds): each line gets its rewritten text and is re-segmented, unchanged segments keeping their audio. Re-voice them with narration/synthesize { lineIds }.",
+  tag: "narration",
+  body: ApplyRetime,
+});
+audioRoutes.post("/chapters/:id/narration/retime/:jobId/apply", async (c) => {
+  const chapterId = uuidParam(c, "id");
+  const project = await entityAccess(c, "chapter", chapterId, "write");
+  const { lineIds } = await body(c, ApplyRetime);
+  const { db, config } = c.get("deps");
+  const [job] = await db
+    .select()
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.id, uuidParam(c, "jobId")),
+        eq(generationJobs.kind, "narration_retime"),
+        eq(generationJobs.targetId, chapterId),
+      ),
+    );
+  if (!job) throw notFound("Retime job");
+  if (job.status !== "completed") throw conflict("The rewrite has not finished yet");
+  const proposals = ((job.result?.lines ?? []) as { lineId: string; text: string; after: string }[]).filter((l) =>
+    lineIds.includes(l.lineId),
+  );
+  const applied: { lineId: string; segments: number }[] = [];
+  for (const p of proposals) {
+    const [line] = await db.select().from(narrationLines).where(eq(narrationLines.id, p.lineId));
+    // A line edited since the rewrite was proposed keeps the edit: the proposal was made from text that is gone.
+    if (!line || line.chapterId !== chapterId || line.text !== p.text) continue;
+    await db.update(narrationLines).set({ text: p.after }).where(eq(narrationLines.id, line.id));
+    const segs = await resegment(c, line.id, project.id, p.after, config.NARRATION_SEGMENT_MAX_CHARS);
+    applied.push({ lineId: line.id, segments: segs.length });
+  }
+  await recordAudit(db, {
+    userId: user(c).id,
+    projectId: project.id,
+    action: "narration.retime_apply",
+    targetType: "chapter",
+    targetId: chapterId,
+    metadata: { lines: applied.length },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ applied, skipped: proposals.length - applied.length });
 });
 
 export const PatchSegment = z.object({
@@ -459,11 +567,11 @@ doc({
   body: PatchSegment,
 });
 audioRoutes.patch("/narration-segments/:id", async (c) => {
-  const { segment } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
+  const { segment, project } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
   const input = await body(c, PatchSegment);
   const set: Partial<typeof narrationSegments.$inferInsert> = { ...input };
   if (input.text && input.text !== segment.text) {
-    set.textSha256 = sha256Hex(input.text);
+    set.textSha256 = segmentTextSha(input.text, project.settings.pronunciation);
     // Detach the old audio: it speaks the previous text, and every export reader joins on this pointer alone.
     set.activeAudioAssetId = null;
   }
@@ -505,7 +613,7 @@ audioRoutes.post("/narration-segments/:id/split", async (c) => {
       .update(narrationSegments)
       .set({
         text: a,
-        textSha256: sha256Hex(a),
+        textSha256: segmentTextSha(a, project.settings.pronunciation),
         activeAudioAssetId: null,
         pauseAfterMs: project.settings.narrationPauseMs ?? DEFAULT_NARRATION_PAUSE_MS,
       })
@@ -518,7 +626,7 @@ audioRoutes.post("/narration-segments/:id/split", async (c) => {
         narrationLineId: segment.narrationLineId,
         order: segment.order + 1,
         text: b,
-        textSha256: sha256Hex(b),
+        textSha256: segmentTextSha(b, project.settings.pronunciation),
         voice: segment.voice,
         speed: segment.speed,
         pauseAfterMs: segment.pauseAfterMs,
@@ -536,7 +644,7 @@ doc({
   tag: "narration",
 });
 audioRoutes.post("/narration-segments/:id/merge-next", async (c) => {
-  const { segment } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
+  const { segment, project } = await segmentWithAccess(c, uuidParam(c, "id"), "write");
   const { db } = c.get("deps");
   const [next] = await db
     .select()
@@ -555,7 +663,12 @@ audioRoutes.post("/narration-segments/:id/merge-next", async (c) => {
     await tx.delete(narrationSegments).where(eq(narrationSegments.id, next.id));
     return tx
       .update(narrationSegments)
-      .set({ text, textSha256: sha256Hex(text), activeAudioAssetId: null, pauseAfterMs: next.pauseAfterMs })
+      .set({
+        text,
+        textSha256: segmentTextSha(text, project.settings.pronunciation),
+        activeAudioAssetId: null,
+        pauseAfterMs: next.pauseAfterMs,
+      })
       .where(eq(narrationSegments.id, segment.id))
       .returning();
   });
@@ -671,7 +784,11 @@ export const SynthAll = z.object({
   /** Voice for every segment when a BYOK provider is chosen (provider voices differ from Kokoro's). */
   voice: z.string().max(128).optional(),
   language: z.string().trim().min(2).max(16).optional(),
+  /** Only these lines' segments (the lines a timing fix rewrote). */
+  lineIds: z.array(z.string().uuid()).max(500).optional(),
   ai: AiChoiceInput,
+  /** Only these segments of the chapter (others are left alone). */
+  segmentIds: z.array(z.string().uuid()).max(5000).optional(),
 });
 doc({
   method: "POST",
@@ -683,7 +800,7 @@ doc({
 audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
   const chapterId = uuidParam(c, "id");
   const project = await entityAccess(c, "chapter", chapterId, "generate");
-  const { onlyMissing, voice: voiceOverride, ai, language: lang } = await body(c, SynthAll);
+  const { onlyMissing, voice: voiceOverride, ai, language: lang, segmentIds, lineIds } = await body(c, SynthAll);
   const language = lang || project.language;
   const deps = c.get("deps");
   const voiceRun = await ttsRun(c, ai, voiceOverride);
@@ -692,7 +809,14 @@ audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
     .from(narrationSegments)
     .innerJoin(narrationLines, eq(narrationLines.id, narrationSegments.narrationLineId))
     .leftJoin(audioAssets, eq(audioAssets.assetId, narrationSegments.activeAudioAssetId))
-    .where(and(eq(narrationLines.chapterId, chapterId), eq(narrationLines.language, language)))
+    .where(
+      and(
+        eq(narrationLines.chapterId, chapterId),
+        eq(narrationLines.language, language),
+        segmentIds ? (segmentIds.length ? inArray(narrationSegments.id, segmentIds) : sql`false`) : undefined,
+        lineIds?.length ? inArray(narrationLines.id, lineIds) : undefined,
+      ),
+    )
     .orderBy(asc(narrationLines.order), asc(narrationSegments.order));
   const batchId = crypto.randomUUID();
   const pending = await deps.db

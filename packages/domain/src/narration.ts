@@ -95,3 +95,33 @@ export function buildTimeline(chapterId: string, items: TimelineInput[]) {
   const totalDurationMs = Math.max(0, t - (items.at(-1)?.pauseAfterMs ?? 0));
   return { schemaVersion: 1, chapterId, totalDurationMs, segments };
 }
+
+export type Pronunciation = { term: string; spoken: string; caseSensitive?: boolean; wholeWord?: boolean };
+
+/**
+ * The text a voice is asked to say: every dictionary term replaced by its spoken form, in one pass so a spoken form
+ * is never itself rewritten. Where matches overlap the earlier one wins, then the longer ("Seo Jinhyeok" before
+ * "Seo"). Whole-word matching treats letters and digits of any script as word characters.
+ */
+export function spokenText(text: string, dictionary: readonly Pronunciation[] | undefined): string {
+  if (!dictionary?.length) return text;
+  const hits: { start: number; end: number; spoken: string }[] = [];
+  for (const e of dictionary) {
+    const term = e.term.trim();
+    if (!term) continue;
+    const body = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = e.wholeWord === false ? body : `(?<![\\p{L}\\p{N}_])${body}(?![\\p{L}\\p{N}_])`;
+    for (const m of text.matchAll(new RegExp(pattern, e.caseSensitive ? "gu" : "giu")))
+      hits.push({ start: m.index, end: m.index + m[0].length, spoken: e.spoken });
+  }
+  if (!hits.length) return text;
+  hits.sort((a, b) => a.start - b.start || b.end - a.end);
+  let out = "";
+  let at = 0;
+  for (const h of hits) {
+    if (h.start < at) continue;
+    out += text.slice(at, h.start) + h.spoken;
+    at = h.end;
+  }
+  return out + text.slice(at);
+}

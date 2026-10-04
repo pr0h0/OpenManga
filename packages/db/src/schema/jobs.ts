@@ -24,12 +24,26 @@ export type GenerationKind =
   | "youtube_package"
   /** Describe an uploaded reference image as reusable style / character / location descriptions. */
   | "image_describe"
+  /** Semantic narration QA for one chapter: meaning repeated, facts re-explained, lines that only describe the frame. */
+  | "narration_lint"
+  /** Rewrites of the narration lines a lint flagged, returned as a proposal to review before applying. */
+  | "narration_fix"
+  /** Maps the story source to the plan: what was left out, told twice, or given far more or less room than its weight. */
+  | "story_coverage"
   /** Collects a bulk run's panels into one provider batch submission; owns no panel of its own. */
   | "image_batch_submit"
   /** The same for text jobs: harvests each job's request and submits them together. */
   | "text_batch_submit"
   /** Turns an expert's reply into something to apply (a project concept, premise, outline or YouTube text). */
-  | "expert_extract";
+  | "expert_extract"
+  /** Proposes story bible facts and character states from the chapters, for the user to review and apply. */
+  | "bible_extract"
+  /** Compares one chapter with the story bible and its neighbours; findings go to continuity_findings. */
+  | "continuity_check"
+  /** The timing pass: chosen narration lines rewritten to a word budget, kept on the job until the user applies them. */
+  | "narration_retime"
+  /** A social title and caption for each item of the repurposing plan, written into settings.repurpose. */
+  | "social_copy";
 
 export const generationJobs = pgTable(
   "generation_jobs",
@@ -202,6 +216,10 @@ export type ExportKind =
   | "video_shorts"
   /** The newest video of the scope, its thumbnail, subtitles, chapter timestamps and publishing text, zipped. */
   | "youtube_package"
+  /** Repurposing: picked panels as 1:1 or 4:5 images for an Instagram carousel, zipped with the caption. */
+  | "carousel"
+  /** Repurposing: one panel crop with a line of narration or dialogue set in the lettering font. */
+  | "quote_image"
   | "project_import";
 
 export const exportJobs = pgTable(

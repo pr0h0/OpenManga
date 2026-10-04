@@ -12,6 +12,15 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
     "for a vertical strip one panel per page with height and seam.",
   PanelPromptDraft: "**Prepare page prompts** — per-panel prompt text for the image model.",
   NarrationDraft: "**Generate narration** — the narrator's lines, tied to panels.",
+  NarrationLintReport:
+    "**Narration QA → Check with AI** — meaning repeated, facts explained again and lines that only describe the frame.",
+  StoryCoverageMap:
+    "**Story → Check coverage**, one question per part of the source — which scenes tell each paragraph, and its weight.",
+  NarrationFix: "**Narration QA → Fix flagged** — rewrites of the flagged lines only, shown as a diff before applying.",
+  SocialCopy:
+    "**Repurpose → Write titles and captions** — a social title and caption for each Short, trailer, teaser, carousel and quote image of the plan.",
+  NarrationRetime:
+    "**Timing: trim or expand narration** — the lines you picked in a chapter's Timing view, rewritten to their word budgets.",
   ImageDescription:
     "**Describe image** — what a reference image shows, by the aspects you asked for. Attach the image.",
   PanelCheck: "**Check panel** — a consistency check of finished artwork against its cast. Attach the image.",
@@ -19,6 +28,10 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   ProjectConcept: "**New project** from an expert's reply — the concept as a title, premise and story idea.",
   ProjectPremise: "**Use as premise** from an expert's reply — a logline and premise for the project description.",
   StoryOutline: "**Save as outline** from an expert's reply — the chapters, saved as an outline story revision.",
+  BibleExtraction:
+    "**Extract bible from story** — proposes story bible facts and character states from the chapters, for review.",
+  ContinuityReport:
+    "**Check continuity** — contradictions in one chapter against the story bible and its neighbours, and a verdict per fixed rule.",
 };
 
 /**

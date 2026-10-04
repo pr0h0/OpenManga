@@ -9,6 +9,12 @@ import type { ShotMotion } from "@openmanga/schemas";
  */
 export const VIDEO_BREATH_MS = 150;
 
+/**
+ * How far a rendered video may run from its narration: frame-exact holds leave only encoder rounding (AAC priming,
+ * last-frame duration), a few ms per clip. Anything larger is a real mapping defect.
+ */
+export const videoDriftToleranceMs = (clips: number) => 80 + 10 * clips;
+
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 /**
@@ -234,7 +240,13 @@ export type TimedLine = {
 export function timeGroup(
   lines: TimedLine[],
   shotCount: number,
-  o: { minHoldMs: number; fps: number; breathMs?: number },
+  o: {
+    minHoldMs: number;
+    fps: number;
+    breathMs?: number;
+    /** Per-shot minimum holds that replace `minHoldMs` for that shot (a shot's own hold setting). */
+    minHolds?: (number | null | undefined)[];
+  },
 ) {
   let t = 0;
   let voiced = 0;
@@ -254,13 +266,47 @@ export function timeGroup(
     voiced += line.segments.length;
     return at;
   });
-  const minFrames = holdFor(0, false, o.minHoldMs, o.fps).frames;
-  const totalFrames = Math.max(shotCount * minFrames, holdFor(t, voiced > 0, 0, o.fps, o.breathMs).frames);
-  const frames = Array.from(
+  // Each shot gets at least its minimum; the rest of the group's length is shared evenly (earlier shots take the odd
+  // frames). With equal minimums this is the even split of the whole.
+  const mins = Array.from(
     { length: shotCount },
-    (_, i) => Math.floor(totalFrames / shotCount) + (i < totalFrames % shotCount ? 1 : 0),
+    (_, i) => holdFor(0, false, o.minHolds?.[i] ?? o.minHoldMs, o.fps).frames,
   );
+  const base = mins.reduce((a, b) => a + b, 0);
+  const totalFrames = Math.max(base, holdFor(t, voiced > 0, 0, o.fps, o.breathMs).frames);
+  const extra = totalFrames - base;
+  const frames = mins.map((m, i) => m + Math.floor(extra / shotCount) + (i < extra % shotCount ? 1 : 0));
   return { narrationMs: t, voiced, starts, frames, totalFrames, holdMs: (totalFrames * 1000) / o.fps };
+}
+
+/**
+ * A whole timeline: every hold group in order (see `shotGroups`, `timeGroup`), with where each shot and each voiced
+ * segment starts on the film clock. The preview, the timing report and the render all time a film this way.
+ */
+export function timeShots(
+  shots: { joinNext: boolean; minHoldMs?: number | null; lines: TimedLine[] }[],
+  o: { minHoldMs: number; fps: number; breathMs?: number; capMs?: number },
+) {
+  let frames = 0;
+  const at = (f: number) => (f * 1000) / o.fps;
+  const out: { startMs: number; frames: number; holdMs: number; group: number }[] = [];
+  const groups: (ReturnType<typeof timeGroup> & { first: number; last: number; startMs: number })[] = [];
+  for (const g of shotGroups(shots.map((s) => s.joinNext))) {
+    const members = shots.slice(g.first, g.last + 1);
+    const timing = timeGroup(
+      members.flatMap((s) => s.lines),
+      members.length,
+      { ...o, minHolds: members.map((s) => s.minHoldMs) },
+    );
+    // A length limit (a Shorts cut) ends before the group that would pass it, as the render does.
+    if (o.capMs && out.length && at(frames + timing.totalFrames) > o.capMs) break;
+    groups.push({ ...timing, first: g.first, last: g.last, startMs: at(frames) });
+    for (const n of timing.frames) {
+      out.push({ startMs: at(frames), frames: n, holdMs: at(n), group: groups.length - 1 });
+      frames += n;
+    }
+  }
+  return { shots: out, groups, totalFrames: frames, totalMs: at(frames) };
 }
 
 /** A YouTube-style timestamp: m:ss, or h:mm:ss from an hour on. */

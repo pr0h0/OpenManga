@@ -863,6 +863,23 @@ function VideoShot({
         <input type="checkbox" checked={v.disabled} onChange={(e) => set({ disabled: e.target.checked })} />
         Leave this shot and its narration out of videos
       </label>
+      <Field label="Own minimum hold (s)" hint="Blank uses the export's minimum. Never shorter than the narration.">
+        <input
+          key={`${panel.id}-${v.holdMs ?? ""}`}
+          className="input text-xs"
+          type="number"
+          min={0.5}
+          max={60}
+          step={0.5}
+          placeholder="export minimum"
+          defaultValue={v.holdMs != null ? v.holdMs / 1000 : ""}
+          onBlur={(e) => {
+            const raw = e.target.value.trim();
+            const holdMs = raw ? Math.min(60_000, Math.max(500, Math.round(Number(raw) * 1000))) : null;
+            if (holdMs !== v.holdMs) set({ holdMs });
+          }}
+        />
+      </Field>
     </fieldset>
   );
 }

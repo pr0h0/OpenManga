@@ -40,6 +40,7 @@ import {
   type ResolvedLettering,
   resolveLettering,
   segmentNarration,
+  segmentTextSha,
   templateFrames,
 } from "@openmanga/domain";
 import {
@@ -52,8 +53,8 @@ import {
   type StoryAnalysis,
   stripPageHeight,
 } from "@openmanga/schemas";
-import { sha256Hex } from "@openmanga/storage";
 import { outfitNamedIn, outfitTimeline } from "./outfits.ts";
+import { recordNarrationFingerprint, recordPlanFingerprint } from "./staleness.ts";
 
 const slug = (s: string) =>
   s
@@ -766,7 +767,7 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
                 narrationLineId: nl!.id,
                 order: k,
                 text: seg.text,
-                textSha256: sha256Hex(seg.text),
+                textSha256: segmentTextSha(seg.text, s.pronunciation),
                 pauseAfterMs: seg.pauseAfterMs,
               });
             }
@@ -800,6 +801,10 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
         planStatus: "draft",
       })
       .where(eq(chapters.id, chapterId));
+    // After the update: with no source excerpt the plan's summary is what a later plan would read. The plan writes
+    // the panels' narration with them, so that is current too.
+    await recordPlanFingerprint(tx, chapterId);
+    await recordNarrationFingerprint(tx, chapterId);
     return { applied: true, pages: pageOrder, panels: panelCount };
   });
 }

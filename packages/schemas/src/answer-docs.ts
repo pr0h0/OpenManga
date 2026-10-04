@@ -1,12 +1,18 @@
 import type { z } from "zod";
 import type { FieldDocs } from "./answer-format.ts";
+import { BibleExtraction, ContinuityReport } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
   NarrationDraftV2,
+  NarrationFix,
+  NarrationLintReport,
+  NarrationRetime,
   PanelCheck,
   PanelPromptDraft,
   ScenePages,
+  SocialCopy,
+  StoryCoverageMap,
   StoryRewrite,
   YoutubePackage,
 } from "./planning.ts";
@@ -24,12 +30,19 @@ export const ANSWER_SCHEMAS = {
   ScenePages,
   PanelPromptDraft,
   NarrationDraft: NarrationDraftV2,
+  NarrationLintReport,
+  NarrationFix,
+  StoryCoverageMap,
+  NarrationRetime,
+  SocialCopy,
   ImageDescription,
   PanelCheck,
   YoutubePackage,
   ProjectConcept,
   ProjectPremise,
   StoryOutline,
+  BibleExtraction,
+  ContinuityReport,
 } satisfies Record<string, z.ZodType>;
 
 /** Prefixes every key of a shared group, so a sub-object that appears in several answers is explained once. */
@@ -284,6 +297,57 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     ],
   },
 
+  NarrationLintReport: {
+    "": "Problems a listener would notice in one chapter's narration. An empty findings list is a good answer.",
+    findings:
+      "Each problem found, worst first. Report only real problems, not style preferences or deliberate refrains.",
+    "findings[].type": [
+      "repeated_meaning: lines of this chapter that say the same thing in other words; cross_chapter_repeat: a line " +
+        "that re-tells what an earlier chapter's narration told; fact_overexplained: a fact explained again after the " +
+        "listener has heard it twice; describes_frame: a line that only describes what its frame already shows.",
+      "repeated_meaning",
+    ],
+    "findings[].lines": [
+      "The keys of the lines involved (L1, L2, … as the prompt lists them), the line that should change first.",
+      ["L7", "L3"],
+    ],
+    "findings[].relatedChapters": [
+      "For cross_chapter_repeat and fact_overexplained: the numbers of the earlier chapters that already said it.",
+      [],
+    ],
+    "findings[].severity": ["How much the listener would notice: low, medium or high.", "medium"],
+    "findings[].explanation": [
+      "One or two sentences a writer can act on: what repeats or what the frame already shows.",
+      "L7 tells again that Tomas never left the light, which L3 already said in nearly the same way.",
+    ],
+  },
+
+  NarrationFix: {
+    "": "Rewrites of the flagged narration lines only. Every line left out stays exactly as it is.",
+    lines: "One entry per flagged line you rewrite. Lines no finding names are refused.",
+    "lines[].line": ["The key of the flagged line (L1, L2, …) as the prompt lists it.", "L7"],
+    "lines[].text": [
+      "The new line: same meaning, facts, names, tense and roughly the same length, without the problem.",
+      "By the time the storm reached Vell, the lamp was the only light left on the coast.",
+    ],
+  },
+
+  StoryCoverageMap: {
+    "": "How the adaptation's plan covers one part of the source story, paragraph by paragraph.",
+    paragraphs: "One entry for EVERY paragraph of the part, by its key; an answer missing any is sent back.",
+    "paragraphs[].paragraph": ["The paragraph's key as the prompt numbers it (P1, P2, …).", "P12"],
+    "paragraphs[].weight": [
+      "How much the paragraph matters to the story: 1 (texture that could go) to 5 (a turning point it needs).",
+      4,
+    ],
+    "paragraphs[].coveredBy": [
+      "The keys of the scenes that tell what the paragraph tells (C2.S1), or a chapter key (C2) when that chapter " +
+        "tells it but its scenes are not listed. Empty when nothing in the plan tells it; more than one only when " +
+        "the plan really tells it twice.",
+      ["C2.S1"],
+    ],
+  },
+
   YoutubePackage: {
     "": "Text for publishing the narrated video on YouTube. Saved on the project and editable afterwards.",
     titles: [
@@ -303,6 +367,30 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     thumbnailHeadlines: [
       "Short thumbnail headlines (two to five words) to choose from.",
       ["HE NEVER LEFT", "THE LAST KEEPER"],
+    ],
+  },
+
+  SocialCopy: {
+    "": "A social title and caption for each piece of the repurposing plan you were given, matched by id.",
+    items: ["One entry per item you were given.", undefined],
+    "items[].id": ["The item's id, exactly as given.", "short-1"],
+    "items[].title": [
+      "A short, curious title for the post (under 100 characters).",
+      "She came to switch off the last lamp",
+    ],
+    "items[].caption": [
+      "The post caption: a hook line, one or two lines about this moment without spoiling the ending, and a few hashtags.",
+      "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics",
+    ],
+  },
+
+  NarrationRetime: {
+    "": "The narration lines you were given, each rewritten to its word budget. Only these lines change.",
+    lines: ["One entry per line you were given, in the same order.", undefined],
+    "lines[].lineId": ["The line's id, exactly as given.", "line-1"],
+    "lines[].text": [
+      "The rewritten line: the same meaning, voice and facts, close to its word budget (within about 15%).",
+      "The lamp turned at three in the morning, and Ines wrote the hour down.",
     ],
   },
 
@@ -782,5 +870,68 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "What happens in the chapter.",
       "Ines reaches Vell and meets Tomas, who refuses to leave; she agrees to stay until the storm passes.",
     ],
+  },
+
+  BibleExtraction: {
+    "": "A proposed story bible: facts and character states for the user to review. Nothing is saved until applied.",
+    facts: "Statements of canon, one per item. Empty when there is nothing to add.",
+    "facts[].kind": [
+      "What the fact is about: character, relationship, power, organisation, place, object, term or rule.",
+      "character",
+    ],
+    "facts[].subject": [
+      "Who or what it is about, by name as in the project; empty for a rule of the whole story.",
+      "Tomas",
+    ],
+    "facts[].text": ["The fact, short and specific.", "Has kept the light for forty years and never left the island."],
+    "facts[].fromChapter": ["First chapter it holds in (a number); null or left out for from the start.", 1],
+    "facts[].untilChapter": ["Last chapter it holds in; null or left out for to the end.", null],
+    "facts[].fixed": ["True only for a hard rule that later steps must never break.", true],
+    "facts[].visual": ["True when it can be seen in a picture, so it reaches image prompts too.", false],
+    states: "How each character stands from a point of the story on, one item per change.",
+    "states[].character": ["The character's name exactly as in the project.", "Ines"],
+    "states[].kind": [
+      "injury, look, outfit, item, location, rank, knowledge or other. A later look, outfit, location or rank " +
+        "replaces the earlier one; the others hold until untilChapter.",
+      "item",
+    ],
+    "states[].text": ["The state.", "Carries her weather notebook everywhere."],
+    "states[].fromChapter": ["Chapter number it starts in; null or left out for from the start.", 1],
+    "states[].fromScene": [
+      "Scene number within that chapter (from 1) when it starts part-way through; null or left out otherwise.",
+      null,
+    ],
+    "states[].untilChapter": ["Last chapter it holds in; null or left out for to the end.", null],
+    "states[].outfit": [
+      "For an outfit: the name of one of the character's outfits, when one matches. Null or left out otherwise.",
+      null,
+    ],
+  },
+
+  ContinuityReport: {
+    "": "Contradictions found in one chapter, and a verdict for each fixed rule of the story bible.",
+    findings: "Each contradiction with the bible or a neighbouring chapter. Empty when there is none.",
+    "findings[].severity": [
+      "high (breaks a fixed rule, or plainly wrong), medium (likely wrong) or low (doubtful or minor).",
+      "high",
+    ],
+    "findings[].message": [
+      "One sentence naming who and what is wrong.",
+      "Tomas lights the lamp with a match, but the bible says the lamp is electric.",
+    ],
+    "findings[].where": [
+      "The panel (p<page>.<panel>) or narration line (n<number>) ref from the prompt, 'scene N', or 'chapter'.",
+      "p2.3",
+    ],
+    "findings[].quote": ["The offending beat, line or dialogue, short and verbatim.", "Tomas strikes a match."],
+    "findings[].against": ["The bible ref it contradicts (R1, F2, S4), or null for a neighbouring chapter.", "R1"],
+    "findings[].evidence": [
+      "That bible entry's text, or what the neighbouring chapter says.",
+      "(rule) The lamp is electric.",
+    ],
+    rules: "One verdict per fixed rule (R<n>) of the prompt.",
+    "rules[].rule": ["The fixed rule's ref.", "R1"],
+    "rules[].verdict": ["fail (broken here), warn (may be broken) or pass (holds, or does not come up).", "fail"],
+    "rules[].note": ["Why, in one short sentence, for warn and fail.", "Panel p2.3 shows a match."],
   },
 };

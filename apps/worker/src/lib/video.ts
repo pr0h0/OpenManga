@@ -17,6 +17,7 @@ import {
   shotGroups,
   timeGroup,
   type VideoAspect,
+  videoDriftToleranceMs,
   watermarkBox,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
@@ -185,6 +186,8 @@ type Shot = {
   lineIds: string[];
   /** Shares one hold with the next shot (a narration line spans the cut). */
   joinNext: boolean;
+  /** This shot's own minimum hold, in place of the export's (`ShotVideo.holdMs`). */
+  minHoldMs?: number | null;
   fade: { in: boolean; out: boolean };
   report: Record<string, unknown>;
   label: string;
@@ -299,7 +302,12 @@ async function buildFilm<S extends Shot>(
           segments: parts,
         })),
         members.length,
-        { minHoldMs: opts.minHoldMs, fps: opts.fps, breathMs: opts.breathMs },
+        {
+          minHoldMs: opts.minHoldMs,
+          fps: opts.fps,
+          breathMs: opts.breathMs,
+          minHolds: members.map((s) => s.minHoldMs),
+        },
       );
       // A capped film (a Shorts cut) ends before the first shot that would run past the limit.
       if (opts.capMs && gi > 0 && ((totalFrames + timing.totalFrames) * 1000) / opts.fps > opts.capMs) {
@@ -519,10 +527,8 @@ async function buildFilm<S extends Shot>(
     "ffprobe",
   );
   const videoMs = Math.round(Number(probe.stdout.trim()) * 1000);
-  // Frame-exact holds leave only encoder rounding (AAC priming, last-frame duration): a few ms per clip is fine,
-  // anything larger is a real mapping defect.
   const drift = Math.abs(videoMs - audioMs);
-  const tolerance = 80 + 10 * clips.length;
+  const tolerance = videoDriftToleranceMs(clips.length);
   if (!Number.isFinite(videoMs) || drift > tolerance)
     throw new Error(
       `Rendered video is ${videoMs} ms but the narration is ${audioMs} ms (drift ${drift} ms > ${tolerance} ms)`,
@@ -573,6 +579,7 @@ async function plan(deps: WorkerDeps, project: Project, chapterId: string | null
   );
   const shots = planned.shots.map((s) => ({
     ...s,
+    minHoldMs: s.panel?.video?.holdMs ?? null,
     report: {
       chapter: s.page.chapterOrder,
       page: s.page.order,

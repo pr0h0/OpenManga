@@ -246,6 +246,30 @@ export function narrationDraftFor(panels: { id: string; beat?: string }[], words
 
 export const StoryRewrite = z.object({ content: str.min(1), notes: optStr });
 
+/** A social title and caption for each item of a repurposing plan, by the item's id. */
+export const SocialCopy = z.object({
+  items: z
+    .array(
+      z.object({
+        id: str.min(1).max(40),
+        title: str.min(1).max(150),
+        caption: str.min(1).max(2200),
+      }),
+    )
+    .min(1)
+    .max(40),
+});
+export type SocialCopy = z.infer<typeof SocialCopy>;
+
+/** Chosen narration lines rewritten to a word budget each (the timing pass's trim or expand). */
+export const NarrationRetime = z.object({
+  lines: z
+    .array(z.object({ lineId: str.min(1), text: str.min(1).max(4000) }))
+    .min(1)
+    .max(200),
+});
+export type NarrationRetime = z.infer<typeof NarrationRetime>;
+
 /** Text for publishing a narrated video on YouTube, written once and edited by hand afterwards. */
 export const YoutubePackage = z.object({
   titles: z.array(str.min(1).max(100)).min(1).max(8),
@@ -280,3 +304,56 @@ export const PanelCheck = z.object({
   notes: optStr,
 });
 export type PanelCheck = z.infer<typeof PanelCheck>;
+
+/**
+ * Semantic narration lint: what reading finds and counting cannot. Lines are named by the keys the prompt gives
+ * them ("L4"); other chapters by their number.
+ */
+export const NarrationLintReport = z.object({
+  findings: z
+    .array(
+      z.object({
+        type: z.enum(["repeated_meaning", "cross_chapter_repeat", "fact_overexplained", "describes_frame"]),
+        lines: z.array(str.min(1)).min(1).max(12),
+        relatedChapters: z.array(z.number().int().min(1)).max(10).optional().default([]),
+        severity: z.enum(["low", "medium", "high"]).default("medium"),
+        explanation: str.min(1).max(600),
+      }),
+    )
+    .max(60),
+});
+export type NarrationLintReport = z.infer<typeof NarrationLintReport>;
+
+/** Rewrites of the flagged lines only, by key; every other line stays as it is. */
+export const NarrationFix = z.object({
+  lines: z.array(z.object({ line: str.min(1), text: str.min(1).max(4000) })).max(200),
+});
+export type NarrationFix = z.infer<typeof NarrationFix>;
+
+/**
+ * Story coverage, one chunk of the source: each paragraph (by the key the prompt gives it, "P12") weighed and mapped
+ * to the scenes ("C2.S3") or chapters ("C2") of the plan that tell it.
+ */
+export const StoryCoverageMap = z.object({
+  paragraphs: z.array(
+    z.object({
+      paragraph: str.min(1),
+      weight: z.number().int().min(1).max(5),
+      coveredBy: z.array(str.min(1)).max(12).default([]),
+    }),
+  ),
+});
+export type StoryCoverageMap = z.infer<typeof StoryCoverageMap>;
+
+/** StoryCoverageMap for one chunk: every paragraph of it answered, so nothing reads as left out by omission. */
+export const storyCoverageFor = (keys: string[]) =>
+  StoryCoverageMap.superRefine((d, ctx) => {
+    const answered = new Set(d.paragraphs.map((p) => p.paragraph.trim().toUpperCase()));
+    const missing = keys.filter((k) => !answered.has(k));
+    if (missing.length)
+      ctx.addIssue({
+        code: "custom",
+        path: ["paragraphs"],
+        message: `every paragraph needs an entry; missing: ${missing.slice(0, 80).join(", ")}`,
+      });
+  });

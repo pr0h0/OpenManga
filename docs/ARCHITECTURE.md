@@ -70,7 +70,7 @@ Queues and what they carry:
 
 | Queue | Work | Concurrency env |
 | --- | --- | --- |
-| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check, image description, YouTube package text | `TEXT_WORKER_CONCURRENCY` (4) |
+| `text-ai` | story analysis, rewrite, chapter/shot planning, page prompts, narration text, panel check, image description, YouTube package text, story bible extraction, continuity checks | `TEXT_WORKER_CONCURRENCY` (4) |
 | `image-generation` | references, panels, covers, video thumbnails | `IMAGE_WORKER_CONCURRENCY` (24) |
 | `image-edit` | masked edits | `IMAGE_EDIT_WORKER_CONCURRENCY` (6) |
 | `tts` | narration synthesis | `TTS_WORKER_CONCURRENCY` (4) |
@@ -104,14 +104,23 @@ every run in `running`. Each pass finishes steps whose generation, audio or expo
 and stops at a review step (`waiting`), a job still in flight, a failure (`failed`), or a 402 from the budget
 (`paused`, so raising the cap and continuing picks up at the same step). A step looks only at what exists
 (`onlyMissing`, chapters without pages, and so on), so a restarted API resumes where the row stood. Concurrent
-passes on one run are prevented by an in-memory set, which assumes a single API process. Every change publishes a
+passes on one run are prevented by a **lease on the row**: a pass claims it atomically
+(`UPDATE … SET lease_owner = $me, lease_until = now() + 2 min WHERE status = 'running' AND (lease_until IS NULL OR
+lease_until < now() OR lease_owner = $me)`), extends it every 30 s and on every save, writes only while it still holds
+it and the run is still `running` (so a run stopped meanwhile stays stopped), and releases it when it returns. `$me`
+is the process id plus a per-pass suffix, so a timer tick and a Continue click in one process exclude each other too,
+and API replicas are safe. Every change publishes a
 `production.updated` project event (`{runId, status}`) on the usual `EventBus`.
 
 **Update production.** `GET /api/projects/:projectId/staleness` (`pipelineStaleness` in `packages/services`) reports
 what is out of date stage by stage along story → plan → prompts → art → narration → audio → render: a story revised
-after the applied analysis, chapters without a plan, pages without prepared prompts, panels without artwork or whose
-spec was edited after their artwork, chapters without narration, segments without current audio, and a whole-project
-video older than anything it is drawn from. A run started with `{ update: true }` is the same machinery with fewer
+after the applied analysis, chapters without a plan or whose text changed after they were planned, pages without
+prepared prompts, panels without artwork or whose spec was edited after their artwork, chapters without narration or
+whose panels changed after it was written, segments without current audio, and a whole-project video older than
+anything it is drawn from. "Changed after" is a **source fingerprint** on the chapter (`plan_fingerprint`,
+`narration_fingerprint`, migration `0033`): an md5 of what the plan or narration is made from (the chapter text the
+planner reads; the panels, beats and dialogue the narration prompt reads), recorded by the plan applier and the
+narration writer and compared in SQL (`planSourceFingerprint` / `narrationSourceFingerprint`). A run started with `{ update: true }` is the same machinery with fewer
 steps: from the first stale stage on (each stage is made from the ones before it), skipping the thumbnail and YouTube
 text; its art step also redraws the edited panels. The render then reuses every unchanged section
 (see `docs/VIDEO_EXPORT_REFERENCE.md`).
@@ -127,12 +136,17 @@ applies it keeping everything. Applying is additive (`applyStoryAnalysis` with `
 same title, else an analysis-made chapter at the same position whose title is gone, is kept with its pages and gets the
 new summary, beats and source text; new chapters are inserted at their place and chapters the story dropped stay where
 they were; characters, places and props are matched by key or name and never changed or removed. Staleness then carries
-the run on: the plan step plans the new chapters, and so on. A chapter whose text changed keeps its pages; re-planning
-it is left to the user.
+the run on: the plan step plans the new chapters, and so on. A chapter whose text changed keeps its pages, and a run
+never re-plans a chapter that has pages on its own (that replaces pages and artwork): the `review_plans` step (before
+the plan step, in every run) waits with the chapters whose plan is out of date, and the person keeps each one
+(`POST /api/chapters/:id/keep { stage: "plan" }` records the current fingerprint) or re-plans it (the ordinary
+`POST /api/chapters/:id/plan { replace: true }`; the plan step then waits for those plans). `review_narration`, before
+the narration step, does the same for narration (keep, or `narration/generate { replace: true }`). Both are skipped
+when nothing is out of date.
 
 Agents drive the same machinery through MCP (`apps/api/src/mcp/tools/production.ts`): `get_staleness`,
-`start_production_run`, `update_production`, `get_production_run`, `continue_production_run` and
-`cancel_production_run` call these routes in-process. Starting, updating and continuing are `spend` actions, so on an
+`start_production_run`, `update_production`, `get_production_run`, `continue_production_run`,
+`cancel_production_run`, `keep_stale_chapter` and `keep_publishing_text` call these routes in-process. Starting, updating and continuing are `spend` actions, so on an
 "Ask me first" connection they wait for the user's approval; stopping a run is a plain write.
 
 ## Code layout

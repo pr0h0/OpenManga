@@ -116,7 +116,7 @@ but nothing guarantees that.
 
 Opt in per run: **Send as a provider batch** in the bulk dialog (panels, or Generate all character references /
 locations / props), or `batch: true` on a text request (story analysis and rewrite, chapter plan, panel prompts,
-narration text, consistency check or Check all panels, image description, YouTube package text). A single panel,
+narration text, consistency check or Check all panels, image description, YouTube package text, story bible extraction, continuity check). A single panel,
 reference or cover cannot be batched on its own. Everything else is unchanged — the work waits at the provider instead of running now, and no worker slot is held
 while it does.
 

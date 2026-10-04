@@ -30,46 +30,61 @@ import {
   stylePresets,
 } from "@openmanga/db";
 import {
+  bibleIsEmpty,
   chaptersForRuntime,
   LAYOUT_TEMPLATES,
   languageName,
   type RuntimeTarget,
   runtimeBudget,
   segmentNarration,
+  segmentTextSha,
   wordsPerPanelFor,
 } from "@openmanga/domain";
 import {
-  chapterOutlineV2,
-  chapterPlanningV6,
+  bibleExtractV1,
+  chapterOutlineV3,
+  chapterPlanningV7,
   imageDescribeV1,
   jsonRepairV1,
-  narrationV5,
-  panelPromptsV4,
-  scenePagesV2,
-  sceneShotsV2,
-  sceneStripV2,
-  shotOutlineV2,
-  shotPlanningV3,
+  narrationRetimeV1,
+  narrationV6,
+  panelPromptsV5,
+  scenePagesV3,
+  sceneShotsV3,
+  sceneStripV3,
+  shotOutlineV3,
+  shotPlanningV4,
+  socialCopyV1,
   storyAnalysisV3,
   storyRewriteV1,
-  stripOutlineV2,
-  stripPlanningV2,
-  youtubePackageV1,
+  stripOutlineV3,
+  stripPlanningV3,
+  youtubePackageV2,
 } from "@openmanga/prompts";
 import {
+  BibleExtraction,
   ChapterOutline,
   ChapterPlan,
   ImageDescription,
+  NarrationRetime,
   narrationDraftFor,
   PanelPromptDraft,
   type PanelSpec,
   type ProjectFormat,
   ScenePages,
+  SocialCopy,
   StoryAnalysis,
   StoryRewrite,
   YoutubePackage,
 } from "@openmanga/schemas";
-import { applyChapterPlan, applyNarrationPauses } from "@openmanga/services";
+import {
+  applyChapterPlan,
+  applyNarrationPauses,
+  bibleFor,
+  loadBible,
+  recordNarrationFingerprint,
+  youtubeSourceFingerprint,
+} from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { z } from "zod";
 import type { WorkerDeps } from "../context.ts";
@@ -215,26 +230,128 @@ export async function youtubePackage(deps: WorkerDeps, job: ProjectJob) {
     .select({ name: characters.name, role: characters.role })
     .from(characters)
     .where(and(eq(characters.projectId, p.id), isNull(characters.deletedAt)));
+  const rules = p.settings.youtubeRules ?? null;
+  // The template's {title} and {author} are known here, so they are filled exactly rather than left to the model.
+  const descriptionTemplate = (rules?.descriptionTemplate ?? "")
+    .replaceAll("{title}", p.title)
+    .replaceAll("{author}", p.settings.author ?? "");
   const r = await structured(
     deps,
     job,
-    youtubePackageV1.build({
+    youtubePackageV2.build({
       project: { title: p.title, description: p.description, type: p.projectType, language: p.language },
       chapters: chs,
       cast,
       headline: p.settings.thumbnail?.title || p.title,
+      rules: rules && { ...rules, descriptionTemplate },
     }),
     YoutubePackage,
     "YoutubePackage",
     8000,
   );
+  // The channel's own tags are on every package, first and exactly as written; the model's follow, without repeats.
+  const own = rules?.tags ?? [];
+  const seen = new Set(own.map((t) => t.toLowerCase()));
+  const pkg = { ...r.data, tags: [...own, ...r.data.tags.filter((t) => !seen.has(t.toLowerCase()))].slice(0, 30) };
+  // Written from the title and chapters as they are now: staleness compares this when either changes.
+  const sources = {
+    ...p.settings.publishingSources,
+    youtubeText: await youtubeSourceFingerprint(deps.db, p),
+    youtubeTextAt: new Date().toISOString(),
+  };
   await deps.db
     .update(projects)
     .set({
-      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(r.data)}::jsonb)`,
+      settings: sql`${projects.settings} || jsonb_build_object('youtubePackage', ${JSON.stringify(pkg)}::jsonb,
+        'publishingSources', ${JSON.stringify(sources)}::jsonb)`,
     })
     .where(eq(projects.id, p.id));
-  return { titles: r.data.titles.length, tags: r.data.tags.length };
+  return { titles: pkg.titles.length, tags: pkg.tags.length };
+}
+
+/**
+ * The timing pass's trim or expand: the chosen lines rewritten to their word budgets. Nothing is changed here; the
+ * proposal is the job's result, shown as a diff, and applying it (only the lines the user keeps) is a separate step.
+ */
+export async function narrationRetime(deps: WorkerDeps, job: ProjectJob) {
+  const want = (job.input.lines ?? []) as { lineId: string; words: number }[];
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  const rows = want.length
+    ? await deps.db
+        .select({ id: narrationLines.id, text: narrationLines.text, language: narrationLines.language })
+        .from(narrationLines)
+        .where(
+          and(
+            eq(narrationLines.chapterId, String(job.input.chapterId)),
+            inArray(
+              narrationLines.id,
+              want.map((w) => w.lineId),
+            ),
+          ),
+        )
+    : [];
+  if (!rows.length || !p) throw new InputError("None of those narration lines exist any more");
+  const count = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  const lines = rows.map((r) => ({
+    lineId: r.id,
+    text: r.text,
+    words: count(r.text),
+    budget: want.find((w) => w.lineId === r.id)!.words,
+  }));
+  const r = await structured(
+    deps,
+    job,
+    narrationRetimeV1.build({
+      language: languageName(rows[0]!.language),
+      style: p.settings.narrationStyle ?? "",
+      lines,
+    }),
+    NarrationRetime,
+    "NarrationRetime",
+    16_000,
+  );
+  // Only the lines that were asked for, each once: anything else the model returned is dropped.
+  const proposals = lines.flatMap((l) => {
+    const next = r.data.lines.find((x) => x.lineId === l.lineId)?.text.trim();
+    return next && next !== l.text ? [{ ...l, after: next, afterWords: count(next) }] : [];
+  });
+  return { chapterId: String(job.input.chapterId), lines: proposals, repaired: r.repaired };
+}
+
+/**
+ * Social titles and captions for the repurposing plan, written into its saved items. Only the items the job was asked
+ * for change, and only their title and caption; an item removed from the plan since is skipped.
+ */
+export async function socialCopy(deps: WorkerDeps, job: ProjectJob) {
+  const items = (job.input.items ?? []) as { id: string; kind: string; label: string; narration: string }[];
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!p || !items.length) throw new InputError("Nothing to write social copy for");
+  const r = await structured(
+    deps,
+    job,
+    socialCopyV1.build({
+      project: { title: p.title, description: p.description, language: languageName(p.language) },
+      items,
+    }),
+    SocialCopy,
+    "SocialCopy",
+    8_000,
+  );
+  const asked = new Set(items.map((i) => i.id));
+  const copy = new Map(r.data.items.filter((x) => asked.has(x.id)).map((x) => [x.id, x]));
+  // ponytail: read-modify-write of one settings key; a plan saved between these two statements loses to this write.
+  const [now] = await deps.db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, p.id));
+  const next = (now?.settings.repurpose?.items ?? []).map((it) => {
+    const c = copy.get(it.id);
+    return c ? { ...it, title: c.title, caption: c.caption } : it;
+  });
+  await deps.db
+    .update(projects)
+    .set({
+      settings: sql`${projects.settings} || jsonb_build_object('repurpose', ${JSON.stringify({ items: next })}::jsonb)`,
+    })
+    .where(eq(projects.id, p.id));
+  return { items: copy.size, repaired: r.repaired };
 }
 
 /** With a target runtime, the words per panel that land this chapter on its share of it; otherwise null. */
@@ -327,6 +444,14 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
   const keyOf = (analysisKey: string | null, name: string) =>
     analysisKey ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const castKeys = new Set(chars.map(({ c }) => keyOf(c.analysisKey, c.name)));
+  // The bible in effect when the chapter opens (and what changes during it), about whoever and whatever it mentions.
+  const bible = chapter
+    ? bibleFor(
+        await loadBible(deps.db, projectId),
+        { chapter: chapter.order },
+        { text: [chapter.title, chapter.summary, chapter.sourceExcerpt, ...chapter.beats].join("\n") },
+      )
+    : null;
   return {
     chapter,
     data: {
@@ -376,6 +501,7 @@ async function projectPlanningData(deps: WorkerDeps, projectId: string, chapterI
         summary: v?.description.summary ?? "",
       })),
       relationships: (analysis?.result?.relationships ?? []).filter((r) => castKeys.has(r.from) && castKeys.has(r.to)),
+      bible: bible && !bibleIsEmpty(bible) ? bible : undefined,
     },
   };
 }
@@ -420,7 +546,7 @@ async function planByScene(
   const outline = await structured(
     deps,
     job,
-    (i.format === "film" ? shotOutlineV2 : i.format === "vertical" ? stripOutlineV2 : chapterOutlineV2).build({
+    (i.format === "film" ? shotOutlineV3 : i.format === "vertical" ? stripOutlineV3 : chapterOutlineV3).build({
       ...base,
       targetPages: target,
     }),
@@ -428,7 +554,7 @@ async function planByScene(
     "ChapterOutline",
     16_000,
   );
-  const pagesTemplate = i.format === "film" ? sceneShotsV2 : i.format === "vertical" ? sceneStripV2 : scenePagesV2;
+  const pagesTemplate = i.format === "film" ? sceneShotsV3 : i.format === "vertical" ? sceneStripV3 : scenePagesV3;
   const scenes: ChapterPlan["scenes"] = [];
   for (const [sceneIndex, scene] of outline.data.scenes.entries()) {
     if (await isCancelRequested(deps, job.id)) throw new JobCancelledError();
@@ -468,7 +594,7 @@ export async function chapterPlan(deps: WorkerDeps, job: ProjectJob) {
   const format: ProjectFormat = proj?.settings.format ?? "comic";
   const oneFrame = format === "film" || format === "vertical";
   const messages = (
-    format === "film" ? shotPlanningV3 : format === "vertical" ? stripPlanningV2 : chapterPlanningV6
+    format === "film" ? shotPlanningV4 : format === "vertical" ? stripPlanningV3 : chapterPlanningV7
   ).build({
     projectData: data,
     chapterText: chapter.sourceExcerpt || chapter.summary,
@@ -555,6 +681,20 @@ export async function pagePrompts(deps: WorkerDeps, job: ProjectJob) {
     .where(eq(dialogueLines.pageId, pageId))
     .orderBy(asc(dialogueLines.order));
   const nameOf = (id: unknown) => specChars.find((c) => c.id === id)?.name ?? id;
+  const [chapterRow] = await deps.db
+    .select({ order: chapters.order })
+    .from(chapters)
+    .where(eq(chapters.id, page.chapterId));
+  const bible = chapterRow
+    ? bibleFor(
+        await loadBible(deps.db, page.projectId),
+        { chapter: chapterRow.order, scene: scene?.order ?? null },
+        {
+          names: [...chars.map((c) => c.name), ...locs.map((l) => l.name), ...prs.map((p) => p.name)],
+          text: pns.map((p) => p.storyBeat).join("\n"),
+        },
+      )
+    : null;
   const readable = (spec: Record<string, unknown> | null) => {
     if (!spec) return null;
     const { locationId, propIds: _p, dialogueIds: _d, narrationIds: _n, sfxIds: _s, ...rest } = spec;
@@ -586,6 +726,7 @@ export async function pagePrompts(deps: WorkerDeps, job: ProjectJob) {
       pageTurnHook: page.pageTurnHook,
     },
     artDirection: await projectArtDirection(deps, page.projectId),
+    bible: bible && !bibleIsEmpty(bible) ? bible : undefined,
   };
   const panelData = pns.map((p) => ({
     panelId: p.id,
@@ -608,7 +749,7 @@ export async function pagePrompts(deps: WorkerDeps, job: ProjectJob) {
   const r = await structured(
     deps,
     job,
-    panelPromptsV4.build({ context, panels: panelData }),
+    panelPromptsV5.build({ context, panels: panelData }),
     PanelPromptDraft,
     "PanelPromptDraft",
   );
@@ -626,8 +767,8 @@ export async function pagePrompts(deps: WorkerDeps, job: ProjectJob) {
           composition: d.composition,
           lighting: d.lighting,
           continuity: d.continuity,
-          templateName: panelPromptsV4.name,
-          templateVersion: panelPromptsV4.version,
+          templateName: panelPromptsV5.name,
+          templateVersion: panelPromptsV5.version,
           jobId: job.id,
         },
         status: pn.status === "planned" || pn.status === "failed" ? "prompt-ready" : pn.status,
@@ -720,12 +861,20 @@ export async function narrationText(deps: WorkerDeps, job: ProjectJob) {
       21,
   );
   const language = String(job.input.language || project?.language || "en");
+  const bible = bibleFor(
+    await loadBible(deps.db, job.projectId),
+    { chapter: chapter.order },
+    {
+      names: cast.map((c) => c.c.name),
+      text: [chapter.title, chapter.summary, chapter.sourceExcerpt].join("\n"),
+    },
+  );
   // ponytail: one request per chapter; chapters over 200 panels get narration for the first 200 only.
   const promptPanels = pns.slice(0, 200);
   const r = await structured(
     deps,
     job,
-    narrationV5.build({
+    narrationV6.build({
       language: `${languageName(language)} (${language})`,
       context: {
         chapter: { title: chapter.title, summary: chapter.summary },
@@ -733,6 +882,7 @@ export async function narrationText(deps: WorkerDeps, job: ProjectJob) {
           ? { title: prev.title, closingState: prev.closingState, revealedFacts: prev.revealedFacts }
           : null,
         worldNotes: project?.settings.worldNotes,
+        bible: bibleIsEmpty(bible) ? undefined : bible,
         characters: [...new Map(cast.map((c) => [c.id, c])).values()].map(({ c, v }) => ({
           name: c.name,
           role: c.role,
@@ -799,13 +949,15 @@ export async function narrationText(deps: WorkerDeps, job: ProjectJob) {
             narrationLineId: nl!.id,
             order: i,
             text: s.text,
-            textSha256: sha256Hex(s.text),
+            textSha256: segmentTextSha(s.text, project?.settings.pronunciation),
             pauseAfterMs: s.pauseAfterMs,
           })),
         );
       n++;
     }
     await applyNarrationPauses(tx, chapterId, language, project?.settings ?? {});
+    // The pipeline tracks narration in the project's own language; another language's lines say nothing about it.
+    if (language === project?.language) await recordNarrationFingerprint(tx, chapterId);
     return n;
   });
   await deps.events.publish(job.projectId, { type: "narration.updated", chapterId });
@@ -840,4 +992,116 @@ export async function imageDescribe(deps: WorkerDeps, job: ProjectJob) {
   messages[1] = { ...messages[1]!, images: [image] };
   const r = await structured(deps, job, messages, ImageDescription, "ImageDescription", 16_000);
   return { assetId, aspects, repaired: r.repaired, description: r.data };
+}
+
+/**
+ * Proposes story bible facts and character states from the chapters (one, or all). The proposal stays on the job:
+ * nothing is saved until the user reviews it and applies what they keep.
+ */
+/** Characters of chapter text an extraction sends in all, shared between its chapters. */
+const EXTRACTION_TEXT_BUDGET = 120_000;
+
+/**
+ * What each chapter says, for reading facts out of it: its source text or summary when the analysis stored one,
+ * otherwise its narration in reading order. A project built without an analysis (chapters planned by hand or by an
+ * agent) has only the narration, and an extraction that read nothing returned an empty bible as if that were the
+ * answer. Long chapters are cut to an even share of the budget so a whole-project run fits the model's context.
+ */
+async function chapterTextsForExtraction(
+  deps: WorkerDeps,
+  chs: { id: string; sourceExcerpt: string | null; summary: string | null }[],
+  language: string,
+) {
+  const share = Math.floor(EXTRACTION_TEXT_BUDGET / Math.max(1, chs.length));
+  const out: string[] = [];
+  for (const c of chs) {
+    let text = (c.sourceExcerpt || c.summary || "").trim();
+    if (!text) {
+      const rows = await deps.db.execute<{ text: string }>(sql`
+        select nl.text from narration_lines nl
+        left join panels pn on pn.id = nl.panel_id
+        left join pages pg on pg.id = pn.page_id
+        where nl.chapter_id = ${c.id} and nl.language = ${language}
+        order by pg."order" nulls last, pn."order" nulls last, nl."order"`);
+      text = [...rows].map((r) => r.text).join("\n");
+    }
+    out.push(text.length > share ? `${text.slice(0, share)}\n[…]` : text);
+  }
+  return out;
+}
+
+export async function bibleExtract(deps: WorkerDeps, job: ProjectJob) {
+  const chapterId = job.input.chapterId ? String(job.input.chapterId) : null;
+  const chs = await deps.db
+    .select()
+    .from(chapters)
+    .where(and(eq(chapters.projectId, job.projectId), chapterId ? eq(chapters.id, chapterId) : undefined))
+    .orderBy(asc(chapters.order));
+  if (!chs.length) throw new InputError(chapterId ? "Chapter no longer exists" : "The project has no chapters yet");
+  const cast = await deps.db
+    .select({ id: characters.id, name: characters.name, role: characters.role })
+    .from(characters)
+    .where(and(eq(characters.projectId, job.projectId), isNull(characters.deletedAt)));
+  const ids = cast.map((c) => c.id);
+  const aliases = ids.length
+    ? await deps.db.select().from(characterAliases).where(inArray(characterAliases.characterId, ids))
+    : [];
+  const outfits = ids.length
+    ? await deps.db.select().from(characterOutfits).where(inArray(characterOutfits.characterId, ids))
+    : [];
+  const placeNames = await deps.db
+    .select({ name: locations.name })
+    .from(locations)
+    .where(and(eq(locations.projectId, job.projectId), isNull(locations.deletedAt)));
+  const propNames = await deps.db
+    .select({ name: props.name })
+    .from(props)
+    .where(and(eq(props.projectId, job.projectId), isNull(props.deletedAt)));
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  const [analysis] = await deps.db
+    .select({ result: storyAnalyses.result })
+    .from(storyAnalyses)
+    .where(and(eq(storyAnalyses.projectId, job.projectId), eq(storyAnalyses.status, "applied")))
+    .orderBy(desc(storyAnalyses.appliedAt))
+    .limit(1);
+  const existing = await loadBible(deps.db, job.projectId);
+  const texts = await chapterTextsForExtraction(deps, chs, project?.language ?? "en");
+  // With nothing to read, any model answers "no facts", which looks like a result; say what is missing instead.
+  if (!texts.some((t) => t.trim()))
+    throw new InputError(
+      "These chapters have no text to read yet: no source text or summary, and no narration. Analyse the story or write the narration first.",
+    );
+  const r = await structured(
+    deps,
+    job,
+    bibleExtractV1.build({
+      projectData: {
+        worldNotes: project?.settings.worldNotes,
+        characters: cast.map((c) => ({
+          name: c.name,
+          role: c.role,
+          aliases: aliases.filter((a) => a.characterId === c.id).map((a) => a.alias),
+          outfits: outfits.filter((o) => o.characterId === c.id).map((o) => o.name),
+        })),
+        locations: placeNames.map((l) => l.name),
+        props: propNames.map((p) => p.name),
+        relationships: analysis?.result?.relationships ?? [],
+        chapterMemory: chs.map((c) => ({
+          chapter: c.order,
+          characterStateChanges: c.characterStateChanges,
+          locationStateChanges: c.locationStateChanges,
+          revealedFacts: c.revealedFacts,
+        })),
+        existingBible: {
+          facts: existing.facts.map((f) => `${f.subject ? `${f.subject}: ` : ""}${f.text}`),
+          states: existing.states.map((s) => `${s.character} (${s.kind}): ${s.text}`),
+        },
+      },
+      chapters: chs.map((c, i) => ({ number: c.order, title: c.title, text: texts[i] ?? "" })),
+    }),
+    BibleExtraction,
+    "BibleExtraction",
+    32_000,
+  );
+  return { chapterId, facts: r.data.facts.length, states: r.data.states.length, repaired: r.repaired, data: r.data };
 }
