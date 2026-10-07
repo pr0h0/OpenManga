@@ -146,12 +146,16 @@ test("video branding: an intro card in project settings", async () => {
 });
 
 test("reader link: the shared chapter plays as a video preview, with subtitles on the picture", async () => {
-  // The mock narration may leave its lines unplaced: put the first one on page 1 so a shot speaks it.
+  // Put the first narration line on a shown panel of page 1, so a shot speaks it whatever earlier tests moved.
   const a = api(page);
   const { lines } = await a.get<{ lines: { id: string; text: string }[] }>(`/chapters/${s.chapterId}/narration`);
   const rain = lines.find((l) => l.text.includes("Rain hammered the city"))!;
-  const [panel] = await firstPagePanels(a, s.pageId);
-  await a.patch(`/narration-lines/${rain.id}`, { panelId: panel!.id });
+  // Not the panel the page editor test left out of videos: its narration is dropped with it.
+  const { panels } = await a.get<{ panels: { id: string; video?: { disabled?: boolean } | null }[] }>(
+    `/pages/${s.pageId}`,
+  );
+  const panel = panels.find((p) => !p.video?.disabled)!;
+  await a.patch(`/narration-lines/${rain.id}`, { panelId: panel.id });
   await page.goto(s.url);
   await page.getByRole("button", { name: "Share" }).click();
   const d = page.getByRole("dialog", { name: "Share a reader link" });
