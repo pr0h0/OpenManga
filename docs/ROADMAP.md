@@ -111,9 +111,6 @@ Grouped by area, roughly most useful first within each.
   WEBTOON, Tapas, KDP, generic PDF): size, aspect, file size, strip height, page count, safe areas, naming, codecs.
 - **Public series reader.** An optional public or unlisted series page: cover, description, chapters with publish and
   schedule dates, page and scroll modes, languages, an RSS feed and social previews.
-- **Layered exports.** A layered PSD per page (each panel's art and frame, dialogue, narration, effects, guides), SVG
-  lettering, text-free pages, and a ZIP of separated art and lettering with a placement manifest, for finishing in
-  Photoshop or Clip Studio.
 
 ### Import, agents and automation
 

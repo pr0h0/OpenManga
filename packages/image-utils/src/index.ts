@@ -52,6 +52,7 @@ export const extForMime = (m: string) =>
     "application/json": "json",
     "video/mp4": "mp4",
     "application/x-subrip": "srt",
+    "application/vnd.adobe.photoshop": "psd",
   })[m] ?? "bin";
 
 export class InvalidImageError extends Error {}

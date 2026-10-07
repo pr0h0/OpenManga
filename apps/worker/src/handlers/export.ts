@@ -78,8 +78,10 @@ import {
 import { sha256Hex, withTempDir } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
 import { type BookImage, type BookMeta, writeBook } from "../lib/ebook.ts";
+import { pageLayers, psdTree, type Raster, rasterPng, rgbPixels } from "../lib/layers.ts";
 import { type ImagePage, PdfWriter } from "../lib/pdf.ts";
 import { coverGuides, fontReport, installedFonts, panelArtDpi, renderPrintCover, renderTocPage } from "../lib/print.ts";
+import { writePsd } from "../lib/psd.ts";
 import { renderPageCutVideo, renderPanelCutVideo, type VideoOptions } from "../lib/video.ts";
 import { ZipWriter } from "../lib/zip.ts";
 import { buildAgentPackage } from "./agent-package.ts";
@@ -734,6 +736,46 @@ async function buildExport(
       await progress(1);
       return [{ name: pkg.name, path: pkg.path, mime: "application/zip" }];
     }
+    case "psd_pages":
+    case "layered_package": {
+      const ids = await pagesFor(deps, opts, project.id);
+      if (!ids.length) throw new UnrecoverableError("No pages to export");
+      const psd = job.kind === "psd_pages";
+      const zip = !psd || ids.length > 1 ? new ZipWriter(join(dir, "layers.zip")) : null;
+      const pagesOut: Record<string, unknown>[] = [];
+      for (const [i, { id: pid, chapter: chapterNo }] of ids.entries()) {
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const l = await pageLayers(page, opts.scale, await panelGuides(deps, page));
+        // Page numbers restart in every chapter, so a whole-project export names each page by both.
+        const pageNo = `p${String(page.order).padStart(3, "0")}`;
+        const stem = opts.chapterId ? pageNo : `ch${String(chapterNo).padStart(2, "0")}_${pageNo}`;
+        if (psd) {
+          const data = writePsd({
+            width: l.width,
+            height: l.height,
+            dpi: opts.pdf.dpi,
+            layers: psdTree(l),
+            composite: await rgbPixels(l.composite),
+          });
+          const name = `${prefix}_${stem}.psd`;
+          if (!zip) return [{ name, data, mime: PSD_MIME, width: l.width, height: l.height }];
+          await zip.add(name, data);
+        } else pagesOut.push(await addLayeredPage(zip!, stem, l, chapterNo, page.order));
+        await progress((i + 1) / ids.length);
+      }
+      if (!psd) {
+        const manifest = {
+          format: "openmanga-layers",
+          version: 1,
+          project: project.title,
+          readingDirection: project.readingDirection,
+          scale: opts.scale,
+          pages: pagesOut,
+        };
+        await zip!.add("manifest.json", new TextEncoder().encode(JSON.stringify(manifest, null, 2)));
+      }
+      return [{ name: `${prefix}_${psd ? "psd" : "layers"}.zip`, path: await zip!.close(), mime: "application/zip" }];
+    }
     case "cbz":
     case "epub": {
       const ids = await pagesFor(deps, opts, project.id);
@@ -812,6 +854,83 @@ async function buildExport(
       return [{ name: `${base}_package.zip`, path: await zip.close(), mime: "application/zip" }];
     }
   }
+}
+
+const PSD_MIME = "application/vnd.adobe.photoshop";
+
+/** Each panel's layout guide image (the pose sketch a panel was drawn from), by panel id. */
+async function panelGuides(deps: WorkerDeps, page: RenderPage) {
+  const out = new Map<string, Uint8Array>();
+  const rows = page.panels.length
+    ? await deps.db
+        .select({ id: panels.id, guide: panels.guide })
+        .from(panels)
+        .where(
+          inArray(
+            panels.id,
+            page.panels.map((p) => p.id),
+          ),
+        )
+    : [];
+  for (const r of rows) {
+    const asset = r.guide ? await deps.assets.get(r.guide.assetId) : null;
+    if (asset && !asset.deletedAt) out.set(r.id, await deps.assets.read(asset));
+  }
+  return out;
+}
+
+/**
+ * One page of the separated-layers archive under `stem/`: the lettered page, the page without lettering, the
+ * lettering as one vector SVG, and every layer as its own transparent PNG. Returns the page's manifest entry, whose
+ * `layers` run bottom to top (`z`) with each file's placement on the page in pixels.
+ */
+async function addLayeredPage(
+  zip: ZipWriter,
+  stem: string,
+  l: Awaited<ReturnType<typeof pageLayers>>,
+  chapter: number,
+  order: number,
+) {
+  await zip.add(`${stem}/page.png`, l.composite);
+  await zip.add(`${stem}/text-free.png`, l.textFree);
+  await zip.add(`${stem}/lettering.svg`, new TextEncoder().encode(l.letteringSvg));
+  const layers: Record<string, unknown>[] = [];
+  const place = async (file: string, r: Raster, entry: Record<string, unknown>) => {
+    await zip.add(`${stem}/${file}`, await rasterPng(r));
+    layers.push({
+      z: layers.length,
+      ...entry,
+      file: `${stem}/${file}`,
+      x: r.left,
+      y: r.top,
+      width: r.width,
+      height: r.height,
+    });
+  };
+  for (const p of l.panels) {
+    const n = String(p.number).padStart(2, "0");
+    if (p.guide) await place(`guides/panel-${n}.png`, p.guide, { kind: "guide", panel: p.number, hidden: true });
+    if (p.art) await place(`art/panel-${n}.png`, p.art, { kind: "art", panel: p.number });
+    if (p.frame) await place(`frames/panel-${n}.png`, p.frame, { kind: "frame", panel: p.number });
+  }
+  for (const [i, t] of l.lettering.entries())
+    if (t.raster)
+      await place(`lettering/${String(i + 1).padStart(2, "0")}-${t.kind}.png`, t.raster, {
+        kind: t.kind,
+        text: t.text,
+        svgId: `${t.kind}-${t.id}`,
+      });
+  return {
+    folder: stem,
+    chapter,
+    page: order,
+    width: l.width,
+    height: l.height,
+    composite: `${stem}/page.png`,
+    textFree: `${stem}/text-free.png`,
+    lettering: `${stem}/lettering.svg`,
+    layers,
+  };
 }
 
 /** "0:00 Chapter 1: …" lines for a video description, when the film spans more than one chapter. */

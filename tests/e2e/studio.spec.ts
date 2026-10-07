@@ -170,5 +170,19 @@ test("full studio flow in the browser (mock AI)", async ({ page }) => {
     await expect(report.getByAltText("Page soft-proofed for print")).toBeVisible();
   });
 
+  await test.step("exports: queue a layered PSD export and see its file", async () => {
+    await page.goto(`${projectUrl}/exports`);
+    await page
+      .getByRole("combobox", { name: /^Format/ })
+      .first()
+      .selectOption("psd_pages");
+    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Export anyway" })
+      .click({ timeout: 15_000 })
+      .catch(() => {});
+    await expect(page.getByRole("link", { name: /(\.psd|_psd\.zip)/ }).first()).toBeVisible({ timeout: 90_000 });
+  });
+
   expect(errors, errors.join("\n")).toEqual([]);
 });

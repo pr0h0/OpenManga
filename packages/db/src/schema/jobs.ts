@@ -226,6 +226,10 @@ export type ExportKind =
   | "print_cover"
   /** Print: the interior's preflight report (resolution, ink, fonts, safe area, page count), as JSON. */
   | "print_preflight"
+  /** Finishing: one layered Photoshop file per page (panels' art, frames and guides, effects, captions, dialogue). */
+  | "psd_pages"
+  /** Finishing: text-free pages, SVG lettering and every layer as its own PNG, with a placement manifest. */
+  | "layered_package"
   | "project_import";
 
 export const exportJobs = pgTable(
