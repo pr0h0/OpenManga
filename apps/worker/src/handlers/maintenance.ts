@@ -79,6 +79,18 @@ export async function runMaintenance(deps: WorkerDeps) {
       .returning({ id: passwordResetTokens.id })
   ).length;
 
+  // A panel left "generating" or "queued" with nothing drawing it (a panel check used to leave it so) goes back to
+  // what its art says. Only after a quiet hour, so a job between its queue and its start is never caught.
+  result.unstuckPanels = (
+    await deps.db.execute(sql`
+      update panels p set status = (case when p.active_artwork_asset_id is null then 'planned' else 'ready' end)::panel_status
+      where p.status in ('generating', 'queued') and p.updated_at < now() - interval '1 hour'
+        and not exists (select 1 from generation_jobs j where j.target_id = p.id
+          and j.kind in ('panel_generation', 'panel_edit')
+          and j.status in ('queued', 'submitted', 'processing', 'awaiting_input', 'cancel_requested', 'paused'))
+      returning p.id`)
+  ).length;
+
   // Prompt-reference derivatives are reproducible: drop ones unused for 30 days.
   const staleVariants = await deps.db
     .select()

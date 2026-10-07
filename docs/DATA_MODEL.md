@@ -118,8 +118,9 @@ slot).
   `camera_angle` (free text), `story_beat`, `location_version_id`, `character_version_ids`, `prop_version_ids`,
   `active_artwork_asset_id`, `status`, approval status, plus four prompt and QA fields:
   `prompt_override` (text, a user-edited prompt), `prompt_draft` (JSON, the sections written by the `page_prompts`
-  job), `qa` (JSON, the latest consistency check of the active artwork: verdict, problems, cast and headcount, and
-  face boxes used to move bubbles off faces; marked `stale` when newer artwork replaced the checked one) and
+  job), `qa` (JSON, the latest consistency check of the active artwork: verdict, problems, the visual checks
+  asked and failed, each aspect's verdict, cast and headcount, face boxes used to move bubbles off faces, and `autoFix`
+  — the re-roll it queued or why not; marked `stale` when newer artwork replaced the checked one) and
   `review` (JSON `{reason, message, at}`, set when the artwork needs a human look — for example because it came from the
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from

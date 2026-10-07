@@ -454,14 +454,41 @@ accepts `language`, defaulting to the project language.
 
 ## Consistency check (vision QA, opt-in)
 
-`settings.consistencyCheck = { enabled, credentialId, model }`. After a panel generation or edit activates new
-artwork, a `panel_check` job sends the 1024 px preview plus the expected cast (names and appearance) to a
-vision-capable text model (`panel-check` v2, schema `PanelCheck`). The expected appearance uses the outfit the panel
-resolves to (see `docs/IMAGE_REFERENCES.md`), not the bible's default wardrobe. The verdict is computed
-deterministically — missing expected characters, unexpected people, headcount mismatch, readable text drawn in the
-art — and stored on `panels.qa`; the page grid outlines mismatches and the Panel tab's badge names the first problem,
-shows the model's notes on hover, and has a **Run check** button (**Check again** once checked;
-`POST /api/panels/:id/check`). The check's prompt is saved on its job like every other text step's.
+`settings.consistencyCheck = { enabled, credentialId, model, checks, autoFixBudgetUsd }`. After a panel generation
+or edit activates new artwork, a `panel_check` job sends the 1024 px preview plus the expected cast (names, appearance,
+and the expression and pose the panel asks of each) to a vision-capable text model (`panel-check` v3, schema
+`PanelCheck`). The expected appearance uses the outfit the panel resolves to (see `docs/IMAGE_REFERENCES.md`), not the
+bible's default wardrobe. The check's prompt is saved on its job like every other text step's.
+
+**Visual checks.** `checks` sets each aspect to `off`, `flag`, `regenerate_once` or `regenerate_budget`; aspects left
+out take their defaults (headcount, identity, outfit, stray text and covered faces flag; the rest are off):
+
+| Aspect | Judged by | Against |
+| --- | --- | --- |
+| `headcount` | counted | missing expected characters, unexpected people, the headcount |
+| `identity`, `outfit` | the model | each character's sheet and the outfit the panel resolves to |
+| `props`, `location` | the model | the panel's props and location (skipped when it has none) |
+| `expression` | the model | each character's expression and the panel's emotion |
+| `pose` | the model | the pose of a **strict** layout guide (skipped without one) |
+| `framing` | the model | the planned shot type and camera angle |
+| `anatomy` | the model | extra, missing or broken limbs, hands, fingers; melted faces |
+| `text` | the model | readable letters or words drawn into the art |
+| `style`, `palette` | the model | the project's art style and colour mode |
+| `covered_faces` | measured | the panel's bubbles and caption boxes over the face boxes (over 30% of a face) |
+
+Only the aspects that are on and have something to judge against are asked about, all in the one call; the model
+answers each as `{ ok, note }` in `aspects`. The verdict is computed deterministically and stored on `panels.qa`
+(`verdict`, `problems`, `failed`, `checks`, and `autoFix`); the page grid outlines mismatches and the Panel tab's badge
+names the first problem, shows the model's notes on hover, and has a **Run check** button (**Check again** once
+checked; `POST /api/panels/:id/check`).
+
+When a failed aspect is set to regenerate, the project's check is on and the panel still shows the checked art, the
+worker queues a re-roll of the panel with the key that drew it (`operation: "visual-check"`, `parameters.autoFix` =
+the re-roll's number in the row); its new art is checked in turn. `regenerate_once` allows one re-roll in a row;
+`regenerate_budget` allows up to 3 while the project's automatic re-rolls have cost less than `autoFixBudgetUsd`
+(default $2). The count follows the artwork's own generation job, so a check run by hand continues it. Otherwise the
+panel is flagged and `qa.autoFix.skipped` says why. Covered faces is flag only: moving the lettering fixes it. The
+project budget applies to re-rolls like any other generation.
 
 **Check all panels** (`POST /api/projects/:projectId/checks`, scope a page, a chapter or neither for the whole
 project) queues the same check for every panel with artwork, at most 500 at a time. Without `confirm: true` it only

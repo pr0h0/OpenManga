@@ -15,6 +15,15 @@ import {
   promptAttachments,
 } from "./manual-provider.ts";
 
+/**
+ * Jobs that draw a panel's art move its status (queued, generating, ready, failed). A check, a description or anything
+ * else aimed at the panel leaves it alone: it would otherwise show "generating" for good once the check finished.
+ */
+const drawsPanel = <J extends { targetType: string | null; targetId: string | null; kind: string }>(
+  job: J,
+): job is J & { targetId: string } =>
+  job.targetType === "panel" && Boolean(job.targetId) && (job.kind === "panel_generation" || job.kind === "panel_edit");
+
 export type GenerationJob = typeof generationJobs.$inferSelect;
 /** A job of a project: every kind except an expert extraction from a chat about no project. */
 export type ProjectJob = GenerationJob & { projectId: string };
@@ -176,7 +185,7 @@ export async function runGenerationJob(
     return;
   }
   await publishJob(deps, started);
-  if (job.targetType === "panel" && job.targetId) {
+  if (drawsPanel(job)) {
     await deps.db.update(panels).set({ status: "generating" }).where(eq(panels.id, job.targetId));
     await deps.events.publish(job.projectId, {
       type: "panel.updated",
@@ -309,8 +318,7 @@ export async function runGenerationJob(
         })
         .where(eq(generationJobs.id, jobId))
         .returning();
-      if (job.targetType === "panel" && job.targetId)
-        await deps.db.update(panels).set({ status: "queued" }).where(eq(panels.id, job.targetId));
+      if (drawsPanel(job)) await deps.db.update(panels).set({ status: "queued" }).where(eq(panels.id, job.targetId));
       await publishJob(deps, row!);
       throw e;
     }
@@ -326,7 +334,7 @@ export async function runGenerationJob(
       })
       .where(eq(generationJobs.id, jobId))
       .returning();
-    if (job.targetType === "panel" && job.targetId) {
+    if (drawsPanel(job)) {
       const [pn] = await deps.db.select().from(panels).where(eq(panels.id, job.targetId));
       if (pn) {
         await deps.db
@@ -396,7 +404,7 @@ async function finishCancelled(deps: WorkerDeps, job: GenerationJob) {
     .set({ status: "cancelled", finishedAt: new Date() })
     .where(eq(generationJobs.id, job.id))
     .returning();
-  if (job.targetType === "panel" && job.targetId) {
+  if (drawsPanel(job)) {
     const [pn] = await deps.db.select().from(panels).where(eq(panels.id, job.targetId));
     if (pn && (pn.status === "generating" || pn.status === "queued")) {
       await deps.db

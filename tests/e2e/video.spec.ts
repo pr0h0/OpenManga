@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { api, expectNoErrors, firstPagePanels, seedProducedProject, sharedPage } from "./helpers.ts";
+import { api, expectNoErrors, firstPagePanels, seedProducedProject, sharedPage, until } from "./helpers.ts";
 
 // Video and repurposing on one produced project (drawn, narrated, voiced): repurpose plan and a carousel export, the
 // Shorts suggestion, a panel's shot settings and layout guide, video branding, and the reader link's video preview.
@@ -249,4 +249,36 @@ test("thumbnail variants: each headline on the same art, and one put in use", as
   await expect
     .poll(async () => (await a.get(`/projects/${s.projectId}`)).project.settings.youtubePackage?.thumbnailHeadlines)
     .toEqual(["The duel", "Who lit it?", "The last lamp"]);
+});
+
+test("visual checks: an aspect set to regenerate once redraws a failing panel, then flags it", async () => {
+  await page.goto(`${s.url}/settings`);
+  const section = page.locator("section", { has: page.getByRole("heading", { name: "Visual checks (vision QA)" }) });
+  await section.getByLabel("Check every generated panel automatically").check();
+  await section.getByLabel("Outfit check").selectOption("regenerate_once");
+  // Faces under lettering cannot be redrawn away: it offers flag only.
+  await expect(section.getByLabel("Faces under lettering check").locator("option")).toHaveText(["Off", "Flag only"]);
+  await expect(page.getByText("Saved", { exact: true }).first()).toBeVisible();
+
+  const a = api(page);
+  const { panels } = await a.get<{
+    panels: { id: string; pageId: string; characterVersionIds: string[]; activeArtworkAssetId: string | null }[];
+  }>(`/chapters/${s.chapterId}/panels`);
+  const target = panels.find((p) => p.characterVersionIds.length && p.activeArtworkAssetId)!;
+  const doc = await a.get<{ panels: { id: string; spec: Record<string, unknown> }[] }>(`/pages/${target.pageId}`);
+  const spec = doc.panels.find((p) => p.id === target.id)!.spec;
+  // The mock check reports the outfit wrong on every drawing of this panel.
+  await a.put(`/panels/${target.id}/spec`, { spec: { ...spec, beat: `${spec.beat} [[mock:qa-outfit]]` } });
+  await a.post(`/panels/${target.id}/generate`, {});
+  const qa = await until(async () => {
+    const r = await a.get<{ panels: { id: string; qa: { autoFix?: { skipped?: string } } | null }[] }>(
+      `/pages/${target.pageId}`,
+    );
+    return r.panels.find((p) => p.id === target.id)?.qa?.autoFix?.skipped ? r : null;
+  }, "the re-rolled panel checked");
+  expect(qa).toBeTruthy();
+
+  await page.goto(`${s.url}/storyboard?chapterId=${s.chapterId}&filter=mismatch`);
+  await expect(page.getByText("outfit: mock outfit mismatch").first()).toBeVisible();
+  await a.patch(`/projects/${s.projectId}`, { settings: { consistencyCheck: { enabled: false } } });
 });

@@ -27,6 +27,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   named by its text, over the lettered page as the flattened image. `layered_package` zips the text-free page, the
   lettering as one SVG (vector text and shapes) and every layer as its own transparent PNG, with `manifest.json`
   giving each file's position, size, stacking order and text. Both are on the Exports page and MCP `create_export`.
+- Visual checks: the panel check now also judges identity, outfit, props, location, expression, pose against a strict
+  layout guide, framing, anatomy, style and palette drift, beside headcount and stray text, and measures faces hidden
+  under bubbles or captions. Each is set in project settings to off, flag only, regenerate once, or regenerate up to a
+  budget (at most 3 re-rolls in a row, while the project's automatic re-rolls cost less than the budget). All aspects
+  are judged in the one vision call; the panel badge says when a panel is being redrawn, or why it was not.
+  A panel check no longer leaves its panel showing "generating" after it ran; the hourly maintenance puts panels left
+  that way back to ready.
 - Production cost planner: the *Produce* and *Update production* dialogs price what the run would still do before it
   starts, chapter by chapter (plans, prompts, panels to draw, narration, local-voice audio) plus the analysis,
   references, thumbnail and YouTube text, with the chosen models and this server's own average usage per job. They
