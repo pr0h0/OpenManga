@@ -12,6 +12,7 @@ export * from "./narration.ts";
 export * from "./narration-lint.ts";
 export * from "./permissions.ts";
 export * from "./presets.ts";
+export * from "./print.ts";
 export * from "./provider.ts";
 export * from "./providers.ts";
 export * from "./repurpose.ts";

@@ -9856,7 +9856,7 @@ The timing pass's trim or expand. start: a text job rewrites only the given line
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer; `video.captions` bottom, center or two_line draws the narration into the picture), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed; `pdf.toc` adds a contents page, `pdf.rectoChapters` blank pages so chapters open on a right-hand page, `pdf.metadata` the title, author, subject, keywords and language), a print cover (`print_cover`: one PDF with back, spine and front plus bleed, the spine sized from the interior's page count and `print.paper`; needs the project cover art and a print `pdf.pageSize`), a print preflight (`print_preflight`: a JSON report of the PDF the same `pdf` options make: resolution, total ink, colour shift, fonts, lettering outside the safe area, page count), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer; `video.captions` bottom, center or two_line draws the narration into the picture), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -9891,7 +9891,9 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "video_shorts",
         "youtube_package",
         "carousel",
-        "quote_image"
+        "quote_image",
+        "print_cover",
+        "print_preflight"
       ]
     },
     "chapterId": {
@@ -9984,7 +9986,9 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "pageSize": "source",
         "marginMm": 0,
         "bleedMm": 0,
-        "dpi": 300
+        "dpi": 300,
+        "rectoChapters": false,
+        "toc": false
       },
       "type": "object",
       "properties": {
@@ -10030,6 +10034,72 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
             "rtl",
             "vertical"
           ]
+        },
+        "rectoChapters": {
+          "default": false,
+          "type": "boolean"
+        },
+        "toc": {
+          "default": false,
+          "type": "boolean"
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "author": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "subject": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "keywords": {
+              "maxItems": 30,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            },
+            "language": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 16
+            }
+          }
+        }
+      }
+    },
+    "print": {
+      "default": {
+        "paper": "white"
+      },
+      "type": "object",
+      "properties": {
+        "paper": {
+          "default": "white",
+          "type": "string",
+          "enum": [
+            "white",
+            "cream",
+            "color"
+          ]
+        },
+        "pageCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "paperThicknessMm": {
+          "type": "number",
+          "minimum": 0.03,
+          "maximum": 0.3
         }
       }
     },

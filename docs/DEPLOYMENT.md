@@ -278,10 +278,12 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   anyway"); draft versions are informational. The same issues are written into agent packages. The endpoint also
   reports whether the caller has a usable provider key for further generation.
 - **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`, `zip_package`, `project_json`,
-  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `video_shorts` (a trailer of `panelIds` up to `video.shortsSeconds`, default 180, at most 600), `youtube_package`.
+  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `video_shorts` (a trailer of `panelIds` up to `video.shortsSeconds`, default 180, at most 600), `youtube_package`,
+  `print_cover`, `print_preflight` (`docs/PRINT.md`).
   Video kinds take `video.aspect` (`16:9`, `9:16`, `1:1`). `pdf.pageSize`
   takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
-  `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
+  `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `pdf.toc`, `pdf.rectoChapters` and
+  `pdf.metadata` add a contents page, blank versos so chapters open on a recto, and book metadata (`docs/PRINT.md`). `cbz` carries a `ComicInfo.xml`; `epub` is
   fixed-layout with the cover.
   Narration audio and timeline need a chapter (or page ids). Every page-based kind (page images, PDF, CBZ, EPUB,
   webtoon) also takes the whole project (no `chapterId`), every chapter in order: they all stream to disk, so a long

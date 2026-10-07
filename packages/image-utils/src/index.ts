@@ -255,4 +255,47 @@ export async function toEditMask(mask: Uint8Array, width: number, height: number
   );
 }
 
+/**
+ * How a page prints: "cmyk" through a CMYK press profile and back to sRGB, so colours a press cannot reach shift on
+ * screen the way they will on paper; "grey" as a black-ink-only interior prints it. The profile is libvips's
+ * built-in generic one ("Chemical proof"), not a particular printer's: it shows which colours move, not exact ink.
+ */
+export async function softProof(data: Uint8Array, mode: "cmyk" | "grey") {
+  const flat = sharp(data, { limitInputPixels: false }).flatten({ background: "#ffffff" });
+  if (mode === "grey") return new Uint8Array(await flat.greyscale().png().toBuffer());
+  const cmyk = await flat.withIccProfile("cmyk").tiff({ compression: "none" }).toBuffer();
+  return new Uint8Array(await sharp(cmyk, { limitInputPixels: false }).toColourspace("srgb").png().toBuffer());
+}
+
+/**
+ * Total ink of the darkest area (C+M+Y+K, in percent) and the mean colour shift of the soft proof (0–100), measured
+ * on a copy `width` pixels wide so each pixel is an area a press cares about, not a single dot. A grey interior
+ * prints with black ink only: its ink is the grey level, and it has no colour to shift.
+ */
+export async function inkCoverage(data: Uint8Array, width: number, grey: boolean) {
+  const small = sharp(data, { limitInputPixels: false })
+    .flatten({ background: "#ffffff" })
+    .resize({ width: Math.max(1, Math.round(width)) });
+  if (grey) {
+    const { data: g } = await small.greyscale().raw().toBuffer({ resolveWithObject: true });
+    let max = 0;
+    for (const v of g) max = Math.max(max, 255 - v);
+    return { maxInkPct: Math.round((max / 255) * 100), shiftPct: 0 };
+  }
+  const rgb = await small.removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const raw = { raw: { width: rgb.info.width, height: rgb.info.height, channels: 3 as const } };
+  const cmyk = await sharp(rgb.data, raw).withIccProfile("cmyk").raw().toBuffer();
+  let max = 0;
+  for (let i = 0; i + 3 < cmyk.length; i += 4)
+    max = Math.max(max, cmyk[i]! + cmyk[i + 1]! + cmyk[i + 2]! + cmyk[i + 3]!);
+  const tiff = await sharp(rgb.data, raw).withIccProfile("cmyk").tiff({ compression: "none" }).toBuffer();
+  const back = await sharp(tiff).toColourspace("srgb").removeAlpha().raw().toBuffer();
+  let diff = 0;
+  for (let i = 0; i < rgb.data.length; i++) diff += Math.abs(rgb.data[i]! - back[i]!);
+  return {
+    maxInkPct: Math.round((max / 255) * 100),
+    shiftPct: Math.round((diff / rgb.data.length / 255) * 1000) / 10,
+  };
+}
+
 export { sharp };

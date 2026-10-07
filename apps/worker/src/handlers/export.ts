@@ -43,17 +43,30 @@ import {
 import {
   buildTimeline,
   chunkStrip,
+  type InteriorEntry,
+  interiorSequence,
+  KDP_TRIM_IN,
+  measureText,
+  outsideSafeZone,
+  PAGE_SIZES_PT,
+  type PaperType,
+  PRINT_SPEC,
+  type PrintIssue,
   type SeamedBlock,
   SHORTS_DEFAULT_MS,
   stillSize,
+  trimSizeIn,
   youtubeChapters,
 } from "@openmanga/domain";
-import { extForMime, renderPanelArt, sharp } from "@openmanga/image-utils";
+import { extForMime, inkCoverage, renderPanelArt, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
 import {
   loadRenderPage,
   planVideoShots,
+  printChapters,
+  printCoverCheck,
+  type RenderPage,
   renderCover,
   renderPageImage,
   renderQuoteImage,
@@ -66,6 +79,7 @@ import { sha256Hex, withTempDir } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
 import { type BookImage, type BookMeta, writeBook } from "../lib/ebook.ts";
 import { type ImagePage, PdfWriter } from "../lib/pdf.ts";
+import { coverGuides, fontReport, installedFonts, panelArtDpi, renderPrintCover, renderTocPage } from "../lib/print.ts";
 import { renderPageCutVideo, renderPanelCutVideo, type VideoOptions } from "../lib/video.ts";
 import { ZipWriter } from "../lib/zip.ts";
 import { buildAgentPackage } from "./agent-package.ts";
@@ -89,7 +103,11 @@ type Opts = {
     bleedMm: number;
     dpi: number;
     readingDirection?: "ltr" | "rtl" | "vertical";
+    rectoChapters?: boolean;
+    toc?: boolean;
+    metadata?: { title?: string; author?: string; subject?: string; keywords?: string[]; language?: string };
   };
+  print?: { paper?: PaperType; pageCount?: number; paperThicknessMm?: number };
   webtoon: { width?: number; gap?: number; split: boolean; maxChunkHeight?: number; format: "png" | "jpg" };
   audio: { format: "wav" | "mp3" | "ogg"; normalize: boolean };
   includeAssets: boolean;
@@ -104,22 +122,7 @@ const safeName = (s: string) =>
     .trim()
     .replace(/\s+/g, "_")
     .slice(0, 60) || "export";
-const PAGE_SIZES_PT: Record<string, [number, number]> = {
-  A4: [595.28, 841.89],
-  A5: [419.53, 595.28],
-  B5: [498.9, 708.66],
-  letter: [612, 792],
-  tankobon: [362.83, 515.91],
-};
 const mm = (v: number) => (v / 25.4) * 72;
-/** Amazon KDP trim sizes in inches. Printed with bleed: the page is 0.125" wider and 0.25" taller than the trim. */
-const KDP_TRIM_IN: Record<string, [number, number]> = {
-  kdp_5x8: [5, 8],
-  kdp_5_5x8_5: [5.5, 8.5],
-  kdp_6x9: [6, 9],
-  kdp_7x10: [7, 10],
-  kdp_8_5x11: [8.5, 11],
-};
 
 export async function processExport(deps: WorkerDeps, bullJob: Job) {
   const id = String(bullJob.data.exportJobId);
@@ -300,35 +303,91 @@ async function buildExport(
       return [{ name: `${prefix}_${fmt}_pages.zip`, path: await zip!.close(), mime: "application/zip" }];
     }
     case "pdf": {
-      const ids = await pagesFor(deps, opts, project.id);
-      if (!ids.length) throw new UnrecoverableError("No pages to export");
       // Streamed page by page into the file, so a whole-project PDF costs the memory of one page.
       const path = join(dir, "book.pdf");
+      const md = opts.pdf.metadata ?? {};
       const pdf = await PdfWriter.create(path, {
-        title: opts.chapterId ? `${project.title} — ${chapterTitle}` : project.title,
+        title: md.title || (opts.chapterId ? `${project.title} — ${chapterTitle}` : project.title),
         rtl: (opts.pdf.readingDirection ?? project.readingDirection) === "rtl",
+        author: md.author ?? project.settings.author ?? "",
+        subject: md.subject ?? project.description,
+        keywords: md.keywords?.join(", "),
+        language: md.language ?? project.language,
       });
-      // A KDP interior carries no cover: the cover is a separate file uploaded next to it.
-      if (project.coverAssetId && !KDP_TRIM_IN[opts.pdf.pageSize]) {
-        const cover = await deps.assets.get(project.coverAssetId);
-        if (cover) {
-          const png = await renderCover(
-            await deps.assets.read(cover),
-            project.title,
-            opts.chapterId ? chapterTitle : "",
-            project.settings.author,
-          );
-          await pdf.addPage(imagePage(png, 1200, 1800, opts));
-        }
-      }
-      for (const [i, { id: pid }] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
-        const img = await renderPageImage(page, "png", { scale: opts.scale });
-        await pdf.addPage(imagePage(img.data, img.width, img.height, opts, i));
-        await progress((i + 1) / ids.length);
+      for await (const p of interiorPages(deps, opts, project, chapterTitle)) {
+        await pdf.addPage(p.page);
+        await progress((p.index + 1) / p.total);
       }
       await pdf.close();
       return [{ name: `${prefix}.pdf`, path, mime: "application/pdf" }];
+    }
+    case "print_preflight": {
+      const report = await preflight(deps, opts, project, chapterTitle, progress);
+      await deps.db
+        .update(exportJobs)
+        .set({ result: { preflight: report } })
+        .where(eq(exportJobs.id, job.id));
+      return [
+        {
+          name: `${prefix}_preflight.json`,
+          data: new TextEncoder().encode(JSON.stringify(report, null, 2)),
+          mime: "application/json",
+        },
+      ];
+    }
+    case "print_cover": {
+      const check = await printCoverCheck(deps.db, project, opts, { ...opts.pdf, print: opts.print });
+      if (!check) throw new UnrecoverableError("Choose a print size for the cover (not the page's own size)");
+      const { layout } = check;
+      const block = layout.issues.find((i) => i.severity === "block");
+      if (block) throw new UnrecoverableError(block.message);
+      const art = check.artAssetId ? await deps.assets.get(check.artAssetId) : null;
+      if (!art || art.deletedAt) throw new UnrecoverableError("The cover art is missing from storage");
+      const cover = await renderPrintCover(layout, await deps.assets.read(art), opts.pdf.dpi);
+      await progress(0.6);
+      const path = join(dir, "cover.pdf");
+      const pdf = await PdfWriter.create(path, {
+        title: `${project.title} — cover`,
+        rtl: false,
+        author: project.settings.author ?? "",
+        language: project.language,
+      });
+      const [w, h, b] = [layout.widthIn * 72, layout.heightIn * 72, layout.bleedIn * 72];
+      const full = { x: 0, y: 0, width: w, height: h };
+      await pdf.addPage({
+        png: cover.png,
+        width: w,
+        height: h,
+        image: full,
+        trimBox: { x: b, y: b, width: w - 2 * b, height: h - 2 * b },
+        bleedBox: full,
+      });
+      await pdf.close();
+      const guides = await coverGuides(cover.png, layout);
+      const issues = [...layout.issues, ...cover.issues];
+      await deps.db
+        .update(exportJobs)
+        .set({
+          result: {
+            cover: {
+              pageCount: check.pageCount,
+              paper: opts.print?.paper ?? "white",
+              trimIn: trimSizeIn(opts.pdf.pageSize),
+              widthIn: layout.widthIn,
+              heightIn: layout.heightIn,
+              spineIn: layout.spineIn,
+              artDpi: layout.artDpi,
+              dpi: opts.pdf.dpi,
+              issues,
+            },
+          },
+        })
+        .where(eq(exportJobs.id, job.id));
+      await progress(1);
+      return [
+        { name: `${prefix}_cover.pdf`, path, mime: "application/pdf" },
+        { name: `${prefix}_cover_guides.png`, data: guides, mime: "image/png" },
+      ];
     }
     case "webtoon": {
       const ids = await pagesFor(deps, opts, project.id);
@@ -786,9 +845,232 @@ async function chapterFile(deps: WorkerDeps, starts: { chapterId: string; startM
     : [];
 }
 
+/**
+ * The PDF interior one page at a time, placed for the export's print size: the cover (not on a KDP interior, whose
+ * cover is a file of its own), the contents page, blank versos before chapters that would open on one, and the
+ * lettered pages. The PDF export writes these; the preflight measures the same pages.
+ */
+async function* interiorPages(
+  deps: WorkerDeps,
+  opts: Opts,
+  project: typeof projects.$inferSelect,
+  chapterTitle: string,
+) {
+  const chs = await printChapters(deps.db, project.id, opts);
+  if (!chs.length) throw new UnrecoverableError("No pages to export");
+  const cover =
+    project.coverAssetId && !KDP_TRIM_IN[opts.pdf.pageSize] ? await deps.assets.get(project.coverAssetId) : null;
+  const { entries, toc } = interiorSequence(chs, {
+    cover: Boolean(cover),
+    toc: Boolean(opts.pdf.toc),
+    rectoChapters: Boolean(opts.pdf.rectoChapters),
+  });
+  // Contents and blank pages take the size of the interior pages around them.
+  const [first] = await deps.db
+    .select({ width: pages.width, height: pages.height })
+    .from(pages)
+    .where(eq(pages.id, chs[0]!.pageIds[0]!));
+  let size = { width: Math.round(first!.width * opts.scale), height: Math.round(first!.height * opts.scale) };
+  const chapterOrder = new Map(chs.map((c) => [c.id, c.order]));
+  for (const [index, entry] of entries.entries()) {
+    const at = { index, total: entries.length, entry };
+    if (entry.kind === "cover") {
+      const png = await renderCover(
+        await deps.assets.read(cover!),
+        project.title,
+        opts.chapterId ? chapterTitle : "",
+        project.settings.author,
+      );
+      yield { ...at, page: imagePage(png, 1200, 1800, opts), size: { width: 1200, height: 1800 } };
+    } else if (entry.kind === "toc") {
+      const png = await renderTocPage(toc, size.width, size.height);
+      yield { ...at, page: imagePage(png, size.width, size.height, opts, index), size };
+    } else if (entry.kind === "blank") {
+      yield { ...at, page: imagePage(undefined, size.width, size.height, opts, index), size };
+    } else {
+      const render = await loadRenderPage(deps.db, deps.assets.storage, entry.pageId, project.readingDirection);
+      const img = await renderPageImage(render, "png", { scale: opts.scale });
+      size = { width: img.width, height: img.height };
+      yield {
+        ...at,
+        page: imagePage(img.data, img.width, img.height, opts, index),
+        size,
+        render,
+        chapter: chapterOrder.get(entry.chapterId),
+      };
+    }
+  }
+}
+
+export type PreflightPage = {
+  /** 1-based PDF page. */
+  page: number;
+  kind: InteriorEntry["kind"];
+  pageId?: string;
+  chapter?: number;
+  order?: number;
+  /** The page image's resolution where it prints. */
+  imageDpi?: number;
+  /** The lowest resolution of any panel's art where it prints. */
+  artDpi?: number | null;
+  /** Total ink of the darkest 0.5 mm area, C+M+Y+K in percent. */
+  inkPct?: number;
+  /** Mean colour change of the CMYK soft proof, 0–100. */
+  shiftPct?: number;
+  /** Lettering outside the safe area: the first words of each. */
+  textOutsideSafe?: string[];
+};
+
+/**
+ * The print preflight of the interior the PDF export would write with the same options: each page's effective
+ * resolution (page image and panel art), total ink, colour shift through CMYK, lettering outside the safe area, the
+ * fonts the lettering uses, and the page count's parity. Measured on the rendered pages, never on guesses.
+ */
+async function preflight(
+  deps: WorkerDeps,
+  opts: Opts,
+  project: typeof projects.$inferSelect,
+  chapterTitle: string,
+  progress: (p: number) => Promise<void>,
+) {
+  const kdp = Boolean(KDP_TRIM_IN[opts.pdf.pageSize]);
+  const grey = project.colorMode !== "full_color";
+  const rtl = (opts.pdf.readingDirection ?? project.readingDirection) === "rtl";
+  const bleed = mm(opts.pdf.bleedMm);
+  const fontUses = new Map<string, number>();
+  const rows: PreflightPage[] = [];
+  let total = 0;
+  for await (const p of interiorPages(deps, opts, project, chapterTitle)) {
+    total = p.total;
+    const row: PreflightPage = { page: p.index + 1, kind: p.entry.kind };
+    const pg = p.page;
+    if (pg.png) {
+      const printedIn = pg.image.width / 72;
+      row.imageDpi = Math.round(p.size.width / printedIn);
+      // 0.5 mm areas: a press cares about patches of ink, not single pixels.
+      const ink = await inkCoverage(pg.png, printedIn * 25.4 * 2, grey);
+      row.inkPct = ink.maxInkPct;
+      row.shiftPct = ink.shiftPct;
+    }
+    const r: RenderPage | undefined = "render" in p ? p.render : undefined;
+    if (r && p.entry.kind === "page") {
+      Object.assign(row, { pageId: p.entry.pageId, chapter: "chapter" in p ? p.chapter : undefined, order: r.order });
+      let low: number | null = null;
+      for (const panel of r.panels) {
+        if (!panel.art) continue;
+        const meta = await sharp(panel.art).metadata();
+        if (!meta.width || !meta.height) continue;
+        const dpi = panelArtDpi(meta, panel.frame, panel.imageTransform, r, pg.image.width / 72);
+        low = low === null ? dpi : Math.min(low, dpi);
+      }
+      row.artDpi = low;
+      const lettering = [
+        ...r.bubbles.map((b) => ({
+          text: b.text,
+          x: b.bubble.x,
+          y: b.bubble.y,
+          width: b.bubble.width,
+          height: b.bubble.height,
+        })),
+        // An SFX's box from its anchor (its centre) and the width its letters take.
+        ...r.sfx.map((s) => {
+          const size = s.style.fontSize * s.style.scale;
+          const w = measureText(s.text, size) / r.width;
+          const h = size / r.height;
+          return { text: s.text, x: s.style.x - w / 2, y: s.style.y - h, width: w, height: h };
+        }),
+      ];
+      const trim = pg.trimBox ?? { x: bleed, y: bleed, width: pg.width - 2 * bleed, height: pg.height - 2 * bleed };
+      const outside = outsideSafeZone(lettering, {
+        image: pg.image,
+        trim,
+        kdp,
+        pageCount: p.total,
+        index: p.index,
+        rtl,
+      });
+      if (outside.length) row.textOutsideSafe = outside.map((o) => o.text.slice(0, 40));
+      for (const f of [...r.bubbles.map((b) => b.bubble.font), ...r.sfx.map((s) => s.style.font)])
+        fontUses.set(f, (fontUses.get(f) ?? 0) + 1);
+    }
+    rows.push(row);
+    await progress((p.index + 1) / p.total);
+  }
+
+  const fonts = fontReport(fontUses, await installedFonts());
+  const issues: PrintIssue[] = [];
+  const list = (pages: number[]) =>
+    pages.length > 12 ? `${pages.slice(0, 12).join(", ")} and ${pages.length - 12} more` : pages.join(", ");
+  const minDpi = PRINT_SPEC.minDpi;
+  const lowDpi = rows.filter((r) => Math.min(r.imageDpi ?? minDpi, r.artDpi ?? minDpi) < minDpi);
+  if (lowDpi.length) {
+    const lowest = Math.min(...lowDpi.map((r) => Math.min(r.imageDpi ?? minDpi, r.artDpi ?? minDpi)));
+    issues.push({
+      code: "low_dpi",
+      severity: "warn",
+      message: `Page ${list(lowDpi.map((r) => r.page))} print${lowDpi.length > 1 ? "" : "s"} below ${minDpi} DPI (lowest ${lowest}). Raise the export scale or use larger art.`,
+    });
+  }
+  const inky = rows.filter((r) => (r.inkPct ?? 0) > PRINT_SPEC.inkLimitPct);
+  if (inky.length)
+    issues.push({
+      code: "ink_over_limit",
+      severity: "warn",
+      message: `Page ${list(inky.map((r) => r.page))} go${inky.length > 1 ? "" : "es"} over ${PRINT_SPEC.inkLimitPct}% total ink (most ${Math.max(...inky.map((r) => r.inkPct!))}%): dark areas may smear or take long to dry.`,
+    });
+  const unsafe = rows.filter((r) => r.textOutsideSafe?.length);
+  if (unsafe.length)
+    issues.push({
+      code: "text_outside_safe",
+      severity: "warn",
+      message: `Lettering on page ${list(unsafe.map((r) => r.page))} reaches outside the safe area and may be trimmed or lost in the binding.`,
+    });
+  if (kdp && total < PRINT_SPEC.minPages)
+    issues.push({
+      code: "page_count_low",
+      severity: "warn",
+      message: `${total} pages: KDP prints paperbacks of ${PRINT_SPEC.minPages} pages or more.`,
+    });
+  if (total % 2)
+    issues.push({
+      code: "odd_page_count",
+      severity: "info",
+      message: `${total} pages, an odd count: a printed book adds a blank last page.`,
+    });
+  for (const f of fonts.filter((f) => f.installed === false))
+    issues.push({
+      code: "font_missing",
+      severity: "warn",
+      message: `"${f.family}" is not installed on the render server, so its lettering was drawn in Comic Neue or DejaVu Sans instead.`,
+    });
+  issues.push({
+    code: "fonts_rasterized",
+    severity: "info",
+    message: `The PDF holds page images only: lettering is drawn into the pixels at the page's resolution, so no font needs embedding.`,
+  });
+  const shifted = rows.reduce<PreflightPage | null>((a, r) => ((r.shiftPct ?? 0) > (a?.shiftPct ?? 0) ? r : a), null);
+  return {
+    pageCount: total,
+    evenPageCount: total % 2 === 0,
+    pageSize: opts.pdf.pageSize,
+    trimIn: trimSizeIn(opts.pdf.pageSize),
+    inkModel: grey ? "black ink only (greyscale interior)" : "CMYK, libvips's built-in generic press profile",
+    inkLimitPct: PRINT_SPEC.inkLimitPct,
+    minDpi,
+    lowestDpi: Math.min(...rows.flatMap((r) => [r.imageDpi, r.artDpi ?? undefined]).filter((v) => v !== undefined)),
+    maxInkPct: Math.max(0, ...rows.map((r) => r.inkPct ?? 0)),
+    mostShiftedPage: shifted?.pageId
+      ? { page: shifted.page, pageId: shifted.pageId, shiftPct: shifted.shiftPct }
+      : null,
+    fonts,
+    issues,
+    pages: rows,
+  };
+}
+
 /** Page size and image placement in points, for the page size, margins and bleed the export asked for. */
 function imagePage(
-  png: Uint8Array,
+  png: Uint8Array | undefined,
   pxW: number,
   pxH: number,
   opts: Opts,

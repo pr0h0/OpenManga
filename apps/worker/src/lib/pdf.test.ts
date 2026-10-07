@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sharp } from "@openmanga/image-utils";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFHexString, PDFName } from "pdf-lib";
 import { PdfWriter } from "./pdf.ts";
 
 const png = async (width: number, height: number, channels: 3 | 4 = 3, noise = false) =>
@@ -21,11 +21,18 @@ const png = async (width: number, height: number, channels: 3 | 4 = 3, noise = f
       .toBuffer(),
   );
 
-test("PdfWriter writes pages a PDF reader opens, with their boxes, title and reading direction", async () => {
+test("PdfWriter writes pages a PDF reader opens, with their boxes, metadata and reading direction", async () => {
   const dir = await mkdtemp(join(tmpdir(), "om-pdf-"));
   try {
     const path = join(dir, "out.pdf");
-    const pdf = await PdfWriter.create(path, { title: "Ünïcode — title", rtl: true });
+    const pdf = await PdfWriter.create(path, {
+      title: "Ünïcode — title",
+      rtl: true,
+      author: "Jin Park",
+      subject: "A rooftop at night",
+      keywords: "manga, rain",
+      language: "ko",
+    });
     await pdf.addPage({
       png: await png(60, 90),
       width: 300,
@@ -53,11 +60,23 @@ test("PdfWriter writes pages a PDF reader opens, with their boxes, title and rea
       height: 100,
       image: { x: 10, y: 10, width: 80, height: 80 },
     });
+    // A blank page: boxes, no content.
+    await pdf.addPage({
+      width: 441,
+      height: 666,
+      image: { x: 0, y: 0, width: 441, height: 666 },
+      trimBox: { x: 0, y: 9, width: 432, height: 648 },
+    });
     await pdf.close();
 
     const doc = await PDFDocument.load(await Bun.file(path).bytes());
-    expect(doc.getPageCount()).toBe(3);
+    expect(doc.getPageCount()).toBe(4);
     expect(doc.getTitle()).toBe("Ünïcode — title");
+    expect(doc.getAuthor()).toBe("Jin Park");
+    expect(doc.getSubject()).toBe("A rooftop at night");
+    expect(doc.getKeywords()).toBe("manga, rain");
+    expect(doc.catalog.lookup(PDFName.of("Lang"), PDFHexString).decodeText()).toBe("ko");
+    expect(doc.getPage(3).getTrimBox()).toMatchObject({ x: 0, y: 9, width: 432, height: 648 });
     expect(doc.getPage(0).getSize()).toEqual({ width: 300, height: 450 });
     expect(doc.getPage(1).getTrimBox()).toMatchObject({ x: 9, y: 9, width: 432, height: 648 });
     expect(doc.catalog.getViewerPreferences()?.getReadingDirection()).toBe("R2L" as never);

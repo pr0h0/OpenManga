@@ -22,6 +22,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   top of every page, which cannot be dismissed until they approve or change the policy. Art a panel shows, approved or
   locked art, references, covers, thumbnails, uploads and narration in use are never deleted. A dry run shows what
   would go.
+- Print workflow (`docs/PRINT.md`). The PDF export takes a contents page (`pdf.toc`), blank pages so every chapter
+  opens on a right-hand page (`pdf.rectoChapters`), and book metadata written into the PDF (`pdf.metadata`: title,
+  author, subject, keywords, language). A new `print_cover` export renders the wraparound cover as one PDF with
+  bleed: the cover art on the front with the title and author, the spine sized from the interior's page count and
+  the paper (KDP's white, cream and colour thickness, or a custom one) with the title when the book has 79 pages or
+  more, the description on the back above the barcode area, mirrored for right-to-left books, plus a preview with the
+  trim, safe areas and barcode box drawn on. `GET /api/projects/:projectId/print/cover` checks it before rendering
+  (missing art, art under 300 DPI, spine too thin for text, text that had to be shortened), and the drawn text is
+  measured against the safe areas after rendering. A new `print_preflight` export measures the interior the PDF
+  would print: each page's resolution and its panels' art resolution, total ink, colour shift through CMYK, lettering
+  outside the safe area (with KDP's gutter), the fonts the lettering uses and whether the server has them, and the
+  page count and its parity. The Exports page shows the cover check live and the preflight report with a soft proof
+  of any page next to it (`GET /api/pages/:id/render.png?proof=cmyk|grey`).
 
 ## [0.15.0] — 2026-10-05
 
