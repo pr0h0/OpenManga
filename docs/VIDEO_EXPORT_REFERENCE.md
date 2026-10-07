@@ -93,6 +93,15 @@ the length and adds the strongest left over until it reaches 30 s. On the Export
 setting above the pick, which is a checklist with the running length; change either, preview it
 (`/api/video-preview?panelIds=…&aspect=9:16`, played with the same length limit) and render it.
 
+A hook (`video.hook`, a Shorts cut only, at most 200 characters) is a line the narrator says before the first shot,
+to stop a scrolling viewer: the repurposing plan's *Write titles, captions and hooks* job (`social-copy` v2) writes one
+per Short, trailer and teaser, and each item's *Hook line* can be edited. The render voices it with the project's
+narrator voice, speed and pronunciation dictionary on the local voice (refused with 400 when synthesis is off),
+trimmed like every take, and keeps the take as an audio file keyed by the spoken text, voice and speed
+(`metadata.shortsHook`), so the next render of the same words reuses it. It joins the plan as the first narration line
+of the first shot, so that shot holds long enough for it, the length cap counts it, and the `.srt`, the captions and the
+preview's subtitles start with it. (The browser preview does not play the hook.)
+
 Captions (`video.captions`, off by default) draw the narration into the picture, for Shorts, Reels and TikTok, which
 autoplay muted. Each narration segment's subtitle cue is cut into short captions (`captionChunks`: evenly sized word
 groups, so no one-word orphan ends a cue, each shown for its share of the cue by length) and written as an ASS file

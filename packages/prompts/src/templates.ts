@@ -581,6 +581,30 @@ export const socialCopyV1 = defineTextTemplate<{
   },
 });
 
+export const socialCopyV2 = defineTextTemplate<{
+  project: { title: string; description: string; language: string };
+  items: { id: string; kind: string; label: string; quote?: string; narration: string }[];
+}>({
+  name: "social-copy",
+  version: 2,
+  description:
+    "A social title and caption for each Short, trailer, teaser, carousel and quote image of a project, and a spoken opening hook for each video.",
+  system: [
+    templateHeader("social-copy", 2),
+    "You write social media posts for pieces cut from a narrated comic: Shorts, a trailer, a teaser, an image carousel and quote images. For each item write a short, curious title and a caption: a hook line, one or two lines about the moment it shows without spoiling the ending, and three to five relevant hashtags. A trailer or teaser invites people to the whole story; a quote image's caption builds on its quote.",
+    "For each Short, trailer and teaser also write `hook`: one line the narrator says before the first shot, to stop a scrolling viewer in the first two seconds. At most fifteen words, spoken (no hashtags, emoji, quotes or stage directions), a question or a striking claim drawn from that item's own narration, never giving away its ending. Leave `hook` out for carousels and quote images.",
+    "Write in the project's language, never invent events, names or facts beyond what you are given. Return every item you were given, with its id unchanged, and nothing else.",
+    DATA_RULE,
+    schemaInstructions("SocialCopy", SocialCopy),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      { role: "user", content: untrusted("project_data", JSON.stringify(i)) },
+    ];
+  },
+});
+
 export const youtubePackageV1 = defineTextTemplate<{
   project: { title: string; description: string; type: string; language: string };
   chapters: { order: number; title: string; summary: string }[];
@@ -1173,6 +1197,7 @@ export const TEXT_TEMPLATES = [
   youtubePackageV2,
   narrationRetimeV1,
   socialCopyV1,
+  socialCopyV2,
   jsonRepairV1,
   imageDescribeV1,
   stripPlanningV1,

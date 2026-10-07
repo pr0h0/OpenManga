@@ -48,6 +48,7 @@ function exportBody(it: RepurposeItem, language: string) {
         shortsSeconds: it.lengthSeconds ?? 60,
         aspect: it.aspect ?? "9:16",
         captions: captionsSupported(language) ? (it.captions ?? "off") : "off",
+        ...(it.hook?.trim() ? { hook: it.hook.trim() } : {}),
       },
     };
   return {
@@ -177,7 +178,7 @@ export function RepurposePage() {
               disabled={copy.isPending || Boolean(jobId)}
               onClick={() => copy.mutate()}
             >
-              <PenLine className="size-4" /> Write titles and captions
+              <PenLine className="size-4" /> Write titles, captions and hooks
             </button>
             {jobId && (
               <span className="muted flex items-center gap-1 text-xs">
@@ -335,6 +336,17 @@ function ItemCard({
                   ))}
                 </select>
               )}
+            </Field>
+          )}
+          {video && (
+            <Field label="Hook line" hint="Said by the narrator before the first shot; empty for none">
+              <input
+                className="input"
+                maxLength={200}
+                value={it.hook ?? ""}
+                placeholder="What would you do if the door opened on its own?"
+                onChange={(e) => set({ hook: e.target.value })}
+              />
             </Field>
           )}
           <Field label="Title">

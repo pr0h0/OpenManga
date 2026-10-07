@@ -1716,7 +1716,7 @@ interface NarrationRetime {
 Asked by **Repurpose → Write titles and captions** — a social title and caption for each Short, trailer, teaser, carousel and quote image of the plan.
 
 ```ts
-/** A social title and caption for each piece of the repurposing plan you were given, matched by id. */
+/** A social title and caption for each piece of the repurposing plan you were given, matched by id, and a spoken hook for each video. */
 interface SocialCopy {
   /**
    * One entry per item you were given.
@@ -1741,6 +1741,13 @@ interface SocialCopy {
      * @example "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
      */
     caption: string;
+    /**
+     * Shorts, trailers and teasers only: one spoken line (at most fifteen words) the narrator says before the first shot, a question or striking claim from this item's narration, no hashtags or emoji. Leave it out for carousels and quote images.
+     * At most 200 characters.
+     * Optional — may be left out.
+     * @example "Why does the lamp still turn when nobody has climbed the stairs in years?"
+     */
+    hook?: string;
   }[];
 }
 ```
@@ -1753,7 +1760,8 @@ interface SocialCopy {
     {
       "id": "short-1",
       "title": "She came to switch off the last lamp",
-      "caption": "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
+      "caption": "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics",
+      "hook": "Why does the lamp still turn when nobody has climbed the stairs in years?"
     }
   ]
 }

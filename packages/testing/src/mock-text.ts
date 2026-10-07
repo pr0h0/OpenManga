@@ -640,12 +640,15 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
       };
     }
     case "social-copy-v1": {
-      const d = (data[0] ?? {}) as { items?: { id: string; label: string }[] };
+      const d = (data[0] ?? {}) as { items?: { id: string; label: string; kind?: string }[] };
       return {
         items: (d.items ?? []).map((it) => ({
           id: it.id,
           title: `Mock title: ${it.label}`,
           caption: `Mock caption for ${it.label}. #mock`,
+          ...(["short", "trailer", "teaser"].includes(it.kind ?? "")
+            ? { hook: `What happened next in ${it.label}?` }
+            : {}),
         })),
       };
     }
