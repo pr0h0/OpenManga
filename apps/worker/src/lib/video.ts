@@ -1,7 +1,7 @@
 import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { ffmpegConvert, parseWav, pcmToWav } from "@openmanga/audio";
-import { and, assets, eq, inArray, isNull, sql } from "@openmanga/db";
+import { ffmpegConvert, parseWav, pcmToWav, trimSilenceWav } from "@openmanga/audio";
+import { and, assets, type audioAssets, eq, inArray, isNull, type narrationSegments, sql } from "@openmanga/db";
 import {
   ConcurrencyLimiter,
   cardFrames,
@@ -15,13 +15,14 @@ import {
   panelShotBox,
   scrollPlan,
   shotGroups,
+  spokenText,
   timeGroup,
   type VideoAspect,
   videoDriftToleranceMs,
   watermarkBox,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
-import type { ShortsCaptions } from "@openmanga/schemas";
+import type { ProjectSettings, ShortsCaptions } from "@openmanga/schemas";
 import {
   type BrandedProject,
   backdrop,
@@ -67,9 +68,71 @@ export type VideoOptions = {
   cards?: boolean;
   /** Captions drawn into the picture from the narration cues (Shorts only). */
   captions?: ShortsCaptions;
+  /** A Shorts cut's opening line, voiced before the first shot's own narration. */
+  hook?: string;
+  /** Whose voice settings the hook uses (the export's user). */
+  hookUserId?: string | null;
 };
 
-type Project = Parameters<typeof planVideoShots>[1] & BrandedProject & { language: string };
+type Project = Parameters<typeof planVideoShots>[1] &
+  BrandedProject & {
+    language: string;
+    settings: Pick<ProjectSettings, "narrationVoice" | "narrationSpeed" | "pronunciation">;
+  };
+
+/** The narration line id a Shorts hook takes in the film's plan. */
+const HOOK_LINE = "shorts-hook";
+
+/**
+ * A Shorts hook as a narration line: spoken with the project's narrator voice, speed and pronunciation dictionary on
+ * the local voice, trimmed like every take, and stored as an audio file reused while the text, voice and speed stay
+ * the same (an unused take, so the storage policy may clear it; it is made again on the next render).
+ */
+async function hookLine(deps: WorkerDeps, project: Project, text: string, userId: string | null) {
+  const voice = project.settings.narrationVoice ?? "af_heart";
+  const speed = project.settings.narrationSpeed ?? 1;
+  const spoken = spokenText(text, project.settings.pronunciation);
+  const key = sha256Hex(JSON.stringify({ spoken, voice, speed }));
+  const [cached] = await deps.db
+    .select()
+    .from(assets)
+    .where(
+      and(
+        eq(assets.projectId, project.id),
+        isNull(assets.deletedAt),
+        sql`${assets.metadata}->'shortsHook'->>'key' = ${key}`,
+      ),
+    )
+    .limit(1);
+  let asset = cached;
+  if (!asset) {
+    const tts = await deps.resolver.tts(null, userId);
+    if (!tts) throw new Error("A hook line needs narration synthesis, which is turned off on this server");
+    const raw = await tts.synthesize({ text: spoken, voice, speed, language: project.language });
+    const wav = deps.config.TTS_TRIM_SILENCE
+      ? trimSilenceWav(raw.wav, {
+          thresholdDb: deps.config.TTS_TRIM_THRESHOLD_DB,
+          keepMs: deps.config.TTS_TRIM_KEEP_MS,
+        }).wav
+      : raw.wav;
+    asset = await deps.assets.store({
+      projectId: project.id,
+      ownerUserId: userId,
+      type: "audio",
+      data: wav,
+      mimeType: "audio/wav",
+      durationMs: parseWav(wav).durationMs,
+      metadata: { shortsHook: { key, text, voice, speed } },
+    });
+  }
+  // Shaped like the segment rows the film reads: its text for captions and subtitles, its pause, its audio.
+  return [
+    {
+      s: { id: HOOK_LINE, text, pauseAfterMs: 450 } as typeof narrationSegments.$inferSelect,
+      a: { assetId: asset.id } as typeof audioAssets.$inferSelect,
+    },
+  ];
+}
 
 const SAMPLE_RATE = 24_000;
 
@@ -684,6 +747,14 @@ async function plan(deps: WorkerDeps, project: Project, chapterId: string | null
       { startOffsetMs: l.video?.startOffsetMs ?? 0, endOffsetMs: l.video?.endOffsetMs ?? 0 },
     ]),
   );
+  // A Shorts hook is said first, over the first shot, which holds long enough for it as for any narration.
+  const hook = opts.hook?.trim();
+  if (hook && shots[0]) {
+    byLine.set(HOOK_LINE, await hookLine(deps, project, hook, opts.hookUserId ?? null));
+    offsets.set(HOOK_LINE, { startOffsetMs: 0, endOffsetMs: 0 });
+    shots[0] = { ...shots[0], lineIds: [HOOK_LINE, ...shots[0].lineIds] };
+    shots[0].report.hook = hook;
+  }
   return {
     language,
     shots,

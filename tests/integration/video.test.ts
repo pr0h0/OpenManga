@@ -1058,6 +1058,7 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
       text: string;
       title: string;
       caption: string;
+      hook?: string;
     };
     type Plan = {
       items: Item[];
@@ -1104,6 +1105,32 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     expect(saved.map((i) => i.id)).toEqual(items.map((i) => i.id));
     expect(saved.every((i) => i.title.startsWith("Mock title:") && i.caption.length > 0)).toBe(true);
     expect(saved.find((i) => i.id === "quote-1")!.text).toBe("Who's there?");
+    // The same job writes a spoken hook for each video, and none for pictures.
+    for (const i of saved) expect(Boolean(i.hook)).toBe(["short", "trailer", "teaser"].includes(i.kind));
+
+    // A Short with its hook: the narrator says it first, over the first shot, which holds longer for it; its subtitles
+    // start with it; the voiced hook is kept and reused by the next render of the same words.
+    const s1 = saved.find((i) => i.kind === "short")!;
+    const shortOpts = { height: 720, fps: 12, shortsSeconds: 600, aspect: "9:16" };
+    const plain = await runExport(projectId, { kind: "video_shorts", panelIds: s1.panelIds, video: shortOpts });
+    const hooked = await runExport(projectId, {
+      kind: "video_shorts",
+      panelIds: s1.panelIds,
+      video: { ...shortOpts, hook: s1.hook },
+    });
+    const ms = async (r: typeof plain) => (await probe(r.files.find((f) => f.mimeType === "video/mp4")!.assetId)).ms;
+    expect((await ms(hooked)) - (await ms(plain))).toBeGreaterThan(1000);
+    const srt = hooked.files.find((f) => f.fileName.endsWith(".srt"))!;
+    expect((await (await u.raw("GET", `/cdn/a/${srt.assetId}`)).text()).split("\n")[2]).toBe(s1.hook!);
+    const hookTakes = async () =>
+      (
+        await h.deps.db.execute<{ n: number }>(
+          sql`select count(*)::int as n from assets where project_id = ${projectId} and metadata ? 'shortsHook'`,
+        )
+      )[0]!.n;
+    expect(await hookTakes()).toBe(1);
+    await runExport(projectId, { kind: "video_shorts", panelIds: s1.panelIds, video: { ...shortOpts, hook: s1.hook } });
+    expect(await hookTakes()).toBe(1);
 
     // The trailer renders as a Shorts cut named after it, landscape, within its length, with its caption.
     const t = saved.find((i) => i.kind === "trailer")!;

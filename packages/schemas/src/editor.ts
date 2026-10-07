@@ -162,6 +162,8 @@ export const RepurposeItem = z.object({
   text: z.string().max(300).default(""),
   title: z.string().max(150).default(""),
   caption: z.string().max(2200).default(""),
+  /** Video kinds: an opening line the narrator says before the first shot ("" for none). */
+  hook: z.string().max(200).default(""),
 });
 export type RepurposeItem = z.infer<typeof RepurposeItem>;
 

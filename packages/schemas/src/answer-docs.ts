@@ -371,7 +371,7 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
   },
 
   SocialCopy: {
-    "": "A social title and caption for each piece of the repurposing plan you were given, matched by id.",
+    "": "A social title and caption for each piece of the repurposing plan you were given, matched by id, and a spoken hook for each video.",
     items: ["One entry per item you were given.", undefined],
     "items[].id": ["The item's id, exactly as given.", "short-1"],
     "items[].title": [
@@ -381,6 +381,10 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "items[].caption": [
       "The post caption: a hook line, one or two lines about this moment without spoiling the ending, and a few hashtags.",
       "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics",
+    ],
+    "items[].hook": [
+      "Shorts, trailers and teasers only: one spoken line (at most fifteen words) the narrator says before the first shot, a question or striking claim from this item's narration, no hashtags or emoji. Leave it out for carousels and quote images.",
+      "Why does the lamp still turn when nobody has climbed the stairs in years?",
     ],
   },
 

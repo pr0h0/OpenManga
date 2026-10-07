@@ -254,6 +254,8 @@ export const SocialCopy = z.object({
         id: str.min(1).max(40),
         title: str.min(1).max(150),
         caption: str.min(1).max(2200),
+        /** Shorts, trailers and teasers: one line the narrator says before the first shot. */
+        hook: str.max(200).optional(),
       }),
     )
     .min(1)

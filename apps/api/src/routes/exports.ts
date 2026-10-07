@@ -170,6 +170,11 @@ export const ExportOptions = z.object({
        * the frame, "center" a few large words at a time, "two_line" two lines at the bottom. Other videos keep the .srt.
        */
       captions: ShortsCaptions.optional(),
+      /**
+       * video_shorts: an opening line the narrator says before the first shot (the repurposing plan's hook), voiced
+       * with the project's narrator voice on the local voice. Other kinds ignore it.
+       */
+      hook: z.string().trim().max(200).optional(),
     })
     .default({
       fps: 30,
@@ -202,6 +207,10 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
   if (captions && captions !== "off" && !captionsSupported(input.language || p.language))
     throw badRequest(
       "Captions can't be drawn in this narration language yet: the render image has no font for its script. Turn captions off; the .srt file still comes with the video.",
+    );
+  if (input.kind === "video_shorts" && input.video.hook && !c.get("deps").config.TTS_ENABLED)
+    throw badRequest(
+      "A hook line is spoken by the narrator voice, and narration synthesis is turned off on this server.",
     );
   // Filled here, so the stored options say what was rendered whoever asked: the app, an agent or a production run.
   const output = p.settings.video?.output;

@@ -37,10 +37,14 @@ test("repurpose: suggest a plan, adjust a pick, write copy, render the carousel"
   });
 
   await test.step("write titles and captions", async () => {
-    await page.getByRole("button", { name: "Write titles and captions" }).click();
+    await page.getByRole("button", { name: "Write titles, captions and hooks" }).click();
     // The mock writes in a moment; the copy lands in the saved plan and the page reloads it.
     await expect(carousel.getByLabel("Title")).not.toHaveValue("", { timeout: 60_000 });
     await expect(carousel.getByLabel("Caption")).not.toHaveValue("");
+    // Videos also get a spoken hook; pictures do not have the field.
+    const short = page.locator("li.card", { has: page.getByText("Short", { exact: true }) }).first();
+    await expect(short.getByLabel("Hook line")).not.toHaveValue("");
+    await expect(carousel.getByLabel("Hook line")).toHaveCount(0);
   });
 
   await test.step("render the carousel and see the export complete", async () => {

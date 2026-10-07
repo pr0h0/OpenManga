@@ -63,6 +63,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Subtitles in the video preview: the narration being spoken is drawn on the picture, timed like the render's
   subtitles (a shot's whole line while it has no voiced audio), and toggled with *Subtitles* or C. On by default and
   remembered per browser.
+- Hook lines for repurposed Shorts: each Short, trailer and teaser of the repurposing plan has a *Hook line* the narrator
+  says before its first shot, written with the titles and captions (*Write titles, captions and hooks*) and editable.
+  It is voiced with the project's narrator voice and pronunciation dictionary, holds the first shot for its length, and
+  starts the subtitles and captions. `video.hook` on `video_shorts` exports.
 
 ## [0.15.0] — 2026-10-05
 
