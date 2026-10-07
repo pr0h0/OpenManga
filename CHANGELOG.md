@@ -9,6 +9,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Better comments:
+  - **Pins:** a thread can point at a spot on the panel's artwork (*Pin a spot*), shown as a numbered pin.
+  - **Video moments:** a thread can point at a moment of the chapter's video (*Comment* in the video preview, panel
+    cut), which opens the preview there.
+  - **Assignment:** threads can be assigned to a member, who is notified; the Comments page can show only yours.
+  - **Before and after:** a thread shows the panel's artwork when it was started next to the art it was resolved on
+    (or shows now).
+  - **Production run:** the run card counts the project's open comment threads.
+  - **Guest comments:** a reader link can let readers comment on panels under a name, without an account; they see only
+    the threads left through that link, and the owner is notified.
+  - **MCP:** `post_comment` takes `anchor`, `timecodeMs` and `assignTo`, `list_comments` takes `assignedToMe`, and the
+    new `assign_comment` reassigns a thread.
+  - Migration `0035`.
+
+### Added
+
 - Production cost planner: the *Produce* and *Update production* dialogs price what the run would still do before it
   starts, chapter by chapter (plans, prompts, panels to draw, narration, local-voice audio) plus the analysis,
   references, thumbnail and YouTube text, with the chosen models and this server's own average usage per job. They

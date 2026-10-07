@@ -36,8 +36,12 @@ const StartRun = z.object({
 /** A run as the API shows it; an active one also says how many jobs stopping it would cancel (`pendingJobs`). */
 const view = async (deps: Deps, r: typeof productionRuns.$inferSelect) => {
   const work = (ACTIVE as readonly string[]).includes(r.status) ? await pendingWork(deps, r) : null;
+  // Review notes left on the project: a run can finish while people are still asking for changes.
+  const [open] = await deps.db.execute<{ n: number }>(sql`select count(*)::int as n from panel_comments
+    where project_id = ${r.projectId} and thread_id is null and resolved_at is null and deleted_at is null`);
   return {
     ...r,
+    openComments: open?.n ?? 0,
     steps: r.steps.map((s) => ({ ...s, label: STEP_LABELS[s.key as keyof typeof STEP_LABELS] ?? s.key })),
     pendingJobs: work ? work.generation.length + work.audio.length + work.exports.length : 0,
   };
@@ -305,7 +309,7 @@ productionRoutes.post("/projects/:projectId/production-runs/estimate", async (c)
 doc({
   method: "GET",
   path: "/api/projects/:projectId/production-runs",
-  summary: "Recent production runs",
+  summary: "Recent production runs (each with `openComments`: the project's unresolved comment threads)",
   tag: "production",
 });
 productionRoutes.get("/projects/:projectId/production-runs", async (c) => {

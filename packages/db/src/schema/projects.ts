@@ -391,6 +391,8 @@ export const shareLinks = pgTable(
     /** Null: the whole project. */
     chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
+    /** Whoever opens the link may leave comments, under a name they give (no account). */
+    allowComments: boolean("allow_comments").notNull().default(false),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     revokedAt: ts("revoked_at"),

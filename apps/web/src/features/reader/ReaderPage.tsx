@@ -1,18 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Columns2, Play, Rows3 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns2, MessageSquare, Play, Rows3 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { get } from "../../api/client.ts";
 import { ErrorBox, Spinner } from "../../components/ui.tsx";
 import { VideoPreview } from "../video/VideoPreview.tsx";
+import { GuestComments } from "./GuestComments.tsx";
 
 type Shared = {
+  /** The link lets readers comment (each page then lists its panels). */
+  allowComments: boolean;
   project: { title: string; description: string; author: string; readingDirection: string; format: string };
   chapters: {
     id: string;
     title: string;
     order: number;
-    pages: { id: string; order: number; width: number; height: number }[];
+    pages: { id: string; order: number; width: number; height: number; panels?: { id: string; order: number }[] }[];
   }[];
 };
 
@@ -29,6 +32,10 @@ export function ReaderPage() {
   // Strips and film shots read as a scroll; pages one at a time.
   const [mode, setMode] = useState<"pages" | "scroll" | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [commenting, setCommenting] = useState(false);
+  const [commentPage, setCommentPage] = useState<string | null>(null);
+  // Turning the page brings the comments along; a page picked in the drawer holds until then.
+  useEffect(() => setCommentPage(null), [pageIdx, chapterIdx]);
   const scroll = (mode ?? (data && data.project.format !== "comic" ? "scroll" : "pages")) === "scroll";
   const rtl = data?.project.readingDirection === "rtl";
   const chapter = data?.chapters[chapterIdx];
@@ -118,6 +125,18 @@ export function ReaderPage() {
         >
           {scroll ? <Columns2 className="size-4" /> : <Rows3 className="size-4" />}
         </button>
+        {data.allowComments && pageList.length > 0 && (
+          <button
+            type="button"
+            className="btn-secondary"
+            aria-pressed={commenting}
+            onClick={() => setCommenting((v) => !v)}
+            aria-label="Comments"
+            title="Comments"
+          >
+            <MessageSquare className="size-4" />
+          </button>
+        )}
         {chapter && pageList.length > 0 && (
           <button
             type="button"
@@ -142,6 +161,16 @@ export function ReaderPage() {
         />
       )}
 
+      {commenting && data.allowComments && pageList.length > 0 && (
+        <GuestComments
+          token={token}
+          pages={pageList.map((pg) => ({ id: pg.id, order: pg.order, panels: pg.panels ?? [] }))}
+          // Page by page, comments follow the page on screen until another one is picked.
+          pageId={commentPage ?? pageList[scroll ? 0 : pageIdx]!.id}
+          onPage={setCommentPage}
+          onClose={() => setCommenting(false)}
+        />
+      )}
       {!pageList.length ? (
         <p className="muted p-6 text-center">This chapter has no pages yet.</p>
       ) : scroll ? (

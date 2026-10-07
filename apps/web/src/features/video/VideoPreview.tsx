@@ -17,6 +17,7 @@ import {
   Clapperboard,
   ListVideo,
   Maximize,
+  MessageSquarePlus,
   Minimize,
   Pause,
   Play,
@@ -390,11 +391,14 @@ export function VideoPreview({
   capMs,
   title,
   shareToken,
+  startAtMs,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: string;
   scope: PreviewScope;
+  /** Open at this moment (a comment's timecode) instead of the start. */
+  startAtMs?: number;
   defaultCut: "page" | "panel";
   /** Frame shape to open with (a Shorts pick opens vertical). */
   defaultAspect?: VideoAspect;
@@ -570,6 +574,10 @@ export function VideoPreview({
       seek(0);
     }
   }, [open, seek]);
+  // A comment's moment: once the timeline is known, start there.
+  useEffect(() => {
+    if (open && startAtMs !== undefined && timeline.totalMs) seek(startAtMs);
+  }, [open, startAtMs, timeline.totalMs > 0]);
   const current = Math.max(
     0,
     timeline.timed.findIndex((s) => clock >= s.startMs && clock < s.startMs + s.holdMs),
@@ -598,6 +606,26 @@ export function VideoPreview({
     ro.observe(el);
     return () => ro.disconnect();
   }, [open, preview.data, W, H]);
+
+  // A comment at this moment, on the shot's panel (panel cut: a page-cut shot is a whole page, not one panel).
+  const [noting, setNoting] = useState(false);
+  const [note, setNote] = useState("");
+  const [posting, setPosting] = useState(false);
+  const notePanel = !shareToken ? shot?.shot?.panel : null;
+  const postNote = async () => {
+    if (!notePanel || !note.trim()) return;
+    setPosting(true);
+    try {
+      await post(`/panels/${notePanel.id}/comments`, { body: note.trim(), timecodeMs: Math.round(clock) });
+      toast.success(`Comment added to ${shot?.label} at ${mmss(clock)}`);
+      setNote("");
+      setNoting(false);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setPosting(false);
+    }
+  };
 
   // Shot list and settings fold away; the choice is remembered in this browser.
   const [showLines, setShowLines] = useState(() => readFlag("om-preview-lines", true));
@@ -777,6 +805,21 @@ export function VideoPreview({
                   <TriangleAlert className="size-4" />
                 </button>
               )}
+              {!shareToken && (
+                <button
+                  type="button"
+                  className={`btn-ghost p-1.5 ${noting ? "bg-[var(--panel-2)]" : ""}`}
+                  aria-pressed={noting}
+                  disabled={!notePanel}
+                  title={notePanel ? "Comment on this shot at this moment" : "Comments at a moment need the panel cut"}
+                  onClick={() => {
+                    setPlaying(false);
+                    setNoting((v) => !v);
+                  }}
+                >
+                  <MessageSquarePlus className="size-4" /> <span className="hidden sm:inline">Comment</span>
+                </button>
+              )}
               <button
                 type="button"
                 className={`btn-ghost p-1.5 ${showLines ? "bg-[var(--panel-2)]" : ""}`}
@@ -805,6 +848,31 @@ export function VideoPreview({
                 {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
               </button>
             </div>
+
+            {noting && notePanel && (
+              <form
+                className="flex shrink-0 flex-wrap items-center gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void postNote();
+                }}
+              >
+                <span className="muted text-xs">
+                  {shot?.label} at {mmss(clock)}
+                </span>
+                <input
+                  className="input min-w-0 flex-1"
+                  aria-label="Comment at this moment"
+                  placeholder="What should change here?"
+                  maxLength={4000}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+                <button type="submit" className="btn-primary" disabled={posting || !note.trim()}>
+                  Comment
+                </button>
+              </form>
+            )}
 
             {showOptions && (
               <div className="shrink-0 space-y-2">
@@ -963,6 +1031,7 @@ export function PreviewVideoButton({
   defaultAspect,
   defaultMinHoldMs,
   capMs,
+  startAtMs,
 }: {
   projectId: string;
   scope: PreviewScope;
@@ -972,6 +1041,7 @@ export function PreviewVideoButton({
   defaultAspect?: VideoAspect;
   defaultMinHoldMs?: number;
   capMs?: number;
+  startAtMs?: number;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -990,6 +1060,7 @@ export function PreviewVideoButton({
           defaultMinHoldMs={defaultMinHoldMs}
           capMs={capMs}
           title={title}
+          startAtMs={startAtMs}
         />
       )}
     </>

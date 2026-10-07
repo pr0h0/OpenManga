@@ -89,8 +89,14 @@ slot).
   replies (its body is blanked; any other deleted comment is removed). `via_agent` and `via_service_id` (migration
   `0034_comment_agent_source`) say a comment was written through an agent connection and which one (`user_services`,
   set null if the connection is deleted, while `via_agent` stays true); `resolved_via_agent` and
-  `resolved_via_service_id` do the same for resolving.
-- `notifications` — one user's mention or reply notice: user, project, `kind` (`mention|reply`), comment, actor,
+  `resolved_via_service_id` do the same for resolving. Migration `0035_better_comments` adds, on a thread's first
+  comment, `anchor` (`{x, y}`: a spot on the panel's artwork as fractions of its width and height), `timecode_ms` (a
+  moment of the chapter's video preview), `assignee_user_id`, and `artwork_asset_id` / `resolved_artwork_asset_id` (the
+  panel's active artwork when the thread was started and when it was resolved: before and after a fix; no foreign key,
+  the art may be deleted later); and `guest_name` / `share_id` for a comment left through a reader link (no author).
+- `share_links.allow_comments` (also `0035`) — whoever opens the link may comment under a name.
+- `notifications` — one user's notice: user, project, `kind` (`mention|reply|assigned|guest`: mentioned, a reply in
+  your thread, a thread assigned to you, a guest's comment through a reader link), comment, actor (none for a guest),
   `read_at`.
 - `story_revisions` — immutable once `locked_at` is set (analyses reference them); editing a locked revision forks a
   new one. Unique per `(project, revision_number)`.
