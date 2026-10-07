@@ -44,6 +44,8 @@ export type GenerationKind =
   | "continuity_check"
   /** The timing pass: chosen narration lines rewritten to a word budget, kept on the job until the user applies them. */
   | "narration_retime"
+  /** One step of the in-app project agent's thinking: its plan, or its next tool call. The API runs the tool. */
+  | "agent_step"
   /** A social title and caption for each item of the repurposing plan, written into settings.repurpose. */
   | "social_copy";
 

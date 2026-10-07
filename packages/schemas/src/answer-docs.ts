@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { AgentPlan, AgentStep } from "./agent.ts";
 import type { FieldDocs } from "./answer-format.ts";
 import { BibleExtraction, ContinuityReport } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
@@ -43,6 +44,8 @@ export const ANSWER_SCHEMAS = {
   StoryOutline,
   BibleExtraction,
   ContinuityReport,
+  AgentPlan,
+  AgentStep,
 } satisfies Record<string, z.ZodType>;
 
 /** Prefixes every key of a shared group, so a sub-object that appears in several answers is explained once. */
@@ -368,6 +371,41 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "Short thumbnail headlines (two to five words) to choose from.",
       ["HE NEVER LEFT", "THE LAST KEEPER"],
     ],
+  },
+
+  AgentPlan: {
+    "": "Your plan for the goal you were given, shown to the user to approve before anything runs.",
+    summary: [
+      "What you will do and what you will leave alone, in two or three sentences.",
+      "Read the project's health and narration findings, then rewrite the repeated narration lines. The art is left as it is.",
+    ],
+    steps: ["The steps in order, at most 20.", undefined],
+    "steps[].title": ["One step, as the user should read it.", "Find the repeated narration lines"],
+    "steps[].tools": [
+      "The tools this step will call, by the names in the catalogue.",
+      ["get_narration_qa", "propose_narration_fix"],
+    ],
+    estimatedCostUsd: ["What the plan will cost in provider credits, or null when nothing is spent.", 0.4],
+    risks: ["What could go wrong or needs the user's attention; empty when nothing does.", ""],
+  },
+
+  AgentStep: {
+    "": "Your next move toward the goal: one tool call, or done.",
+    thought: [
+      "Why this is the next step, in a sentence or two. The user sees it.",
+      "The plan starts from the health report.",
+    ],
+    action: [
+      "The one tool to call now, or null when you are done.",
+      { tool: "get_project_health", arguments: { projectId: "1b2c3d4e-0000-4000-8000-000000000000" } },
+    ],
+    "action.tool": ["A tool name from the catalogue, or describe_tools.", "get_project_health"],
+    "action.arguments": [
+      "The tool's arguments, matching its input schema.",
+      { projectId: "1b2c3d4e-0000-4000-8000-000000000000" },
+    ],
+    done: ["true when the goal is reached or cannot go further; then leave action null.", false],
+    summary: ["When done: what was done and what is left for the user. Otherwise empty.", ""],
   },
 
   SocialCopy: {

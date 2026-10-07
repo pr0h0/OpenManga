@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- In-app project agent (project → Agent): give it a goal and an optional budget; it writes a plan to approve or send
+  back, then works one tool call at a time through the same MCP tools, scopes and approvals as a connected agent, as
+  your In-app agent connection held to that project. Steps that spend or change wait for approval on the page or in
+  Agent access; every call and its result is shown. It stops at 25 steps or its budget, and runs in paste mode too.
 - Better comments:
   - **Pins:** a thread can point at a spot on the panel's artwork (*Pin a spot*), shown as a numbered pin.
   - **Video moments:** a thread can point at a moment of the chapter's video (*Comment* in the video preview, panel

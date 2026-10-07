@@ -114,6 +114,35 @@ it is stored. Use it as `Authorization: Bearer om_pat_…` with any MCP client t
 A PAT has no OAuth step-up: a missing scope is a structured `scope_missing` error, and you widen the connection in
 Agent access.
 
+## The in-app project agent
+
+Each project has an **Agent** page: a goal in words ("audit this project", "fix the repeated narration but leave the
+art", "finish what costs under $3"), an optional budget, and the text model it thinks with (one of your keys, or
+paste mode). It is an agent like any connected one, built in:
+
+- **Plan first.** The agent writes a plan (`agent-plan`, schema `AgentPlan`): the steps, the tools each calls, a cost
+  estimate and risks. Nothing runs until you approve it; **Revise the plan** sends it back with what to change.
+- **The same tools and approvals.** Each step (`agent-step`, schema `AgentStep`) picks one MCP tool call, or finishes
+  with a summary. The API runs the call through the same scope gate, project check and approval engine as an
+  external agent, as your **In-app agent** connection (kind `app`, made the first time you start a run, listed in
+  Agent access). It starts with every scope and `REQUIRE_APPROVAL`, so anything that spends or changes waits for
+  you, on the run's page or in Agent access; loosen it there like any connection. A run is held to its own project
+  whatever the connection allows, and never gets `create_project`, `duplicate_project`, `delete_project` or
+  `list_projects`. A denied step is recorded and the agent goes on without it.
+- **What it sees.** Each step is sent the goal, the approved plan, the tool catalogue (names and short descriptions),
+  the input schemas of the tools the plan names (it can ask for others with `describe_tools`, which costs nothing),
+  and the history of its calls with their results, cut short.
+- **Limits.** A run stops after 25 tool calls, and, with a budget, once the project has spent that much since the run
+  started (its own thinking included). The project budget applies as always. **Stop** cancels a run.
+- **Thinking is a job.** Every plan and step is a text job (`agent_step`) like any other: it records usage, runs as a
+  provider batch or in paste mode (the page links to the waiting answer), and shows on the Generation page. The API
+  moves a run on whenever its page reads it and on its 10-second timer.
+
+Runs are their starter's: other members of the project do not see them. The routes are
+`POST /api/projects/:projectId/agent-runs`, `GET /api/agent-runs/:id`, `POST /api/agent-runs/:id/plan`
+(`approve` or `revise` with `feedback`) and `POST /api/agent-runs/:id/cancel`. They are not reachable from MCP:
+an agent cannot start another.
+
 ## Local and private instances
 
 For a public ChatGPT connection (and any distributed plugin) the instance needs a stable **public HTTPS** URL:

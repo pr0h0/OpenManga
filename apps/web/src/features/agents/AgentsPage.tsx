@@ -35,7 +35,7 @@ type Info = {
 };
 type Connection = Omit<Grant, "projectIds"> & {
   id: string;
-  kind: "oauth" | "pat";
+  kind: "oauth" | "pat" | "app";
   clientId: string | null;
   createdAt: string;
   lastUsedAt: string | null;
@@ -410,7 +410,9 @@ function Connections() {
             <div>
               <div className="flex items-center gap-2 font-medium">
                 {c.name}
-                <span className="chip">{c.kind === "oauth" ? "ChatGPT / OAuth" : "Access token"}</span>
+                <span className="chip">
+                  {c.kind === "oauth" ? "ChatGPT / OAuth" : c.kind === "app" ? "In-app agent" : "Access token"}
+                </span>
                 {c.revokedAt ? (
                   <StatusChip status="cancelled" label="revoked" />
                 ) : (

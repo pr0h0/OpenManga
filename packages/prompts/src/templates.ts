@@ -1,4 +1,6 @@
 import {
+  AgentPlan,
+  AgentStep,
   BibleExtraction,
   ChapterOutline,
   ChapterPlan,
@@ -555,6 +557,101 @@ export const narrationRetimeV1 = defineTextTemplate<{
       {
         role: "user",
         content: untrusted("project_data", JSON.stringify({ language: i.language, style: i.style, lines: i.lines })),
+      },
+    ];
+  },
+});
+
+type AgentTool = { name: string; description: string };
+const AGENT_RULES = [
+  "You are the project agent inside OpenManga, a studio that turns stories into manga, webtoons and narrated videos. You act for the signed-in user in one project, through the same tools an external agent uses. Everything you do is recorded and shown to the user.",
+  "Stay inside the goal: do what it asks and nothing else. When the goal says to leave something alone, never call a tool that changes it. Never delete anything unless the goal asks for it.",
+  "Prefer reading before changing: look at the project's state with the read tools before you act on it.",
+  "Some calls wait for the user's approval. That is not an error; the next step is shown its outcome. When the user denies an action, respect it and do not try another way round it.",
+  "Respect the budget: work that spends provider credits (drawing, AI text, cloud voices) counts against it. When it is nearly spent, stop and say what is left.",
+];
+
+/** The agent's plan for a goal, approved by the user before anything runs. */
+export const agentPlanV1 = defineTextTemplate<{
+  goal: string;
+  project: Record<string, unknown>;
+  tools: AgentTool[];
+  budgetUsd: number | null;
+  /** The previous plan and what the user said about it, when they sent it back. */
+  revision?: { plan: unknown; feedback: string } | null;
+}>({
+  name: "agent-plan",
+  version: 1,
+  description: "The in-app project agent's plan for a goal, approved by the user before it runs.",
+  system: [
+    templateHeader("agent-plan", 1),
+    ...AGENT_RULES,
+    "Now write a plan: the steps you will take, in order, each naming the tools it will call (names from the catalogue only). Keep it as short as the goal allows. Estimate what it will spend, and name any risk the user should know about before approving.",
+    DATA_RULE,
+    schemaInstructions("AgentPlan", AgentPlan),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          untrusted("goal", i.goal),
+          untrusted("project_data", JSON.stringify({ project: i.project, budgetUsd: i.budgetUsd })),
+          untrusted("tool_catalogue", JSON.stringify(i.tools)),
+          i.revision ? untrusted("plan_feedback", JSON.stringify(i.revision)) : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ];
+  },
+});
+
+/** The agent's next step: one tool call, or done. */
+export const agentStepV1 = defineTextTemplate<{
+  goal: string;
+  projectId: string;
+  plan: unknown;
+  tools: AgentTool[];
+  /** Input schemas of the tools the plan names, and of any the agent asked about with describe_tools. */
+  schemas: Record<string, unknown>;
+  history: unknown[];
+  stepsLeft: number;
+  budgetLeftUsd: number | null;
+}>({
+  name: "agent-step",
+  version: 1,
+  description: "The in-app project agent's next move: one tool call, or done with a summary.",
+  system: [
+    templateHeader("agent-step", 1),
+    ...AGENT_RULES,
+    "You are carrying out the plan the user approved. Choose the single next tool call, with arguments that match its input schema, or finish. Every project tool takes this project's id. The history shows each call you made and what it returned (results may be cut short).",
+    "To see the input schema of a tool that is not listed in schemas, call the tool describe_tools with { names: [..] }; it costs nothing.",
+    "When the goal is reached, or nothing more can be done (a step was denied, the budget or the steps run out), set done=true, leave action null, and write a summary: what was done, what was not, and what the user may want to do next.",
+    DATA_RULE,
+    schemaInstructions("AgentStep", AgentStep),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          untrusted("goal", i.goal),
+          untrusted(
+            "run_state",
+            JSON.stringify({
+              projectId: i.projectId,
+              plan: i.plan,
+              stepsLeft: i.stepsLeft,
+              budgetLeftUsd: i.budgetLeftUsd,
+            }),
+          ),
+          untrusted("tool_catalogue", JSON.stringify(i.tools)),
+          untrusted("tool_schemas", JSON.stringify(i.schemas)),
+          untrusted("history", JSON.stringify(i.history)),
+        ].join("\n\n"),
       },
     ];
   },
@@ -1168,6 +1265,8 @@ export const TEXT_TEMPLATES = [
   narrationV3,
   narrationV4,
   panelCheckV1,
+  agentPlanV1,
+  agentStepV1,
   storyRewriteV1,
   youtubePackageV1,
   youtubePackageV2,

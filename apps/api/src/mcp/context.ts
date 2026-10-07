@@ -24,7 +24,7 @@ export type McpActor = {
   user: SessionUser;
   serviceId: string;
   serviceName: string;
-  serviceKind: "oauth" | "pat";
+  serviceKind: "oauth" | "pat" | "app";
   clientId: string | null;
   scopes: Set<McpScope>;
   /** Scopes the user said no to on a consent screen: a call needing one is refused without another step-up. */

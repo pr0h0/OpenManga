@@ -5,6 +5,7 @@ import { csrf, loadSession, rateLimit, securityHeaders, withDeps } from "./lib/m
 import { oauthRoutes } from "./mcp/oauth.ts";
 import { mcpRoutes } from "./mcp/server.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { agentRunRoutes } from "./routes/agent-runs.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { aiRoutes } from "./routes/ai.ts";
 import { assetRoutes, cdnRoutes } from "./routes/assets.ts";
@@ -120,6 +121,7 @@ export function createApp(deps: Deps) {
   api.route("/public", publicInviteRoutes);
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
+  api.route("/", agentRunRoutes);
   app.route("/api", api);
   return app;
 }

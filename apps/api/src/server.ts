@@ -2,6 +2,7 @@ import { getConfig } from "@openmanga/config";
 import { S3AssetStorage } from "@openmanga/storage";
 import { createApp } from "./app.ts";
 import { buildDeps } from "./deps.ts";
+import { tickAgentRuns } from "./lib/agent.ts";
 import { tickProductionRuns } from "./lib/production.ts";
 
 const config = getConfig();
@@ -29,7 +30,10 @@ if (storage instanceof S3AssetStorage) {
 }
 
 // Production runs move on when their jobs finish; checking every 10 s is plenty for work measured in minutes.
-const runTicker = setInterval(() => void tickProductionRuns(deps), 10_000);
+const runTicker = setInterval(() => {
+  void tickProductionRuns(deps);
+  void tickAgentRuns(deps).catch((e) => deps.logger.error("agent runs failed to advance", { error: String(e) }));
+}, 10_000);
 
 const shutdown = async (signal: string) => {
   deps.logger.info("api shutting down", { signal });

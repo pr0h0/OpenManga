@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import {
   BookText,
+  Bot,
   Clapperboard,
   Cpu,
   Download,
@@ -54,6 +55,7 @@ const NAV = [
   { to: "/projects/$projectId/pages", label: "Pages", icon: LayoutGrid },
   { to: "/projects/$projectId/storyboard", label: "Storyboard", icon: GalleryVertical },
   { to: "/projects/$projectId/comments", label: "Comments", icon: MessageSquare },
+  { to: "/projects/$projectId/agent", label: "Agent", icon: Bot },
   { to: "/projects/$projectId/generation", label: "Generation", icon: Cpu },
   { to: "/projects/$projectId/narration", label: "Narration", icon: Mic },
   { to: "/projects/$projectId/timing", label: "Timing", icon: Timer },
