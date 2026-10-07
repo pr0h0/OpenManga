@@ -918,6 +918,8 @@ type Qa = {
   stale?: boolean;
   model?: string;
   checkedAt?: string;
+  /** What the project's visual checks did about a failure: a re-roll queued, or why not. */
+  autoFix?: { jobId?: string; attempt?: number; skipped?: string };
 };
 
 /** Result of the automatic cast/headcount check, plus a manual "check now". */
@@ -933,7 +935,7 @@ function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasA
       ? "check outdated"
       : qa.verdict === "ok"
         ? "check OK"
-        : `${qa.problems[0] ?? "mismatch"}${qa.problems.length > 1 ? ` +${qa.problems.length - 1}` : ""}`;
+        : `${qa.problems[0] ?? "mismatch"}${qa.problems.length > 1 ? ` +${qa.problems.length - 1}` : ""}${qa.autoFix?.jobId ? " · redrawing" : ""}`;
   const cls =
     qa?.verdict === "mismatch" && !qa.stale
       ? "chip bg-amber-500/15 text-amber-700 dark:text-amber-300"
@@ -941,7 +943,7 @@ function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasA
         ? "chip bg-emerald-500/15 text-emerald-600"
         : "chip";
   const title = qa
-    ? `${qa.problems.length ? qa.problems.join("; ") : "Expected cast and headcount match"}${qa.notes ? `. ${qa.notes}` : ""}${qa.model ? ` — ${qa.model}` : ""}`
+    ? `${qa.problems.length ? qa.problems.join("; ") : "Expected cast and headcount match"}${qa.notes ? `. ${qa.notes}` : ""}${qa.model ? ` — ${qa.model}` : ""}${qa.autoFix?.jobId ? `. Redrawing automatically (re-roll ${qa.autoFix.attempt})` : qa.autoFix?.skipped ? `. Not redrawn: ${qa.autoFix.skipped}` : ""}`
     : "A vision model checks the artwork shows the expected characters, and finds their faces for bubble placement";
   // Never checked: a real button, so it reads as something to do rather than a status.
   if (!qa)

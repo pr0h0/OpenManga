@@ -213,3 +213,11 @@ export function tailTowardFace(b: Box, face: Box) {
   const y = Math.min(face.y + face.height, Math.max(face.y, cy));
   return { x: clamp01(x), y: clamp01(y) };
 }
+
+/** The faces (in page coordinates) that a bubble or caption hides by more than `share` of the face's area. */
+export function coveredFaces(faces: FaceBox[], boxes: Box[], share = 0.3): FaceBox[] {
+  const overlap = (a: Box, b: Box) =>
+    Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
+    Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  return faces.filter((f) => boxes.some((b) => overlap(f, b) > share * f.width * f.height));
+}

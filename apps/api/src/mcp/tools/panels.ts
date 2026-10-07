@@ -470,7 +470,7 @@ export const panelTools = [
     name: "run_panel_check",
     title: "Check panel artwork",
     description:
-      "check: queue a vision consistency check of a panel's active artwork (expected cast and headcount; a PanelCheck). describe_guide: queue a vision description of the panel's layout guide (pose, figure placement, framing); the job's result.description.pose.summary is one sentence you can put into the panel's composition with update_panel `spec` once the user agrees. Both are asynchronous: they return a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.",
+      "check: queue a vision check of a panel's active artwork (cast and headcount, plus the visual checks the project turned on in settings.consistencyCheck.checks: identity, outfit, props, location, expression, pose, framing, anatomy, stray text, style, palette, faces under lettering; a PanelCheck). A failed check set to regenerate re-rolls the panel by itself; panel.qa.autoFix says so. describe_guide: queue a vision description of the panel's layout guide (pose, figure placement, framing); the job's result.description.pose.summary is one sentence you can put into the panel's composition with update_panel `spec` once the user agrees. Both are asynchronous: they return a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.",
     input: z.object({
       panelId: Uuid,
       action: z.enum(["check", "describe_guide", "dismiss_review"]).default("check"),

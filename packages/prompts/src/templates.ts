@@ -4,6 +4,7 @@ import {
   ChapterPlan,
   ContinuityReport,
   ImageDescription,
+  type ModelAspect,
   NarrationDraft,
   NarrationDraftV2,
   NarrationFix,
@@ -454,29 +455,59 @@ export const narrationV4 = defineTextTemplate<Parameters<typeof narrationV3.buil
   },
 });
 
+/** What each aspect a panel check can be asked about means, for the model. */
+const ASPECT_RULES: Record<ModelAspect, string> = {
+  identity: "identity: each expected character's face, hair, eyes and build match their appearance notes.",
+  outfit: "outfit: each expected character wears the clothes in their appearance notes.",
+  props: "props: every listed prop is visible and looks as described.",
+  location: "location: the setting matches the described location.",
+  expression: "expression: the faces show the expressions asked for (and the panel's emotion).",
+  pose: "pose: the figures take the pose described in the strict pose guide.",
+  framing: "framing: the shot type and camera angle are the ones asked for.",
+  anatomy: "anatomy: no extra, missing, fused or broken limbs, hands or fingers; no melted faces.",
+  style: "style: the drawing follows the described art style, not a different one.",
+  palette: "palette: the colours follow the colour directive (for example black and white, or full colour).",
+};
+
 export const panelCheckV1 = defineTextTemplate<{
-  expected: { name: string; appearance: string }[];
+  expected: { name: string; appearance: string; expression?: string; pose?: string }[];
   beat: string;
+  /** The aspects to judge in `aspects`, with what they are judged against. */
+  checks?: ModelAspect[];
+  context?: {
+    props?: { name: string; description: unknown }[];
+    location?: { name: string; description: unknown } | null;
+    shotType?: string;
+    cameraAngle?: string;
+    emotion?: string;
+    poseGuide?: string;
+    style?: string;
+    colorDirective?: string;
+  };
 }>({
   name: "panel-check",
-  version: 2,
-  description: "Vision QA: does a generated panel show the expected cast at the expected headcount?",
+  version: 3,
+  description: "Vision QA: cast and headcount of a generated panel, and the visual aspects the project checks.",
   system: [
-    templateHeader("panel-check", 2),
+    templateHeader("panel-check", 3),
     "You are a strict continuity checker for comic panel artwork. You receive one panel image and the list of characters that should appear.",
     "Count every distinct person or humanoid figure visible (including background figures and partial bodies). Decide which expected characters are clearly present using their appearance notes. Anyone visible who is not one of the expected characters counts as unexpected.",
     "Report readableText=true only when the image contains legible letters or words (signs, speech bubbles, captions, UI).",
     "List every clearly visible face in faces: a tight box around the face (forehead to chin) in fractions of the image, measured from the top-left corner, named with the expected character it belongs to, or unknown.",
+    "When the request lists aspects to judge, answer each one in aspects as { ok, note }: ok=false only for a clear, visible mismatch, with a short note saying what is wrong; ok=true when it matches or cannot be judged from the image. Leave out aspects you were not asked about. The aspects:",
+    Object.values(ASPECT_RULES).join("\n"),
     "Be literal: judge only what is visible, not what the story implies.",
     DATA_RULE,
     schemaInstructions("PanelCheck", PanelCheck),
   ].join("\n\n"),
   build(i) {
+    const checks = i.checks ?? [];
+    const asked = checks.length ? `\nJudge these aspects: ${checks.join(", ")}.` : "";
     return [
       { role: "system", content: this.system },
       {
         role: "user",
-        content: `Expected characters (${i.expected.length}):\n${untrusted("project_data", JSON.stringify({ expected: i.expected, beat: i.beat }))}\nThe panel image is attached.`,
+        content: `Expected characters (${i.expected.length}):\n${untrusted("project_data", JSON.stringify({ expected: i.expected, beat: i.beat, ...(checks.length ? { context: i.context ?? {} } : {}) }))}${asked}\nThe panel image is attached.`,
       },
     ];
   },

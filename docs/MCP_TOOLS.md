@@ -1804,6 +1804,43 @@ Change a project's title, description, type, language, reading direction, colour
               "default": "",
               "type": "string",
               "maxLength": 200
+            },
+            "checks": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "enum": [
+                  "headcount",
+                  "identity",
+                  "outfit",
+                  "props",
+                  "location",
+                  "expression",
+                  "pose",
+                  "framing",
+                  "anatomy",
+                  "text",
+                  "style",
+                  "palette",
+                  "covered_faces"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "flag",
+                  "regenerate_once",
+                  "regenerate_budget"
+                ]
+              }
+            },
+            "autoFixBudgetUsd": {
+              "default": 2,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10000
             }
           }
         }
@@ -7119,7 +7156,7 @@ list: a panel's artwork versions. activate: make an earlier version the panel's 
 
 ### run_panel_check
 
-check: queue a vision consistency check of a panel's active artwork (expected cast and headcount; a PanelCheck). describe_guide: queue a vision description of the panel's layout guide (pose, figure placement, framing); the job's result.description.pose.summary is one sentence you can put into the panel's composition with update_panel `spec` once the user agrees. Both are asynchronous: they return a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.
+check: queue a vision check of a panel's active artwork (cast and headcount, plus the visual checks the project turned on in settings.consistencyCheck.checks: identity, outfit, props, location, expression, pose, framing, anatomy, stray text, style, palette, faces under lettering; a PanelCheck). A failed check set to regenerate re-rolls the panel by itself; panel.qa.autoFix says so. describe_guide: queue a vision description of the panel's layout guide (pose, figure placement, framing); the job's result.description.pose.summary is one sentence you can put into the panel's composition with update_panel `spec` once the user agrees. Both are asynchronous: they return a job; poll get_job. Manual mode shows you the image in get_manual_prompt and asks for the answer; a provider run spends credits (may need approval). dismiss_review instead clears the panel's review flag.
 
 - **Scopes:** `panels:write`, `generations:run` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)

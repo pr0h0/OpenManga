@@ -821,6 +821,62 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "faces[].width": ["Width of the face box, as a fraction of the image width.", 0.16],
     "faces[].height": ["Height of the face box, as a fraction of the image height.", 0.2],
     notes: ["Anything else worth noting. Saved with the check.", "Tomas is partly hidden behind the door."],
+    aspects: [
+      'One verdict per aspect the prompt lists under "Judge these aspects"; leave out every aspect it does not list. ' +
+        "A failed aspect is flagged on the panel, or redrawn when the project says so.",
+      {
+        outfit: { ok: false, note: "Ines wears a red coat, not the grey work jacket" },
+        anatomy: { ok: true, note: "" },
+      },
+    ],
+    "aspects.identity": [
+      "Faces, hair, eyes and build match each expected character's appearance notes.",
+      { ok: true, note: "" },
+    ],
+    "aspects.identity.ok": [
+      "false only for a clear, visible mismatch; true when it matches or cannot be judged.",
+      true,
+    ],
+    "aspects.identity.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.outfit": ["Each expected character wears the clothes in their appearance notes.", { ok: true, note: "" }],
+    "aspects.outfit.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.outfit.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.props": ["The listed props are visible and look as described.", { ok: true, note: "" }],
+    "aspects.props.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.props.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.location": ["The setting matches the described location.", { ok: true, note: "" }],
+    "aspects.location.ok": [
+      "false only for a clear, visible mismatch; true when it matches or cannot be judged.",
+      true,
+    ],
+    "aspects.location.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.expression": ["Faces show the expressions asked for, and the panel's emotion.", { ok: true, note: "" }],
+    "aspects.expression.ok": [
+      "false only for a clear, visible mismatch; true when it matches or cannot be judged.",
+      true,
+    ],
+    "aspects.expression.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.pose": ["The figures take the pose of the strict pose guide.", { ok: true, note: "" }],
+    "aspects.pose.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.pose.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.framing": ["The shot type and camera angle are the ones asked for.", { ok: true, note: "" }],
+    "aspects.framing.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.framing.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.anatomy": [
+      "No extra, missing, fused or broken limbs, hands or fingers, and no melted faces.",
+      { ok: true, note: "" },
+    ],
+    "aspects.anatomy.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.anatomy.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.style": ["The drawing follows the described art style.", { ok: true, note: "" }],
+    "aspects.style.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.style.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.palette": [
+      "The colours follow the colour directive (for example black and white, or full colour).",
+      { ok: true, note: "" },
+    ],
+    "aspects.palette.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.palette.note": ["What is wrong, in a few words; empty when ok.", ""],
   },
 
   ProjectConcept: {

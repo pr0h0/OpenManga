@@ -323,6 +323,43 @@ export const PronunciationEntry = z.object({
 });
 export type PronunciationEntry = z.infer<typeof PronunciationEntry>;
 
+/** What the panel check can look at. Headcount and stray text are counted; covered faces is measured against the lettering. */
+export const VISUAL_CHECKS = [
+  "headcount",
+  "identity",
+  "outfit",
+  "props",
+  "location",
+  "expression",
+  "pose",
+  "framing",
+  "anatomy",
+  "text",
+  "style",
+  "palette",
+  "covered_faces",
+] as const;
+export const VisualCheck = z.enum(VISUAL_CHECKS);
+export type VisualCheck = z.infer<typeof VisualCheck>;
+export const VisualCheckMode = z.enum(["off", "flag", "regenerate_once", "regenerate_budget"]);
+export type VisualCheckMode = z.infer<typeof VisualCheckMode>;
+/** The checks a project has unless it says otherwise: what the check always reported, plus identity and outfit. */
+export const VISUAL_CHECK_DEFAULTS: Record<VisualCheck, VisualCheckMode> = {
+  headcount: "flag",
+  identity: "flag",
+  outfit: "flag",
+  props: "off",
+  location: "off",
+  expression: "off",
+  pose: "off",
+  framing: "off",
+  anatomy: "off",
+  text: "flag",
+  style: "off",
+  palette: "off",
+  covered_faces: "flag",
+};
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
   pageWidth: z.number().int().min(256).max(8000).default(1600),
@@ -456,12 +493,18 @@ export const ProjectSettings = z.object({
     .optional(),
   /** The repurposing plan: Shorts, trailer, teaser, carousel and quote images, reviewed before rendering. */
   repurpose: z.object({ items: z.array(RepurposeItem).max(40).default([]) }).optional(),
-  /** Opt-in vision check of generated panels (expected cast and headcount). Needs one of your vision-capable keys. */
+  /**
+   * Opt-in vision check of generated panels. Needs one of your vision-capable keys. `checks` sets each aspect to
+   * off, flag only, regenerate once, or regenerate until it passes while the project's automatic re-rolls stay under
+   * `autoFixBudgetUsd`; aspects left out take their default (VISUAL_CHECK_DEFAULTS).
+   */
   consistencyCheck: z
     .object({
       enabled: z.boolean().default(false),
       credentialId: z.string().uuid().nullable().default(null),
       model: z.string().max(200).default(""),
+      checks: z.partialRecord(VisualCheck, VisualCheckMode).default({}),
+      autoFixBudgetUsd: z.number().min(0).max(10_000).default(2),
     })
     .optional(),
 });

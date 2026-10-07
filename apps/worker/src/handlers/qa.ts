@@ -3,17 +3,29 @@ import {
   characters,
   characterVersions,
   desc,
+  dialogueLines,
   eq,
   generationJobs,
   inArray,
+  narrationLines,
+  pages,
   panelSpecs,
   panels,
   projects,
   sql,
 } from "@openmanga/db";
+import { autoFixDecision, coveredFaces, facesOnPage, visualCheckModes } from "@openmanga/domain";
+import { computeCrop } from "@openmanga/image-utils";
 import { panelCheckV1 } from "@openmanga/prompts";
-import { CharacterBible, PanelCheck } from "@openmanga/schemas";
-import { credentialOwnedBy, resolveOutfits, wardrobeText } from "@openmanga/services";
+import { CharacterBible, MODEL_ASPECTS, type ModelAspect, PanelCheck, type VisualCheck } from "@openmanga/schemas";
+import {
+  type AiChoice,
+  credentialOwnedBy,
+  GenerationPlanner,
+  providerInfo,
+  resolveOutfits,
+  wardrobeText,
+} from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import { formatPrompt, isManual, manualProvider } from "../lib/manual-provider.ts";
 import { InputError, type ProjectJob, recordTextCalls } from "../lib/runner.ts";
@@ -113,9 +125,62 @@ export async function panelCheck(deps: WorkerDeps, job: ProjectJob) {
     const b = CharacterBible.parse(c.description);
     const w = worn.get(c.id);
     const wardrobe = w ? wardrobeText(w, [w.outfit], textOf(c.id)) : textOf(c.id) || b.wardrobe;
-    return { name: c.name, appearance: [b.hair, b.eyes, wardrobe, b.build].filter(Boolean).join("; ") };
+    const asked = spec?.spec.characters.find((x) => x.characterId === c.id);
+    return {
+      name: c.name,
+      appearance: [b.hair, b.eyes, wardrobe, b.build].filter(Boolean).join("; "),
+      ...(asked?.expression ? { expression: asked.expression } : {}),
+      ...(asked?.pose ? { pose: asked.pose } : {}),
+    };
   });
-  const messages: ChatMessage[] = [...panelCheckV1.build({ expected, beat: spec?.spec.beat ?? pn.storyBeat })];
+
+  // Which aspects to ask about: the ones the project turned on that this panel gives something to judge against.
+  const [proj] = await deps.db
+    .select({ settings: projects.settings })
+    .from(projects)
+    .where(eq(projects.id, job.projectId));
+  const cc = proj?.settings.consistencyCheck;
+  const modes = visualCheckModes(cc?.checks);
+  const planner = new GenerationPlanner(
+    deps.db,
+    deps.assets,
+    deps.jobs,
+    providerInfo(deps.config).image,
+    deps.resolver,
+  );
+  const input = await planner
+    .panelContext(panelId)
+    .then((x) => x.input)
+    .catch(() => null);
+  const poseGuide = input?.guide?.strength === "strict" ? (input.guide.pose ?? "").trim() : "";
+  const judgeable: Record<ModelAspect, boolean> = {
+    identity: expected.length > 0,
+    outfit: expected.length > 0,
+    props: Boolean(input?.props.length),
+    location: Boolean(input?.location),
+    expression: expected.some((e) => e.expression) || Boolean(spec?.spec.emotion),
+    pose: Boolean(poseGuide),
+    framing: Boolean(input),
+    anatomy: true,
+    style: Boolean(input),
+    palette: Boolean(input),
+  };
+  const checks = MODEL_ASPECTS.filter((a) => modes[a] !== "off" && judgeable[a]);
+  const context = input
+    ? {
+        props: input.props.map((x) => ({ name: x.name, description: x.description })),
+        location: input.location ? { name: input.location.name, description: input.location.description } : null,
+        shotType: input.panel.shotType,
+        cameraAngle: input.panel.cameraAngle ?? "",
+        emotion: spec?.spec.emotion ?? "",
+        poseGuide,
+        style: [input.style.presetName, input.style.customDescription].filter(Boolean).join("; "),
+        colorDirective: input.style.colorDirective,
+      }
+    : undefined;
+  const messages: ChatMessage[] = [
+    ...panelCheckV1.build({ expected, beat: spec?.spec.beat ?? pn.storyBeat, checks, context }),
+  ];
   messages[1] = { ...messages[1]!, images: [image] };
 
   // A keyless check is answered by a person looking at the same image, like every other manual text step.
@@ -142,29 +207,87 @@ export async function panelCheck(deps: WorkerDeps, job: ProjectJob) {
       .where(eq(generationJobs.id, job.id));
   const c = r.data;
   const expectedCount = expected.length;
-  const problems = [
-    c.missingCharacters.length ? `missing ${c.missingCharacters.join(", ")}` : "",
+  const failed = new Set<VisualCheck>();
+  const problems: string[] = [];
+  const flag = (k: VisualCheck, text: string) => {
+    if (!text || modes[k] === "off") return;
+    failed.add(k);
+    problems.push(text);
+  };
+  flag("headcount", c.missingCharacters.length ? `missing ${c.missingCharacters.join(", ")}` : "");
+  flag(
+    "headcount",
     c.unexpectedPeople > 0 ? `${c.unexpectedPeople} unexpected ${c.unexpectedPeople === 1 ? "person" : "people"}` : "",
+  );
+  flag(
+    "headcount",
     expectedCount > 0 && c.peopleCount !== expectedCount
       ? `${c.peopleCount} people drawn, ${expectedCount} expected`
       : "",
+  );
+  flag(
+    "headcount",
     expectedCount === 0 && c.peopleCount > 0 ? `${c.peopleCount} people drawn in a panel with no cast` : "",
-    // Panel art must carry no text: lettering is added on top, and model-drawn text is garbled.
-    c.readableText ? "readable text drawn in the art" : "",
-  ].filter(Boolean);
+  );
+  // Panel art must carry no text: lettering is added on top, and model-drawn text is garbled.
+  flag("text", c.readableText ? "readable text drawn in the art" : "");
+  for (const a of checks) {
+    const v = c.aspects[a];
+    if (v && !v.ok) flag(a, `${a}: ${v.note || "does not match"}`);
+  }
+  const hidden = modes.covered_faces === "off" ? [] : await facesUnderLettering(deps, pn, asset, c.faces);
+  flag("covered_faces", hidden.length ? `lettering covers ${hidden.join(", ")}'s face` : "");
+
+  // A failure set to regenerate re-rolls the panel, while it still shows the checked artwork and the check is on.
+  const [current] = await deps.db
+    .select({ active: panels.activeArtworkAssetId, pageId: panels.pageId })
+    .from(panels)
+    .where(eq(panels.id, panelId));
+  let autoFix: { jobId: string; attempt: number } | { skipped: string } | undefined;
+  if (failed.size && cc?.enabled && current?.active === assetId) {
+    // Counted from the job that drew the checked artwork, so a check run by hand continues the same count.
+    const sourceId = asset.generationJobId;
+    const [source] = sourceId
+      ? await deps.db
+          .select({ parameters: generationJobs.parameters })
+          .from(generationJobs)
+          .where(eq(generationJobs.id, sourceId))
+      : [];
+    const attempt = Number(source?.parameters.autoFix ?? 0);
+    const [spent] = await deps.db.execute<{ usd: number }>(sql`
+      select coalesce(sum(u.estimated_cost_usd), 0)::float as usd from ai_usage u
+      join generation_jobs j on j.id = u.generation_job_id
+      where j.project_id = ${job.projectId} and j.parameters ? 'autoFix'`);
+    const d = autoFixDecision({
+      failed: [...failed],
+      modes,
+      attempt,
+      spentUsd: spent?.usd ?? 0,
+      budgetUsd: cc.autoFixBudgetUsd ?? 2,
+    });
+    if (d.regenerate) {
+      const next = await planner.enqueuePanel(panelId, job.userId, {
+        priority: 6,
+        regenerationOf: assetId,
+        operation: "visual-check",
+        ai: (source?.parameters.ai as AiChoice | undefined) ?? null,
+        autoFix: attempt + 1,
+      });
+      autoFix = { jobId: next.id, attempt: attempt + 1 };
+    } else if (d.reason) autoFix = { skipped: d.reason };
+  }
   const qa = {
     verdict: problems.length ? "mismatch" : "ok",
     problems,
+    failed: [...failed],
+    checks,
+    ...(autoFix ? { autoFix } : {}),
     ...c,
     expected: expected.map((e) => e.name),
     assetId,
     checkedAt: new Date().toISOString(),
     model: r.calls.at(-1)?.model ?? provider.model,
   };
-  const [current] = await deps.db
-    .select({ active: panels.activeArtworkAssetId, pageId: panels.pageId })
-    .from(panels)
-    .where(eq(panels.id, panelId));
   // A newer artwork may have replaced the checked one meanwhile: keep the result but mark it stale.
   await deps.db
     .update(panels)
@@ -176,5 +299,33 @@ export async function panelCheck(deps: WorkerDeps, job: ProjectJob) {
     pageId: current?.pageId ?? pn.pageId,
     status: pn.status,
   });
-  return { verdict: qa.verdict, problems };
+  return { verdict: qa.verdict, problems, ...(autoFix ? { autoFix } : {}) };
+}
+
+/** Names of the faces in the checked artwork that the panel's bubbles or caption boxes hide. */
+async function facesUnderLettering(
+  deps: WorkerDeps,
+  pn: typeof panels.$inferSelect,
+  art: { width: number | null; height: number | null },
+  faces: PanelCheck["faces"],
+) {
+  if (!faces.length || !art.width || !art.height) return [];
+  const [pg] = await deps.db.select().from(pages).where(eq(pages.id, pn.pageId));
+  if (!pg) return [];
+  const boxes = [
+    ...(await deps.db.select({ b: dialogueLines.bubble }).from(dialogueLines).where(eq(dialogueLines.panelId, pn.id))),
+    ...(await deps.db.select({ b: narrationLines.box }).from(narrationLines).where(eq(narrationLines.panelId, pn.id))),
+  ]
+    .map((r) => r.b)
+    .filter((b): b is NonNullable<typeof b> => Boolean(b));
+  if (!boxes.length) return [];
+  const crop = computeCrop(
+    art.width,
+    art.height,
+    (pn.frame.width * pg.width) / (pn.frame.height * pg.height),
+    pn.imageTransform,
+  );
+  return coveredFaces(facesOnPage(faces, pn.frame, { width: art.width, height: art.height }, crop, 0), boxes).map(
+    (f) => f.name,
+  );
 }

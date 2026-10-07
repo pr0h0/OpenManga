@@ -48,9 +48,6 @@ Grouped by area, roughly most useful first within each.
   16:9 art can be widened to 9:16 instead of cropped.
 - **Comic effects as layers.** Speed and focus lines, impact flashes, screentone, rain, snow, dust, glow and a
   flashback tint drawn deterministically over the art, instead of paying to regenerate a panel for them.
-- **More visual checks.** Beyond headcount: identity, outfit, props, location, expression, pose against a strict guide,
-  framing, anatomy, stray text, style and palette drift, and covered faces; each set to flag only, regenerate once, or
-  regenerate up to a budget.
 - **Near-duplicate finder.** Spot near-identical panels, repeated poses and backgrounds, and duplicate thumbnail
   candidates, with local image embeddings.
 - **Model comparison.** Draw one panel with several models side by side, with checks, time and cost, then use the

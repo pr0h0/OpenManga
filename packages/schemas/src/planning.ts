@@ -281,6 +281,22 @@ export const YoutubePackage = z.object({
 export type YoutubePackage = z.infer<typeof YoutubePackage>;
 
 /** Vision check of a generated panel against the cast it was supposed to show. */
+/** The aspects of a panel check the vision model judges (headcount, stray text and covered faces are counted). */
+export const MODEL_ASPECTS = [
+  "identity",
+  "outfit",
+  "props",
+  "location",
+  "expression",
+  "pose",
+  "framing",
+  "anatomy",
+  "style",
+  "palette",
+] as const;
+export type ModelAspect = (typeof MODEL_ASPECTS)[number];
+const Aspect = z.object({ ok: z.boolean(), note: optStr }).optional();
+
 export const PanelCheck = z.object({
   peopleCount: z.number().int().min(0).max(100),
   expectedCharactersPresent: strList,
@@ -301,6 +317,22 @@ export const PanelCheck = z.object({
     .max(30)
     .optional()
     .default([]),
+  /** One verdict per aspect the request asked about; an aspect left out was not judged. */
+  aspects: z
+    .object({
+      identity: Aspect,
+      outfit: Aspect,
+      props: Aspect,
+      location: Aspect,
+      expression: Aspect,
+      pose: Aspect,
+      framing: Aspect,
+      anatomy: Aspect,
+      style: Aspect,
+      palette: Aspect,
+    })
+    .optional()
+    .default({}),
   notes: optStr,
 });
 export type PanelCheck = z.infer<typeof PanelCheck>;

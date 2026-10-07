@@ -598,6 +598,8 @@ export class GenerationPlanner {
        * while the batch submitter collects it. `batchMode` also keeps the queue reconciler from republishing it.
        */
       batchMode?: boolean;
+      /** The how-many-th automatic re-roll by the panel's visual checks this is. */
+      autoFix?: number;
     },
   ) {
     const run = await this.imageRun(opts.ai, userId);
@@ -635,6 +637,7 @@ export class GenerationPlanner {
             parentAssetId: ctx.panel.activeArtworkAssetId,
             ...(opts.allowOverBudget ? { allowOverBudget: true } : {}),
             ...(opts.batchMode ? { batchMode: true } : {}),
+            ...(opts.autoFix ? { autoFix: opts.autoFix } : {}),
           },
           input: {
             pageId: ctx.page.id,

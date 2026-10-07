@@ -464,6 +464,14 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         faces: names
           .filter((n) => !missing.includes(n))
           .map((name, i) => ({ name, x: 0.15 + i * 0.4, y: 0.3, width: 0.25, height: 0.3 })),
+        // Every aspect asked about passes, except one named by [[mock:qa-<aspect>]] in the beat.
+        aspects: Object.fromEntries(
+          (/Judge these aspects: ([a-z_, ]+)\./.exec(user)?.[1]?.split(", ") ?? []).map((a) =>
+            new RegExp(`\\[\\[mock:qa-${a}\\]\\]`).test(user)
+              ? [a, { ok: false, note: `mock ${a} mismatch` }]
+              : [a, { ok: true, note: "" }],
+          ),
+        ),
         notes: "mock check",
       };
     }

@@ -2464,6 +2464,182 @@ interface PanelCheck {
     height: number;
   }[];
   /**
+   * One verdict per aspect the prompt lists under "Judge these aspects"; leave out every aspect it does not list. A failed aspect is flagged on the panel, or redrawn when the project says so.
+   * Optional — defaults to {} when left out.
+   */
+  aspects?: {
+    /**
+     * Faces, hair, eyes and build match each expected character's appearance notes.
+     * Optional — may be left out.
+     */
+    identity?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * Each expected character wears the clothes in their appearance notes.
+     * Optional — may be left out.
+     */
+    outfit?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The listed props are visible and look as described.
+     * Optional — may be left out.
+     */
+    props?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The setting matches the described location.
+     * Optional — may be left out.
+     */
+    location?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * Faces show the expressions asked for, and the panel's emotion.
+     * Optional — may be left out.
+     */
+    expression?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The figures take the pose of the strict pose guide.
+     * Optional — may be left out.
+     */
+    pose?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The shot type and camera angle are the ones asked for.
+     * Optional — may be left out.
+     */
+    framing?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * No extra, missing, fused or broken limbs, hands or fingers, and no melted faces.
+     * Optional — may be left out.
+     */
+    anatomy?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The drawing follows the described art style.
+     * Optional — may be left out.
+     */
+    style?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The colours follow the colour directive (for example black and white, or full colour).
+     * Optional — may be left out.
+     */
+    palette?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+  };
+  /**
    * Anything else worth noting. Saved with the check.
    * Optional — defaults to "" when left out.
    * @example "Tomas is partly hidden behind the door."
@@ -2493,6 +2669,48 @@ interface PanelCheck {
       "height": 0.2
     }
   ],
+  "aspects": {
+    "identity": {
+      "ok": true,
+      "note": ""
+    },
+    "outfit": {
+      "ok": true,
+      "note": ""
+    },
+    "props": {
+      "ok": true,
+      "note": ""
+    },
+    "location": {
+      "ok": true,
+      "note": ""
+    },
+    "expression": {
+      "ok": true,
+      "note": ""
+    },
+    "pose": {
+      "ok": true,
+      "note": ""
+    },
+    "framing": {
+      "ok": true,
+      "note": ""
+    },
+    "anatomy": {
+      "ok": true,
+      "note": ""
+    },
+    "style": {
+      "ok": true,
+      "note": ""
+    },
+    "palette": {
+      "ok": true,
+      "note": ""
+    }
+  },
   "notes": "Tomas is partly hidden behind the door."
 }
 ```
