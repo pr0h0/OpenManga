@@ -222,6 +222,10 @@ export type ExportKind =
   | "carousel"
   /** Repurposing: one panel crop with a line of narration or dialogue set in the lettering font. */
   | "quote_image"
+  /** Print: a wraparound cover (back, spine sized to the page count and paper, front) with bleed, as a PDF. */
+  | "print_cover"
+  /** Print: the interior's preflight report (resolution, ink, fonts, safe area, page count), as JSON. */
+  | "print_preflight"
   | "project_import";
 
 export const exportJobs = pgTable(

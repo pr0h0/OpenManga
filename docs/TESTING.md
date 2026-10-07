@@ -82,6 +82,7 @@ community build: MinIO itself no longer publishes images).
 | `story-coverage.test.ts` | story coverage: refused before an applied analysis, paragraphs left out and told twice with their source spans and chapters, chapter shares, and the paste-mode questions held to every paragraph of their part |
 | `recovery.test.ts`, `tts-race.test.ts` | job redelivery, the stalled-job sweep, a dead batch submitter, permanent project deletion, a segment deleted while voiced |
 | `continuity.test.ts`, `outfits.test.ts`, `letter-from-plan.test.ts`, `upload-art.test.ts`, `vertical.test.ts`, `vision.test.ts` | scene continuity, outfits over a chapter, lettering from the plan, uploaded artwork, vertical strips, image descriptions and character versions |
+| `print.test.ts` | the print workflow: a PDF interior with a contents page, blank versos and book metadata; the preflight report over the same pages and the CMYK soft proof; the cover check and the rendered wraparound cover |
 
 ## Mock scenarios
 
@@ -133,7 +134,7 @@ Playwright: `./scripts/e2e.sh http://nginx story.spec.ts -g "story bible"` runs 
 
 | Spec | Covers |
 | --- | --- |
-| `studio.spec.ts` | register → logout → login by username → wizard (analysis, review, apply) → reference generation and approval → chapter planning → page editor generation and a lettering bubble → every screen renders → generation inspector → page export completes |
+| `studio.spec.ts` | register → logout → login by username → wizard (analysis, review, apply) → reference generation and approval → chapter planning → page editor generation and a lettering bubble → every screen renders → generation inspector → page export completes → print preflight report with its soft proof |
 | `storage.spec.ts` | as the e2e administrator: an approve-mode storage policy with a size limit below what is stored puts an undismissable warning on every page; *Review* opens Admin → Storage; turning the policy off clears it |
 | `story.spec.ts` | story bible (a fixed rule and a character state added, filters, *Extract from story* with one proposed entry applied, a continuity check finding a contradiction, the rule checks listing each rule's verdict); story coverage run from the Story page; narration QA (rule checks, the AI check, *Fix selected* shown as a diff and applied, the Density tab); the Timing page's shots and lengths with a hold fix applied; a pronunciation entry marking the affected narration audio outdated |
 | `video.spec.ts` | Repurpose (suggested plan, a carousel pick adjusted, titles and captions written, the carousel ZIP rendered and complete on Exports); the 9:16 Shorts suggestion; a shot's camera move and *leave out*; a layout guide drawn, saved and its pose typed; a video intro card; a reader link's chapter played as a video preview |

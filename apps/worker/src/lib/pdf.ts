@@ -5,14 +5,26 @@ import { sharp } from "@openmanga/image-utils";
 export type Box = { x: number; y: number; width: number; height: number };
 
 export type ImagePage = {
-  /** Any PNG; transparency is flattened onto white. */
-  png: Uint8Array;
+  /** Any PNG; transparency is flattened onto white. None for a blank page. */
+  png?: Uint8Array;
   width: number;
   height: number;
   /** Where the image is drawn on the page. */
   image: Box;
   trimBox?: Box;
   bleedBox?: Box;
+};
+
+/** The document information and reading settings a PDF carries. */
+export type PdfMeta = {
+  title: string;
+  rtl: boolean;
+  author?: string;
+  subject?: string;
+  /** Comma-separated, as PDF readers show them. */
+  keywords?: string;
+  /** BCP 47, e.g. "en" or "ja". */
+  language?: string;
 };
 
 /**
@@ -29,10 +41,10 @@ export class PdfWriter {
 
   private constructor(
     private readonly file: FileHandle,
-    private readonly meta: { title: string; rtl: boolean },
+    private readonly meta: PdfMeta,
   ) {}
 
-  static async create(path: string, meta: { title: string; rtl: boolean }) {
+  static async create(path: string, meta: PdfMeta) {
     const w = new PdfWriter(await open(path, "w"), meta);
     // The binary comment marks the file as binary for transfer tools, as the spec recommends.
     await w.write(new Uint8Array([...ascii("%PDF-1.7\n%"), 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
@@ -40,6 +52,13 @@ export class PdfWriter {
   }
 
   async addPage(p: ImagePage) {
+    const box = (name: string, r?: Box) =>
+      r ? ` /${name} [${num(r.x)} ${num(r.y)} ${num(r.x + r.width)} ${num(r.y + r.height)}]` : "";
+    const boxes = `/MediaBox [0 0 ${num(p.width)} ${num(p.height)}]${box("TrimBox", p.trimBox)}${box("BleedBox", p.bleedBox)}`;
+    if (!p.png) {
+      this.pages.push(await this.object(`<< /Type /Page /Parent 2 0 R ${boxes} /Resources << >> >>`));
+      return;
+    }
     const img = await pngPixels(p.png);
     const colors = img.colorType === 2 ? 3 : 1;
     const image = await this.object(
@@ -49,11 +68,9 @@ export class PdfWriter {
     const b = p.image;
     const draw = ascii(`q ${num(b.width)} 0 0 ${num(b.height)} ${num(b.x)} ${num(b.y)} cm /Im0 Do Q`);
     const content = await this.object(`<< /Length ${draw.byteLength} >>`, [draw]);
-    const box = (name: string, r?: Box) =>
-      r ? ` /${name} [${num(r.x)} ${num(r.y)} ${num(r.x + r.width)} ${num(r.y + r.height)}]` : "";
     this.pages.push(
       await this.object(
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(p.width)} ${num(p.height)}]${box("TrimBox", p.trimBox)}${box("BleedBox", p.bleedBox)} /Resources << /XObject << /Im0 ${image} 0 R >> >> /Contents ${content} 0 R >>`,
+        `<< /Type /Page /Parent 2 0 R ${boxes} /Resources << /XObject << /Im0 ${image} 0 R >> >> /Contents ${content} 0 R >>`,
       ),
     );
   }
@@ -65,11 +82,14 @@ export class PdfWriter {
       undefined,
       2,
     );
-    const prefs = this.meta.rtl ? " /ViewerPreferences << /Direction /R2L >>" : "";
-    await this.object(`<< /Type /Catalog /Pages 2 0 R${prefs} >>`, undefined, 1);
+    const m = this.meta;
+    const prefs = m.rtl ? " /ViewerPreferences << /Direction /R2L >>" : "";
+    const lang = m.language ? ` /Lang ${pdfText(m.language)}` : "";
+    await this.object(`<< /Type /Catalog /Pages 2 0 R${prefs}${lang} >>`, undefined, 1);
     const now = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    const opt = (key: string, v?: string) => (v ? ` /${key} ${pdfText(v)}` : "");
     const info = await this.object(
-      `<< /Title ${pdfText(this.meta.title)} /Creator (OpenManga) /Producer (OpenManga) /CreationDate (D:${now}Z) >>`,
+      `<< /Title ${pdfText(m.title)}${opt("Author", m.author)}${opt("Subject", m.subject)}${opt("Keywords", m.keywords)} /Creator (OpenManga) /Producer (OpenManga) /CreationDate (D:${now}Z) >>`,
     );
     const xref = this.offset;
     const rows = this.offsets.slice(1).map((o) => `${String(o).padStart(10, "0")} 00000 n \n`);

@@ -114,8 +114,6 @@ Grouped by area, roughly most useful first within each.
 - **Layered exports.** A layered PSD per page (each panel's art and frame, dialogue, narration, effects, guides), SVG
   lettering, text-free pages, and a ZIP of separated art and lettering with a placement manifest, for finishing in
   Photoshop or Clip Studio.
-- **Print workflow.** A cover builder with spine width, bleed and safe-zone and DPI checks, a CMYK soft proof, a font
-  embedding report, ink density, blank pages for recto and verso, a table of contents and book metadata.
 
 ### Import, agents and automation
 

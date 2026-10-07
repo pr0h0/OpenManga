@@ -16,7 +16,7 @@ import {
   timingSettings,
   type VideoAspect,
 } from "@openmanga/domain";
-import { computeCrop } from "@openmanga/image-utils";
+import { computeCrop, softProof } from "@openmanga/image-utils";
 import { NarrationLineVideo, type ProjectSettings, ShotVideo } from "@openmanga/schemas";
 import {
   type BrandedProject,
@@ -352,19 +352,26 @@ export async function shortsCandidates(
 doc({
   method: "GET",
   path: "/api/pages/:id/render.png",
-  summary: "The lettered page as a PNG (deterministic composition), for previews. ?width= up to 1600 (default 1200).",
+  summary:
+    "The lettered page as a PNG (deterministic composition), for previews. ?width= up to 1600 (default 1200). ?proof=cmyk soft-proofs it through a generic CMYK press profile and back (colours a press cannot print shift as they will on paper); ?proof=grey as a black-ink interior prints it.",
   tag: "pages",
 });
 videoRoutes.get("/pages/:id/render.png", async (c) => {
   const id = uuidParam(c, "id");
   const project = await entityAccess(c, "page", id, "read");
-  const { width } = query(c, z.object({ width: z.coerce.number().int().min(200).max(1600).default(1200) }));
+  const { width, proof } = query(
+    c,
+    z.object({
+      width: z.coerce.number().int().min(200).max(1600).default(1200),
+      proof: z.enum(["cmyk", "grey"]).optional(),
+    }),
+  );
   const { db, assets: assetSvc } = c.get("deps");
   const [page] = await db.select({ width: pages.width }).from(pages).where(eq(pages.id, id));
   if (!page) throw notFound("Page");
   const render = await loadRenderPage(db, assetSvc.storage, id, project.readingDirection);
   const img = await renderPageImage(render, "png", { scale: Math.min(1, width / page.width) });
-  return new Response(img.data, {
+  return new Response(proof ? await softProof(img.data, proof) : img.data, {
     headers: { "content-type": "image/png", "cache-control": "private, max-age=30" },
   });
 });
