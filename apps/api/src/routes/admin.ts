@@ -448,7 +448,9 @@ adminRoutes.put("/storage/policy", async (c) => {
     metadata: value,
     requestId: c.get("requestId"),
   });
-  return c.json(await storageView(deps));
+  // The preview is the plan made before the deletion was queued: read afterwards, a quick worker may already have
+  // deleted the files, and the answer would say nothing was due.
+  return c.json({ ...(await storageView(deps)), preview: plan ? pendingSummary(plan) : null });
 });
 
 async function queueStorageApply(deps: AppEnv["Variables"]["deps"], userId: string) {
