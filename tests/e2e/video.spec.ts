@@ -164,12 +164,16 @@ test("reader link: the shared chapter plays as a video preview, with subtitles o
   const subtitles = reader.getByRole("button", { name: "Subtitles" });
   await expect(subtitles).toHaveAttribute("aria-pressed", "true");
   const onPicture = reader.locator("[data-subtitle]");
-  await expect(onPicture).toHaveText(/\w{3,}/, { timeout: 15_000 });
+  // A headless browser has no audio output, so its clock may not move: step to a narrated shot instead of waiting.
+  await reader.getByRole("button", { name: "Pause", exact: true }).first().click();
+  for (let i = 0; i < 8 && !(await onPicture.count()); i++)
+    await reader.getByRole("button", { name: "Next shot" }).click();
+  await expect(onPicture).toHaveText(/\w{3,}/);
   await subtitles.click();
   await expect(subtitles).toHaveAttribute("aria-pressed", "false");
   await expect(onPicture).toHaveCount(0);
   await subtitles.click();
-  await expect(onPicture).toHaveText(/\w{3,}/, { timeout: 15_000 });
+  await expect(onPicture).toHaveText(/\w{3,}/);
   await anon.close();
 });
 
