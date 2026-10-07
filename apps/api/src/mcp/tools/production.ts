@@ -54,6 +54,32 @@ const start = (update: boolean) => async (a: StartArgs, ctx: ToolContext) => {
 
 export const productionTools = [
   defineMcpTool({
+    name: "estimate_production_run",
+    title: "Price a production run",
+    description:
+      "What start_production_run (update=false) or update_production (update=true) with the same options would still do and cost, before anything is spent: per chapter the plan, prompts, panels to draw, narration and audio (local voice, free), plus the analysis, references, thumbnail and YouTube text; priced with the chosen models' rates and this server's average usage per job, split into what runs now and what waits in a half-price provider batch, with the disk the new files will take and the budget left. Chapters not planned yet are estimates (`estimated`). Read-only; nothing is queued. Show the user the total before starting a run.",
+    input: z.object({ ...RunOptions, update: z.boolean().default(false) }),
+    output: Passthrough,
+    scopes: ["projects:read", "generations:run"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["POST /api/projects/:projectId/production-runs/estimate"],
+    actionKeys: [],
+    handler: async (a, ctx) => ({
+      data: await ctx.invoke("POST", `/api/projects/${a.projectId}/production-runs/estimate`, {
+        body: {
+          reviewGates: a.reviewGates,
+          preparePrompts: a.preparePrompts,
+          render: a.render,
+          youtube: a.youtube,
+          update: a.update,
+          ai: { text: (await restAi(ctx, a.ai?.text)) ?? null, image: (await restAi(ctx, a.ai?.image)) ?? null },
+        },
+      }),
+    }),
+  }),
+
+  defineMcpTool({
     name: "get_staleness",
     title: "What is out of date",
     description:
@@ -160,7 +186,7 @@ export const productionTools = [
     name: "start_production_run",
     title: "Start a production run",
     description:
-      "Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Follow it with get_production_run, and continue_production_run at each review.",
+      "Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Price it first with estimate_production_run. Follow it with get_production_run, and continue_production_run at each review.",
     input: z.object(RunOptions),
     output: z.object({ run: Passthrough }).passthrough(),
     scopes: ["generations:run"],

@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { AppEnv, Deps } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { AiChoiceInput } from "../lib/ai.ts";
+import { costPlan } from "../lib/cost-plan.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { advanceRun, cancelRunWork, FAILED_CHECK, initialSteps, pendingWork, STEP_LABELS } from "../lib/production.ts";
@@ -275,6 +276,30 @@ productionRoutes.post("/projects/:projectId/keep-current", async (c) => {
     })
     .where(eq(projects.id, p.id));
   return c.json({ ok: true });
+});
+
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/production-runs/estimate",
+  summary:
+    "Cost plan: what a production run with this body would still do and cost before it starts, chapter by chapter (plans, prompts, panels to draw, narration, local-voice audio), plus the project's analysis, references, thumbnail and YouTube text; priced with the chosen models and this server's average usage per job, split into what runs now and what waits in a half-price batch, with the disk the new files will take and how it compares with the budget cap. Chapters not planned yet are estimated and marked `estimated`. Nothing is queued.",
+  tag: "production",
+  body: StartRun,
+});
+productionRoutes.post("/projects/:projectId/production-runs/estimate", async (c) => {
+  // Priced for whoever would start the run: their keys, and the bulk estimates they could request.
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "generate");
+  const input = await body(c, StartRun);
+  return c.json(
+    await costPlan(c, p, {
+      reviewGates: input.reviewGates,
+      preparePrompts: input.preparePrompts,
+      render: input.render,
+      youtube: input.youtube ?? p.settings.format === "film",
+      ai: input.ai,
+      update: input.update,
+    }),
+  );
 });
 
 doc({

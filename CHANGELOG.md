@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Production cost planner: the *Produce* and *Update production* dialogs price what the run would still do before it
+  starts, chapter by chapter (plans, prompts, panels to draw, narration, local-voice audio) plus the analysis,
+  references, thumbnail and YouTube text, with the chosen models and this server's own average usage per job. They
+  show what runs now and what waits for a half-price batch, the disk the new files will take, the budget left, and a
+  warning when the run would reach the cap. Chapters not planned yet are estimated and marked.
+  `POST /api/projects/:projectId/production-runs/estimate`, MCP `estimate_production_run`.
+
 ## [0.15.0] — 2026-10-05
 
 Upgrading: pull the new images and restart. One migration (`0034_comment_agent_source`) runs on start through the

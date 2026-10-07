@@ -15,8 +15,6 @@ Grouped by area, roughly most useful first within each.
   artwork, so it is clear what changed and what an update would redo.
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Fork a chapter.** Keep a chapter's current production as one version and re-plan a copy, once snapshots exist.
-- **Production cost planner.** Before a run spends anything: text, references, panels, checks and thumbnail priced
-  per chapter with the chosen models, what goes now and what waits for a batch, and the storage it will take.
 
 ### Canon and continuity
 
