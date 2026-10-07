@@ -26,6 +26,7 @@ import {
 import { textBatchSubmit } from "./handlers/text-batch.ts";
 import { TEXT_HANDLERS } from "./handlers/text-handlers.ts";
 import { processTts } from "./handlers/tts.ts";
+import { youtubeBackfill, youtubeHourly } from "./handlers/youtube.ts";
 import { inProject, type ProjectJob, runGenerationJob } from "./lib/runner.ts";
 
 type ProjectHandler = (deps: WorkerDeps, job: ProjectJob) => Promise<Record<string, unknown>>;
@@ -84,10 +85,17 @@ export function assetProcessor(deps: WorkerDeps) {
     if (job.name === "prompt_ref") await deps.assets.ensurePromptReference(asset, deps.assets.referenceParams());
   };
 }
-/** The maintenance queue hosts two schedulers: the hourly cleanup, and the provider-batch poll. */
+/**
+ * The maintenance queue hosts three schedulers: the hourly cleanup, the provider-batch poll and the hourly YouTube
+ * stats pass; plus one-off storage approvals and reach-report backfills.
+ */
 export const maintenanceProcessor = (deps: WorkerDeps) => (job: Job) =>
   job.name === "batch-poll"
     ? pollProviderBatches(deps)
     : job.name === "storage-apply"
       ? enforceStoragePolicy(deps, String(job.data.approvedBy))
-      : runMaintenance(deps);
+      : job.name === "youtube"
+        ? youtubeHourly(deps)
+        : job.name === "youtube-reports"
+          ? youtubeBackfill(deps, String(job.data.connectionId))
+          : runMaintenance(deps);

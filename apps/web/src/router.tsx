@@ -360,6 +360,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/youtube",
+    staticData: { title: "YouTube stats" },
+    component: lazyRouteComponent(() => import("./features/youtube/YoutubePage.tsx"), "YoutubePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/describe",
     staticData: { title: "Describe image" },
     component: lazyRouteComponent(() => import("./features/vision/DescribeImagePage.tsx"), "DescribeImagePage"),

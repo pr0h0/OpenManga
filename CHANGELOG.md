@@ -20,6 +20,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   project (its same-named cast becomes linked), split a long story into episodes at its chapter headings, and find
   every appearance of a library character across the series. MCP `list_series`, `get_series`, `manage_series`.
   See docs/SERIES.md.
+- YouTube stats per project. Connect YouTube channels (each its own read-only OAuth connection, `youtube.readonly` and
+  `yt-analytics.readonly`, with the instance's own Google OAuth client: `GOOGLE_OAUTH_CLIENT_ID`,
+  `GOOGLE_OAUTH_CLIENT_SECRET`, optional `YOUTUBE_API_KEY`; setup in docs/DEPLOYMENT.md) and link a project's
+  published film and Shorts from a channel's uploads or by pasting any YouTube link form, each naming the export or
+  Short it came from. The new **YouTube stats** page shows totals across videos and channels, film against Shorts, the
+  first-48-hours curve of each release, and per video a daily chart from the Analytics API (queried when opened,
+  15-minute cache) with traffic source, country, device and Shorts-or-long-form splits, the live counter for the days
+  Analytics has not reached, and thumbnail impressions and CTR from Reporting API reach reports (jobs created on
+  connect, daily reports reduced to the rows of linked videos). An hourly worker pass snapshots public counters
+  (hourly for a video's first 48 hours, then daily for channels not connected) and applies retention under YouTube's
+  developer policies (unauthorized statistics kept 30 days; a channel's data deleted when it disconnects, its grant is
+  revoked, or its authorization is not re-confirmed for 30 days; see docs/SECURITY.md). Channel tokens are encrypted
+  and rotated with the provider keys. MCP: `get_youtube_stats` under the new `stats:read` scope. Under
+  `AI_MOCK_MODE` a fake Google, consent screen included, runs it all locally. Migration `0038`.
 - Better comments:
   - **Pins:** a thread can point at a spot on the panel's artwork (*Pin a spot*), shown as a numbered pin.
   - **Video moments:** a thread can point at a moment of the chapter's video (*Comment* in the video preview, panel

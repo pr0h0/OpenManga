@@ -88,11 +88,11 @@ Grouped by area, roughly most useful first within each.
 
 ### Publishing and repurposing
 
-- **Publish to YouTube.** Connect a channel with OAuth and upload the YouTube package's video, title, description,
+- **Publish to YouTube.** Upload the YouTube package's video, title, description,
   tags, chapters, subtitles and thumbnail as a resumable upload: private by default (never public unless chosen),
   optional scheduling, playlist, language and category, the altered-or-synthetic content declaration, processing
-  status, retry without re-rendering, and the video id kept on the export. (Unaudited API projects can only upload
-  privately.)
+  status, retry without re-rendering, and the video id kept on the export. It adds the upload scope to the channel
+  connections YouTube stats already make. (Unaudited API projects can only upload privately.)
 - **Export targets.** Presets that check a platform's limits before export (YouTube, Shorts, TikTok, Reels, carousels,
   WEBTOON, Tapas, KDP, generic PDF): size, aspect, file size, strip height, page count, safe areas, naming, codecs.
 - **Public series reader.** An optional public or unlisted series page: cover, description, chapters with publish and
@@ -139,4 +139,4 @@ Grouped by area, roughly most useful first within each.
 | **Converting comic projects to film** | A conversion means re-planning and regenerating every panel at a new aspect, i.e. a fresh project with extra steps. | — |
 | **6-panel and larger grid layouts** | Pages are capped at 5 panels by product decision: legibility and fewer blank strips. | The cap changes. |
 | **Managed hosting, SLAs, provider billing** | Out of scope for a self-hosted project. | — |
-| **Telemetry or analytics** | There is none, and there will not be. Outbound requests go only to the AI providers you configure, the one-time model download for local TTS, and the client metadata document an MCP agent names when it connects by URL. | — |
+| **Telemetry or analytics** | There is none, and there will not be. Outbound requests go only to the AI providers you configure, the one-time model download for local TTS, and the client metadata document an MCP agent names when it connects by URL. YouTube stats add Google's APIs, only once an administrator sets up an OAuth client, and only for the channels you connect yourself and the videos you link: they read your own videos' numbers, and nothing about you or the app is sent anywhere. Publishing to YouTube (above) would use the same connection. | — |

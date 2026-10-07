@@ -22,6 +22,7 @@ import {
   Settings,
   Share2,
   Timer,
+  TrendingUp,
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -63,6 +64,7 @@ const NAV = [
   { to: "/projects/$projectId/assets", label: "Assets", icon: Images },
   { to: "/projects/$projectId/exports", label: "Exports", icon: Download },
   { to: "/projects/$projectId/repurpose", label: "Repurpose", icon: Share2 },
+  { to: "/projects/$projectId/youtube", label: "YouTube stats", icon: TrendingUp },
   { to: "/projects/$projectId/usage", label: "Cost", icon: PiggyBank },
   { to: "/projects/$projectId/settings", label: "Settings", icon: Settings },
 ] as const;

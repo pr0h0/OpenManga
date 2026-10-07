@@ -235,7 +235,7 @@ request waits per identical call — retrying, even simultaneously, returns the 
 
 ## Tools
 
-Seventy-five task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
+Seventy-six task-shaped tools, grouped by area; the full catalogue with schemas is [MCP_TOOLS](MCP_TOOLS.md).
 There is deliberately no generic "call any endpoint" tool.
 
 What a connection is shown depends on it. A personal access token lists only the tools it can ever call (a
@@ -246,7 +246,7 @@ connection sees every tool, because its scopes can grow by step-up and a client 
 | Area | Tools |
 | --- | --- |
 | System | `get_server_info`, `get_answer_schema`, `describe_api`, `get_approval_request` |
-| Projects | `list_projects`, `get_project`, `create_project`, `update_project`, `set_project_status`, `delete_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_project_usage` |
+| Projects | `list_projects`, `get_project`, `create_project`, `update_project`, `set_project_status`, `delete_project`, `duplicate_project`, `search_project`, `get_project_checks`, `get_project_usage`, `get_youtube_stats` (linked videos' counters, totals and first-48-hours curves, or one video's daily history; connecting channels and linking videos are in the app) |
 | Story | `get_story`, `get_story_revision`, `save_story_revision`, `run_story_analysis`, `get_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `get_story_coverage`, `run_story_coverage` |
 | Story bible | `get_story_bible` (with `chapterId`, what that chapter's planning and narration receive), `manage_story_bible` (facts and character states), `run_bible_extraction`, `apply_bible_extraction`, `run_continuity_check` (estimate first, then `confirm`), `get_continuity_report` |
 | Cast, world, style | `list_library`, `get_library_item`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |

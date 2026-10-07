@@ -32,6 +32,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
+| `stats:read` | Read the YouTube stats of videos linked to your projects. | `get_youtube_stats` |
 
 `get_server_info`, `get_answer_schema`, `describe_api` and `get_approval_request` (for the connection's own
 requests) need no scope.
@@ -55,6 +56,7 @@ requests) need no scope.
 | [`search_project`](#search_project) | read | `projects:read` |
 | [`get_project_checks`](#get_project_checks) | read | `projects:read` |
 | [`get_project_usage`](#get_project_usage) | read | `usage:read` |
+| [`get_youtube_stats`](#get_youtube_stats) | read | `stats:read` |
 | [`list_series`](#list_series) | read | `projects:read` |
 | [`get_series`](#get_series) | read | `projects:read` |
 | [`manage_series`](#manage_series) | sensitive-write | `projects:write` |
@@ -2203,6 +2205,56 @@ A project's AI usage and estimated cost breakdown (by kind, provider and model) 
   "type": "object",
   "properties": {
     "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_youtube_stats
+
+How the project's published videos do on YouTube. Without linkId: every linked video (film or short, its channel, the export or Short it came from) with current views, likes and comments, total thumbnail impressions on connected channels, its first-48-hours curve (views at each hour since publishing, null where nothing was measured), and totals across videos, film against Shorts and per channel. With linkId (an id from that list): the video's daily history (`source` analytics for a connected channel: views, watch minutes, average view duration and percentage, subscribers gained and lost, likes, comments, shares, plus traffic source, country, device and content-type splits, and `tail` the views since the last Analytics day; `source` snapshots otherwise), and daily impressions and click-through rate from the reach reports. Linking videos and connecting channels happen in the app. Read-only.
+
+- **Scopes:** `stats:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/youtube`, `GET /api/projects/:projectId/youtube/links/:linkId/history`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "linkId": {
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"

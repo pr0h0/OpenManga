@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } f
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { AppConfig } from "@openmanga/config";
-import { and, type Database, type DbOrTx, desc, eq, providerCredentials, sql } from "@openmanga/db";
+import { and, type Database, type DbOrTx, desc, eq, providerCredentials, sql, youtubeChannels } from "@openmanga/db";
 import { type AiCapability, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 
@@ -133,6 +133,28 @@ export async function rotateCredentials(
       }
     }
   }
+  // YouTube channel tokens are encrypted with the same ring. A stale access token is simply dropped (it is refreshed
+  // on next use); the refresh token is re-encrypted with the same compare-and-set.
+  await db.execute(
+    sql`update youtube_channels set encrypted_access_token = null where encrypted_access_token not like ${`v2.${ring.primary.id}.%`}`,
+  );
+  const yt = await db
+    .select({ id: youtubeChannels.id, token: youtubeChannels.encryptedRefreshToken })
+    .from(youtubeChannels)
+    .where(sql`${youtubeChannels.encryptedRefreshToken} not like ${`v2.${ring.primary.id}.%`}`);
+  for (const r of yt) {
+    try {
+      const done = await db
+        .update(youtubeChannels)
+        .set({ encryptedRefreshToken: ring.encrypt(ring.decrypt(r.token)) })
+        .where(and(eq(youtubeChannels.id, r.id), eq(youtubeChannels.encryptedRefreshToken, r.token)))
+        .returning({ id: youtubeChannels.id });
+      if (done.length) rotated++;
+    } catch (e) {
+      failed++;
+      opts.logger?.error("youtube token rotation failed", { connectionId: r.id, error: (e as Error).message });
+    }
+  }
   const remaining = failed;
   if (rotated || failed) opts.logger?.info("credential rotation", { rotated, failed, primaryKeyId: ring.primary.id });
   return { rotated, failed, remaining, primaryKeyId: ring.primary.id };
@@ -143,7 +165,8 @@ export async function credentialKeyStatus(db: Database, ring: KeyRing) {
   const rows = await db.execute<{ key_id: string; n: number }>(sql`
     select case when encrypted_key like 'v2.%' then split_part(encrypted_key, '.', 2) else 'v1' end as key_id,
       count(*)::int as n
-    from provider_credentials group by 1`);
+    from (select encrypted_key from provider_credentials
+          union all select encrypted_refresh_token from youtube_channels) k group by 1`);
   const byKey = Object.fromEntries([...rows].map((r) => [r.key_id, r.n]));
   const pending = [...rows].filter((r) => r.key_id !== ring.primary.id).reduce((n, r) => n + r.n, 0);
   return { primaryKeyId: ring.primary.id, configuredKeyIds: ring.ids, byKey, pending };

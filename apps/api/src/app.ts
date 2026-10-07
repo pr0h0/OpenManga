@@ -36,6 +36,7 @@ import { usageRoutes } from "./routes/usage.ts";
 import { videoRoutes } from "./routes/video.ts";
 import { visionRoutes } from "./routes/vision.ts";
 import { worldRoutes } from "./routes/world.ts";
+import { youtubeAccountRoutes, youtubeRoutes } from "./routes/youtube.ts";
 
 /**
  * Every REST route module, on one router. The public `/api` mounts it behind session, CSRF and rate limiting; the
@@ -76,6 +77,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     continuityRoutes,
     channelProfileRoutes,
     seriesRoutes,
+    youtubeRoutes,
   ])
     api.route("/", r);
 }
@@ -124,6 +126,8 @@ export function createApp(deps: Deps) {
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
   api.route("/", agentRunRoutes);
+  // Connecting YouTube channels (an OAuth round trip in the browser) is likewise the signed-in user's alone.
+  api.route("/youtube", youtubeAccountRoutes);
   app.route("/api", api);
   return app;
 }

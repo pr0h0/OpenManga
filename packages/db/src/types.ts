@@ -45,3 +45,4 @@ export type DevEmailRow = Ser<typeof s.devEmails.$inferSelect>;
 export type AuditEventRow = Ser<typeof s.auditEvents.$inferSelect>;
 export type { ExportKind, GenerationKind } from "./schema/jobs.ts";
 export type { ReferenceKind } from "./schema/media.ts";
+export type YoutubeLinkRow = Ser<typeof s.youtubeLinks.$inferSelect>;
