@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useSearch } from "@tanstack/react-router";
 import { RotateCcw, Search, Shield, UserPlus, Wrench, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { del, get, patch, post, put } from "../../api/client.ts";
 import { useAction, useMe } from "../../api/hooks.ts";
 import type { GenerationJobRow, UsageSummary, UserRow } from "../../api/types.ts";
@@ -19,8 +20,9 @@ import {
 } from "../../components/ui.tsx";
 import { JOB_STATUSES, JsonBlock, kindLabel } from "../generation/shared.tsx";
 import { UsageDashboard } from "../usage/UsageDashboard.tsx";
+import { StorageTab } from "./StorageTab.tsx";
 
-type Tab = "overview" | "users" | "jobs" | "usage" | "rates";
+type Tab = "overview" | "users" | "jobs" | "usage" | "rates" | "storage";
 type Overview = {
   counts: Record<string, number>;
   queues: Record<string, Record<string, number>> | null;
@@ -36,7 +38,11 @@ type Overview = {
 
 export function AdminPage() {
   const { data: me } = useMe();
-  const [tab, setTab] = useState<Tab>("overview");
+  const search = useSearch({ strict: false }) as { tab?: Tab };
+  const [tab, setTab] = useState<Tab>(search.tab ?? "overview");
+  useEffect(() => {
+    if (search.tab) setTab(search.tab);
+  }, [search.tab]);
   if (me?.role !== "admin")
     return (
       <div className="p-6">
@@ -57,6 +63,7 @@ export function AdminPage() {
           { value: "jobs", label: "Jobs" },
           { value: "usage", label: "Usage" },
           { value: "rates", label: "Rates" },
+          { value: "storage", label: "Storage" },
         ]}
       />
       {tab === "overview" && <OverviewTab />}
@@ -64,6 +71,7 @@ export function AdminPage() {
       {tab === "jobs" && <JobsTab />}
       {tab === "usage" && <AdminUsage />}
       {tab === "rates" && <RatesTab />}
+      {tab === "storage" && <StorageTab />}
     </div>
   );
 }

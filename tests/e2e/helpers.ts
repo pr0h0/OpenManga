@@ -45,6 +45,8 @@ export function api(page: Page) {
     post: <T = any>(path: string, data: unknown = {}) => call<T>("POST", path, data),
     // biome-ignore lint/suspicious/noExplicitAny: as above
     patch: <T = any>(path: string, data: unknown = {}) => call<T>("PATCH", path, data),
+    // biome-ignore lint/suspicious/noExplicitAny: as above
+    put: <T = any>(path: string, data: unknown = {}) => call<T>("PUT", path, data),
   };
 }
 export type Api = ReturnType<typeof api>;

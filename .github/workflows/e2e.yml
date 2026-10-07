@@ -33,6 +33,10 @@ jobs:
       AI_MOCK_ALLOW_IN_PRODUCTION: "true"
       TTS_PROVIDER: fake
       REGISTRATION_ENABLED: "true"
+      # An administrator for the admin-only screens (the storage policy).
+      INITIAL_ADMIN_USERNAME: e2eadmin
+      INITIAL_ADMIN_EMAIL: e2eadmin@example.com
+      INITIAL_ADMIN_PASSWORD: e2e-admin-password-123
       # Plain HTTP inside the runner: a Secure cookie would never come back.
       COOKIE_SECURE: "false"
       APP_PUBLIC_URL: http://nginx/app
@@ -40,7 +44,7 @@ jobs:
       CDN_PUBLIC_URL: http://nginx/cdn
       # Inside the repo mount, so traces, screenshots and the HTML report survive the Playwright container.
       E2E_OUTPUT_DIR: /repo/tests/e2e/test-results
-      E2E_EXTRA_ENV: -e E2E_HTML_REPORT=/repo/tests/e2e/playwright-report
+      E2E_EXTRA_ENV: -e E2E_HTML_REPORT=/repo/tests/e2e/playwright-report -e E2E_ADMIN_USERNAME=e2eadmin -e E2E_ADMIN_PASSWORD=e2e-admin-password-123
     steps:
       - uses: actions/checkout@v7
         with:

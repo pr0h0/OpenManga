@@ -4,6 +4,7 @@ import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import { BarChart3, Bot, LogOut, Menu, MessagesSquare, Moon, Shield, Sun, Tv, User, X } from "lucide-react";
 import { useState } from "react";
 import { logout, useMe, useMeta } from "../api/hooks.ts";
+import { StorageAlert } from "../features/admin/StorageAlert.tsx";
 import { NotificationBell } from "../features/comments/NotificationBell.tsx";
 import { Logo } from "./Logo.tsx";
 
@@ -125,6 +126,7 @@ export function AppShell() {
           )}
         </div>
       </header>
+      {me?.role === "admin" && <StorageAlert />}
       <div className="min-h-0 flex-1">
         <Outlet />
       </div>

@@ -180,6 +180,7 @@ const admin = createRoute({
   getParentRoute: () => shell,
   path: "/admin",
   staticData: { title: "Admin" },
+  validateSearch: z.object({ tab: z.enum(["overview", "users", "jobs", "usage", "rates", "storage"]).optional() }),
   component: lazyRouteComponent(() => import("./features/admin/AdminPage.tsx"), "AdminPage"),
 });
 const account = createRoute({

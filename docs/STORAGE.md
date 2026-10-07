@@ -189,6 +189,28 @@ the only thing that deletes on a timer:
 
 The same cycle re-encrypts provider credentials onto the current key (`docs/SECURITY.md`).
 
+### Storage policy
+
+An administrator can add a server-wide policy on top of the table above (**Admin → Storage**,
+`GET /api/admin/storage`, `PUT /api/admin/storage/policy`; stored in `instance_settings` under `storagePolicy`):
+
+- **Limits.** `maxAgeDays` and `maxTotalGb`, either or both. Every expendable file older than the age limit is due, and
+  then, while everything stored (every file and derivative, in use or not) still totals more than the size limit, the
+  oldest of the rest, until it is under — whichever limit is crossed first (`selectForRetention`,
+  `packages/domain/src/retention.ts`).
+- **Expendable files only** (`storageCandidates`, `packages/services/src/storage-policy.ts`), each counted once with its
+  derivatives: cached video sections, export files (the job row stays), older AI-drawn panel versions that no panel
+  shows and that are not approved, locked or used as a reference, narration takes no segment plays, trashed files, and
+  `prompt_ref` copies. Never: the artwork a panel shows, approved or locked art, references, covers, thumbnails, uploads
+  (they cannot be made again), and narration a line plays.
+- **Mode.** `auto` deletes at the hourly maintenance pass (and at once when the policy is saved), with an audit entry
+  (`storage.policy_auto`). `approve` records a summary (`storagePending`) and administrators see a warning at the top
+  of every page with no way to dismiss it, until an administrator approves (`POST /api/admin/storage/approve`, which
+  queues a `storage-apply` maintenance job that chooses the files again, so nothing that came into use since is
+  touched; audit `storage.policy_approved`) or changes the policy so nothing is due. A size limit that cannot be met
+  even after every expendable file (the rest is in use) keeps the warning too, in either mode.
+- **Dry run.** The Storage tab shows what is stored, what is expendable by kind, and what the policy would delete now.
+
 ## Deletion
 
 Projects and important assets go to trash first (`deleted_at`); permanent deletion requires that trashing step and
