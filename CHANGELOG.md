@@ -22,9 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - **MCP:** `post_comment` takes `anchor`, `timecodeMs` and `assignTo`, `list_comments` takes `assignedToMe`, and the
     new `assign_comment` reassigns a thread.
   - Migration `0035`.
-
-### Added
-
+- Layered exports for finishing in Photoshop or Clip Studio. `psd_pages` writes one layered PSD per page: a group per
+  panel with its art, frame and (hidden) layout guide, then effects, captions and dialogue, each element its own layer
+  named by its text, over the lettered page as the flattened image. `layered_package` zips the text-free page, the
+  lettering as one SVG (vector text and shapes) and every layer as its own transparent PNG, with `manifest.json`
+  giving each file's position, size, stacking order and text. Both are on the Exports page and MCP `create_export`.
 - Production cost planner: the *Produce* and *Update production* dialogs price what the run would still do before it
   starts, chapter by chapter (plans, prompts, panels to draw, narration, local-voice audio) plus the analysis,
   references, thumbnail and YouTube text, with the chosen models and this server's own average usage per job. They

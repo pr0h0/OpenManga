@@ -210,7 +210,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
   `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
   publishing text, zipped), `carousel` and `quote_image` (repurposed stills, see `docs/VIDEO_EXPORT_REFERENCE.md`), `print_cover` and
   `print_preflight` (the cover's sizes and issues in `result.cover`, the preflight report in `result.preflight`; see
-  `docs/PRINT.md`),
+  `docs/PRINT.md`), `psd_pages` and `layered_package` (layered files for finishing, see `docs/DEPLOYMENT.md`),
   and `project_import` (an import reuses the export job machinery and reports
   `{projectId, warnings}` in `result`; a video render keeps its `series`, the `sectionKeys` of its cached sections and
   `sections: {reused, encoded}` there). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the

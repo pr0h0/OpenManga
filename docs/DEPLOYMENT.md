@@ -279,7 +279,7 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   reports whether the caller has a usable provider key for further generation.
 - **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`, `zip_package`, `project_json`,
   `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `video_shorts` (a trailer of `panelIds` up to `video.shortsSeconds`, default 180, at most 600), `youtube_package`,
-  `print_cover`, `print_preflight` (`docs/PRINT.md`).
+  `print_cover`, `print_preflight` (`docs/PRINT.md`), `psd_pages`, `layered_package`.
   Video kinds take `video.aspect` (`16:9`, `9:16`, `1:1`). `pdf.pageSize`
   takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
   `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `pdf.toc`, `pdf.rectoChapters` and
@@ -293,6 +293,18 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
   project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
   `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
+- **Layered files** for finishing in Photoshop or Clip Studio, at the export's `scale`. `psd_pages` writes one PSD per
+  page (zipped when there are several; RGB, 8-bit, RLE, the resolution set from `pdf.dpi`): a white background, a
+  *Panels* group with a group per panel in reading order holding its layout guide (hidden, 50%), art and frame, then
+  *Effects*, *Captions* (narration and system boxes) and *Dialogue*, each element its own layer named by its text, and
+  the lettered page as the flattened image. `layered_package` zips, per page folder (`p001/`, or `ch01_p001/` for the
+  whole project): `page.png` (lettered), `text-free.png`, `lettering.svg` (all lettering as vector text and shapes,
+  each element a `<g id="<kind>-<id>">`), and `art/`, `frames/`, `guides/` and `lettering/` PNGs, one per layer, cropped
+  to what they cover. `manifest.json` lists every page (`folder`, `width`, `height`, the three page files) and its
+  `layers` bottom to top, each with `z`, `kind` (`guide`, `art`, `frame`, `sfx`, `narration`, `dialogue`), `file`,
+  `x`, `y`, `width`, `height` in page pixels, the panel number or the `text` and its `svgId`. Lettering is drawn by
+  the same code as the page, so placing every layer but the guides at its `x`, `y` in `z` order over white rebuilds
+  the page.
 - **Memory**: every output is written to a file in the job's temp directory as it is built. A PDF, CBZ or EPUB holds
   one page at a time (the EPUB's manifest and spine are written last, from page sizes alone), a webtoon strip one
   chunk (`maxChunkHeight`), a ZIP one entry (a video goes in chunk by chunk), so memory does not grow with project

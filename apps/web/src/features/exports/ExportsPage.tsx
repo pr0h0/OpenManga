@@ -38,6 +38,12 @@ const KINDS = [
   { value: "webtoon", label: "Webtoon vertical strip", chapter: true },
   { value: "print_cover", label: "Print cover: back, spine and front with bleed (PDF)", chapter: true },
   { value: "print_preflight", label: "Print preflight: DPI, ink, fonts, soft proof", chapter: true },
+  { value: "psd_pages", label: "Layered PSD per page (Photoshop, Clip Studio)", chapter: true },
+  {
+    value: "layered_package",
+    label: "Separated art and lettering (ZIP: text-free pages, SVG, manifest)",
+    chapter: true,
+  },
   { value: "narration_audio", label: "Narration audio package", chapter: true },
   { value: "timeline", label: "Timeline manifest (JSON)", chapter: true },
   { value: "project_json", label: "Project JSON", chapter: false },
@@ -57,6 +63,8 @@ const AREAS: Record<string, ("art" | "narration")[]> = {
   webtoon: ["art"],
   print_cover: [],
   print_preflight: ["art"],
+  psd_pages: ["art"],
+  layered_package: ["art"],
   zip_package: ["art"],
   narration_audio: ["narration"],
   timeline: ["narration"],
@@ -85,6 +93,8 @@ const WHOLE_PROJECT = new Set([
   "webtoon",
   "print_cover",
   "print_preflight",
+  "psd_pages",
+  "layered_package",
 ]);
 /** Kinds that take the PDF's page options: the preflight measures the PDF those options make. */
 const PDF_OPTIONS = new Set(["pdf", "print_preflight"]);
@@ -367,6 +377,8 @@ export function ExportsPage() {
             kind === "pdf" ||
             kind === "cbz" ||
             kind === "epub" ||
+            kind === "psd_pages" ||
+            kind === "layered_package" ||
             kind === "agent_package") && (
             <Field label={`Scale ×${scale}`}>
               <input
@@ -394,6 +406,13 @@ export function ExportsPage() {
                 className="w-full"
               />
             </Field>
+          )}
+          {(kind === "psd_pages" || kind === "layered_package") && (
+            <p className="muted text-xs">
+              {kind === "psd_pages"
+                ? "One Photoshop file per page (zipped when there are several): a white background, a group per panel with its art, frame and hidden layout guide, then effects, captions and dialogue, each element its own named layer at its place on the page. Clip Studio Paint opens it too."
+                : "Per page: the lettered page, the page without lettering, the lettering as one vector SVG, and every panel's art, frame and guide and every bubble, caption and sound effect as its own transparent PNG. manifest.json gives each file's place on the page (x, y, width, height), its stacking order and its text."}
+            </p>
           )}
           {kind === "print_cover" && (
             <div className="grid grid-cols-2 gap-2">

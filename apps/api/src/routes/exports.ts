@@ -68,6 +68,8 @@ export const ExportOptions = z.object({
     "quote_image",
     "print_cover",
     "print_preflight",
+    "psd_pages",
+    "layered_package",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),
