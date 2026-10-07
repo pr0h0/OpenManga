@@ -290,6 +290,13 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/agent",
+    validateSearch: z.object({ run: z.string().uuid().optional() }),
+    staticData: { title: "Agent" },
+    component: lazyRouteComponent(() => import("./features/agent/AgentPage.tsx"), "AgentPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/comments",
     staticData: { title: "Comments" },
     component: lazyRouteComponent(() => import("./features/comments/CommentsPage.tsx"), "CommentsPage"),

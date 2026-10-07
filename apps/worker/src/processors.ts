@@ -1,6 +1,7 @@
 import type { GenerationKind } from "@openmanga/db";
 import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
+import { agentStep } from "./handlers/agent.ts";
 import { continuityCheck } from "./handlers/continuity.ts";
 import { expertExtract } from "./handlers/expert-extract.ts";
 import { processExport } from "./handlers/export.ts";
@@ -39,6 +40,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   narration_text: narrationText,
   narration_retime: narrationRetime,
   social_copy: socialCopy,
+  agent_step: agentStep,
   character_reference: referenceGeneration,
   location_reference: referenceGeneration,
   prop_reference: referenceGeneration,

@@ -111,8 +111,6 @@ Grouped by area, roughly most useful first within each.
 
 - **More story formats.** Import `.docx`, `.epub`, `.pdf`, Markdown, Fountain screenplays, subtitle files and web
   articles, each landing as an ordinary story revision.
-- **In-app project agent.** "Audit this project", "fix the repeated narration but leave the art", "finish what costs
-  under $3": a plan first, then the same tools and approvals MCP agents use.
 - **Custom workflows.** Advanced users arrange the production steps (with stops for approval, checks, capped retries)
   from the same actions a production run calls, never separate implementations.
 - **Triggers and webhooks.** Schedules ("submit batches at 01:00"), incoming and outgoing webhooks, and triggers on a

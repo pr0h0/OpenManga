@@ -264,3 +264,22 @@ test("experts: a reply becomes a new project through its output action", async (
   await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}/);
   await expect(page.getByRole("heading", { name: "Production run" })).toBeVisible();
 });
+
+test("project agent: a plan to approve, a step that waits for approval, then a summary", async () => {
+  const page = owner.page;
+  await page.goto(`${s.url}/agent`);
+  await page.getByLabel("Goal").fill("Export the project [[mock:agent-export]]");
+  await page.getByRole("button", { name: "Plan it" }).click();
+  const plan = page.getByRole("region", { name: "Plan" });
+  await expect(plan.getByText("Export the project as JSON")).toBeVisible();
+  await plan.getByRole("button", { name: "Approve and start" }).click();
+  // Exporting is sensitive: the in-app agent connection asks first, right on the run.
+  const approval = page.getByRole("region", { name: "Approval needed" });
+  await expect(approval).toBeVisible();
+  await approval.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(page.getByText(/mock agent done after 2 step/)).toBeVisible();
+  const steps = page.getByRole("region", { name: "Steps" });
+  await expect(steps.getByText("get_project_health")).toBeVisible();
+  await expect(steps.getByText("create_export")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Runs" }).getByText("done")).toBeVisible();
+});

@@ -380,6 +380,8 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "social-copy": "social-copy-v1",
     "json-repair": "json-repair-v1",
     "panel-check": "panel-check-v1",
+    "agent-plan": "agent-plan-v1",
+    "agent-step": "agent-step-v1",
     "image-describe": "image-describe-v1",
     "expert-chat": "expert-chat-v1",
     "expert-concept": "expert-concept-v1",
@@ -445,6 +447,49 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
         tags: [title.toLowerCase(), "narrated story"],
         pinnedComment: "Which chapter surprised you most?",
         thumbnailHeadlines: ["NOBODY SAW IT COMING", "THE LAST NIGHT"],
+      };
+    }
+    case "agent-plan-v1": {
+      // [[mock:agent-export]] in the goal plans an export, which waits for approval under REQUIRE_APPROVAL.
+      const goal = extractTagged(user, "goal")[0] ?? "";
+      const exporting = goal.includes("[[mock:agent-export]]");
+      const revised = extractTagged(user, "plan_feedback").length > 0;
+      return {
+        summary: `${revised ? "Revised plan" : "Plan"}: read the project's health${exporting ? ", then export the project JSON" : ""}, and report.`,
+        steps: [
+          { title: "Read the project's health", tools: ["get_project_health"] },
+          ...(exporting ? [{ title: "Export the project as JSON", tools: ["create_export"] }] : []),
+          { title: "Report what was found", tools: [] },
+        ],
+        estimatedCostUsd: 0,
+        risks: "",
+      };
+    }
+    case "agent-step-v1": {
+      const goal = extractTagged(user, "goal")[0] ?? "";
+      const state = JSON.parse(extractTagged(user, "run_state")[0] ?? "{}") as { projectId?: string };
+      const history = JSON.parse(extractTagged(user, "history")[0] ?? "[]") as { tool: string | null }[];
+      // [[mock:agent-project:<id>]] aims the calls at another project, which the run may not touch.
+      const projectId = /\[\[mock:agent-project:([0-9a-f-]{36})\]\]/.exec(goal)?.[1] ?? state.projectId ?? "";
+      const call = (tool: string, args: Record<string, unknown>, thought: string) => ({
+        thought,
+        action: { tool, arguments: args },
+        done: false,
+        summary: "",
+      });
+      // [[mock:agent-loop]] never finishes, for the step limit; [[mock:agent-bad]] calls a tool that does not exist.
+      if (goal.includes("[[mock:agent-loop]]")) return call("get_project_health", { projectId }, "Again.");
+      if (goal.includes("[[mock:agent-bad]]") && !history.some((h) => h.tool === "no_such_tool"))
+        return call("no_such_tool", {}, "Trying a tool that is not there.");
+      if (!history.some((h) => h.tool === "get_project_health"))
+        return call("get_project_health", { projectId }, "Start from the health report.");
+      if (goal.includes("[[mock:agent-export]]") && !history.some((h) => h.tool === "create_export"))
+        return call("create_export", { projectId, kind: "project_json" }, "Export the project as JSON.");
+      return {
+        thought: "Everything in the plan is done.",
+        action: null,
+        done: true,
+        summary: `mock agent done after ${history.length} step(s)`,
       };
     }
     case "panel-check-v2":

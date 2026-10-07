@@ -1,6 +1,6 @@
 # Data model
 
-PostgreSQL via Drizzle. 73 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+PostgreSQL via Drizzle. 75 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
 `bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
 `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
@@ -237,7 +237,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only as HMACs.
 
-- `user_services` — a connected agent: its user, kind (`oauth` | `pat`), name, OAuth client id, scopes, project access
+- `user_services` — a connected agent: its user, kind (`oauth` | `pat` | `app`, the in-app agent), name, OAuth client id, scopes, project access
   (`all` | `selected`), `allow_project_create`, approval mode (`ALLOW_ALL` | `REQUIRE_APPROVAL`), last use, revocation.
 - `user_service_projects` — the projects a `selected` connection may touch.
 - `personal_access_tokens` — `om_pat_…` HMACs, last four characters, expiry, last use, revocation.
@@ -253,6 +253,10 @@ What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only a
   (`pending|approved|denied|expired|stale|executed|failed|execution_unknown`), result or error. At most one `pending`
   request per identical call; an `approved` request interrupted mid-run becomes `execution_unknown` and is never re-run.
 - `mcp_approval_rules` — remembered decisions, unique per `(connection, project, action key)`.
+- `agent_runs` (`0036_agent_runs`) — an in-app agent run: its user, project and connection, goal, status
+  (`planning` → `awaiting_plan` → `running` ⇄ `waiting_approval` → `completed` | `stopped` | `failed` | `cancelled`),
+  budget and the project's spend when it started, the text model (`run`), the plan and the user's feedback on it, the
+  steps (thought, tool, arguments, status, result cut short), the thinking job and the approval it waits on.
 - `mcp_idempotency` — a caller's idempotency key per `(connection, tool, key)`, claimed before the call runs: state
   (`running|pending_approval|completed`), the arguments hash, the result to replay.
 - `audit_events.service_id` — the connection an audited action came through (null for the browser).

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, primaryKey, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, numeric, pgTable, primaryKey, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
 import { createdAt, id, ts, updatedAt } from "./common.ts";
 import { projects } from "./projects.ts";
@@ -19,7 +19,8 @@ export const userServices = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"oauth" | "pat">().notNull(),
+    /** `app`: the in-app project agent, one per user, made the first time they start it. */
+    kind: text("kind").$type<"oauth" | "pat" | "app">().notNull(),
     name: text("name").notNull(),
     /** The OAuth client this connection was granted to (null for a personal access token). */
     clientId: text("client_id"),
@@ -254,4 +255,67 @@ export const mcpIdempotency = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.serviceId, t.toolName, t.key] })],
+);
+
+export type AgentRunStatus =
+  | "planning"
+  | "awaiting_plan"
+  | "running"
+  | "waiting_approval"
+  | "completed"
+  | "stopped"
+  | "failed"
+  | "cancelled";
+
+/** One step of an agent run as it is shown and fed back to the model: what it thought, what it called and got. */
+export type AgentRunStep = {
+  at: string;
+  thought: string;
+  tool: string | null;
+  arguments?: Record<string, unknown>;
+  status: "completed" | "pending_approval" | "error" | "denied" | "finished";
+  /** The tool's result (or the error), cut short for the prompt and the page. */
+  result?: unknown;
+  approvalRequestId?: string;
+};
+
+/**
+ * The in-app project agent: a goal in one project, a plan the user approves first, then one tool call per step
+ * through the same MCP tools, scopes and approvals as a connected agent. Each step's thinking is a text job.
+ */
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => userServices.id, { onDelete: "cascade" }),
+    goal: text("goal").notNull(),
+    status: text("status").$type<AgentRunStatus>().notNull().default("planning"),
+    /** What the run may spend, project-wide, from its start (its own thinking included); null: the project budget only. */
+    budgetUsd: numeric("budget_usd", { precision: 10, scale: 2 }),
+    /** The project's recorded spend when the run started, to measure the run's own against the budget. */
+    spendAtStartUsd: numeric("spend_at_start_usd", { precision: 14, scale: 8 }).notNull().default("0"),
+    /** The text model the agent thinks with: provider, model and job parameters, as a text route records them. */
+    run: jsonb("run").$type<{ provider: string; model: string; parameters: Record<string, unknown> }>().notNull(),
+    plan: jsonb("plan").$type<Record<string, unknown>>(),
+    /** What the user said when sending a plan back. */
+    feedback: text("feedback"),
+    steps: jsonb("steps").$type<AgentRunStep[]>().notNull().default([]),
+    currentJobId: uuid("current_job_id"),
+    approvalRequestId: uuid("approval_request_id"),
+    summary: text("summary"),
+    error: text("error"),
+    lockedUntil: ts("locked_until"),
+    finishedAt: ts("finished_at"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("agent_runs_project_idx").on(t.projectId, t.createdAt), index("agent_runs_status_idx").on(t.status)],
 );

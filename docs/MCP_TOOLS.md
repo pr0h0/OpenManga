@@ -223,7 +223,9 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "ProjectPremise",
         "StoryOutline",
         "BibleExtraction",
-        "ContinuityReport"
+        "ContinuityReport",
+        "AgentPlan",
+        "AgentStep"
       ]
     }
   },
