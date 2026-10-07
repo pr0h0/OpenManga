@@ -1,6 +1,6 @@
 # Data model
 
-PostgreSQL via Drizzle. 75 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+PostgreSQL via Drizzle. 76 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
 `bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
 `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
@@ -102,6 +102,12 @@ slot).
   new one. Unique per `(project, revision_number)`.
 - `story_analyses` — the validated `StoryAnalysis` JSON for one revision; `pending → completed → applied` (or
   `failed`).
+
+- `series` (`0037_series`) — a series of its owner's: title, description, `library_project_id` (the project holding
+  its shared cast, world, style and bible) and `channel_profile_id`. `projects.series_id`, `series_role`
+  (`episode` | `library`) and `episode_number` place a project in it; `characters`, `locations` and `props` carry
+  `source_id` (the library entry they follow) and `synced_version_id`, and `project_styles` and `bible_facts` carry
+  `source_id`. See `docs/SERIES.md`.
 
 ## Structure (`projects.ts`, `media.ts`)
 

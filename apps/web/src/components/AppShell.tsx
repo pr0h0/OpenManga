@@ -1,7 +1,7 @@
 import { buildLabel } from "@openmanga/domain/browser";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
-import { BarChart3, Bot, LogOut, Menu, MessagesSquare, Moon, Shield, Sun, Tv, User, X } from "lucide-react";
+import { BarChart3, Bot, Library, LogOut, Menu, MessagesSquare, Moon, Shield, Sun, Tv, User, X } from "lucide-react";
 import { useState } from "react";
 import { logout, useMe, useMeta } from "../api/hooks.ts";
 import { StorageAlert } from "../features/admin/StorageAlert.tsx";
@@ -18,6 +18,7 @@ export function AppShell() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [menuOpen, setMenuOpen] = useState(false);
   const links = [
+    { to: "/series" as const, label: "Series", icon: Library },
     { to: "/profiles" as const, label: "Profiles", icon: Tv },
     { to: "/experts" as const, label: "Experts", icon: MessagesSquare },
     { to: "/agents" as const, label: "Agents", icon: Bot },

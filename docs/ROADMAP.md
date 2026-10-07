@@ -25,15 +25,6 @@ Grouped by area, roughly most useful first within each.
 - **Rules checked in the artwork.** The continuity check tests fixed rules against what the plan, dialogue and
   narration say; checking them in the finished panels by vision ("system windows are blue") is still to do.
 
-### Series and shared libraries
-
-- **Series.** A level above projects: episodes or seasons that share cast, places, props, style, approved references,
-  the story bible and a channel profile, with a series dashboard (status, spend, outputs, open issues).
-- **Shared libraries.** Reuse a character, location, prop or style across projects without copying it, and search
-  every appearance of a character across a series.
-- **Split a long story into episodes.** Plan a long source as several projects rather than one very large one, and
-  adopt existing projects into a series.
-
 ### Panels and images
 
 - **Directing controls.** Optional structured fields per panel: camera height, shot size, lens feel, angle (frontal,

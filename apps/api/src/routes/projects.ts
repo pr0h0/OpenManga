@@ -111,6 +111,8 @@ projectRoutes.get("/", async (c) => {
   const { status } = query(c, ListQuery);
   const service = c.get("service");
   const where = and(
+    // A series library is opened from its series, not listed as a project of its own.
+    sql`${projects.seriesRole} is distinct from 'library'`,
     // A connection limited to selected projects sees only those.
     service?.projectAccess === "selected"
       ? service.projectIds.size
@@ -554,6 +556,13 @@ projectRoutes.delete("/:projectId", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "delete");
   if (!p.deletedAt) throw badRequest("Move the project to trash before deleting it permanently");
   const deps = c.get("deps");
+  // A series library's images are referenced by its episodes (and stay with an episode detached from it): each one
+  // still referenced by another project is handed to that project instead of going with this one.
+  await deps.db.execute(sql`
+    update assets a set project_id = (select ra.project_id from reference_assets ra
+      where ra.asset_id = a.id and ra.project_id <> ${p.id} order by ra.created_at limit 1)
+    where a.project_id = ${p.id}
+      and exists (select 1 from reference_assets ra where ra.asset_id = a.id and ra.project_id <> ${p.id})`);
   // Both levels, collected before the rows go: a derivative's key lives on asset_variants, which cascades away
   // with the asset, so deleting only assets.storage_key left every thumbnail and prompt reference on disk with
   // nothing left in the database to find it by. One project's worth measured 1.2 GB of unreachable files.

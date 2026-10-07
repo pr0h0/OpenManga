@@ -160,7 +160,7 @@ async function router(deps: Deps) {
  * A route refused the call; `code` is the REST error code (budget_exceeded and instance_budget_exceeded pause the
  * run instead of failing it).
  */
-class CallError extends Error {
+export class CallError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,

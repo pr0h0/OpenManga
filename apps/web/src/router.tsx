@@ -142,6 +142,18 @@ const profiles = createRoute({
   staticData: { title: "Channel profiles" },
   component: lazyRouteComponent(() => import("./features/profiles/ChannelProfilesPage.tsx"), "ChannelProfilesPage"),
 });
+const seriesList = createRoute({
+  getParentRoute: () => shell,
+  path: "/series",
+  staticData: { title: "Series" },
+  component: lazyRouteComponent(() => import("./features/series/SeriesPage.tsx"), "SeriesListPage"),
+});
+const seriesDetail = createRoute({
+  getParentRoute: () => shell,
+  path: "/series/$seriesId",
+  staticData: { title: "Series" },
+  component: lazyRouteComponent(() => import("./features/series/SeriesPage.tsx"), "SeriesDetailPage"),
+});
 const usage = createRoute({
   getParentRoute: () => shell,
   path: "/usage",
@@ -390,6 +402,8 @@ const routeTree = rootRoute.addChildren([
     dashboard,
     newProject,
     profiles,
+    seriesList,
+    seriesDetail,
     usage,
     experts,
     agents,

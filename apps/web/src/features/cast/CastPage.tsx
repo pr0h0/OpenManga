@@ -139,6 +139,11 @@ export function CastPage() {
               </div>
               <div className="flex flex-wrap items-center gap-1 text-xs">
                 <StatusChip status={c.referenceStatus} label={`ref: ${c.referenceStatus}`} />
+                {c.sourceId && (
+                  <span className="chip" title="Follows the series library: change it there, then sync">
+                    from series
+                  </span>
+                )}
                 {c.staleReferences > 0 && (
                   <span
                     className="chip bg-amber-500/15 text-amber-600"

@@ -28,6 +28,8 @@ export const bibleFacts = pgTable(
     fromChapterId: uuid("from_chapter_id").references(() => chapters.id, { onDelete: "set null" }),
     untilChapterId: uuid("until_chapter_id").references(() => chapters.id, { onDelete: "set null" }),
     source: text("source").$type<BibleSource>().notNull().default("user"),
+    /** In an episode: the series library fact this one copies, kept in step by a sync. */
+    sourceId: uuid("source_id"),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

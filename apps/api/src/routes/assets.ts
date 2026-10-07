@@ -19,6 +19,7 @@ import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { ApiError, conflict, notFound, query, requireUser, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
+import { seesLibrary } from "../lib/series.ts";
 
 export const assetRoutes = new Hono<AppEnv>();
 
@@ -94,6 +95,17 @@ assetRoutes.get("/assets/:id", requireUser, async (c) => {
   });
 });
 
+/** Whether series episodes (other projects) use this asset as a reference image. */
+async function usedByOtherProjects(db: AppEnv["Variables"]["deps"]["db"], a: { id: string; projectId: string | null }) {
+  const [shared] = await db
+    .select({ id: referenceAssets.id })
+    .from(referenceAssets)
+    .where(and(eq(referenceAssets.assetId, a.id), sql`${referenceAssets.projectId} <> ${a.projectId}`))
+    .limit(1);
+  return Boolean(shared);
+}
+const SHARED = "Episodes of a series use this image as a reference, so it stays";
+
 doc({ method: "POST", path: "/api/assets/:id/trash", summary: "Move asset to trash", tag: "assets" });
 assetRoutes.post("/assets/:id/trash", requireUser, async (c) => {
   const id = uuidParam(c, "id");
@@ -104,6 +116,7 @@ assetRoutes.post("/assets/:id/trash", requireUser, async (c) => {
   if (a.status === "locked") throw conflict("Locked assets cannot be trashed");
   const [active] = await db.select({ id: panels.id }).from(panels).where(eq(panels.activeArtworkAssetId, id)).limit(1);
   if (active) throw conflict("This artwork is active on a panel. Activate another version first.");
+  if (await usedByOtherProjects(db, a)) throw conflict(SHARED);
   await db.update(assets).set({ deletedAt: new Date() }).where(eq(assets.id, id));
   await recordAudit(db, {
     userId: user(c).id,
@@ -140,6 +153,7 @@ assetRoutes.delete("/assets/:id", requireUser, async (c) => {
     .where(and(eq(referenceAssets.assetId, id), eq(referenceAssets.status, "locked")))
     .limit(1);
   if (ref) throw conflict("Asset is a locked reference");
+  if (await usedByOtherProjects(deps.db, a)) throw conflict(SHARED);
   await deps.db.update(panels).set({ activeArtworkAssetId: null }).where(eq(panels.activeArtworkAssetId, id));
   await deps.db.update(projects).set({ coverAssetId: null }).where(eq(projects.coverAssetId, id));
   await deps.assets.hardDelete(a);
@@ -179,7 +193,13 @@ cdnRoutes.get("/a/:id", async (c) => {
     // is the project's, whoever made it: someone who has left the project no longer sees it.
     if (!a.projectId) {
       if (a.ownerUserId !== me.id) throw notFound("Asset");
-    } else await projectAccess(c, a.projectId, "read");
+    } else {
+      // A series library's image is shown in its episodes: anyone in an episode may see it.
+      const pid = a.projectId;
+      await projectAccess(c, pid, "read").catch(async (e) => {
+        if (!(await seesLibrary(deps.db, me.id, pid))) throw e;
+      });
+    }
   }
   return sendAsset(c, a);
 });

@@ -241,6 +241,16 @@ export function ProjectLayout() {
           <div className="muted text-xs capitalize">
             {p.projectType.replace("_", " ")} · {p.readingDirection.toUpperCase()}
           </div>
+          {p.seriesId && (
+            <Link
+              to="/series/$seriesId"
+              params={{ seriesId: p.seriesId }}
+              className="chip mt-1 inline-flex hover:bg-[var(--panel-2)]"
+              title={p.seriesRole === "library" ? "Shared with every episode of the series" : "Open the series"}
+            >
+              {p.seriesRole === "library" ? "Series library" : `Series · episode ${p.episodeNumber ?? ""}`}
+            </Link>
+          )}
         </div>
         <ProjectSearch projectId={projectId} />
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-4">
