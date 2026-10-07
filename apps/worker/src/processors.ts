@@ -6,7 +6,7 @@ import { expertExtract } from "./handlers/expert-extract.ts";
 import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
 import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
-import { runMaintenance } from "./handlers/maintenance.ts";
+import { enforceStoragePolicy, runMaintenance } from "./handlers/maintenance.ts";
 import { audioCheck, narrationFix, narrationLint } from "./handlers/narration-qa.ts";
 import { panelCheck } from "./handlers/qa.ts";
 import { storyCoverage } from "./handlers/story-coverage.ts";
@@ -84,4 +84,8 @@ export function assetProcessor(deps: WorkerDeps) {
 }
 /** The maintenance queue hosts two schedulers: the hourly cleanup, and the provider-batch poll. */
 export const maintenanceProcessor = (deps: WorkerDeps) => (job: Job) =>
-  job.name === "batch-poll" ? pollProviderBatches(deps) : runMaintenance(deps);
+  job.name === "batch-poll"
+    ? pollProviderBatches(deps)
+    : job.name === "storage-apply"
+      ? enforceStoragePolicy(deps, String(job.data.approvedBy))
+      : runMaintenance(deps);

@@ -141,9 +141,9 @@ Grouped by area, roughly most useful first within each.
 
 - **Asset library.** Tags, collections, favourites, search by name, character, place or prop, filters by source,
   model and date, "find images like this", unused and duplicate views, bulk actions, and where each file came from.
-- **Storage policies.** Per server or project: how long to keep old panel versions, the render cache, failed
-  generations, exports and trash; automatic clean-up with a dry-run report, disk warnings, project storage caps and
-  cold archives.
+- **Storage policies, further.** A server-wide policy by age and total size shipped (Admin → Storage). Still to do: a
+  policy per project, per-kind ages (keep exports longer than the render cache), project storage caps and cold
+  archives.
 - **Workers by capability.** Workers declare what they can do (ffmpeg, Kokoro, ComfyUI, a GPU) and jobs go to one
   that can, so a single server can grow into an API host with separate GPU and render machines.
 - **Provenance package.** Per output: the app version, story revision, prompt versions, models, references and jobs

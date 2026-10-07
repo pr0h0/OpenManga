@@ -15,6 +15,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   show what runs now and what waits for a half-price batch, the disk the new files will take, the budget left, and a
   warning when the run would reach the cap. Chapters not planned yet are estimated and marked.
   `POST /api/projects/:projectId/production-runs/estimate`, MCP `estimate_production_run`.
+- Storage policy (Admin → Storage): delete files the app can do without (cached video sections, export files, older
+  AI-drawn panel versions, unused narration takes, trash, prompt reference copies) once they are older than a number
+  of days, and then the oldest of them until everything stored is under a size limit, whichever limit is crossed
+  first. Delete automatically at the hourly maintenance pass, or ask first: administrators then see a warning at the
+  top of every page, which cannot be dismissed until they approve or change the policy. Art a panel shows, approved or
+  locked art, references, covers, thumbnails, uploads and narration in use are never deleted. A dry run shows what
+  would go.
 
 ## [0.15.0] — 2026-10-05
 
