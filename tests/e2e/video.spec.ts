@@ -145,7 +145,17 @@ test("video branding: an intro card in project settings", async () => {
   await expect(page.getByLabel("Intro card title")).toHaveValue("Rooftop Recaps");
 });
 
-test("reader link: the shared chapter plays as a video preview", async () => {
+test("reader link: the shared chapter plays as a video preview, with subtitles on the picture", async () => {
+  // Put the first narration line on a shown panel of page 1, so a shot speaks it whatever earlier tests moved.
+  const a = api(page);
+  const { lines } = await a.get<{ lines: { id: string; text: string }[] }>(`/chapters/${s.chapterId}/narration`);
+  const rain = lines.find((l) => l.text.includes("Rain hammered the city"))!;
+  // Not the panel the page editor test left out of videos: its narration is dropped with it.
+  const { panels } = await a.get<{ panels: { id: string; video?: { disabled?: boolean } | null }[] }>(
+    `/pages/${s.pageId}`,
+  );
+  const panel = panels.find((p) => !p.video?.disabled)!;
+  await a.patch(`/narration-lines/${rain.id}`, { panelId: panel.id });
   await page.goto(s.url);
   await page.getByRole("button", { name: "Share" }).click();
   const d = page.getByRole("dialog", { name: "Share a reader link" });
@@ -160,6 +170,22 @@ test("reader link: the shared chapter plays as a video preview", async () => {
   await reader.getByRole("button", { name: "Play this chapter as a video preview" }).click();
   await reader.getByRole("button", { name: "Play", exact: true }).first().click();
   await expect(reader.getByRole("button", { name: "Pause", exact: true }).first()).toBeVisible();
+  // Subtitles: the spoken narration on the picture, on by default and toggled off and on.
+  const subtitles = reader.getByRole("button", { name: "Subtitles" });
+  await expect(subtitles).toHaveAttribute("aria-pressed", "true");
+  const onPicture = reader.locator("[data-subtitle]");
+  // Seek to the first narrated shot through its row in Lines, then the picture shows what is said there.
+  await reader.getByRole("button", { name: "Pause", exact: true }).first().click();
+  await reader
+    .getByRole("button", { name: /Rain hammered the city/ })
+    .first()
+    .click();
+  await expect(onPicture).toContainText("Rain hammered the city");
+  await subtitles.click();
+  await expect(subtitles).toHaveAttribute("aria-pressed", "false");
+  await expect(onPicture).toHaveCount(0);
+  await subtitles.click();
+  await expect(onPicture).toContainText("Rain hammered the city");
   await anon.close();
 });
 

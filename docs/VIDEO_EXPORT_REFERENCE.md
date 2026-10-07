@@ -22,6 +22,10 @@ planner and the same `@openmanga/domain` helpers (through its `browser` entry), 
 executes. Any timing or framing rule that belongs to both therefore lives in `packages/domain/src/video.ts`, not in
 the worker.
 
+*Subtitles* (or C) draws the narration on the picture: the segment being spoken, timed like the render's `.srt`
+cues (`subtitleAt`), or a shot's whole line while it has no voiced audio; nothing during a pause between segments. It
+is on by default and remembered per browser, like *Lines*.
+
 The preview covers one chapter, page or panel (the export can also take the whole project or a page selection). It
 plays on the Web Audio clock: every narration segment is scheduled on the browser's audio clock ahead of time and the
 picture reads the same clock, so narration keeps playing in a background tab (where animation frames stop) and the
@@ -96,7 +100,7 @@ groups, so no one-word orphan ends a cue, each shown for its share of the cue by
 the frame, clear of the Shorts buttons; `center` up to 3 large words in the middle; `two_line` up to 8 words as two
 lines at the bottom. libass draws them during the loudness pass, which then re-encodes the video once (H.264 as
 above) instead of copying it; the cached sections stay caption-free, so turning captions on or off reuses them. The
-browser preview does not show captions. Other video kinds ignore the option and keep the `.srt` only. A word longer
+browser preview's *Subtitles* show the same text, without the caption styles. Other video kinds ignore the option and keep the `.srt` only. A word longer
 than a caption line (a long compound, a URL, a script written without spaces) is broken into pieces. The render image
 ships DejaVu Sans, which covers Latin, Cyrillic, Greek, Arabic and Vietnamese but not Japanese, Korean, Chinese, Hindi
 or Thai, so captions in those narration languages are refused (400; `captionsSupported`) and the select is disabled
