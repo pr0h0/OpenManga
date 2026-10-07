@@ -145,7 +145,11 @@ test("size: the oldest expendable files go until under the limit; what cannot be
     maxTotalGb: 0.000001,
     mode: "auto",
   });
-  expect(v.preview).toMatchObject({ files: 1, reasons: { age: 0, size: 1 } });
+  // Everything expendable goes for size alone: the take, and any derived copy made in the background meanwhile
+  // (a thumbnail or prompt reference, on a bucket in particular), so the count is at least one, not exactly one.
+  expect(v.preview!.reasons.age).toBe(0);
+  expect(v.preview!.files).toBeGreaterThanOrEqual(1);
+  expect(v.preview!.reasons.size).toBe(v.preview!.files);
   await waitFor(async () => !(await exists("newTake")), { label: "auto deleted" });
   const after = await waitFor(
     async () => {
