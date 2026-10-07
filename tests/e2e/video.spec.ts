@@ -164,25 +164,18 @@ test("reader link: the shared chapter plays as a video preview, with subtitles o
   const subtitles = reader.getByRole("button", { name: "Subtitles" });
   await expect(subtitles).toHaveAttribute("aria-pressed", "true");
   const onPicture = reader.locator("[data-subtitle]");
-  // A headless browser has no audio output, so its clock may not move: step to a narrated shot instead of waiting.
+  // Seek to the first narrated shot through its row in Lines, then the picture shows what is said there.
   await reader.getByRole("button", { name: "Pause", exact: true }).first().click();
-  // One shot at a time, letting each render before looking, so no narrated shot is skipped over.
-  await expect
-    .poll(
-      async () => {
-        if (await onPicture.count()) return true;
-        await reader.getByRole("button", { name: "Next shot" }).click();
-        return false;
-      },
-      { timeout: 15_000, intervals: [400] },
-    )
-    .toBe(true);
-  await expect(onPicture).toHaveText(/\w{3,}/);
+  await reader
+    .getByRole("button", { name: /Rain hammered the city/ })
+    .first()
+    .click();
+  await expect(onPicture).toHaveText(/^Rain hammered the city/);
   await subtitles.click();
   await expect(subtitles).toHaveAttribute("aria-pressed", "false");
   await expect(onPicture).toHaveCount(0);
   await subtitles.click();
-  await expect(onPicture).toHaveText(/\w{3,}/);
+  await expect(onPicture).toHaveText(/^Rain hammered the city/);
   await anon.close();
 });
 
