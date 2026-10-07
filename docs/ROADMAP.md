@@ -130,8 +130,6 @@ Grouped by area, roughly most useful first within each.
 
 - **Review states.** A reviewer role between viewer and editor, Draft → Needs review → Approved → Locked on panels,
   pages and chapters, bulk approval, approval required before chosen production steps, and approval history.
-- **Better comments.** Comments pinned to a spot on the image and to a timecode in the video, assignment, guest review
-  links without an account, unresolved counts on the production run, and before/after comparison of a fix.
 - **Ownership transfer.** The new owner accepts and the current one confirms; provider keys never move, agent grants are
   re-checked, budget settings pass to the new owner, and the transfer is audited.
 

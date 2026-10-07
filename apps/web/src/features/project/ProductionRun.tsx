@@ -20,6 +20,8 @@ type Run = {
   updatedAt: string;
   /** Jobs it queued that have not started: what Stop cancels by default. */
   pendingJobs: number;
+  /** The project's unresolved comment threads: review notes still asking for changes. */
+  openComments: number;
   warnings: Warnings | null;
 };
 type Warnings = {
@@ -171,6 +173,18 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
             <span className="inline-block font-medium first-letter:uppercase">{run.status.replaceAll("_", " ")}</span>
             <span className="muted"> · started {fmt.ago(run.createdAt)}</span>
             {run.reason && <span className="muted"> · {run.reason}</span>}
+            {run.openComments > 0 && (
+              <>
+                {" · "}
+                <Link
+                  to="/projects/$projectId/comments"
+                  params={{ projectId }}
+                  className="text-amber-700 underline dark:text-amber-300"
+                >
+                  {run.openComments} open comment thread{run.openComments === 1 ? "" : "s"}
+                </Link>
+              </>
+            )}
           </p>
           <ol className="space-y-1 text-xs">
             {run.steps.map((s) => {

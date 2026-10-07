@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { eq, panels as panelsTable, sql } from "@openmanga/db";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 /** Panel comments: threads, mentions, notifications, who may do what, live events, and agents. */
@@ -309,5 +310,262 @@ describe("agents", () => {
       viaAgent: true,
       agentName: "notes agent",
     });
+  });
+
+  test("an agent pins, assigns by username and reassigns; a non-member cannot be assigned", async () => {
+    const call = await mcp(owner, ["panels:read", "panels:write"]);
+    const posted = await call("post_comment", {
+      panelId: otherPanelId,
+      body: "The lamp is gone in this panel",
+      anchor: { x: 0.4, y: 0.6 },
+      assignTo: "@eddie",
+    });
+    expect(posted.error).toBeNull();
+    const c = (posted.data as { comment: { id: string; anchor: unknown; assignee: string } }).comment;
+    expect(c).toMatchObject({ anchor: { x: 0.4, y: 0.6 }, assignee: "eddie" });
+    const moved = await call("assign_comment", { commentId: c.id, username: "vera" });
+    expect((moved.data as { comment: { assignee: string } }).comment.assignee).toBe("vera");
+    expect((await call("assign_comment", { commentId: c.id, username: "otto" })).error?.code).toBe("bad_request");
+    const mine = await (await mcp(viewer, ["panels:read"]))("list_comments", { projectId, assignedToMe: true });
+    expect((mine.data as { threads: { id: string }[] }).threads.map((t) => t.id)).toContain(c.id);
+    expect((await call("assign_comment", { commentId: c.id, username: null })).error).toBeNull();
+  });
+});
+
+describe("review", () => {
+  type Review = Thread & {
+    chapterId: string;
+    anchor: { x: number; y: number } | null;
+    timecodeMs: number | null;
+    assignee: string | null;
+    assigneeUserId: string | null;
+    guestName: string | null;
+    artworkAssetId: string | null;
+    resolvedArtworkAssetId: string | null;
+    currentArtworkAssetId: string | null;
+    replies: (Comment & { guestName: string | null })[];
+  };
+  const panelAt = async (i: number) =>
+    (await owner.get<{ panels: { id: string }[] }>(`/api/pages/${pageId}`)).panels[i]!.id;
+  const art = async (panel: string, name: string) => {
+    const a = await h.deps.assets.store({
+      projectId,
+      ownerUserId: null,
+      type: "panel_art",
+      data: new Uint8Array(64).fill(name.length),
+      mimeType: "image/png",
+    });
+    await h.deps.db.update(panelsTable).set({ activeArtworkAssetId: a.id }).where(eq(panelsTable.id, panel));
+    return a.id;
+  };
+  const me = async (c: TestClient) => (await c.get<{ user: { id: string } }>("/api/auth/me")).user.id;
+
+  test("a pinned spot and a video moment on a new thread; never on a reply", async () => {
+    const panel = await panelAt(2);
+    const { comment } = await editor.post<{ comment: Review }>(
+      `/api/panels/${panel}/comments`,
+      { body: "Her hand is wrong here", anchor: { x: 0.25, y: 0.75 }, timecodeMs: 83_000 },
+      201,
+    );
+    expect(comment).toMatchObject({ anchor: { x: 0.25, y: 0.75 }, timecodeMs: 83_000 });
+    expect(comment.chapterId).toBe(chapterId);
+    await editor.post(
+      `/api/panels/${panel}/comments`,
+      { body: "and here", threadId: comment.id, anchor: { x: 0.1, y: 0.1 } },
+      400,
+    );
+    await editor.post(`/api/panels/${panel}/comments`, { body: "off the image", anchor: { x: 1.2, y: 0 } }, 422);
+  });
+
+  test("assigning a thread notifies the member, filters the list, and must name a member", async () => {
+    const panel = await panelAt(2);
+    const eddie = await me(editor);
+    const { comment } = await owner.post<{ comment: Review }>(
+      `/api/panels/${panel}/comments`,
+      { body: "Please redraw the door", assigneeUserId: eddie },
+      201,
+    );
+    expect(comment).toMatchObject({ assignee: "eddie", assigneeUserId: eddie });
+    expect((await inbox(editor)).notifications[0]).toMatchObject({ kind: "assigned", actor: "olive" });
+    const mine = await editor.get<{ threads: Review[] }>(`/api/projects/${projectId}/comments?assignee=me`);
+    expect(mine.threads.map((t) => t.id)).toEqual([comment.id]);
+    expect((await owner.get<{ threads: Review[] }>(`/api/projects/${projectId}/comments?assignee=me`)).threads).toEqual(
+      [],
+    );
+    // Reassigned through a reply's id, to the viewer, then cleared; an outsider cannot be assigned.
+    const reply = await editor.post<{ comment: Review }>(
+      `/api/panels/${panel}/comments`,
+      { body: "Not mine", threadId: comment.id },
+      201,
+    );
+    const vera = await me(viewer);
+    const moved = await editor.post<{ comment: Review }>(`/api/comments/${reply.comment.id}/assign`, {
+      assigneeUserId: vera,
+    });
+    expect(moved.comment).toMatchObject({ id: comment.id, assignee: "vera" });
+    expect((await inbox(viewer)).notifications[0]).toMatchObject({ kind: "assigned", actor: "eddie" });
+    await owner.post(`/api/comments/${comment.id}/assign`, { assigneeUserId: await me(outsider) }, 400);
+    const cleared = await owner.post<{ comment: Review }>(`/api/comments/${comment.id}/assign`, {
+      assigneeUserId: null,
+    });
+    expect(cleared.comment.assignee).toBeNull();
+    expect((await outsider.raw("POST", `/api/comments/${comment.id}/assign`, { assigneeUserId: null })).status).toBe(
+      404,
+    );
+  });
+
+  test("before and after: the art a thread was started on, the art now, and the art it was resolved on", async () => {
+    const panel = await panelAt(3);
+    const before = await art(panel, "before");
+    const { comment } = await owner.post<{ comment: Review }>(
+      `/api/panels/${panel}/comments`,
+      { body: "Too dark" },
+      201,
+    );
+    expect(comment).toMatchObject({ artworkAssetId: before, currentArtworkAssetId: before });
+    const after = await art(panel, "after-fix");
+    expect((await threads(owner, panel)).find((t) => t.id === comment.id)).toMatchObject({
+      artworkAssetId: before,
+      currentArtworkAssetId: after,
+      resolvedArtworkAssetId: null,
+    });
+    await owner.post(`/api/comments/${comment.id}/resolve`, { resolved: true });
+    // Redrawn again later: the resolution keeps the art it was resolved on.
+    await art(panel, "later");
+    expect((await threads(owner, panel)).find((t) => t.id === comment.id)).toMatchObject({
+      artworkAssetId: before,
+      resolvedArtworkAssetId: after,
+    });
+    await owner.post(`/api/comments/${comment.id}/resolve`, { resolved: false });
+    expect(
+      ((await threads(owner, panel)).find((t) => t.id === comment.id) as unknown as Review).resolvedArtworkAssetId,
+    ).toBeNull();
+  });
+
+  test("a production run reports the project's open comment threads", async () => {
+    await owner.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 1 } });
+    await owner.post(`/api/projects/${projectId}/production-runs`, { reviewGates: true, render: false }, 201);
+    const { runs } = await owner.get<{ runs: { id: string; openComments: number }[] }>(
+      `/api/projects/${projectId}/production-runs`,
+    );
+    const [open] = await h.deps.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from panel_comments where project_id = ${projectId} and thread_id is null and resolved_at is null and deleted_at is null`,
+    );
+    expect(runs[0]!.openComments).toBe(open!.n);
+    expect(runs[0]!.openComments).toBeGreaterThan(0);
+    await owner.post(`/api/production-runs/${runs[0]!.id}/cancel`, { jobs: true });
+  });
+
+  test("guests comment through a reader link that allows it, under a name, and see only that link's threads", async () => {
+    const panel = await panelAt(1);
+    const closed = await owner.post<{ share: { id: string; token: string } }>(
+      `/api/projects/${projectId}/shares`,
+      { chapterId },
+      201,
+    );
+    const guest = h.client();
+    const t0 = closed.share.token;
+    expect((await guest.raw("GET", `/api/public/shares/${t0}/comments?pageId=${pageId}`)).status).toBe(404);
+    expect(
+      (await guest.raw("POST", `/api/public/shares/${t0}/comments`, { panelId: panel, name: "Ana", body: "Hi" }))
+        .status,
+    ).toBe(404);
+    const reader0 = await guest.get<{ allowComments: boolean; chapters: { pages: { panels?: unknown[] }[] }[] }>(
+      `/api/public/shares/${t0}`,
+    );
+    expect(reader0.allowComments).toBe(false);
+    expect(reader0.chapters[0]!.pages[0]!.panels).toEqual([]);
+
+    // The owner lets readers comment on the same link.
+    await owner.patch(`/api/shares/${closed.share.id}`, { allowComments: true });
+    await viewer.raw("PATCH", `/api/shares/${closed.share.id}`, { allowComments: false }).then((r) => {
+      expect(r.status).toBe(403);
+    });
+    const reader = await guest.get<{ allowComments: boolean; chapters: { pages: { panels: { id: string }[] }[] }[] }>(
+      `/api/public/shares/${t0}`,
+    );
+    expect(reader.allowComments).toBe(true);
+    expect(reader.chapters[0]!.pages[0]!.panels.map((p) => p.id)).toContain(panel);
+
+    const ownerUnread = (await inbox(owner)).unread;
+    const posted = await guest.post<{ comment: Record<string, unknown> }>(
+      `/api/public/shares/${t0}/comments`,
+      { panelId: panel, name: "Ana", body: "The second bubble has a typo", anchor: { x: 0.5, y: 0.2 } },
+      201,
+    );
+    // Only names and words go back to a guest: no account ids, assignees or agent details.
+    expect(Object.keys(posted.comment).sort()).toEqual([
+      "anchor",
+      "author",
+      "authorName",
+      "body",
+      "createdAt",
+      "deletedAt",
+      "editedAt",
+      "guestName",
+      "id",
+      "panelId",
+      "resolvedAt",
+      "threadId",
+    ]);
+    const note = (await inbox(owner)).notifications[0]!;
+    expect(note).toMatchObject({ kind: "guest", guestName: "Ana" });
+    expect((await inbox(owner)).unread).toBe(ownerUnread + 1);
+    // Members see it with the guest's name; a member's reply reaches the guest's view, and a guest reply notifies them.
+    const t = (await threads(editor, panel)).find((x) => x.id === posted.comment.id) as unknown as Review;
+    expect(t).toMatchObject({ guestName: "Ana", author: null });
+    await editor.post(`/api/panels/${panel}/comments`, { body: "Fixed, thanks", threadId: t.id }, 201);
+    await guest.post(
+      `/api/public/shares/${t0}/comments`,
+      { panelId: panel, name: "Ana", body: "Looks good", threadId: t.id },
+      201,
+    );
+    expect((await inbox(editor)).notifications[0]).toMatchObject({ kind: "guest", guestName: "Ana" });
+    const seen = await guest.get<{ threads: { id: string; replies: { body: string; guestName: string | null }[] }[] }>(
+      `/api/public/shares/${t0}/comments?pageId=${pageId}`,
+    );
+    expect(seen.threads.map((x) => x.id)).toEqual([t.id]);
+    expect(seen.threads[0]!.replies.map((r) => r.body)).toEqual(["Fixed, thanks", "Looks good"]);
+    // Members' own threads on the same page stay private to the project.
+    expect(JSON.stringify(seen)).not.toContain("Her hand is wrong here");
+
+    // Not on a thread members started, not on a panel outside the link, not without a name, and not in a flood.
+    const members = (await threads(owner, panel)).find((x) => !(x as unknown as Review).guestName)!;
+    if (members)
+      expect(
+        (
+          await guest.raw("POST", `/api/public/shares/${t0}/comments`, {
+            panelId: panel,
+            name: "Ana",
+            body: "x",
+            threadId: members.id,
+          })
+        ).status,
+      ).toBe(404);
+    expect(
+      (
+        await guest.raw("POST", `/api/public/shares/${t0}/comments`, {
+          panelId: crypto.randomUUID(),
+          name: "Ana",
+          body: "x",
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await guest.raw("POST", `/api/public/shares/${t0}/comments`, { panelId: panel, name: " ", body: "x" })).status,
+    ).toBe(422);
+    let limited = 0;
+    for (let i = 0; i < 12; i++) {
+      const r = await guest.raw("POST", `/api/public/shares/${t0}/comments`, {
+        panelId: panel,
+        name: "Bot",
+        body: `spam ${i}`,
+      });
+      if (r.status === 429) limited++;
+    }
+    expect(limited).toBeGreaterThan(0);
+    // Revoked: the link and its comments are gone for guests.
+    await owner.del(`/api/shares/${closed.share.id}`);
+    expect((await guest.raw("GET", `/api/public/shares/${t0}/comments?pageId=${pageId}`)).status).toBe(404);
   });
 });
