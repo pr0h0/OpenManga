@@ -145,7 +145,7 @@ test("video branding: an intro card in project settings", async () => {
   await expect(page.getByLabel("Intro card title")).toHaveValue("Rooftop Recaps");
 });
 
-test("reader link: the shared chapter plays as a video preview", async () => {
+test("reader link: the shared chapter plays as a video preview, with subtitles on the picture", async () => {
   await page.goto(s.url);
   await page.getByRole("button", { name: "Share" }).click();
   const d = page.getByRole("dialog", { name: "Share a reader link" });
@@ -160,6 +160,16 @@ test("reader link: the shared chapter plays as a video preview", async () => {
   await reader.getByRole("button", { name: "Play this chapter as a video preview" }).click();
   await reader.getByRole("button", { name: "Play", exact: true }).first().click();
   await expect(reader.getByRole("button", { name: "Pause", exact: true }).first()).toBeVisible();
+  // Subtitles: the spoken narration on the picture, on by default and toggled off and on.
+  const subtitles = reader.getByRole("button", { name: "Subtitles" });
+  await expect(subtitles).toHaveAttribute("aria-pressed", "true");
+  const onPicture = reader.locator("[data-subtitle]");
+  await expect(onPicture).toHaveText(/\w{3,}/, { timeout: 15_000 });
+  await subtitles.click();
+  await expect(subtitles).toHaveAttribute("aria-pressed", "false");
+  await expect(onPicture).toHaveCount(0);
+  await subtitles.click();
+  await expect(onPicture).toHaveText(/\w{3,}/, { timeout: 15_000 });
   await anon.close();
 });
 

@@ -14,6 +14,7 @@ import {
 } from "@openmanga/domain/browser";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Captions,
   Clapperboard,
   ListVideo,
   Maximize,
@@ -37,7 +38,7 @@ type PreviewSegment = {
   audioAssetId: string | null;
   durationMs: number | null;
 };
-type PreviewShot = {
+export type PreviewShot = {
   key: string;
   label: string;
   /** Shares one hold with the next shot: a narration line spans the cut. */
@@ -97,6 +98,22 @@ const MOTION_LABEL: Record<Motion, string> = {
 export type PreviewScope = { chapterId?: string; pageId?: string; panelId?: string; panelIds?: string[] };
 
 const FPS = 30;
+
+/**
+ * The subtitle on screen at `clock`: the narration segment being spoken, as the render's .srt times it. A shot with no
+ * voiced audio shows its whole narration (what the Lines list shows for it); a pause between segments shows nothing.
+ */
+export function subtitleAt(timeline: ReturnType<typeof buildTimeline>, clock: number): string {
+  const cue = timeline.cues.find((c) => clock >= c.startMs && clock < c.endMs);
+  if (cue) return cue.text.trim();
+  const shot = timeline.timed.find((s) => clock >= s.startMs && clock < s.startMs + s.holdMs)?.shot;
+  if (!shot || shot.lines.some((l) => l.segments.some((x) => x.audioAssetId && x.durationMs))) return "";
+  return shot.lines
+    .flatMap((l) => l.segments)
+    .map((x) => x.text)
+    .join(" ")
+    .trim();
+}
 /** The stage is the 1080p frame of the chosen shape, scaled to fit the window. */
 const stageSize = (aspect: VideoAspect) => {
   const { frameW, frameH } = frameSizeFor(1080, aspect);
@@ -130,10 +147,10 @@ type Timed = {
  * Timeline with the same holds as the final render: the intro card, the shared `timeGroup` over each run of shots a
  * narration line spans (narration + offsets + breath, at least the minimum per shot, whole frames), the outro card.
  */
-function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined, capMs?: number) {
+export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined, capMs?: number) {
   let frames = 0;
   const at = (f: number) => (f * 1000) / FPS;
-  const cues: { startMs: number; endMs: number; audioAssetId: string }[] = [];
+  const cues: { startMs: number; endMs: number; audioAssetId: string; text: string }[] = [];
   const timed: Timed[] = [];
   const card = (which: "intro" | "outro") => {
     const c = branding?.[which];
@@ -173,7 +190,7 @@ function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Brandi
     lines.forEach((l, k) => {
       voiced(l).forEach((x, j) => {
         const start = offset + g.startMs + g.starts[k]![j]!;
-        cues.push({ startMs: start, endMs: start + x.durationMs!, audioAssetId: x.audioAssetId! });
+        cues.push({ startMs: start, endMs: start + x.durationMs!, audioAssetId: x.audioAssetId!, text: x.text });
       });
     });
   }
@@ -601,6 +618,9 @@ export function VideoPreview({
 
   // Shot list and settings fold away; the choice is remembered in this browser.
   const [showLines, setShowLines] = useState(() => readFlag("om-preview-lines", true));
+  const [showSubs, setShowSubs] = useState(() => readFlag("om-preview-subtitles", true));
+  useEffect(() => writeFlag("om-preview-subtitles", showSubs), [showSubs]);
+  const subtitle = showSubs ? subtitleAt(timeline, clock) : "";
   const [showOptions, setShowOptions] = useState(() => readFlag("om-preview-options", false));
   useEffect(() => writeFlag("om-preview-lines", showLines), [showLines]);
   useEffect(() => writeFlag("om-preview-options", showOptions), [showOptions]);
@@ -628,6 +648,7 @@ export function VideoPreview({
       if (e.key === "ArrowRight") seek((timeline.timed[current + 1]?.startMs ?? timeline.totalMs) + 1);
       if (e.key === "ArrowLeft") seek((timeline.timed[Math.max(0, current - 1)]?.startMs ?? 0) + 1);
       if (e.key === "f" || e.key === "F") toggleFullscreen();
+      if (e.key === "c" || e.key === "C") setShowSubs((v) => !v);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -726,6 +747,19 @@ export function VideoPreview({
                 >
                   {shot && preview.data && <StageFrame entry={shot} t={t} o={o} branding={preview.data.branding} />}
                 </div>
+                {subtitle && (
+                  // Sized to the picture, not the window, so it keeps its place at any player size.
+                  <p
+                    data-subtitle
+                    className="pointer-events-none absolute inset-x-[6%] bottom-[9%] text-center font-semibold text-white"
+                    style={{
+                      fontSize: Math.max(12, stageW / 34),
+                      textShadow: "0 0 3px #000, 0 0 3px #000, 0 1px 2px #000",
+                    }}
+                  >
+                    <span className="rounded bg-black/45 box-decoration-clone px-1.5 leading-relaxed">{subtitle}</span>
+                  </p>
+                )}
                 <div className="absolute right-2 bottom-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
                   {shot?.label}
                 </div>
@@ -777,6 +811,15 @@ export function VideoPreview({
                   <TriangleAlert className="size-4" />
                 </button>
               )}
+              <button
+                type="button"
+                className={`btn-ghost p-1.5 ${showSubs ? "bg-[var(--panel-2)]" : ""}`}
+                aria-pressed={showSubs}
+                title="Show or hide subtitles on the picture (C)"
+                onClick={() => setShowSubs((v) => !v)}
+              >
+                <Captions className="size-4" /> <span className="hidden sm:inline">Subtitles</span>
+              </button>
               <button
                 type="button"
                 className={`btn-ghost p-1.5 ${showLines ? "bg-[var(--panel-2)]" : ""}`}

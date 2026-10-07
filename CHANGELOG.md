@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   outside the safe area (with KDP's gutter), the fonts the lettering uses and whether the server has them, and the
   page count and its parity. The Exports page shows the cover check live and the preflight report with a soft proof
   of any page next to it (`GET /api/pages/:id/render.png?proof=cmyk|grey`).
+- Subtitles in the video preview: the narration being spoken is drawn on the picture, timed like the render's
+  subtitles (a shot's whole line while it has no voiced audio), and toggled with *Subtitles* or C. On by default and
+  remembered per browser.
 
 ## [0.15.0] — 2026-10-05
 
