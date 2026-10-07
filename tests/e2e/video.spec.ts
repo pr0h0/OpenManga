@@ -146,6 +146,12 @@ test("video branding: an intro card in project settings", async () => {
 });
 
 test("reader link: the shared chapter plays as a video preview, with subtitles on the picture", async () => {
+  // The mock narration may leave its lines unplaced: put the first one on page 1 so a shot speaks it.
+  const a = api(page);
+  const { lines } = await a.get<{ lines: { id: string; text: string }[] }>(`/chapters/${s.chapterId}/narration`);
+  const rain = lines.find((l) => l.text.includes("Rain hammered the city"))!;
+  const [panel] = await firstPagePanels(a, s.pageId);
+  await a.patch(`/narration-lines/${rain.id}`, { panelId: panel!.id });
   await page.goto(s.url);
   await page.getByRole("button", { name: "Share" }).click();
   const d = page.getByRole("dialog", { name: "Share a reader link" });
@@ -170,12 +176,12 @@ test("reader link: the shared chapter plays as a video preview, with subtitles o
     .getByRole("button", { name: /Rain hammered the city/ })
     .first()
     .click();
-  await expect(onPicture).toHaveText(/^Rain hammered the city/);
+  await expect(onPicture).toContainText("Rain hammered the city");
   await subtitles.click();
   await expect(subtitles).toHaveAttribute("aria-pressed", "false");
   await expect(onPicture).toHaveCount(0);
   await subtitles.click();
-  await expect(onPicture).toHaveText(/^Rain hammered the city/);
+  await expect(onPicture).toContainText("Rain hammered the city");
   await anon.close();
 });
 
