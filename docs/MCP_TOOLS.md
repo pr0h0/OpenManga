@@ -13,7 +13,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `get_staleness`, `get_project_health` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `estimate_production_run`, `get_staleness`, `get_project_health` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
@@ -25,7 +25,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
 | `exports:read` | Read export status and files. | `suggest_shorts`, `suggest_repurpose`, `list_exports` |
@@ -132,6 +132,7 @@ requests) need no scope.
 | [`write_social_copy`](#write_social_copy) | spend | `generations:run` `projects:write` |
 | [`list_exports`](#list_exports) | read | `exports:read` |
 | [`delete_exports`](#delete_exports) | delete | `exports:create` |
+| [`estimate_production_run`](#estimate_production_run) | read | `projects:read` `generations:run` |
 | [`get_staleness`](#get_staleness) | read | `projects:read` |
 | [`get_project_health`](#get_project_health) | read | `projects:read` |
 | [`keep_publishing_text`](#keep_publishing_text) | write | `projects:write` |
@@ -10615,6 +10616,132 @@ Delete export files from disk now instead of waiting for their 30-day expiry: on
 
 </details>
 
+### estimate_production_run
+
+What start_production_run (update=false) or update_production (update=true) with the same options would still do and cost, before anything is spent: per chapter the plan, prompts, panels to draw, narration and audio (local voice, free), plus the analysis, references, thumbnail and YouTube text; priced with the chosen models' rates and this server's average usage per job, split into what runs now and what waits in a half-price provider batch, with the disk the new files will take and the budget left. Chapters not planned yet are estimates (`estimated`). Read-only; nothing is queued. Show the user the total before starting a run.
+
+- **Scopes:** `projects:read`, `generations:run`
+- **Sensitivity:** read
+- **Idempotent:** yes — accepts `idempotencyKey`
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `POST /api/projects/:projectId/production-runs/estimate`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "reviewGates": {
+      "default": true,
+      "description": "Pause for the user after the analysis, after the references and before the final render.",
+      "type": "boolean"
+    },
+    "preparePrompts": {
+      "default": true,
+      "description": "Prepare panel prompts with the text model before drawing.",
+      "type": "boolean"
+    },
+    "render": {
+      "default": true,
+      "description": "Render the video at the end.",
+      "type": "boolean"
+    },
+    "youtube": {
+      "description": "Also write the YouTube text and export the package (default: film projects).",
+      "type": "boolean"
+    },
+    "ai": {
+      "description": "The provider keys the run uses.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "object",
+          "properties": {
+            "manual": {
+              "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+              "type": "boolean"
+            },
+            "credentialId": {
+              "description": "One of the user's saved provider keys (ids from get_server_info).",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "provider": {
+              "description": "Use the user's first saved key for this provider kind.",
+              "type": "string",
+              "maxLength": 40
+            },
+            "model": {
+              "description": "Model id; defaults to the provider's first model.",
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "properties": {
+            "credentialId": {
+              "description": "One of the user's saved provider keys (ids from get_server_info).",
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "provider": {
+              "description": "Use the user's first saved key for this provider kind.",
+              "type": "string",
+              "maxLength": 40
+            },
+            "model": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    },
+    "update": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### get_staleness
 
 What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. Also publishing: the YouTube text and the thumbnail headline, flagged (stale, with reasons) when the title, the chapters or the rendered video changed after they were written; never regenerated on their own: the user regenerates them (Exports → YouTube package in the app; a new headline is settings.thumbnail.title via update_project) or they are kept with keep_publishing_text. update_production runs only the stale steps. Read-only.
@@ -10882,7 +11009,7 @@ Keep a chapter's current plan (stage=plan) or narration (stage=narration) althou
 
 ### start_production_run
 
-Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Follow it with get_production_run, and continue_production_run at each review.
+Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Price it first with estimate_production_run. Follow it with get_production_run, and continue_production_run at each review.
 
 - **Scopes:** `generations:run`
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)

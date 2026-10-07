@@ -44,6 +44,12 @@ test("produce, the final-output gate, Health, then Update production after a rev
     await page.goto(p.url);
     await card().getByRole("button", { name: "Produce" }).click();
     const d = page.getByRole("dialog", { name: "Produce this project" });
+    // Priced before anything starts: the analysis, references and thumbnail still to do, and the budget left.
+    const plan = d.getByRole("region", { name: "Cost plan" });
+    await expect(plan.getByText(/^About \$\d/)).toBeVisible();
+    await expect(plan.getByText(/left of \$50\.00/)).toBeVisible();
+    await plan.getByText("By chapter").click();
+    await expect(plan.getByRole("cell", { name: "Analysis" })).toBeVisible();
     await d.getByLabel(/Pause for my review/).uncheck();
     await d.getByLabel("Render the video at the end").uncheck();
     await d.getByRole("button", { name: "Start" }).click();

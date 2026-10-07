@@ -6,6 +6,7 @@ import { get, post } from "../../api/client.ts";
 import { ConfirmDialog, fmt, toast } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { AnalysisDiff } from "../story/AnalysisDiff.tsx";
+import { CostPlan } from "./CostPlan.tsx";
 import { PublishingFlags, StaleChapters, useStaleness } from "./StaleChapters.tsx";
 
 type Step = { key: string; label: string; status: string; note?: string; ref?: string };
@@ -347,6 +348,12 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
               {label}
             </label>
           ))}
+          {open && (
+            <CostPlan
+              projectId={projectId}
+              body={{ ...o, update, ai: { text: aiText().ai ?? null, image: aiImage().ai ?? null } }}
+            />
+          )}
         </div>
       </ConfirmDialog>
     </div>

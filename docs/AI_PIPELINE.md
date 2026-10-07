@@ -679,6 +679,23 @@ analyse → review → apply → references (characters, locations, props) → r
 chapter → prepare panel prompts → generate missing artwork → changed narration → write narration → synthesize narration → video thumbnail → YouTube package text
 → review → render the video → YouTube package export.
 
+**Cost plan.** `POST /api/projects/:projectId/production-runs/estimate` (same body as starting a run; MCP
+`estimate_production_run`; shown in the *Produce* and *Update production* dialogs as the options and models change)
+says what that run would still do and cost before it spends anything (`apps/api/src/lib/cost-plan.ts`). It follows the
+run's own "only what is missing" rules: per chapter, a plan if it has no pages, prompts for pages with a panel still
+to draw and no prepared prompt, panels without artwork (and, for an update, artwork whose spec was saved after it was
+drawn: the same `staleArt` the art step redraws), narration if it has no lines, and narration audio (the run voices
+with the local voice, so time and disk, no spend); for the project, the analysis until there are chapters, missing
+references (counted by the bulk route's own `confirm: false` estimate), the thumbnail and the YouTube text. Each unit
+is priced with the chosen models' rates (half for a batch, `batchModel`) and this server's average usage per job of
+that kind over the last 90 days from `ai_usage`, or the built-in `DEFAULT_UNIT_USAGE` until there is any (`fromHistory`
+lists the kinds priced from history). A chapter not planned yet is estimated (`estimated`), from the target runtime's
+shots per chapter or the average size of chapters already planned on this server, and so is the cast before the
+analysis. The plan totals what runs now and what waits in a half-price provider batch, the disk the new artwork
+(measured from recent artwork and its derivatives) and narration (24 kHz WAV) will take, and the budget left, with a
+warning when the total passes the cap (the run would pause there) or a model has no known price. A text model in
+paste mode is free. Nothing is queued.
+
 - **Reuse.** Every step does only what is missing: analysis is skipped once the project has chapters, references
   and artwork are drawn only where missing, only unplanned chapters are planned, narration is written only for
   chapters without lines, and the thumbnail and YouTube text are skipped when they exist.
