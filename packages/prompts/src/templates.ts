@@ -17,6 +17,7 @@ import {
   type SceneOutline,
   ScenePages,
   SocialCopy,
+  SocialCopyV1,
   StoryAnalysis,
   StoryCoverageMap,
   StoryRewrite,
@@ -668,7 +669,7 @@ export const socialCopyV1 = defineTextTemplate<{
     templateHeader("social-copy", 1),
     "You write social media posts for pieces cut from a narrated comic: Shorts, a trailer, a teaser, an image carousel and quote images. For each item write a short, curious title and a caption: a hook line, one or two lines about the moment it shows without spoiling the ending, and three to five relevant hashtags. A trailer or teaser invites people to the whole story; a quote image's caption builds on its quote. Write in the project's language, never invent events, names or facts beyond what you are given. Return every item you were given, with its id unchanged, and nothing else.",
     DATA_RULE,
-    schemaInstructions("SocialCopy", SocialCopy),
+    schemaInstructions("SocialCopy", SocialCopyV1),
   ].join("\n\n"),
   build(i) {
     return [
