@@ -10,6 +10,7 @@ import {
   PencilLine,
   RefreshCw,
   ScanEye,
+  Spline,
   SplitSquareHorizontal,
   SplitSquareVertical,
   Trash2,
@@ -126,6 +127,57 @@ function AdjustImageButton({ panelId, disabled }: { panelId: string; disabled: b
     >
       <Move className="size-3.5" /> {active ? "Done moving image" : "Move / zoom image on page"}
     </button>
+  );
+}
+
+/**
+ * A panel's outline: a rectangle until its points are edited. Edit shape shows a handle on every point (drag it,
+ * double-click to remove) and a "+" on every edge (click to add a point there), for slanted gutters, pointed tops and
+ * panels that slide into each other.
+ */
+function PanelShape({ panelId, disabled }: { panelId: string; disabled: boolean }) {
+  const active = useEditor((s) => s.shapeEditFor === panelId);
+  const shaped = useEditor((s) => Boolean(s.doc.panels.find((p) => p.id === panelId)?.frame.points));
+  return (
+    <div className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+      <div className="label">Panel shape</div>
+      <div className="flex flex-wrap gap-1">
+        <button
+          type="button"
+          className={active ? "btn-primary flex-1 text-xs" : "btn-secondary flex-1 text-xs"}
+          disabled={disabled}
+          aria-pressed={active}
+          onClick={() => useEditor.getState().setShapeEdit(active ? null : panelId)}
+        >
+          <Spline className="size-3.5" /> {active ? "Done editing shape" : "Edit shape"}
+        </button>
+        {shaped && (
+          <button
+            type="button"
+            className="btn-ghost text-xs"
+            disabled={disabled}
+            onClick={() =>
+              useEditor.getState().commit((d) => ({
+                ...d,
+                panels: d.panels.map((p) => {
+                  if (p.id !== panelId) return p;
+                  const { points: _p, ...box } = p.frame;
+                  return { ...p, frame: box };
+                }),
+              }))
+            }
+          >
+            Reset to rectangle
+          </button>
+        )}
+      </div>
+      {active && (
+        <p className="muted text-xs">
+          Drag a point to move it. Click a dashed circle on an edge to add a point there; double-click a point to remove
+          it. Enter or Esc when done.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -596,6 +648,8 @@ export function PanelTab({
         aspect={(panel.frame.width * data.page.width) / (panel.frame.height * data.page.height)}
         invalidate={[...inv, ["prompt-preview", panel.id]]}
       />
+
+      <PanelShape panelId={panel.id} disabled={locked} />
 
       <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
 

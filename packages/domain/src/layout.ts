@@ -158,10 +158,14 @@ export function clampFrame(fr: Frame): Frame {
     y: round(clamp01(Math.min(fr.y, 1 - height))),
     width: round(width),
     height: round(height),
+    // A shaped panel keeps its outline: its points are relative to the box, so they follow it.
+    ...(fr.points ? { points: fr.points } : {}),
   };
 }
 
-export function splitFrame(fr: Frame, direction: "horizontal" | "vertical", gutter = 0.01): [Frame, Frame] {
+/** Splitting a panel gives two rectangles: a polygon outline has no sensible halves. */
+export function splitFrame(frame: Frame, direction: "horizontal" | "vertical", gutter = 0.01): [Frame, Frame] {
+  const { points: _p, ...fr } = frame;
   if (direction === "horizontal") {
     const h = (fr.height - gutter) / 2;
     return [clampFrame({ ...fr, height: h }), clampFrame({ ...fr, y: fr.y + h + gutter, height: h })];

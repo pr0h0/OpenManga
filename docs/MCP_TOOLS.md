@@ -5606,6 +5606,30 @@ create: add a page to a chapter with a layout template. update: edit the page pl
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 1
+            },
+            "points": {
+              "minItems": 3,
+              "maxItems": 24,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              }
             }
           },
           "required": [
@@ -5670,6 +5694,30 @@ create: add a page to a chapter with a layout template. update: edit the page pl
                     "type": "number",
                     "exclusiveMinimum": 0,
                     "maximum": 1
+                  },
+                  "points": {
+                    "minItems": 3,
+                    "maxItems": 24,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ]
+                    }
                   }
                 },
                 "required": [
@@ -6766,6 +6814,30 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 1
+        },
+        "points": {
+          "minItems": 3,
+          "maxItems": 24,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          }
         }
       },
       "required": [

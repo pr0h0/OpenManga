@@ -120,7 +120,9 @@ slot).
   initial/final state, continuity deltas) and `story_beats` (ordered within a scene).
 - `pages` — order, purpose, pacing, visual emphasis, page-turn hook, layout template key, pixel width/height, optional
   reading-direction override, approval status.
-- `panels` — normalized `frame`, `image_transform` (focal point + scale, the crop shown on the page), `shot_type` and
+- `panels` — normalized `frame` (box in page fractions; optional `points`, a polygon outline of 3–24 points relative to
+  the box, for shaped panels: the art is cut to it and the border follows it, while crops, bubbles and video shots
+  keep using the box), `image_transform` (focal point + scale, the crop shown on the page), `shot_type` and
   `camera_angle` (free text), `story_beat`, `location_version_id`, `character_version_ids`, `prop_version_ids`,
   `active_artwork_asset_id`, `status`, approval status, plus four prompt and QA fields:
   `prompt_override` (text, a user-edited prompt), `prompt_draft` (JSON, the sections written by the `page_prompts`

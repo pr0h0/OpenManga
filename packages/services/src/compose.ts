@@ -15,6 +15,7 @@ import {
 import {
   bubbleGeometry,
   featherMask,
+  framePath,
   layoutBubbleText,
   readingOrder,
   type StripBlock,
@@ -236,10 +237,31 @@ export function panelBox(frame: Frame, W: number, H: number) {
   };
 }
 
-/** A panel's border, as the page draws it at `scale`. */
+/** A panel's border, as the page draws it at `scale`: its box, or its polygon outline. */
 export function panelFrameSvg(frame: Frame, W: number, H: number, scale: number) {
+  const stroke = `fill="none" stroke="#111" stroke-width="${Math.max(2, 4 * scale).toFixed(1)}"`;
+  if (frame.points) return `<path d="${framePath(frame, W, H)}" ${stroke} stroke-linejoin="miter"/>`;
   const { x, y, w, h } = panelBox(frame, W, H);
-  return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="#111" stroke-width="${Math.max(2, 4 * scale).toFixed(1)}"/>`;
+  return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" ${stroke}/>`;
+}
+
+/**
+ * A shaped panel's art cut to its outline: the pixels outside the polygon become transparent. `w`×`h` is the art's
+ * pixel size, the panel's box at this render.
+ */
+export async function maskToFrame(png: Uint8Array, frame: Frame, w: number, h: number) {
+  if (!frame.points) return png;
+  const pts = frame.points.map((p) => `${(p.x * w).toFixed(1)},${(p.y * h).toFixed(1)}`).join(" ");
+  const mask = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><polygon points="${pts}" fill="#fff"/></svg>`,
+  );
+  return new Uint8Array(
+    await sharp(png)
+      .ensureAlpha()
+      .composite([{ input: mask, blend: "dest-in" }])
+      .png()
+      .toBuffer(),
+  );
 }
 
 export type LetteringPart = {
@@ -298,13 +320,21 @@ export async function renderPageSvg(
     const { x, y, w, h } = panelBox(panel.frame, W, H);
     if (panel.art && opts.rasterArt) {
       // Same pixel box the SVG <image> would occupy (rounded size at the rounded origin).
-      const png = await renderPanelArt(panel.art, Math.round(w), Math.round(h), panel.imageTransform);
+      const [rw, rh] = [Math.round(w), Math.round(h)];
+      const png = await maskToFrame(await renderPanelArt(panel.art, rw, rh, panel.imageTransform), panel.frame, rw, rh);
       layers.push({ input: Buffer.from(png), left: Math.round(x), top: Math.round(y) });
     } else if (panel.art) {
-      const png = await renderPanelArt(panel.art, w, h, panel.imageTransform);
+      const png = await maskToFrame(
+        await renderPanelArt(panel.art, w, h, panel.imageTransform),
+        panel.frame,
+        Math.round(w),
+        Math.round(h),
+      );
       parts.push(
         `<image x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.round(w)}" height="${Math.round(h)}" preserveAspectRatio="none" href="data:image/png;base64,${Buffer.from(png).toString("base64")}"/>`,
       );
+    } else if (panel.frame.points) {
+      parts.push(`<path d="${framePath(panel.frame, W, H)}" fill="#f1f1f1"/>`);
     } else {
       parts.push(
         `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="#f1f1f1"/>`,

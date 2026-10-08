@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Layer, Rect, Stage, Transformer } from "react-konva";
 import { create } from "zustand";
 import type { PageDocument } from "../../../api/types.ts";
-import { BubbleNode, PanelNode, SfxNode } from "./shapes.tsx";
+import { BubbleNode, PanelNode, SfxNode, ShapeHandles } from "./shapes.tsx";
 import { useEditor } from "./store.ts";
 
 /** View state (zoom/pan) is UI-only and never persisted. */
@@ -36,6 +36,7 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
   const select = useEditor((s) => s.select);
   const aimTailFor = useEditor((s) => s.aimTailFor);
   const adjustImageFor = useEditor((s) => s.adjustImageFor);
+  const shapeEditFor = useEditor((s) => s.shapeEditFor);
   useEffect(() => {
     const el = stageRef.current?.container();
     if (el) el.style.cursor = aimTailFor ? "crosshair" : "";
@@ -66,14 +67,14 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
     if (!tr || !stage) return;
     const prefix = selection?.type === "panel" ? "panel" : selection?.type === "bubble" ? "bubble" : "sfx";
     const nodes =
-      readOnly || !selection || useEditor.getState().adjustImageFor
+      readOnly || !selection || useEditor.getState().adjustImageFor || useEditor.getState().shapeEditFor
         ? []
         : selection.ids.map((id) => stage.findOne(`#${prefix}-${id}`)).filter((n): n is Konva.Node => Boolean(n));
     tr.nodes(nodes);
     tr.rotateEnabled(selection?.type !== "panel");
     tr.keepRatio(selection?.type === "sfx");
     tr.getLayer()?.batchDraw();
-  }, [selection, doc, readOnly, adjustImageFor]);
+  }, [selection, doc, readOnly, adjustImageFor, shapeEditFor]);
 
   const onWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -197,6 +198,7 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
                 onSelect={sel("bubble", b.id)}
               />
             ))}
+          {shapeEditFor && !readOnly && <ShapeHandles panelId={shapeEditFor} W={W} H={H} zoom={zoom} />}
           <Transformer
             ref={trRef}
             ignoreStroke

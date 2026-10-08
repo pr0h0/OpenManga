@@ -19,7 +19,20 @@ export const asPatch = <T extends z.ZodObject<z.ZodRawShape>>(schema: T) =>
     // Types as `.partial()` does — every field optional, value types intact — while the runtime drops defaults.
   ) as unknown as ReturnType<T["partial"]>;
 
-export const Frame = z.object({ x: unit, y: unit, width: z.number().gt(0).max(1), height: z.number().gt(0).max(1) });
+/**
+ * A panel's place on the page, in fractions of it. `points` (optional) gives the panel a polygon outline instead of
+ * the box: each point in fractions of the box itself (0,0 its top-left, 1,1 its bottom-right), in drawing order. The
+ * box always bounds the outline, so moving or resizing the box carries the shape with it. No points: a rectangle.
+ */
+export const FramePoint = z.object({ x: unit, y: unit });
+export type FramePoint = z.infer<typeof FramePoint>;
+export const Frame = z.object({
+  x: unit,
+  y: unit,
+  width: z.number().gt(0).max(1),
+  height: z.number().gt(0).max(1),
+  points: z.array(FramePoint).min(3).max(24).optional(),
+});
 export type Frame = z.infer<typeof Frame>;
 
 /** Crop/scale of artwork inside a panel frame. focal = normalized point of the image that sits at frame center. */
