@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { projectMembers, sql } from "@openmanga/db";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 const STORY = `Chapter 1: Rooftop
@@ -158,4 +159,28 @@ test("a run can be cancelled, and is its starter's alone", async () => {
   // The in-app agent is a connection like any other in Agent access.
   const { connections } = await u.get<{ connections: { kind: string; name: string }[] }>("/api/agents/connections");
   expect(connections.filter((x) => x.kind === "app").map((x) => x.name)).toEqual(["In-app agent"]);
+});
+
+test("an agent's thinking jobs are its starter's: another member of the project cannot read them", async () => {
+  const run = await start("Audit this project");
+  const planned = await until(run.id, ["awaiting_plan"]);
+  expect(planned.plan).not.toBeNull();
+  const [job] = await h.deps.db.execute<{ id: string }>(
+    sql`select id from generation_jobs where kind = 'agent_step' and target_id = ${run.id} limit 1`,
+  );
+  // Another user made an editor of the project sees the project's jobs, but not this one's content.
+  const [o] = await h.deps.db.execute<{ id: string }>(sql`select id from users where username = 'agentother'`);
+  await h.deps.db.insert(projectMembers).values({ projectId, userId: o!.id, role: "editor" });
+  await other.get(`/api/generations/${job!.id}`, 404);
+  await other.get(`/api/generations/${job!.id}/manual`, 404);
+  await other.get(`/api/jobs/${job!.id}`, 404);
+  const listed = await other.get<{ jobs: { id: string; result: unknown; input?: unknown }[] }>(
+    `/api/projects/${projectId}/generations?kind=agent_step`,
+  );
+  const mine = listed.jobs.find((j) => j.id === job!.id);
+  expect(mine?.result ?? null).toBeNull();
+  // The starter still reads it.
+  const own = await u.get<{ job: { result: { plan?: unknown } } }>(`/api/generations/${job!.id}`);
+  expect(own.job.result.plan).toBeDefined();
+  await u.post(`/api/agent-runs/${run.id}/cancel`, {});
 });

@@ -359,7 +359,8 @@ const forGuest = (r: {
   panelId: r.panelId,
   threadId: r.threadId,
   guestName: r.guestName,
-  author: r.guestName ? null : r.author,
+  // A member is shown by their display name only: a username is a sign-in name, not for anyone holding the link.
+  author: null,
   authorName: r.guestName ? null : r.authorName,
   body: r.deletedAt ? "" : r.body,
   anchor: r.anchor,

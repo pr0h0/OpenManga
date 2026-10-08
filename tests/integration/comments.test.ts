@@ -526,6 +526,13 @@ describe("review", () => {
     );
     expect(seen.threads.map((x) => x.id)).toEqual([t.id]);
     expect(seen.threads[0]!.replies.map((r) => r.body)).toEqual(["Fixed, thanks", "Looks good"]);
+    // The member's reply shows their display name at most, never their username (a sign-in name).
+    const reply = seen.threads[0]!.replies[0] as unknown as { author: string | null };
+    expect(reply.author).toBeNull();
+    const [ed] = await h.deps.db.execute<{ username: string }>(
+      sql`select u.username from users u join panel_comments pc on pc.author_user_id = u.id where pc.thread_id = ${t.id} limit 1`,
+    );
+    expect(JSON.stringify(seen)).not.toContain(`"${ed!.username}"`);
     // Members' own threads on the same page stay private to the project.
     expect(JSON.stringify(seen)).not.toContain("Her hand is wrong here");
 

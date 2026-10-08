@@ -83,7 +83,8 @@ export class YouTubeService {
       if (e instanceof YouTubeError && e.code === "revoked") {
         await this.db
           .update(youtubeChannels)
-          .set({ status: "revoked", encryptedAccessToken: null })
+          // The grant is gone at Google: its tokens are useless and are not kept.
+          .set({ status: "revoked", encryptedAccessToken: null, encryptedRefreshToken: "" })
           .where(eq(youtubeChannels.id, conn.id));
         await this.purgeStored(conn.id);
         conn.status = "revoked";
@@ -130,7 +131,13 @@ export class YouTubeService {
       .update(youtubeLinks)
       .set({ connectionId: conn!.id })
       .where(
-        and(eq(youtubeLinks.channelId, ch.id), eq(youtubeLinks.createdBy, userId), isNull(youtubeLinks.connectionId)),
+        and(
+          eq(youtubeLinks.channelId, ch.id),
+          eq(youtubeLinks.createdBy, userId),
+          isNull(youtubeLinks.connectionId),
+          // Only in projects they still belong to: a project they left does not get their grant back.
+          sql`${youtubeLinks.projectId} in (select project_id from project_members where user_id = ${userId})`,
+        ),
       );
     await this.setupReporting(conn!);
     return conn!;
@@ -212,9 +219,10 @@ export class YouTubeService {
 
   /** Revokes the grant at Google and deletes the channel with everything stored under it. */
   async disconnect(conn: YoutubeChannelRow) {
-    await this.client
-      ?.revoke(this.ring.decrypt(conn.encryptedRefreshToken))
-      .catch((e) => this.logger?.warn("youtube revoke failed", { connectionId: conn.id, error: (e as Error).message }));
+    // Revoking is what the policy requires, so a failure (Google unreachable) keeps the row for a retry instead of
+    // forgetting a grant that would stay live. An already revoked or expired token counts as done (the client
+    // treats Google's 400 as success); a connection whose grant was refused has no token left to revoke.
+    if (conn.encryptedRefreshToken) await this.client?.revoke(this.ring.decrypt(conn.encryptedRefreshToken));
     await this.db.delete(youtubeChannels).where(eq(youtubeChannels.id, conn.id));
   }
 
@@ -225,8 +233,9 @@ export class YouTubeService {
   }
 
   /**
-   * Credentials for reading public counters: the owning channel's token when given, else the instance's API key,
-   * else any active connection's token. Null when the instance has none of them.
+   * Credentials for reading public counters: the given channel's token (the link's own connection, or the caller's
+   * channel), else the instance's API key. Never another user's grant: it would read on their behalf, and the Data
+   * API shows a channel's own private videos to its token. Null when neither is there.
    */
   async publicAuth(
     prefer?: YoutubeChannelRow | null,
@@ -237,11 +246,6 @@ export class YouTubeService {
       } catch {}
     if (this.config.YOUTUBE_API_KEY) return { auth: { apiKey: this.config.YOUTUBE_API_KEY }, conn: null };
     if (this.client?.fake) return { auth: { apiKey: "fake" }, conn: null };
-    const others = await this.db.select().from(youtubeChannels).where(eq(youtubeChannels.status, "active")).limit(5);
-    for (const c of others)
-      try {
-        return { auth: { accessToken: await this.accessToken(c) }, conn: null };
-      } catch {}
     return null;
   }
 

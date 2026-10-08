@@ -17,6 +17,7 @@ import {
   userServiceProjects,
   userServices,
   users,
+  youtubeLinks,
 } from "@openmanga/db";
 import { recordAudit } from "@openmanga/services";
 import type { Context } from "hono";
@@ -302,6 +303,12 @@ memberRoutes.delete("/projects/:projectId/members/:userId", async (c) => {
   await db
     .delete(userServiceProjects)
     .where(and(eq(userServiceProjects.projectId, p.id), inArray(userServiceProjects.serviceId, theirs)));
+  // Videos they linked from their own channels stop drawing on their grant here: the project keeps the links, with
+  // public counters only, and the channel's analytics and reach stay theirs.
+  await db
+    .update(youtubeLinks)
+    .set({ connectionId: null })
+    .where(and(eq(youtubeLinks.projectId, p.id), eq(youtubeLinks.createdBy, target)));
   await recordAudit(db, {
     userId: me.id,
     projectId: p.id,

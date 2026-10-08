@@ -21,6 +21,7 @@ import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { rateLimit } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 
 type Deps = AppEnv["Variables"]["deps"];
@@ -87,6 +88,12 @@ async function ownChannel(c: Context<AppEnv>, id: string) {
 // ---------------------------------------------------------------------------------------------------------------
 // Account: connecting channels. Mounted on the browser's /api only, never on the router MCP tools call.
 
+/**
+ * Calls that reach Google share one daily quota (about 10,000 units per Cloud project) across every user of the
+ * instance: a per-user cap keeps one person, or a script, from spending it for everyone.
+ */
+const googleLimit = rateLimit({ key: "youtube-google", limit: () => 60, windowSec: 600, by: "user" });
+
 export const youtubeAccountRoutes = new Hono<AppEnv>();
 
 doc({ method: "GET", path: "/api/youtube/channels", summary: "Your connected YouTube channels", tag: "youtube" });
@@ -121,7 +128,7 @@ doc({
   tag: "youtube",
   body: ConnectInput,
 });
-youtubeAccountRoutes.post("/connect", async (c) => {
+youtubeAccountRoutes.post("/connect", googleLimit, async (c) => {
   const yt = enabledService(c);
   const { returnTo } = await body(c, ConnectInput);
   const deps = c.get("deps");
@@ -200,7 +207,17 @@ doc({
 });
 youtubeAccountRoutes.delete("/channels/:id", async (c) => {
   const conn = await ownChannel(c, uuidParam(c, "id"));
-  await c.get("deps").youtube.disconnect(conn);
+  await c
+    .get("deps")
+    .youtube.disconnect(conn)
+    .catch((e) => {
+      c.get("deps").logger.warn("youtube revoke failed", { connectionId: conn.id, error: (e as Error).message });
+      throw new ApiError(
+        503,
+        "youtube_unavailable",
+        "Google could not be reached to revoke this channel's access, so it stays connected. Try again shortly.",
+      );
+    });
   return c.json({ ok: true });
 });
 
@@ -210,7 +227,7 @@ doc({
   summary: "A connected channel's uploads, newest first, 10–50 per page (`pageToken` from `next`).",
   tag: "youtube",
 });
-youtubeAccountRoutes.get("/channels/:id/uploads", async (c) => {
+youtubeAccountRoutes.get("/channels/:id/uploads", googleLimit, async (c) => {
   const yt = enabledService(c);
   const conn = await ownChannel(c, uuidParam(c, "id"));
   if (!conn.uploadsPlaylistId) return c.json({ items: [], next: null });
@@ -280,7 +297,9 @@ async function liveCounts(deps: Deps, projectId: string, links: Link[]): Promise
       };
   }
   // A partial answer is not cached: the next view tries again.
-  if (complete) await deps.redis.set(key, JSON.stringify(out), "EX", LIVE_TTL_S);
+  // A video that came back missing (deleted, made private) would otherwise switch the cache off for the project, and
+  // every page view would call Google again: cache an incomplete answer too, for a shorter time.
+  await deps.redis.set(key, JSON.stringify(out), "EX", complete ? LIVE_TTL_S : Math.min(LIVE_TTL_S, 120));
   return out;
 }
 
@@ -329,7 +348,7 @@ doc({
     "YouTube stats of the project: every linked video with its current counters, totals across videos and channels, film against Shorts, and each video's first-48-hours curve (views per hour since publishing, from hourly snapshots).",
   tag: "youtube",
 });
-youtubeRoutes.get("/projects/:projectId/youtube", async (c) => {
+youtubeRoutes.get("/projects/:projectId/youtube", googleLimit, async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
   const deps = c.get("deps");
   const rows = await projectLinks(deps, p.id);
@@ -438,7 +457,7 @@ doc({
   tag: "youtube",
   body: LinkInput,
 });
-youtubeRoutes.post("/projects/:projectId/youtube/links", async (c) => {
+youtubeRoutes.post("/projects/:projectId/youtube/links", googleLimit, async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
   const input = await body(c, LinkInput);
   const deps = c.get("deps");
@@ -624,7 +643,7 @@ doc({
     "One linked video's history. On a connected channel: daily Analytics (views, watch time, average view duration and percentage, subscribers gained and lost, likes, comments, shares) since publishing with traffic source, country, device and content-type splits, plus the views since the last Analytics day from the live counter; daily thumbnail impressions and CTR from the reach reports. Otherwise: daily views from the stored snapshots (kept 30 days). Always: the first-48-hours curve.",
   tag: "youtube",
 });
-youtubeRoutes.get("/projects/:projectId/youtube/links/:linkId/history", async (c) => {
+youtubeRoutes.get("/projects/:projectId/youtube/links/:linkId/history", googleLimit, async (c) => {
   const { p, link } = await projectLink(c, "read");
   const deps = c.get("deps");
   const live = (await liveCounts(deps, p.id, [link]))[link.videoId] ?? null;

@@ -117,7 +117,8 @@ screen, deterministic channels, uploads, analytics and reports) stands in, so th
 4. **Clients → Create client → Web application**, with the authorized redirect URI
    `<API_PUBLIC_URL>/youtube/oauth/callback`, e.g. `https://manga.example.com/api/youtube/oauth/callback`.
 5. Optional: **Credentials → Create API key**, restricted to the YouTube Data API v3. It reads the public counters of
-   videos on channels nobody connected; without it, a connected channel's token is used for that.
+   videos on channels nobody connected; without it, those videos can be linked only by someone who connected a
+   channel (read with their own token), and their counters are not snapshotted. Another user's grant is never used.
 
 Then set them in `.env` and restart (`docker compose up -d`):
 

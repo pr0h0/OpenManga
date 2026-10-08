@@ -19,7 +19,7 @@ import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { ApiError, conflict, notFound, query, requireUser, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
-import { seesLibrary } from "../lib/series.ts";
+import { seesSharedReference } from "../lib/series.ts";
 
 export const assetRoutes = new Hono<AppEnv>();
 
@@ -194,10 +194,9 @@ cdnRoutes.get("/a/:id", async (c) => {
     if (!a.projectId) {
       if (a.ownerUserId !== me.id) throw notFound("Asset");
     } else {
-      // A series library's image is shown in its episodes: anyone in an episode may see it.
-      const pid = a.projectId;
-      await projectAccess(c, pid, "read").catch(async (e) => {
-        if (!(await seesLibrary(deps.db, me.id, pid))) throw e;
+      // A series library's reference image is shown in its episodes: anyone in a project that uses it may see it.
+      await projectAccess(c, a.projectId, "read").catch(async (e) => {
+        if (!(await seesSharedReference(deps.db, me.id, a.id))) throw e;
       });
     }
   }
