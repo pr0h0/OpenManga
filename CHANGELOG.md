@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+- In-app agent: the thinking steps of a run (its plan, tool calls and what they returned) were readable by every
+  member of the project through the job pages, though runs are private to whoever started them. They now are too;
+  the project's job list still shows the steps' cost, without their content.
+- Series: a library's images are visible to members of an episode only when that episode uses them as references,
+  not every file of the library.
+- Reader links with comments: a member's reply shows their display name to guests, never their username.
+- YouTube stats:
+  - Without an API key, reading a video's counters could fall back to any other user's connected channel token,
+    which shows that user's private videos. Counters are now read only with the link's own connection, the
+    caller's channel or the instance's API key.
+  - Routes that call Google are limited to 60 calls per 10 minutes per user, so one person cannot spend the
+    instance's daily quota. Live counters are cached even when a video came back missing.
+  - A member removed from a project no longer feeds it their channel's analytics and reach, and reconnecting the
+    channel does not attach it to projects they left.
+  - Disconnecting keeps the channel when Google cannot be reached to revoke the grant, so it can be retried. A grant
+    Google refused has its tokens deleted.
+
 ## [0.16.0] — 2026-10-08
 
 Upgrading: pull the new images and restart. Four migrations run on start through the migrate service:

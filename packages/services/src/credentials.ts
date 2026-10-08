@@ -141,7 +141,9 @@ export async function rotateCredentials(
   const yt = await db
     .select({ id: youtubeChannels.id, token: youtubeChannels.encryptedRefreshToken })
     .from(youtubeChannels)
-    .where(sql`${youtubeChannels.encryptedRefreshToken} not like ${`v2.${ring.primary.id}.%`}`);
+    .where(
+      sql`${youtubeChannels.encryptedRefreshToken} <> '' and ${youtubeChannels.encryptedRefreshToken} not like ${`v2.${ring.primary.id}.%`}`,
+    );
   for (const r of yt) {
     try {
       const done = await db

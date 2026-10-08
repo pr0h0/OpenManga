@@ -175,6 +175,22 @@ test("library images: seen by the episode's members, not by anyone else", async 
   const cdn = (c: TestClient) => c.raw("GET", `/cdn/a/${libChar.assetId}`);
   expect((await cdn(member)).status).toBe(200);
   expect((await cdn(stranger)).status).toBe(404);
+  // Only images the episode uses: another library image (a second portrait the episode never took) stays private.
+  const g = await u.post<{ job: { id: string } }>(
+    `/api/character-versions/${libChar.versionId}/references/generate`,
+    { kind: "portrait" },
+    202,
+  );
+  await waitFor(
+    async () =>
+      (await u.get<{ job: { status: string } }>(`/api/generations/${g.job.id}`)).job.status === "completed" || null,
+    { label: "second portrait" },
+  );
+  const [extra] = await h.deps.db.execute<{ asset_id: string }>(
+    sql`select asset_id from reference_assets where character_version_id = ${libChar.versionId} and asset_id <> ${libChar.assetId}`,
+  );
+  expect((await member.raw("GET", `/cdn/a/${extra!.asset_id}`)).status).toBe(404);
+  expect((await u.raw("GET", `/cdn/a/${extra!.asset_id}`)).status).toBe(200);
   // Nor can it be trashed in the library while episodes use it.
   await u.post(`/api/assets/${libChar.assetId}/trash`, {}, 409);
   // The series itself stays its owner's.
