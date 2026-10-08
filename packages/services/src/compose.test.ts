@@ -121,3 +121,46 @@ describe("deterministic compositor", () => {
     expect(await probeImage(out)).toMatchObject({ width: 600, height: 900 });
   });
 });
+
+describe("shaped panels", () => {
+  test("art is cut to the outline and the border follows it; the rest of the box stays page", async () => {
+    // A triangle pointing down across the whole page: art fills it, the corners beside the point stay white.
+    const p: RenderPage = {
+      id: "s",
+      order: 1,
+      width: 400,
+      height: 400,
+      readingDirection: "ltr",
+      panels: [
+        {
+          id: "t",
+          order: 1,
+          frame: {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            points: [
+              { x: 0, y: 0 },
+              { x: 1, y: 0 },
+              { x: 0.5, y: 1 },
+            ],
+          },
+          imageTransform: { focalX: 0.5, focalY: 0.5, scale: 1 },
+          art: await art(400, 400),
+        },
+      ],
+      bubbles: [],
+      sfx: [],
+    };
+    const { data, width } = await renderPageImage(p, "png");
+    const { data: px } = await sharp(data).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => [...px.subarray((y * width + x) * 3, (y * width + x) * 3 + 3)];
+    expect(at(200, 100)).toEqual([0x44, 0x77, 0xaa]); // inside: the art
+    expect(at(30, 360)).toEqual([255, 255, 255]); // bottom-left corner of the box, outside the triangle: page
+    expect(at(370, 360)).toEqual([255, 255, 255]);
+    const svg = (await renderPageSvg(p)).svg;
+    expect(svg).toContain('<path d="M0.0 0.0 L400.0 0.0 L200.0 400.0 Z"');
+    expect(svg).not.toContain('<rect x="0.0" y="0.0" width="400.0" height="400.0" fill="none"');
+  });
+});

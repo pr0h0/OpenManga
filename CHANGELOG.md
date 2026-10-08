@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Panel shapes: a panel can have a polygon outline instead of a rectangle. In the page editor, *Edit shape* on the
+  Panel tab shows a handle on every point (drag it, double-click to remove it) and a dashed circle on every edge (click
+  to add a point there), for slanted gutters, pointed tops and two panels sliding into each other. The art is cut to
+  the outline and the border follows it in page renders, PDFs and the PSD and layered exports (a webtoon strip
+  re-flows each panel to full width, so it shows the whole art); *Reset to rectangle* undoes it. Stored as optional `points` on the panel's frame (no migration).
+
 ## [0.16.1] — 2026-10-08
 
 Upgrading: pull the new images and restart. No migrations and no new settings. Security fixes for features added in
