@@ -54,6 +54,7 @@ const ALL = [
   "exports:create",
   "experts:use",
   "usage:read",
+  "stats:read",
 ];
 
 /** A request as it arrives over the network: with the Host header a real client always sends. */
@@ -598,7 +599,7 @@ describe("scopes and project restrictions", () => {
     expect(names).toContain("get_server_info");
     expect(names).not.toContain("save_story_revision");
     expect(names).not.toContain("create_project");
-    expect(names.length).toBeLessThan(15);
+    expect(names.length).toBeLessThan(20);
     const r = await reader.call("save_story_revision", { projectId, content: "x" });
     expect(r.error?.code).toBe("unknown_tool");
     // A tool it can see but whose action needs another scope gets the structured error.

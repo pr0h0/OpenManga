@@ -1,9 +1,9 @@
-import { type AnyPgColumn, boolean, index, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean, index, integer, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
 import { createdAt, id, ts } from "./common.ts";
 import { userServices } from "./mcp.ts";
 import { panels } from "./media.ts";
-import { projects } from "./projects.ts";
+import { projects, shareLinks } from "./projects.ts";
 
 /**
  * A comment on a panel. A thread is a root comment (`threadId` null) and the replies that point at it; resolving is
@@ -24,7 +24,19 @@ export const panelComments = pgTable(
       .references(() => panels.id, { onDelete: "cascade" }),
     threadId: uuid("thread_id").references((): AnyPgColumn => panelComments.id, { onDelete: "cascade" }),
     authorUserId: uuid("author_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** A guest's name, for a comment left through a reader link that allows comments (`shareId`); no user then. */
+    guestName: text("guest_name"),
+    shareId: uuid("share_id").references(() => shareLinks.id, { onDelete: "set null" }),
     body: text("body").notNull(),
+    /** Where on the panel's artwork the thread points, as fractions of its width and height (top left 0, 0). */
+    anchor: jsonb("anchor").$type<{ x: number; y: number }>(),
+    /** The moment in the chapter's video preview the thread is about, in ms from its start. */
+    timecodeMs: integer("timecode_ms"),
+    /** Who is asked to deal with the thread (first comment only). */
+    assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The panel's artwork when the thread was started, and when it was resolved: before and after a fix. */
+    artworkAssetId: uuid("artwork_asset_id"),
+    resolvedArtworkAssetId: uuid("resolved_artwork_asset_id"),
     /** Members @mentioned in the body, resolved when it was written. */
     mentions: jsonb("mentions").$type<string[]>().notNull().default([]),
     /** Written through an agent connection rather than by hand; kept true after the connection is deleted. */
@@ -56,7 +68,7 @@ export const notifications = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"mention" | "reply">().notNull(),
+    kind: text("kind").$type<"mention" | "reply" | "assigned" | "guest">().notNull(),
     commentId: uuid("comment_id")
       .notNull()
       .references(() => panelComments.id, { onDelete: "cascade" }),

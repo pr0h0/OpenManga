@@ -5,6 +5,7 @@ import { csrf, loadSession, rateLimit, securityHeaders, withDeps } from "./lib/m
 import { oauthRoutes } from "./mcp/oauth.ts";
 import { mcpRoutes } from "./mcp/server.ts";
 import { adminRoutes } from "./routes/admin.ts";
+import { agentRunRoutes } from "./routes/agent-runs.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { aiRoutes } from "./routes/ai.ts";
 import { assetRoutes, cdnRoutes } from "./routes/assets.ts";
@@ -27,6 +28,7 @@ import { productionRoutes } from "./routes/production.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { referenceRoutes } from "./routes/references.ts";
 import { repurposeRoutes } from "./routes/repurpose.ts";
+import { seriesRoutes } from "./routes/series.ts";
 import { publicShareRoutes, shareRoutes } from "./routes/shares.ts";
 import { storyRoutes } from "./routes/stories.ts";
 import { healthRoutes, miscRoutes } from "./routes/system.ts";
@@ -34,6 +36,7 @@ import { usageRoutes } from "./routes/usage.ts";
 import { videoRoutes } from "./routes/video.ts";
 import { visionRoutes } from "./routes/vision.ts";
 import { worldRoutes } from "./routes/world.ts";
+import { youtubeAccountRoutes, youtubeRoutes } from "./routes/youtube.ts";
 
 /**
  * Every REST route module, on one router. The public `/api` mounts it behind session, CSRF and rate limiting; the
@@ -73,6 +76,8 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     bibleRoutes,
     continuityRoutes,
     channelProfileRoutes,
+    seriesRoutes,
+    youtubeRoutes,
   ])
     api.route("/", r);
 }
@@ -120,6 +125,9 @@ export function createApp(deps: Deps) {
   api.route("/public", publicInviteRoutes);
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
+  api.route("/", agentRunRoutes);
+  // Connecting YouTube channels (an OAuth round trip in the browser) is likewise the signed-in user's alone.
+  api.route("/youtube", youtubeAccountRoutes);
   app.route("/api", api);
   return app;
 }

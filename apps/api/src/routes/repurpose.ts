@@ -8,7 +8,7 @@ import {
   REPURPOSE_PRESETS,
   SHORTS_MIN_MS,
 } from "@openmanga/domain";
-import { socialCopyV1 } from "@openmanga/prompts";
+import { socialCopyV2 } from "@openmanga/prompts";
 import type { RepurposeItem } from "@openmanga/schemas";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -62,7 +62,7 @@ export function suggestRepurpose(cands: Awaited<ReturnType<typeof candidates>>, 
       ? [{ id: kind, kind, label, panelIds: ids, lengthSeconds: pr.maxMs / 1000, aspect: pr.aspect, ...blank }]
       : [];
   };
-  const blank = { text: "", title: "", caption: "" };
+  const blank = { text: "", title: "", caption: "", hook: "" };
   const carousel = pickCarousel(cands);
   return [
     ...pickShortsSet(cands, shorts, REPURPOSE_PRESETS.short).map(
@@ -161,8 +161,8 @@ repurposeRoutes.post("/projects/:projectId/repurpose/copy", async (c) => {
       priority: PRIORITY.single,
       targetType: "project",
       targetId: p.id,
-      templateName: socialCopyV1.name,
-      templateVersion: socialCopyV1.version,
+      templateName: socialCopyV2.name,
+      templateVersion: socialCopyV2.version,
       provider: run.provider,
       model: run.model,
       parameters: run.parameters,

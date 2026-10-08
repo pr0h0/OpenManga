@@ -44,6 +44,8 @@ export type GenerationKind =
   | "continuity_check"
   /** The timing pass: chosen narration lines rewritten to a word budget, kept on the job until the user applies them. */
   | "narration_retime"
+  /** One step of the in-app project agent's thinking: its plan, or its next tool call. The API runs the tool. */
+  | "agent_step"
   /** A social title and caption for each item of the repurposing plan, written into settings.repurpose. */
   | "social_copy";
 
@@ -222,6 +224,14 @@ export type ExportKind =
   | "carousel"
   /** Repurposing: one panel crop with a line of narration or dialogue set in the lettering font. */
   | "quote_image"
+  /** Print: a wraparound cover (back, spine sized to the page count and paper, front) with bleed, as a PDF. */
+  | "print_cover"
+  /** Print: the interior's preflight report (resolution, ink, fonts, safe area, page count), as JSON. */
+  | "print_preflight"
+  /** Finishing: one layered Photoshop file per page (panels' art, frames and guides, effects, captions, dialogue). */
+  | "psd_pages"
+  /** Finishing: text-free pages, SVG lettering and every layer as its own PNG, with a placement manifest. */
+  | "layered_package"
   | "project_import";
 
 export const exportJobs = pgTable(

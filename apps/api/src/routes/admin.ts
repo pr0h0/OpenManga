@@ -15,7 +15,19 @@ import {
   sql,
   users,
 } from "@openmanga/db";
-import { credentialKeyStatus, instanceBudget, recordAudit, rotateCredentials } from "@openmanga/services";
+import {
+  credentialKeyStatus,
+  getStoragePending,
+  getStoragePolicy,
+  instanceBudget,
+  pendingSummary,
+  planStorage,
+  recordAudit,
+  rotateCredentials,
+  STORAGE_POLICY_KEY,
+  setStoragePending,
+  storageCandidates,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -359,3 +371,121 @@ adminRoutes.post("/maintenance", async (c) => {
     );
   return c.json({ ok: true }, 202);
 });
+
+// ---------------------------------------------------------------- storage policy
+
+const StoragePolicyInput = z
+  .object({
+    enabled: z.boolean(),
+    maxAgeDays: z.number().int().min(1).max(3650).nullable(),
+    maxTotalGb: z.number().positive().max(1_000_000).nullable(),
+    mode: z.enum(["auto", "approve"]),
+  })
+  .refine((p) => !p.enabled || p.maxAgeDays !== null || p.maxTotalGb !== null, {
+    message: "Set a number of days, a size, or both",
+  });
+
+/** The policy, what is stored, what the policy may delete, a dry run of what it would delete now, and what waits. */
+async function storageView(deps: AppEnv["Variables"]["deps"]) {
+  const policy = await getStoragePolicy(deps.db);
+  const { totalBytes, candidates } = await storageCandidates(deps.db);
+  const expendable: Record<string, { files: number; bytes: number }> = {};
+  for (const c of candidates) {
+    const k = expendable[c.kind] ?? { files: 0, bytes: 0 };
+    k.files++;
+    k.bytes += c.bytes;
+    expendable[c.kind] = k;
+  }
+  const plan = await planStorage(deps.db, policy);
+  let disk: { totalBytes: number; freeBytes: number } | null = null;
+  if (deps.config.STORAGE_DRIVER === "local")
+    try {
+      const s = await statfs(deps.config.ASSET_ROOT);
+      disk = { totalBytes: s.blocks * s.bsize, freeBytes: s.bavail * s.bsize };
+    } catch {}
+  return {
+    policy: policy ?? { enabled: false, maxAgeDays: 30, maxTotalGb: 100, mode: "approve" as const },
+    usage: { totalBytes, expendable },
+    preview: plan ? pendingSummary(plan) : null,
+    pending: await getStoragePending(deps.db),
+    disk,
+  };
+}
+
+doc({
+  method: "GET",
+  path: "/api/admin/storage",
+  summary:
+    "The storage policy, the bytes stored, what the policy may delete by kind (render cache, exports, older panel versions, unused narration takes, trash, prompt reference copies), a dry run of what it would delete now, and what an approve-mode policy is waiting to delete",
+  tag: "admin",
+});
+adminRoutes.get("/storage", async (c) => c.json(await storageView(c.get("deps"))));
+
+doc({
+  method: "PUT",
+  path: "/api/admin/storage/policy",
+  summary:
+    "Set the storage policy: delete expendable files older than maxAgeDays, then the oldest until everything stored is under maxTotalGb, whichever is crossed first; mode auto deletes at the next maintenance pass (hourly), approve waits for an administrator and shows a warning on every page until then",
+  tag: "admin",
+  body: StoragePolicyInput,
+});
+adminRoutes.put("/storage/policy", async (c) => {
+  const value = await body(c, StoragePolicyInput);
+  const deps = c.get("deps");
+  await deps.db
+    .insert(instanceSettings)
+    .values({ key: STORAGE_POLICY_KEY, value, updatedBy: user(c).id })
+    .onConflictDoUpdate({ target: instanceSettings.key, set: { value, updatedBy: user(c).id, updatedAt: new Date() } });
+  // What waits for approval follows the new policy at once, so the warning clears or appears without waiting an hour.
+  const plan = await planStorage(deps.db, value);
+  // An auto policy deletes now (queued below); either one keeps the warning while the size limit cannot be met.
+  const waits = plan && ((value.mode === "approve" && plan.files > 0) || plan.overLimitBytes > 0);
+  await setStoragePending(deps.db, waits ? pendingSummary(plan) : null);
+  if (value.enabled && value.mode === "auto" && plan?.files) await queueStorageApply(deps, user(c).id);
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    action: "admin.storage_policy.set",
+    metadata: value,
+    requestId: c.get("requestId"),
+  });
+  // The preview is the plan made before the deletion was queued: read afterwards, a quick worker may already have
+  // deleted the files, and the answer would say nothing was due.
+  return c.json({ ...(await storageView(deps)), preview: plan ? pendingSummary(plan) : null });
+});
+
+async function queueStorageApply(deps: AppEnv["Variables"]["deps"], userId: string) {
+  await deps.queue.enqueue(
+    "maintenance",
+    "storage-apply",
+    { approvedBy: userId },
+    { jobId: `storage-apply-${Date.now()}`, priority: 5, attempts: 1 },
+  );
+}
+
+doc({
+  method: "POST",
+  path: "/api/admin/storage/approve",
+  summary:
+    "Approve what the storage policy is waiting to delete: a maintenance job chooses the files again (so nothing that came into use since is touched) and deletes them, then the warning clears",
+  tag: "admin",
+});
+adminRoutes.post("/storage/approve", async (c) => {
+  const deps = c.get("deps");
+  if (!(await getStoragePending(deps.db))?.files) throw conflict("Nothing is waiting to be deleted");
+  await queueStorageApply(deps, user(c).id);
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    action: "admin.storage_policy.approve",
+    requestId: c.get("requestId"),
+  });
+  return c.json({ ok: true }, 202);
+});
+
+doc({
+  method: "GET",
+  path: "/api/admin/storage/alert",
+  summary:
+    "What the storage policy is waiting for: files to approve for deletion, or bytes still over the size limit that nothing expendable can free (null when there is nothing). Shown on every page to administrators.",
+  tag: "admin",
+});
+adminRoutes.get("/storage/alert", async (c) => c.json({ pending: await getStoragePending(c.get("deps").db) }));

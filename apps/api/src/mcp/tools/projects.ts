@@ -271,4 +271,24 @@ export const projectTools = [
     actionKeys: [],
     handler: async ({ projectId }, ctx) => ({ data: await ctx.invoke("GET", `/api/projects/${projectId}/usage`) }),
   }),
+
+  defineMcpTool({
+    name: "get_youtube_stats",
+    title: "YouTube stats",
+    description:
+      "How the project's published videos do on YouTube. Without linkId: every linked video (film or short, its channel, the export or Short it came from) with current views, likes and comments, total thumbnail impressions on connected channels, its first-48-hours curve (views at each hour since publishing, null where nothing was measured), and totals across videos, film against Shorts and per channel. With linkId (an id from that list): the video's daily history (`source` analytics for a connected channel: views, watch minutes, average view duration and percentage, subscribers gained and lost, likes, comments, shares, plus traffic source, country, device and content-type splits, and `tail` the views since the last Analytics day; `source` snapshots otherwise), and daily impressions and click-through rate from the reach reports. Linking videos and connecting channels happen in the app. Read-only.",
+    input: z.object({ projectId: Uuid, linkId: Uuid.optional() }),
+    output: Passthrough,
+    scopes: ["stats:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/youtube", "GET /api/projects/:projectId/youtube/links/:linkId/history"],
+    actionKeys: [],
+    handler: async ({ projectId, linkId }, ctx) => ({
+      data: await ctx.invoke(
+        "GET",
+        linkId ? `/api/projects/${projectId}/youtube/links/${linkId}/history` : `/api/projects/${projectId}/youtube`,
+      ),
+    }),
+  }),
 ];

@@ -1,5 +1,19 @@
-import { BUILTIN_LETTERING, resolveLettering } from "@openmanga/domain/browser";
-import type { BubbleType, LetteringDefaults, LetteringStyle, ProjectSettings, SfxDefaults } from "@openmanga/schemas";
+import {
+  BUILTIN_LETTERING,
+  MAX_AUTO_REGENERATIONS,
+  resolveLettering,
+  visualCheckModes,
+} from "@openmanga/domain/browser";
+import {
+  type BubbleType,
+  type LetteringDefaults,
+  type LetteringStyle,
+  type ProjectSettings,
+  type SfxDefaults,
+  VISUAL_CHECKS,
+  type VisualCheck,
+  type VisualCheckMode,
+} from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -611,6 +625,37 @@ function FallbackSection({
   );
 }
 
+const CHECK_LABEL: Record<VisualCheck, string> = {
+  headcount: "Cast and headcount",
+  identity: "Identity",
+  outfit: "Outfit",
+  props: "Props",
+  location: "Location",
+  expression: "Expression",
+  pose: "Pose (strict guide)",
+  framing: "Framing",
+  anatomy: "Anatomy",
+  text: "Stray text",
+  style: "Style drift",
+  palette: "Palette drift",
+  covered_faces: "Faces under lettering",
+};
+const CHECK_HINT: Record<VisualCheck, string> = {
+  headcount: "The expected characters are there, and nobody else",
+  identity: "Faces, hair and build match each character's sheet",
+  outfit: "Each character wears the outfit the panel calls for",
+  props: "The panel's props are visible and look as described",
+  location: "The setting matches the panel's location",
+  expression: "Faces show the expression the panel asks for",
+  pose: "Figures take the pose of a strict layout guide (panels without one are skipped)",
+  framing: "The shot type and camera angle are the ones planned",
+  anatomy: "No extra, missing or broken limbs, hands or fingers",
+  text: "No letters or words drawn into the art",
+  style: "The drawing keeps the project's art style",
+  palette: "The colours follow the project's colour mode",
+  covered_faces: "A bubble or caption hides a face (flag only: move the lettering to fix it)",
+};
+
 function ConsistencySection({
   value,
   onChange,
@@ -619,18 +664,26 @@ function ConsistencySection({
   onChange: (v: NonNullable<ProjectSettings["consistencyCheck"]>) => void;
 }) {
   const opts = useAiOptions();
-  const cur = { enabled: false, credentialId: null as string | null, model: "", ...value };
+  const cur = {
+    enabled: false,
+    credentialId: null as string | null,
+    model: "",
+    checks: {} as Partial<Record<VisualCheck, VisualCheckMode>>,
+    autoFixBudgetUsd: 2,
+    ...value,
+  };
+  const modes = visualCheckModes(cur.checks);
   const creds = (opts.data?.credentials ?? []).filter((c) =>
     ["openai", "anthropic", "google", "meta", "openrouter", "openai_compatible"].includes(c.kind),
   );
   return (
     <section className="card space-y-3 p-4">
-      <h2 className="font-medium">Consistency check (vision QA)</h2>
+      <h2 className="font-medium">Visual checks (vision QA)</h2>
       <p className="muted text-xs">
-        After each panel is generated, a vision model counts the people in the artwork and checks the expected
-        characters are there. Mismatches are flagged on the page and in the editor so you can re-roll them. Each check
-        is one extra text-model call with a small image. Some text models cannot read images, so pick a key with a
-        vision model (for example OpenAI gpt-5-mini, Anthropic Claude, Google Gemini or Meta Muse).
+        After each panel is generated, a vision model looks at the artwork: who is in it and how many, and each aspect
+        you turn on below. Failures are flagged on the page and in the editor, or redrawn automatically. All aspects are
+        judged in one extra text-model call with a small image. Some text models cannot read images, so pick a key with
+        a vision model (for example OpenAI gpt-5-mini, Anthropic Claude, Google Gemini or Meta Muse).
       </p>
       <label className="flex items-center gap-2 text-sm">
         <input
@@ -664,6 +717,39 @@ function ConsistencySection({
           />
         </Field>
       </div>
+      <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+        {VISUAL_CHECKS.map((k) => (
+          <label key={k} className="flex items-center justify-between gap-2 text-sm" title={CHECK_HINT[k]}>
+            <span>{CHECK_LABEL[k]}</span>
+            <select
+              className="input w-44 py-1 text-xs"
+              aria-label={`${CHECK_LABEL[k]} check`}
+              value={modes[k]}
+              onChange={(e) => onChange({ ...cur, checks: { ...cur.checks, [k]: e.target.value as VisualCheckMode } })}
+            >
+              <option value="off">Off</option>
+              <option value="flag">Flag only</option>
+              {/* Moving the lettering fixes a covered face; drawing the panel again does not. */}
+              {k !== "covered_faces" && <option value="regenerate_once">Regenerate once</option>}
+              {k !== "covered_faces" && <option value="regenerate_budget">Regenerate up to budget</option>}
+            </select>
+          </label>
+        ))}
+      </div>
+      <Field label="Budget for automatic redraws (USD, whole project)">
+        <input
+          className="input w-32"
+          type="number"
+          min={0}
+          step={0.5}
+          value={cur.autoFixBudgetUsd}
+          onChange={(e) => onChange({ ...cur, autoFixBudgetUsd: Math.max(0, Number(e.target.value) || 0) })}
+        />
+      </Field>
+      <p className="muted text-xs">
+        Regenerate up to budget redraws a failing panel until it passes, at most {MAX_AUTO_REGENERATIONS} times in a
+        row, while the project's automatic redraws have cost less than this budget. The project budget still applies.
+      </p>
       {!creds.length ? (
         <p className="text-xs text-amber-600">
           Add an API key with a vision model in Account → AI providers to use this.

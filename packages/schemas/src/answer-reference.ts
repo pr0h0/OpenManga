@@ -32,6 +32,8 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
     "**Extract bible from story** — proposes story bible facts and character states from the chapters, for review.",
   ContinuityReport:
     "**Check continuity** — contradictions in one chapter against the story bible and its neighbours, and a verdict per fixed rule.",
+  AgentPlan: "**Agent → Start** — the project agent's plan for your goal, shown for approval before anything runs.",
+  AgentStep: "**Agent**, once per step of an approved plan — the next tool call, or done with a summary.",
 };
 
 /**

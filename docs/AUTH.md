@@ -200,6 +200,12 @@ trashed asset is not served outside the trash views; see `docs/STORAGE.md`.
   and records the connection. Every member sees that an agent did it; only the member whose connection it was sees
   its name (`agentName`, `resolvedAgentName`), and connection ids are never returned. A notification says "via MCP"
   without the name.
+- **Guest comments** (`apps/api/src/routes/shares.ts`): a reader link created or switched with `allowComments` lets
+  anyone holding it comment on a panel of the link's scope under a name (1–60 characters), and reply to threads started
+  through that link: `POST /api/public/shares/:token/comments`, at most 10 per 10 minutes per address, after the
+  link's own token guard. Guests see only the threads started through their link (with members' replies), as an
+  allowlist of fields (names, words, spot, times): never account ids, assignees or agent details. The owner is
+  notified of each guest comment, and members who replied in its thread of replies. A revoked link closes them.
 - **Live**: every change publishes `members.updated` on the project's event stream. A removed member's open stream
   gets that event and is closed, and their SPA leaves the project.
 

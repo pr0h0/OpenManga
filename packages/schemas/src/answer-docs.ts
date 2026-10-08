@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { AgentPlan, AgentStep } from "./agent.ts";
 import type { FieldDocs } from "./answer-format.ts";
 import { BibleExtraction, ContinuityReport } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
@@ -43,6 +44,8 @@ export const ANSWER_SCHEMAS = {
   StoryOutline,
   BibleExtraction,
   ContinuityReport,
+  AgentPlan,
+  AgentStep,
 } satisfies Record<string, z.ZodType>;
 
 /** Prefixes every key of a shared group, so a sub-object that appears in several answers is explained once. */
@@ -370,8 +373,43 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     ],
   },
 
+  AgentPlan: {
+    "": "Your plan for the goal you were given, shown to the user to approve before anything runs.",
+    summary: [
+      "What you will do and what you will leave alone, in two or three sentences.",
+      "Read the project's health and narration findings, then rewrite the repeated narration lines. The art is left as it is.",
+    ],
+    steps: ["The steps in order, at most 20.", undefined],
+    "steps[].title": ["One step, as the user should read it.", "Find the repeated narration lines"],
+    "steps[].tools": [
+      "The tools this step will call, by the names in the catalogue.",
+      ["get_narration_qa", "propose_narration_fix"],
+    ],
+    estimatedCostUsd: ["What the plan will cost in provider credits, or null when nothing is spent.", 0.4],
+    risks: ["What could go wrong or needs the user's attention; empty when nothing does.", ""],
+  },
+
+  AgentStep: {
+    "": "Your next move toward the goal: one tool call, or done.",
+    thought: [
+      "Why this is the next step, in a sentence or two. The user sees it.",
+      "The plan starts from the health report.",
+    ],
+    action: [
+      "The one tool to call now, or null when you are done.",
+      { tool: "get_project_health", arguments: { projectId: "1b2c3d4e-0000-4000-8000-000000000000" } },
+    ],
+    "action.tool": ["A tool name from the catalogue, or describe_tools.", "get_project_health"],
+    "action.arguments": [
+      "The tool's arguments, matching its input schema.",
+      { projectId: "1b2c3d4e-0000-4000-8000-000000000000" },
+    ],
+    done: ["true when the goal is reached or cannot go further; then leave action null.", false],
+    summary: ["When done: what was done and what is left for the user. Otherwise empty.", ""],
+  },
+
   SocialCopy: {
-    "": "A social title and caption for each piece of the repurposing plan you were given, matched by id.",
+    "": "A social title and caption for each piece of the repurposing plan you were given, matched by id, and a spoken hook for each video.",
     items: ["One entry per item you were given.", undefined],
     "items[].id": ["The item's id, exactly as given.", "short-1"],
     "items[].title": [
@@ -381,6 +419,10 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "items[].caption": [
       "The post caption: a hook line, one or two lines about this moment without spoiling the ending, and a few hashtags.",
       "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics",
+    ],
+    "items[].hook": [
+      "Shorts, trailers and teasers only: one spoken line (at most fifteen words) the narrator says before the first shot, a question or striking claim from this item's narration, no hashtags or emoji. Leave it out for carousels and quote images.",
+      "Why does the lamp still turn when nobody has climbed the stairs in years?",
     ],
   },
 
@@ -821,6 +863,62 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "faces[].width": ["Width of the face box, as a fraction of the image width.", 0.16],
     "faces[].height": ["Height of the face box, as a fraction of the image height.", 0.2],
     notes: ["Anything else worth noting. Saved with the check.", "Tomas is partly hidden behind the door."],
+    aspects: [
+      'One verdict per aspect the prompt lists under "Judge these aspects"; leave out every aspect it does not list. ' +
+        "A failed aspect is flagged on the panel, or redrawn when the project says so.",
+      {
+        outfit: { ok: false, note: "Ines wears a red coat, not the grey work jacket" },
+        anatomy: { ok: true, note: "" },
+      },
+    ],
+    "aspects.identity": [
+      "Faces, hair, eyes and build match each expected character's appearance notes.",
+      { ok: true, note: "" },
+    ],
+    "aspects.identity.ok": [
+      "false only for a clear, visible mismatch; true when it matches or cannot be judged.",
+      true,
+    ],
+    "aspects.identity.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.outfit": ["Each expected character wears the clothes in their appearance notes.", { ok: true, note: "" }],
+    "aspects.outfit.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.outfit.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.props": ["The listed props are visible and look as described.", { ok: true, note: "" }],
+    "aspects.props.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.props.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.location": ["The setting matches the described location.", { ok: true, note: "" }],
+    "aspects.location.ok": [
+      "false only for a clear, visible mismatch; true when it matches or cannot be judged.",
+      true,
+    ],
+    "aspects.location.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.expression": ["Faces show the expressions asked for, and the panel's emotion.", { ok: true, note: "" }],
+    "aspects.expression.ok": [
+      "false only for a clear, visible mismatch; true when it matches or cannot be judged.",
+      true,
+    ],
+    "aspects.expression.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.pose": ["The figures take the pose of the strict pose guide.", { ok: true, note: "" }],
+    "aspects.pose.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.pose.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.framing": ["The shot type and camera angle are the ones asked for.", { ok: true, note: "" }],
+    "aspects.framing.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.framing.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.anatomy": [
+      "No extra, missing, fused or broken limbs, hands or fingers, and no melted faces.",
+      { ok: true, note: "" },
+    ],
+    "aspects.anatomy.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.anatomy.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.style": ["The drawing follows the described art style.", { ok: true, note: "" }],
+    "aspects.style.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.style.note": ["What is wrong, in a few words; empty when ok.", ""],
+    "aspects.palette": [
+      "The colours follow the colour directive (for example black and white, or full colour).",
+      { ok: true, note: "" },
+    ],
+    "aspects.palette.ok": ["false only for a clear, visible mismatch; true when it matches or cannot be judged.", true],
+    "aspects.palette.note": ["What is wrong, in a few words; empty when ok.", ""],
   },
 
   ProjectConcept: {

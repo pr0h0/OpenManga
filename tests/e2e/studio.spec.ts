@@ -153,5 +153,36 @@ test("full studio flow in the browser (mock AI)", async ({ page }) => {
     await expect(page.getByText(/completed/i).first()).toBeVisible({ timeout: 60_000 });
   });
 
+  await test.step("exports: run a print preflight and read its report with the soft proof", async () => {
+    await page.goto(`${projectUrl}/exports`);
+    await page
+      .getByRole("combobox", { name: /^Format/ })
+      .first()
+      .selectOption("print_preflight");
+    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Export anyway" })
+      .click({ timeout: 15_000 })
+      .catch(() => {});
+    const report = page.getByTestId("preflight-report");
+    await expect(report).toBeVisible({ timeout: 90_000 });
+    await expect(report.getByText(/Lowest \d+ DPI/)).toBeVisible();
+    await expect(report.getByAltText("Page soft-proofed for print")).toBeVisible();
+  });
+
+  await test.step("exports: queue a layered PSD export and see its file", async () => {
+    await page.goto(`${projectUrl}/exports`);
+    await page
+      .getByRole("combobox", { name: /^Format/ })
+      .first()
+      .selectOption("psd_pages");
+    await page.getByRole("button", { name: "Export", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Export anyway" })
+      .click({ timeout: 15_000 })
+      .catch(() => {});
+    await expect(page.getByRole("link", { name: /(\.psd|_psd\.zip)/ }).first()).toBeVisible({ timeout: 90_000 });
+  });
+
   expect(errors, errors.join("\n")).toEqual([]);
 });

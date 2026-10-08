@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import {
   BookText,
+  Bot,
   Clapperboard,
   Cpu,
   Download,
@@ -21,6 +22,7 @@ import {
   Settings,
   Share2,
   Timer,
+  TrendingUp,
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -54,6 +56,7 @@ const NAV = [
   { to: "/projects/$projectId/pages", label: "Pages", icon: LayoutGrid },
   { to: "/projects/$projectId/storyboard", label: "Storyboard", icon: GalleryVertical },
   { to: "/projects/$projectId/comments", label: "Comments", icon: MessageSquare },
+  { to: "/projects/$projectId/agent", label: "Agent", icon: Bot },
   { to: "/projects/$projectId/generation", label: "Generation", icon: Cpu },
   { to: "/projects/$projectId/narration", label: "Narration", icon: Mic },
   { to: "/projects/$projectId/timing", label: "Timing", icon: Timer },
@@ -61,6 +64,7 @@ const NAV = [
   { to: "/projects/$projectId/assets", label: "Assets", icon: Images },
   { to: "/projects/$projectId/exports", label: "Exports", icon: Download },
   { to: "/projects/$projectId/repurpose", label: "Repurpose", icon: Share2 },
+  { to: "/projects/$projectId/youtube", label: "YouTube stats", icon: TrendingUp },
   { to: "/projects/$projectId/usage", label: "Cost", icon: PiggyBank },
   { to: "/projects/$projectId/settings", label: "Settings", icon: Settings },
 ] as const;
@@ -239,6 +243,16 @@ export function ProjectLayout() {
           <div className="muted text-xs capitalize">
             {p.projectType.replace("_", " ")} · {p.readingDirection.toUpperCase()}
           </div>
+          {p.seriesId && (
+            <Link
+              to="/series/$seriesId"
+              params={{ seriesId: p.seriesId }}
+              className="chip mt-1 inline-flex hover:bg-[var(--panel-2)]"
+              title={p.seriesRole === "library" ? "Shared with every episode of the series" : "Open the series"}
+            >
+              {p.seriesRole === "library" ? "Series library" : `Series · episode ${p.episodeNumber ?? ""}`}
+            </Link>
+          )}
         </div>
         <ProjectSearch projectId={projectId} />
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-4">

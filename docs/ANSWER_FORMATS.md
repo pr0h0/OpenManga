@@ -30,6 +30,8 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [StoryOutline](#storyoutline)
 - [BibleExtraction](#bibleextraction)
 - [ContinuityReport](#continuityreport)
+- [AgentPlan](#agentplan)
+- [AgentStep](#agentstep)
 
 ## StoryAnalysis
 
@@ -1716,7 +1718,7 @@ interface NarrationRetime {
 Asked by **Repurpose → Write titles and captions** — a social title and caption for each Short, trailer, teaser, carousel and quote image of the plan.
 
 ```ts
-/** A social title and caption for each piece of the repurposing plan you were given, matched by id. */
+/** A social title and caption for each piece of the repurposing plan you were given, matched by id, and a spoken hook for each video. */
 interface SocialCopy {
   /**
    * One entry per item you were given.
@@ -1741,6 +1743,13 @@ interface SocialCopy {
      * @example "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
      */
     caption: string;
+    /**
+     * Shorts, trailers and teasers only: one spoken line (at most fifteen words) the narrator says before the first shot, a question or striking claim from this item's narration, no hashtags or emoji. Leave it out for carousels and quote images.
+     * At most 200 characters.
+     * Optional — may be left out.
+     * @example "Why does the lamp still turn when nobody has climbed the stairs in years?"
+     */
+    hook?: string;
   }[];
 }
 ```
@@ -1753,7 +1762,8 @@ interface SocialCopy {
     {
       "id": "short-1",
       "title": "She came to switch off the last lamp",
-      "caption": "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics"
+      "caption": "The keeper at Vell says the lamp turns by itself. Ines stays up to see. #lighthouse #mystery #comics",
+      "hook": "Why does the lamp still turn when nobody has climbed the stairs in years?"
     }
   ]
 }
@@ -2464,6 +2474,182 @@ interface PanelCheck {
     height: number;
   }[];
   /**
+   * One verdict per aspect the prompt lists under "Judge these aspects"; leave out every aspect it does not list. A failed aspect is flagged on the panel, or redrawn when the project says so.
+   * Optional — defaults to {} when left out.
+   */
+  aspects?: {
+    /**
+     * Faces, hair, eyes and build match each expected character's appearance notes.
+     * Optional — may be left out.
+     */
+    identity?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * Each expected character wears the clothes in their appearance notes.
+     * Optional — may be left out.
+     */
+    outfit?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The listed props are visible and look as described.
+     * Optional — may be left out.
+     */
+    props?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The setting matches the described location.
+     * Optional — may be left out.
+     */
+    location?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * Faces show the expressions asked for, and the panel's emotion.
+     * Optional — may be left out.
+     */
+    expression?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The figures take the pose of the strict pose guide.
+     * Optional — may be left out.
+     */
+    pose?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The shot type and camera angle are the ones asked for.
+     * Optional — may be left out.
+     */
+    framing?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * No extra, missing, fused or broken limbs, hands or fingers, and no melted faces.
+     * Optional — may be left out.
+     */
+    anatomy?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The drawing follows the described art style.
+     * Optional — may be left out.
+     */
+    style?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+    /**
+     * The colours follow the colour directive (for example black and white, or full colour).
+     * Optional — may be left out.
+     */
+    palette?: {
+      /**
+       * false only for a clear, visible mismatch; true when it matches or cannot be judged.
+       * @example true
+       */
+      ok: boolean;
+      /**
+       * What is wrong, in a few words; empty when ok.
+       * Optional — defaults to "" when left out.
+       * @example ""
+       */
+      note?: string;
+    };
+  };
+  /**
    * Anything else worth noting. Saved with the check.
    * Optional — defaults to "" when left out.
    * @example "Tomas is partly hidden behind the door."
@@ -2493,6 +2679,48 @@ interface PanelCheck {
       "height": 0.2
     }
   ],
+  "aspects": {
+    "identity": {
+      "ok": true,
+      "note": ""
+    },
+    "outfit": {
+      "ok": true,
+      "note": ""
+    },
+    "props": {
+      "ok": true,
+      "note": ""
+    },
+    "location": {
+      "ok": true,
+      "note": ""
+    },
+    "expression": {
+      "ok": true,
+      "note": ""
+    },
+    "pose": {
+      "ok": true,
+      "note": ""
+    },
+    "framing": {
+      "ok": true,
+      "note": ""
+    },
+    "anatomy": {
+      "ok": true,
+      "note": ""
+    },
+    "style": {
+      "ok": true,
+      "note": ""
+    },
+    "palette": {
+      "ok": true,
+      "note": ""
+    }
+  },
   "notes": "Tomas is partly hidden behind the door."
 }
 ```
@@ -2949,6 +3177,141 @@ interface ContinuityReport {
       "note": "Panel p2.3 shows a match."
     }
   ]
+}
+```
+
+</details>
+
+## AgentPlan
+
+Asked by **Agent → Start** — the project agent's plan for your goal, shown for approval before anything runs.
+
+```ts
+/** Your plan for the goal you were given, shown to the user to approve before anything runs. */
+interface AgentPlan {
+  /**
+   * What you will do and what you will leave alone, in two or three sentences.
+   * Between 1 and 2000 characters.
+   * @example "Read the project's health and narration findings, then rewrite the repeated narration lines. The art is left as it is."
+   */
+  summary: string;
+  /**
+   * The steps in order, at most 20.
+   * Between 1 and 20 items.
+   */
+  steps: {
+    /**
+     * One step, as the user should read it.
+     * Between 1 and 300 characters.
+     * @example "Find the repeated narration lines"
+     */
+    title: string;
+    /**
+     * The tools this step will call, by the names in the catalogue.
+     * At most 10 items.
+     * Optional — defaults to [] when left out.
+     * @example ["get_narration_qa","propose_narration_fix"]
+     */
+    tools?: string[];
+  }[];
+  /**
+   * What the plan will cost in provider credits, or null when nothing is spent.
+   * Optional — defaults to null when left out.
+   * @example 0.4
+   */
+  estimatedCostUsd?: number | null;
+  /**
+   * What could go wrong or needs the user's attention; empty when nothing does.
+   * At most 1000 characters.
+   * Optional — defaults to "" when left out.
+   * @example ""
+   */
+  risks?: string;
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "summary": "Read the project's health and narration findings, then rewrite the repeated narration lines. The art is left as it is.",
+  "steps": [
+    {
+      "title": "Find the repeated narration lines",
+      "tools": [
+        "get_narration_qa",
+        "propose_narration_fix"
+      ]
+    }
+  ],
+  "estimatedCostUsd": 0.4,
+  "risks": ""
+}
+```
+
+</details>
+
+## AgentStep
+
+Asked by **Agent**, once per step of an approved plan — the next tool call, or done with a summary.
+
+```ts
+/** Your next move toward the goal: one tool call, or done. */
+interface AgentStep {
+  /**
+   * Why this is the next step, in a sentence or two. The user sees it.
+   * At most 2000 characters.
+   * Optional — defaults to "" when left out.
+   * @example "The plan starts from the health report."
+   */
+  thought?: string;
+  /**
+   * The one tool to call now, or null when you are done.
+   * Optional — defaults to null when left out.
+   */
+  action?: {
+    /**
+     * A tool name from the catalogue, or describe_tools.
+     * Between 1 and 80 characters.
+     * @example "get_project_health"
+     */
+    tool: string;
+    /**
+     * The tool's arguments, matching its input schema.
+     * Optional — defaults to {} when left out.
+     * @example {"projectId":"1b2c3d4e-0000-4000-8000-000000000000"}
+     */
+    arguments?: Record<string, unknown>;
+  } | null;
+  /**
+   * true when the goal is reached or cannot go further; then leave action null.
+   * Optional — defaults to false when left out.
+   * @example false
+   */
+  done?: boolean;
+  /**
+   * When done: what was done and what is left for the user. Otherwise empty.
+   * At most 4000 characters.
+   * Optional — defaults to "" when left out.
+   * @example ""
+   */
+  summary?: string;
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "thought": "The plan starts from the health report.",
+  "action": {
+    "tool": "get_project_health",
+    "arguments": {
+      "projectId": "1b2c3d4e-0000-4000-8000-000000000000"
+    }
+  },
+  "done": false,
+  "summary": ""
 }
 ```
 

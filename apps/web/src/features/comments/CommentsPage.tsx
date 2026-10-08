@@ -24,15 +24,16 @@ export function CommentsPage() {
   const projectId = useProjectId();
   const [status, setStatus] = useState<Status>("open");
   const [chapterId, setChapterId] = useState("");
+  const [mine, setMine] = useState(false);
   const chapters = useQuery({
     queryKey: ["project", projectId, "chapters"],
     queryFn: () => get<{ chapters: ChapterListItem[] }>(`/projects/${projectId}/chapters`),
   });
   const q = useQuery({
-    queryKey: [...commentKeys.project(projectId), status, chapterId],
+    queryKey: [...commentKeys.project(projectId), status, chapterId, mine],
     queryFn: () =>
       get<{ threads: Row[] }>(
-        `/projects/${projectId}/comments?status=${status}${chapterId ? `&chapterId=${chapterId}` : ""}`,
+        `/projects/${projectId}/comments?status=${status}${chapterId ? `&chapterId=${chapterId}` : ""}${mine ? "&assignee=me" : ""}`,
       ),
   });
   return (
@@ -58,6 +59,10 @@ export function CommentsPage() {
             ))}
           </select>
         </Field>
+        <label className="flex items-center gap-1.5 pb-2 text-sm">
+          <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+          Assigned to me
+        </label>
       </div>
       {q.isLoading && <Spinner />}
       <ErrorBox error={q.error} onRetry={() => q.refetch()} />
@@ -80,8 +85,9 @@ export function CommentsPage() {
                   Ch. {t.chapterOrder} · page {t.pageOrder} · panel {t.panelOrder}
                 </span>
                 <span className="inline-flex flex-wrap items-center gap-1">
-                  {t.authorName || t.author || "Former member"} <Source viaAgent={t.viaAgent} agentName={t.agentName} />{" "}
-                  · {fmt.ago(t.lastActivityAt)}
+                  {t.guestName ? `${t.guestName} (guest)` : t.authorName || t.author || "Former member"}{" "}
+                  {!t.guestName && <Source viaAgent={t.viaAgent} agentName={t.agentName} />} ·{" "}
+                  {fmt.ago(t.lastActivityAt)}
                 </span>
                 {t.replies > 0 && (
                   <span>
@@ -89,6 +95,14 @@ export function CommentsPage() {
                   </span>
                 )}
                 {t.resolvedAt && <span>resolved{t.resolvedViaAgent ? " via MCP" : ""}</span>}
+                {t.assignee && <span>assigned to @{t.assignee}</span>}
+                {t.anchor && <span>pinned spot</span>}
+                {t.timecodeMs !== null && (
+                  <span>
+                    at {Math.floor(t.timecodeMs / 60_000)}:
+                    {String(Math.floor(t.timecodeMs / 1000) % 60).padStart(2, "0")} in the video
+                  </span>
+                )}
               </div>
               {t.deletedAt ? <p className="muted text-sm italic">Comment deleted</p> : <CommentText body={t.body} />}
             </Link>

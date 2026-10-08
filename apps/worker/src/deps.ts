@@ -8,9 +8,11 @@ import {
   createImageProvider,
   createTextProvider,
   createTTSProvider,
+  createYouTubeClient,
   JobService,
   ProviderResolver,
   UsageService,
+  YouTubeService,
 } from "@openmanga/services";
 import { createAssetStorage } from "@openmanga/storage";
 import type { WorkerDeps } from "./context.ts";
@@ -35,6 +37,12 @@ export function buildWorkerDeps(config: AppConfig) {
   const text = createTextProvider(config);
   const image = createImageProvider(config);
   const tts = createTTSProvider(config);
+  const urls = new PublicUrlService({
+    appUrl: config.APP_PUBLIC_URL,
+    apiUrl: config.API_PUBLIC_URL,
+    cdnUrl: config.CDN_PUBLIC_URL,
+  });
+  const credentials = new CredentialService(db, config);
   const deps: WorkerDeps = {
     config,
     db,
@@ -46,13 +54,10 @@ export function buildWorkerDeps(config: AppConfig) {
     jobs: new JobService(db, { queue, events }),
     text,
     image,
-    resolver: new ProviderResolver(config, new CredentialService(db, config), logger, { text, image, tts }),
+    resolver: new ProviderResolver(config, credentials, logger, { text, image, tts }),
     tts,
-    urls: new PublicUrlService({
-      appUrl: config.APP_PUBLIC_URL,
-      apiUrl: config.API_PUBLIC_URL,
-      cdnUrl: config.CDN_PUBLIC_URL,
-    }),
+    urls,
+    youtube: new YouTubeService(db, createYouTubeClient(config, urls), credentials.ring, config, logger),
   };
   return {
     deps,

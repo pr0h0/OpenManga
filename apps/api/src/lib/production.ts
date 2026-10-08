@@ -1,4 +1,4 @@
-import { toSessionUser } from "@openmanga/auth";
+import { type SessionUser, toSessionUser } from "@openmanga/auth";
 import {
   and,
   audioJobs,
@@ -160,7 +160,7 @@ async function router(deps: Deps) {
  * A route refused the call; `code` is the REST error code (budget_exceeded and instance_budget_exceeded pause the
  * run instead of failing it).
  */
-class CallError extends Error {
+export class CallError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
@@ -174,7 +174,11 @@ async function caller(deps: Deps, run: Run) {
   const [u] = await deps.db.select().from(users).where(eq(users.id, run.userId));
   if (!u || u.status === "disabled")
     throw new CallError(403, "forbidden", "The account that started this run is disabled");
-  const user = toSessionUser(u);
+  return callAs(deps, toSessionUser(u));
+}
+
+/** Calls the API in-process as `user`, with the same routes and checks a request from the app would meet. */
+export async function callAs(deps: Deps, user: SessionUser) {
   const app = await router(deps);
   return async <T = Record<string, unknown>>(method: "GET" | "POST", path: string, body?: unknown) => {
     const res = await app.request(

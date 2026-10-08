@@ -17,8 +17,43 @@ import {
   sql,
 } from "@openmanga/db";
 import type { QueueName } from "@openmanga/queue";
-import { exportQueuesFor, KeyRing, rotateCredentials, sweepRenderSections } from "@openmanga/services";
+import {
+  applyStoragePlan,
+  exportQueuesFor,
+  getStoragePolicy,
+  KeyRing,
+  pendingSummary,
+  planStorage,
+  recordAudit,
+  rotateCredentials,
+  setStoragePending,
+  sweepRenderSections,
+} from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
+
+/**
+ * The storage policy (Admin → Storage): an `auto` policy deletes what it selects; an `approve` one records it for the
+ * administrator, and so does any policy whose size limit cannot be met by deleting expendable files. `approved`
+ * deletes now, whatever the mode: an administrator approved it (the files are chosen again, not taken from the
+ * summary, so nothing that came into use since is deleted).
+ */
+export async function enforceStoragePolicy(deps: WorkerDeps, approvedBy: string | null = null) {
+  const policy = await getStoragePolicy(deps.db);
+  let plan = await planStorage(deps.db, policy);
+  let deleted = 0;
+  if (plan?.files && (policy?.mode === "auto" || approvedBy)) {
+    deleted = await applyStoragePlan(deps.db, deps.assets, plan);
+    await recordAudit(deps.db, {
+      userId: approvedBy,
+      action: approvedBy ? "storage.policy_approved" : "storage.policy_auto",
+      metadata: { files: deleted, bytes: plan.bytes, reasons: plan.reasons, byKind: plan.byKind },
+    });
+    deps.logger.info("storage policy applied", { files: deleted, bytes: plan.bytes, approvedBy });
+    plan = await planStorage(deps.db, policy);
+  }
+  await setStoragePending(deps.db, plan && (plan.files || plan.overLimitBytes) ? pendingSummary(plan) : null);
+  return deleted;
+}
 
 /** Periodic cleanup. Only disposable data is removed; canonical assets and version history are kept. */
 export async function runMaintenance(deps: WorkerDeps) {
@@ -42,6 +77,18 @@ export async function runMaintenance(deps: WorkerDeps) {
         ),
       )
       .returning({ id: passwordResetTokens.id })
+  ).length;
+
+  // A panel left "generating" or "queued" with nothing drawing it (a panel check used to leave it so) goes back to
+  // what its art says. Only after a quiet hour, so a job between its queue and its start is never caught.
+  result.unstuckPanels = (
+    await deps.db.execute(sql`
+      update panels p set status = (case when p.active_artwork_asset_id is null then 'planned' else 'ready' end)::panel_status
+      where p.status in ('generating', 'queued') and p.updated_at < now() - interval '1 hour'
+        and not exists (select 1 from generation_jobs j where j.target_id = p.id
+          and j.kind in ('panel_generation', 'panel_edit')
+          and j.status in ('queued', 'submitted', 'processing', 'awaiting_input', 'cancel_requested', 'paused'))
+      returning p.id`)
   ).length;
 
   // Prompt-reference derivatives are reproducible: drop ones unused for 30 days.
@@ -225,6 +272,7 @@ export async function runMaintenance(deps: WorkerDeps) {
   await deps.db.execute(
     sql`delete from outbox where status = 'published' and published_at < now() - interval '7 days'`,
   );
+  result.storagePolicyDeleted = await enforceStoragePolicy(deps);
   const rot = await rotateCredentials(deps.db, new KeyRing(deps.config), { logger: log });
   result.credentialsRotated = rot.rotated;
   result.credentialRotationFailures = rot.failed;

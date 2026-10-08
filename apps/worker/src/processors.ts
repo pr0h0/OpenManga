@@ -1,12 +1,13 @@
 import type { GenerationKind } from "@openmanga/db";
 import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
+import { agentStep } from "./handlers/agent.ts";
 import { continuityCheck } from "./handlers/continuity.ts";
 import { expertExtract } from "./handlers/expert-extract.ts";
 import { processExport } from "./handlers/export.ts";
 import { coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
 import { imageBatchSubmit, pollProviderBatches } from "./handlers/image-batch.ts";
-import { runMaintenance } from "./handlers/maintenance.ts";
+import { enforceStoragePolicy, runMaintenance } from "./handlers/maintenance.ts";
 import { audioCheck, narrationFix, narrationLint } from "./handlers/narration-qa.ts";
 import { panelCheck } from "./handlers/qa.ts";
 import { storyCoverage } from "./handlers/story-coverage.ts";
@@ -25,6 +26,7 @@ import {
 import { textBatchSubmit } from "./handlers/text-batch.ts";
 import { TEXT_HANDLERS } from "./handlers/text-handlers.ts";
 import { processTts } from "./handlers/tts.ts";
+import { youtubeBackfill, youtubeHourly } from "./handlers/youtube.ts";
 import { inProject, type ProjectJob, runGenerationJob } from "./lib/runner.ts";
 
 type ProjectHandler = (deps: WorkerDeps, job: ProjectJob) => Promise<Record<string, unknown>>;
@@ -39,6 +41,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   narration_text: narrationText,
   narration_retime: narrationRetime,
   social_copy: socialCopy,
+  agent_step: agentStep,
   character_reference: referenceGeneration,
   location_reference: referenceGeneration,
   prop_reference: referenceGeneration,
@@ -82,6 +85,17 @@ export function assetProcessor(deps: WorkerDeps) {
     if (job.name === "prompt_ref") await deps.assets.ensurePromptReference(asset, deps.assets.referenceParams());
   };
 }
-/** The maintenance queue hosts two schedulers: the hourly cleanup, and the provider-batch poll. */
+/**
+ * The maintenance queue hosts three schedulers: the hourly cleanup, the provider-batch poll and the hourly YouTube
+ * stats pass; plus one-off storage approvals and reach-report backfills.
+ */
 export const maintenanceProcessor = (deps: WorkerDeps) => (job: Job) =>
-  job.name === "batch-poll" ? pollProviderBatches(deps) : runMaintenance(deps);
+  job.name === "batch-poll"
+    ? pollProviderBatches(deps)
+    : job.name === "storage-apply"
+      ? enforceStoragePolicy(deps, String(job.data.approvedBy))
+      : job.name === "youtube"
+        ? youtubeHourly(deps)
+        : job.name === "youtube-reports"
+          ? youtubeBackfill(deps, String(job.data.connectionId))
+          : runMaintenance(deps);

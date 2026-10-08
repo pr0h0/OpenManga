@@ -1,13 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { del, get, post } from "../../api/client.ts";
+import { del, get, patch, post } from "../../api/client.ts";
 import { useAction } from "../../api/hooks.ts";
 import type { ChapterListItem } from "../../api/types.ts";
 import { ErrorBox, Field, fmt, Modal, Spinner } from "../../components/ui.tsx";
 import { CopyButton } from "../generation/shared.tsx";
 
-type Share = { id: string; token: string; chapterId: string | null; chapterTitle: string | null; createdAt: string };
+type Share = {
+  id: string;
+  token: string;
+  chapterId: string | null;
+  chapterTitle: string | null;
+  allowComments: boolean;
+  createdAt: string;
+};
 
 const readerUrl = (token: string) => `${window.location.origin}/app/read/${token}`;
 
@@ -25,17 +32,25 @@ export function ShareDialog({ projectId, open, onClose }: { projectId: string; o
     enabled: open,
   });
   const [chapterId, setChapterId] = useState("");
-  const create = useAction(() => post(`/projects/${projectId}/shares`, { chapterId: chapterId || null }), {
-    invalidate: [key],
-    success: "Link created",
-  });
+  const [allowComments, setAllowComments] = useState(false);
+  const create = useAction(
+    () => post(`/projects/${projectId}/shares`, { chapterId: chapterId || null, allowComments }),
+    {
+      invalidate: [key],
+      success: "Link created",
+    },
+  );
   const revoke = useAction((id: string) => del(`/shares/${id}`), { invalidate: [key], success: "Link revoked" });
+  const toggle = useAction((v: { id: string; allowComments: boolean }) => patch(`/shares/${v.id}`, v), {
+    invalidate: [key],
+  });
   return (
     <Modal open={open} onClose={onClose} title="Share a reader link">
       <div className="space-y-4">
         <p className="muted text-sm">
           Anyone with a link can read the pages, lettered, without an account. They can't see anything else or change
-          anything. Links aren't listed anywhere; revoke one to close it at once.
+          anything, unless you let readers comment: then they can leave comments on panels under a name, and see only
+          the comments left through that link. Links aren't listed anywhere; revoke one to close it at once.
         </p>
         <div className="flex flex-wrap items-end gap-2">
           <Field label="What to share">
@@ -48,6 +63,10 @@ export function ShareDialog({ projectId, open, onClose }: { projectId: string; o
               ))}
             </select>
           </Field>
+          <label className="flex items-center gap-1.5 pb-2 text-sm">
+            <input type="checkbox" checked={allowComments} onChange={(e) => setAllowComments(e.target.checked)} />
+            Readers may comment
+          </label>
           <button type="button" className="btn-primary" disabled={create.isPending} onClick={() => create.mutate()}>
             {create.isPending && <Spinner />} Create link
           </button>
@@ -62,6 +81,15 @@ export function ShareDialog({ projectId, open, onClose }: { projectId: string; o
                 <div className="muted truncate text-xs">
                   {readerUrl(s.token)} · {fmt.ago(s.createdAt)}
                 </div>
+                <label className="muted mt-0.5 flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={s.allowComments}
+                    disabled={toggle.isPending}
+                    onChange={(e) => toggle.mutate({ id: s.id, allowComments: e.target.checked })}
+                  />
+                  Readers may comment, under a name and without an account
+                </label>
               </div>
               <CopyButton text={readerUrl(s.token)} />
               <a className="btn-secondary" href={readerUrl(s.token)} target="_blank" rel="noreferrer" title="Open">

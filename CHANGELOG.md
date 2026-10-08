@@ -7,6 +7,107 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-10-08
+
+Upgrading: pull the new images and restart. Four migrations run on start through the migrate service:
+`0035_better_comments` (pins, video moments, assignees, guest comments on reader links), `0036_agent_runs` (the
+in-app agent), `0037_series` (series, and the link columns on characters, places, props, styles and bible facts) and
+`0038_youtube_stats` (YouTube channels, linked videos, reach rows and counter snapshots). Nothing existing is changed.
+New optional settings: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `YOUTUBE_API_KEY` for YouTube stats
+(setup in docs/DEPLOYMENT.md); without them channels cannot be connected and everything else works as before. The
+Kokoro image is rebuilt with pinned dependencies. Reload open tabs to get the new web app.
+
+### Added
+
+- In-app project agent (project → Agent): give it a goal and an optional budget; it writes a plan to approve or send
+  back, then works one tool call at a time through the same MCP tools, scopes and approvals as a connected agent, as
+  your In-app agent connection held to that project. Steps that spend or change wait for approval on the page or in
+  Agent access; every call and its result is shown. It stops at 25 steps or its budget, and runs in paste mode too.
+- Series and shared libraries (top bar → Series): episodes that share one library of cast, places, props, style and
+  story bible, edited as a project of its own, and a channel profile. Episodes follow the library through a sync
+  that adds new entries, versions changed ones and points at the same reference images (no copies); the dashboard
+  shows each episode's progress, spend, exports, open comments and how far it is behind. Add an episode, adopt a
+  project (its same-named cast becomes linked), split a long story into episodes at its chapter headings, and find
+  every appearance of a library character across the series. MCP `list_series`, `get_series`, `manage_series`.
+  See docs/SERIES.md.
+- YouTube stats per project. Connect YouTube channels (each its own read-only OAuth connection, `youtube.readonly` and
+  `yt-analytics.readonly`, with the instance's own Google OAuth client: `GOOGLE_OAUTH_CLIENT_ID`,
+  `GOOGLE_OAUTH_CLIENT_SECRET`, optional `YOUTUBE_API_KEY`; setup in docs/DEPLOYMENT.md) and link a project's
+  published film and Shorts from a channel's uploads or by pasting any YouTube link form, each naming the export or
+  Short it came from. The new **YouTube stats** page shows totals across videos and channels, film against Shorts, the
+  first-48-hours curve of each release, and per video a daily chart from the Analytics API (queried when opened,
+  15-minute cache) with traffic source, country, device and Shorts-or-long-form splits, the live counter for the days
+  Analytics has not reached, and thumbnail impressions and CTR from Reporting API reach reports (jobs created on
+  connect, daily reports reduced to the rows of linked videos). An hourly worker pass snapshots public counters
+  (hourly for a video's first 48 hours, then daily for channels not connected) and applies retention under YouTube's
+  developer policies (unauthorized statistics kept 30 days; a channel's data deleted when it disconnects, its grant is
+  revoked, or its authorization is not re-confirmed for 30 days; see docs/SECURITY.md). Channel tokens are encrypted
+  and rotated with the provider keys. MCP: `get_youtube_stats` under the new `stats:read` scope. Under
+  `AI_MOCK_MODE` a fake Google, consent screen included, runs it all locally. Migration `0038`.
+- Better comments:
+  - **Pins:** a thread can point at a spot on the panel's artwork (*Pin a spot*), shown as a numbered pin.
+  - **Video moments:** a thread can point at a moment of the chapter's video (*Comment* in the video preview, panel
+    cut), which opens the preview there.
+  - **Assignment:** threads can be assigned to a member, who is notified; the Comments page can show only yours.
+  - **Before and after:** a thread shows the panel's artwork when it was started next to the art it was resolved on
+    (or shows now).
+  - **Production run:** the run card counts the project's open comment threads.
+  - **Guest comments:** a reader link can let readers comment on panels under a name, without an account; they see only
+    the threads left through that link, and the owner is notified.
+  - **MCP:** `post_comment` takes `anchor`, `timecodeMs` and `assignTo`, `list_comments` takes `assignedToMe`, and the
+    new `assign_comment` reassigns a thread.
+  - Migration `0035`.
+- Layered exports for finishing in Photoshop or Clip Studio. `psd_pages` writes one layered PSD per page: a group per
+  panel with its art, frame and (hidden) layout guide, then effects, captions and dialogue, each element its own layer
+  named by its text, over the lettered page as the flattened image. `layered_package` zips the text-free page, the
+  lettering as one SVG (vector text and shapes) and every layer as its own transparent PNG, with `manifest.json`
+  giving each file's position, size, stacking order and text. Both are on the Exports page and MCP `create_export`.
+- Visual checks: the panel check now also judges identity, outfit, props, location, expression, pose against a strict
+  layout guide, framing, anatomy, style and palette drift, beside headcount and stray text, and measures faces hidden
+  under bubbles or captions. Each is set in project settings to off, flag only, regenerate once, or regenerate up to a
+  budget (at most 3 re-rolls in a row, while the project's automatic re-rolls cost less than the budget). All aspects
+  are judged in the one vision call; the panel badge says when a panel is being redrawn, or why it was not.
+  A panel check no longer leaves its panel showing "generating" after it ran; the hourly maintenance puts panels left
+  that way back to ready.
+- Production cost planner: the *Produce* and *Update production* dialogs price what the run would still do before it
+  starts, chapter by chapter (plans, prompts, panels to draw, narration, local-voice audio) plus the analysis,
+  references, thumbnail and YouTube text, with the chosen models and this server's own average usage per job. They
+  show what runs now and what waits for a half-price batch, the disk the new files will take, the budget left, and a
+  warning when the run would reach the cap. Chapters not planned yet are estimated and marked.
+  `POST /api/projects/:projectId/production-runs/estimate`, MCP `estimate_production_run`.
+- Storage policy (Admin → Storage): delete files the app can do without (cached video sections, export files, older
+  AI-drawn panel versions, unused narration takes, trash, prompt reference copies) once they are older than a number
+  of days, and then the oldest of them until everything stored is under a size limit, whichever limit is crossed
+  first. Delete automatically at the hourly maintenance pass, or ask first: administrators then see a warning at the
+  top of every page, which cannot be dismissed until they approve or change the policy. Art a panel shows, approved or
+  locked art, references, covers, thumbnails, uploads and narration in use are never deleted. A dry run shows what
+  would go.
+- Print workflow (`docs/PRINT.md`). The PDF export takes a contents page (`pdf.toc`), blank pages so every chapter
+  opens on a right-hand page (`pdf.rectoChapters`), and book metadata written into the PDF (`pdf.metadata`: title,
+  author, subject, keywords, language). A new `print_cover` export renders the wraparound cover as one PDF with
+  bleed: the cover art on the front with the title and author, the spine sized from the interior's page count and
+  the paper (KDP's white, cream and colour thickness, or a custom one) with the title when the book has 79 pages or
+  more, the description on the back above the barcode area, mirrored for right-to-left books, plus a preview with the
+  trim, safe areas and barcode box drawn on. `GET /api/projects/:projectId/print/cover` checks it before rendering
+  (missing art, art under 300 DPI, spine too thin for text, text that had to be shortened), and the drawn text is
+  measured against the safe areas after rendering. A new `print_preflight` export measures the interior the PDF
+  would print: each page's resolution and its panels' art resolution, total ink, colour shift through CMYK, lettering
+  outside the safe area (with KDP's gutter), the fonts the lettering uses and whether the server has them, and the
+  page count and its parity. The Exports page shows the cover check live and the preflight report with a soft proof
+  of any page next to it (`GET /api/pages/:id/render.png?proof=cmyk|grey`).
+- Subtitles in the video preview: the narration being spoken is drawn on the picture, timed like the render's
+  subtitles (a shot's whole line while it has no voiced audio), and toggled with *Subtitles* or C. On by default and
+  remembered per browser.
+- Hook lines for repurposed Shorts: each Short, trailer and teaser of the repurposing plan has a *Hook line* the narrator
+  says before its first shot, written with the titles and captions (*Write titles, captions and hooks*) and editable.
+  It is voiced with the project's narrator voice and pronunciation dictionary, holds the first shot for its length, and
+  starts the subtitles and captions. `video.hook` on `video_shorts` exports.
+
+### Fixed
+
+- Local voice (Kokoro): a fresh build installed transformers 5, which needs a newer PyTorch than the one the image
+  pins, so the voice model never loaded and narration audio failed. transformers and huggingface_hub are now pinned.
+
 ## [0.15.0] — 2026-10-05
 
 Upgrading: pull the new images and restart. One migration (`0034_comment_agent_source`) runs on start through the

@@ -15,8 +15,6 @@ Grouped by area, roughly most useful first within each.
   artwork, so it is clear what changed and what an update would redo.
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Fork a chapter.** Keep a chapter's current production as one version and re-plan a copy, once snapshots exist.
-- **Production cost planner.** Before a run spends anything: text, references, panels, checks and thumbnail priced
-  per chapter with the chosen models, what goes now and what waits for a batch, and the storage it will take.
 
 ### Canon and continuity
 
@@ -26,15 +24,6 @@ Grouped by area, roughly most useful first within each.
   scene happens.
 - **Rules checked in the artwork.** The continuity check tests fixed rules against what the plan, dialogue and
   narration say; checking them in the finished panels by vision ("system windows are blue") is still to do.
-
-### Series and shared libraries
-
-- **Series.** A level above projects: episodes or seasons that share cast, places, props, style, approved references,
-  the story bible and a channel profile, with a series dashboard (status, spend, outputs, open issues).
-- **Shared libraries.** Reuse a character, location, prop or style across projects without copying it, and search
-  every appearance of a character across a series.
-- **Split a long story into episodes.** Plan a long source as several projects rather than one very large one, and
-  adopt existing projects into a series.
 
 ### Panels and images
 
@@ -50,9 +39,6 @@ Grouped by area, roughly most useful first within each.
   16:9 art can be widened to 9:16 instead of cropped.
 - **Comic effects as layers.** Speed and focus lines, impact flashes, screentone, rain, snow, dust, glow and a
   flashback tint drawn deterministically over the art, instead of paying to regenerate a panel for them.
-- **More visual checks.** Beyond headcount: identity, outfit, props, location, expression, pose against a strict guide,
-  framing, anatomy, stray text, style and palette drift, and covered faces; each set to flag only, regenerate once, or
-  regenerate up to a budget.
 - **Near-duplicate finder.** Spot near-identical panels, repeated poses and backgrounds, and duplicate thumbnail
   candidates, with local image embeddings.
 - **Model comparison.** Draw one panel with several models side by side, with checks, time and cost, then use the
@@ -102,29 +88,20 @@ Grouped by area, roughly most useful first within each.
 
 ### Publishing and repurposing
 
-- **Publish to YouTube.** Connect a channel with OAuth and upload the YouTube package's video, title, description,
+- **Publish to YouTube.** Upload the YouTube package's video, title, description,
   tags, chapters, subtitles and thumbnail as a resumable upload: private by default (never public unless chosen),
   optional scheduling, playlist, language and category, the altered-or-synthetic content declaration, processing
-  status, retry without re-rendering, and the video id kept on the export. (Unaudited API projects can only upload
-  privately.)
-- **Hook lines for repurposed Shorts.** An optional opening line per Short of the repurposing plan, written by a text
-  job and voiced before its first shot.
+  status, retry without re-rendering, and the video id kept on the export. It adds the upload scope to the channel
+  connections YouTube stats already make. (Unaudited API projects can only upload privately.)
 - **Export targets.** Presets that check a platform's limits before export (YouTube, Shorts, TikTok, Reels, carousels,
   WEBTOON, Tapas, KDP, generic PDF): size, aspect, file size, strip height, page count, safe areas, naming, codecs.
 - **Public series reader.** An optional public or unlisted series page: cover, description, chapters with publish and
   schedule dates, page and scroll modes, languages, an RSS feed and social previews.
-- **Layered exports.** A layered PSD per page (each panel's art and frame, dialogue, narration, effects, guides), SVG
-  lettering, text-free pages, and a ZIP of separated art and lettering with a placement manifest, for finishing in
-  Photoshop or Clip Studio.
-- **Print workflow.** A cover builder with spine width, bleed and safe-zone and DPI checks, a CMYK soft proof, a font
-  embedding report, ink density, blank pages for recto and verso, a table of contents and book metadata.
 
 ### Import, agents and automation
 
 - **More story formats.** Import `.docx`, `.epub`, `.pdf`, Markdown, Fountain screenplays, subtitle files and web
   articles, each landing as an ordinary story revision.
-- **In-app project agent.** "Audit this project", "fix the repeated narration but leave the art", "finish what costs
-  under $3": a plan first, then the same tools and approvals MCP agents use.
 - **Custom workflows.** Advanced users arrange the production steps (with stops for approval, checks, capped retries)
   from the same actions a production run calls, never separate implementations.
 - **Triggers and webhooks.** Schedules ("submit batches at 01:00"), incoming and outgoing webhooks, and triggers on a
@@ -134,8 +111,6 @@ Grouped by area, roughly most useful first within each.
 
 - **Review states.** A reviewer role between viewer and editor, Draft → Needs review → Approved → Locked on panels,
   pages and chapters, bulk approval, approval required before chosen production steps, and approval history.
-- **Better comments.** Comments pinned to a spot on the image and to a timecode in the video, assignment, guest review
-  links without an account, unresolved counts on the production run, and before/after comparison of a fix.
 - **Ownership transfer.** The new owner accepts and the current one confirms; provider keys never move, agent grants are
   re-checked, budget settings pass to the new owner, and the transfer is audited.
 
@@ -143,9 +118,9 @@ Grouped by area, roughly most useful first within each.
 
 - **Asset library.** Tags, collections, favourites, search by name, character, place or prop, filters by source,
   model and date, "find images like this", unused and duplicate views, bulk actions, and where each file came from.
-- **Storage policies.** Per server or project: how long to keep old panel versions, the render cache, failed
-  generations, exports and trash; automatic clean-up with a dry-run report, disk warnings, project storage caps and
-  cold archives.
+- **Storage policies, further.** A server-wide policy by age and total size shipped (Admin → Storage). Still to do: a
+  policy per project, per-kind ages (keep exports longer than the render cache), project storage caps and cold
+  archives.
 - **Workers by capability.** Workers declare what they can do (ffmpeg, Kokoro, ComfyUI, a GPU) and jobs go to one
   that can, so a single server can grow into an API host with separate GPU and render machines.
 - **Provenance package.** Per output: the app version, story revision, prompt versions, models, references and jobs
@@ -164,4 +139,4 @@ Grouped by area, roughly most useful first within each.
 | **Converting comic projects to film** | A conversion means re-planning and regenerating every panel at a new aspect, i.e. a fresh project with extra steps. | — |
 | **6-panel and larger grid layouts** | Pages are capped at 5 panels by product decision: legibility and fewer blank strips. | The cap changes. |
 | **Managed hosting, SLAs, provider billing** | Out of scope for a self-hosted project. | — |
-| **Telemetry or analytics** | There is none, and there will not be. Outbound requests go only to the AI providers you configure, the one-time model download for local TTS, and the client metadata document an MCP agent names when it connects by URL. | — |
+| **Telemetry or analytics** | There is none, and there will not be. Outbound requests go only to the AI providers you configure, the one-time model download for local TTS, and the client metadata document an MCP agent names when it connects by URL. YouTube stats add Google's APIs, only once an administrator sets up an OAuth client, and only for the channels you connect yourself and the videos you link: they read your own videos' numbers, and nothing about you or the app is sent anywhere. Publishing to YouTube (above) would use the same connection. | — |

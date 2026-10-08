@@ -22,6 +22,10 @@ planner and the same `@openmanga/domain` helpers (through its `browser` entry), 
 executes. Any timing or framing rule that belongs to both therefore lives in `packages/domain/src/video.ts`, not in
 the worker.
 
+*Subtitles* (or C) draws the narration on the picture: the segment being spoken, timed like the render's `.srt`
+cues (`subtitleAt`), or a shot's whole line while it has no voiced audio; nothing during a pause between segments. It
+is on by default and remembered per browser, like *Lines*.
+
 The preview covers one chapter, page or panel (the export can also take the whole project or a page selection). It
 plays on the Web Audio clock: every narration segment is scheduled on the browser's audio clock ahead of time and the
 picture reads the same clock, so narration keeps playing in a background tab (where animation frames stop) and the
@@ -89,6 +93,15 @@ the length and adds the strongest left over until it reaches 30 s. On the Export
 setting above the pick, which is a checklist with the running length; change either, preview it
 (`/api/video-preview?panelIds=…&aspect=9:16`, played with the same length limit) and render it.
 
+A hook (`video.hook`, a Shorts cut only, at most 200 characters) is a line the narrator says before the first shot,
+to stop a scrolling viewer: the repurposing plan's *Write titles, captions and hooks* job (`social-copy` v2) writes one
+per Short, trailer and teaser, and each item's *Hook line* can be edited. The render voices it with the project's
+narrator voice, speed and pronunciation dictionary on the local voice (refused with 400 when synthesis is off),
+trimmed like every take, and keeps the take as an audio file keyed by the spoken text, voice and speed
+(`metadata.shortsHook`), so the next render of the same words reuses it. It joins the plan as the first narration line
+of the first shot, so that shot holds long enough for it, the length cap counts it, and the `.srt`, the captions and the
+preview's subtitles start with it. (The browser preview does not play the hook.)
+
 Captions (`video.captions`, off by default) draw the narration into the picture, for Shorts, Reels and TikTok, which
 autoplay muted. Each narration segment's subtitle cue is cut into short captions (`captionChunks`: evenly sized word
 groups, so no one-word orphan ends a cue, each shown for its share of the cue by length) and written as an ASS file
@@ -96,7 +109,7 @@ groups, so no one-word orphan ends a cue, each shown for its share of the cue by
 the frame, clear of the Shorts buttons; `center` up to 3 large words in the middle; `two_line` up to 8 words as two
 lines at the bottom. libass draws them during the loudness pass, which then re-encodes the video once (H.264 as
 above) instead of copying it; the cached sections stay caption-free, so turning captions on or off reuses them. The
-browser preview does not show captions. Other video kinds ignore the option and keep the `.srt` only. A word longer
+browser preview's *Subtitles* show the same text, without the caption styles. Other video kinds ignore the option and keep the `.srt` only. A word longer
 than a caption line (a long compound, a URL, a script written without spaces) is broken into pieces. The render image
 ships DejaVu Sans, which covers Latin, Cyrillic, Greek, Arabic and Vietnamese but not Japanese, Korean, Chinese, Hindi
 or Thai, so captions in those narration languages are refused (400; `captionsSupported`) and the select is disabled

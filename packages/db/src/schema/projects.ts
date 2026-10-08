@@ -41,10 +41,38 @@ export const projects = pgTable(
     coverAssetId: uuid("cover_asset_id"),
     thumbnailAssetId: uuid("thumbnail_asset_id"),
     deletedAt: ts("deleted_at"),
+    /** The series this project is an episode or the library of; its owner's series only. */
+    seriesId: uuid("series_id"),
+    /** `episode`: one of the series' projects, numbered by `episodeNumber`. `library`: the series' shared cast and world. */
+    seriesRole: text("series_role").$type<"episode" | "library">(),
+    episodeNumber: integer("episode_number"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("projects_owner_idx").on(t.ownerUserId, t.updatedAt)],
+  (t) => [index("projects_owner_idx").on(t.ownerUserId, t.updatedAt), index("projects_series_idx").on(t.seriesId)],
+);
+
+/**
+ * A series: episodes (projects) that share one library of cast, places, props, style and story bible. The library is
+ * a project of its own (seriesRole `library`), edited with the ordinary project pages; each episode keeps linked
+ * entities that follow it, pointing at the same reference images rather than copies.
+ */
+export const series = pgTable(
+  "series",
+  {
+    id: id(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    libraryProjectId: uuid("library_project_id").notNull(),
+    /** One of the owner's channel profiles (users.settings), applied to every new or adopted episode. */
+    channelProfileId: text("channel_profile_id"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("series_owner_idx").on(t.ownerUserId)],
 );
 
 export const projectMembers = pgTable(
@@ -180,6 +208,9 @@ export const locations = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     analysisKey: text("analysis_key"),
+    /** In an episode: the series library's entity this one follows; `syncedVersionId` is the library version copied last. */
+    sourceId: uuid("source_id"),
+    syncedVersionId: uuid("synced_version_id"),
     currentVersionId: uuid("current_version_id"),
     deletedAt: ts("deleted_at"),
     createdAt: createdAt(),
@@ -265,6 +296,9 @@ export const characters = pgTable(
     name: text("name").notNull(),
     role: text("role").$type<"protagonist" | "antagonist" | "supporting" | "minor">().notNull().default("supporting"),
     analysisKey: text("analysis_key"),
+    /** In an episode: the series library's entity this one follows; `syncedVersionId` is the library version copied last. */
+    sourceId: uuid("source_id"),
+    syncedVersionId: uuid("synced_version_id"),
     currentVersionId: uuid("current_version_id"),
     deletedAt: ts("deleted_at"),
     createdAt: createdAt(),
@@ -327,6 +361,9 @@ export const props = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     analysisKey: text("analysis_key"),
+    /** In an episode: the series library's entity this one follows; `syncedVersionId` is the library version copied last. */
+    sourceId: uuid("source_id"),
+    syncedVersionId: uuid("synced_version_id"),
     currentVersionId: uuid("current_version_id"),
     deletedAt: ts("deleted_at"),
     createdAt: createdAt(),
@@ -374,6 +411,8 @@ export const projectStyles = pgTable(
     versionNumber: integer("version_number").notNull(),
     stylePresetId: uuid("style_preset_id").references(() => stylePresets.id),
     customDescription: text("custom_description").notNull().default(""),
+    /** In an episode: the library style version this one copies. */
+    sourceId: uuid("source_id"),
     status: approvalStatus("status").notNull().default("approved"),
     createdAt: createdAt(),
   },
@@ -391,6 +430,8 @@ export const shareLinks = pgTable(
     /** Null: the whole project. */
     chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
+    /** Whoever opens the link may leave comments, under a name they give (no account). */
+    allowComments: boolean("allow_comments").notNull().default(false),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     revokedAt: ts("revoked_at"),

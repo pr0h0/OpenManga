@@ -11,6 +11,7 @@ import { narrationTools } from "./narration.ts";
 import { panelTools } from "./panels.ts";
 import { productionTools } from "./production.ts";
 import { projectTools } from "./projects.ts";
+import { seriesTools } from "./series.ts";
 import { storyTools } from "./stories.ts";
 import { systemTools } from "./system.ts";
 
@@ -18,6 +19,7 @@ import { systemTools } from "./system.ts";
 export const MCP_TOOLS = [
   ...systemTools,
   ...projectTools,
+  ...seriesTools,
   ...storyTools,
   ...bibleTools,
   ...libraryTools,

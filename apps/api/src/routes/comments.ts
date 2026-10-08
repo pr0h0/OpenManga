@@ -57,9 +57,9 @@ function mentionsIn(text: string, members: { id: string; username: string }[]) {
 async function notify(
   c: Context<AppEnv>,
   comment: { id: string; projectId: string },
-  rows: { userId: string; kind: "mention" | "reply" }[],
+  rows: { userId: string; kind: "mention" | "reply" | "assigned" | "guest" }[],
 ) {
-  const me = user(c).id;
+  const me = c.get("user")?.id ?? null;
   const seen = new Set<string>();
   const values = rows.filter((r) => r.userId !== me && !seen.has(r.userId) && seen.add(r.userId));
   if (values.length)
@@ -67,6 +67,14 @@ async function notify(
       .get("deps")
       .db.insert(notifications)
       .values(values.map((v) => ({ ...v, projectId: comment.projectId, commentId: comment.id, actorUserId: me })));
+}
+
+/** A member of the project to assign a thread to, or a refusal. */
+async function assigneeIn(c: Context<AppEnv>, projectId: string, userId: string | null) {
+  if (userId === null) return null;
+  if (!(await membersOf(c, projectId)).some((m) => m.id === userId))
+    throw badRequest("Assign a thread to a member of the project");
+  return userId;
 }
 
 async function publish(c: Context<AppEnv>, projectId: string, panelId: string) {
@@ -85,9 +93,22 @@ const resolver = sql<string | null>`(select u.username from users u where u.id =
  * connection; the connection's name is shown only to the member it belongs to, everyone else sees just that an agent
  * did it. Connection ids never leave the server.
  */
-const commentFields = (me: string) => ({
+export const commentFields = (me: string) => ({
   id: panelComments.id,
   projectId: panelComments.projectId,
+  chapterId: sql<string>`(select pg.chapter_id from panels pn join pages pg on pg.id = pn.page_id
+    where pn.id = ${panelComments.panelId})`,
+  guestName: panelComments.guestName,
+  anchor: panelComments.anchor,
+  timecodeMs: panelComments.timecodeMs,
+  assigneeUserId: panelComments.assigneeUserId,
+  assignee: sql<string | null>`(select u.username from users u where u.id = ${panelComments.assigneeUserId})`,
+  artworkAssetId: panelComments.artworkAssetId,
+  resolvedArtworkAssetId: panelComments.resolvedArtworkAssetId,
+  /** The art the panel shows now, to compare with the art the thread was started on. */
+  currentArtworkAssetId: sql<
+    string | null
+  >`(select pn.active_artwork_asset_id from panels pn where pn.id = ${panelComments.panelId})`,
   panelId: panelComments.panelId,
   threadId: panelComments.threadId,
   authorUserId: panelComments.authorUserId,
@@ -142,10 +163,17 @@ commentRoutes.get("/panels/:id/comments", async (c) => {
   return c.json({ threads });
 });
 
+export const CommentAnchor = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) });
 const NewComment = z.object({
   body: CommentBody,
   /** Reply to this thread (its first comment's id); omit to start a thread. */
   threadId: z.string().uuid().optional(),
+  /** A new thread only: the spot on the panel's artwork it points at (fractions of width and height). */
+  anchor: CommentAnchor.optional(),
+  /** A new thread only: the moment of the chapter's video preview it is about, in ms. */
+  timecodeMs: z.number().int().min(0).max(86_400_000).optional(),
+  /** A new thread only: the member asked to deal with it (they are notified). */
+  assigneeUserId: z.string().uuid().optional(),
 });
 doc({
   method: "POST",
@@ -178,6 +206,13 @@ commentRoutes.post("/panels/:id/comments", commentLimit, async (c) => {
   }
   const members = await membersOf(c, p.id);
   const mentions = mentionsIn(input.body, members);
+  const root = !input.threadId;
+  if (!root && (input.anchor || input.timecodeMs !== undefined || input.assigneeUserId))
+    throw badRequest("A spot, a moment or an assignee belongs on a thread's first comment");
+  const assignee = root ? await assigneeIn(c, p.id, input.assigneeUserId ?? null) : null;
+  const [art] = root
+    ? await db.select({ id: panels.activeArtworkAssetId }).from(panels).where(eq(panels.id, panelId))
+    : [];
   const [comment] = await db
     .insert(panelComments)
     .values({
@@ -187,6 +222,10 @@ commentRoutes.post("/panels/:id/comments", commentLimit, async (c) => {
       authorUserId: me,
       body: input.body,
       mentions,
+      anchor: input.anchor ?? null,
+      timecodeMs: input.timecodeMs ?? null,
+      assigneeUserId: assignee,
+      artworkAssetId: art?.id ?? null,
       viaAgent: Boolean(agentOf(c)),
       viaServiceId: agentOf(c),
     })
@@ -195,6 +234,7 @@ commentRoutes.post("/panels/:id/comments", commentLimit, async (c) => {
   await notify(c, comment!, [
     ...mentions.map((userId) => ({ userId, kind: "mention" as const })),
     ...participants.filter((u) => current.has(u)).map((userId) => ({ userId, kind: "reply" as const })),
+    ...(assignee ? [{ userId: assignee, kind: "assigned" as const }] : []),
   ]);
   await publish(c, p.id, panelId);
   return c.json({ comment: await viewOf(c, comment!.id) }, 201);
@@ -292,8 +332,15 @@ commentRoutes.post("/comments/:id/resolve", async (c) => {
             resolvedByUserId: user(c).id,
             resolvedViaAgent: Boolean(agentOf(c)),
             resolvedViaServiceId: agentOf(c),
+            resolvedArtworkAssetId: sql`(select active_artwork_asset_id from panels where id = ${comment.panelId})`,
           }
-        : { resolvedAt: null, resolvedByUserId: null, resolvedViaAgent: false, resolvedViaServiceId: null },
+        : {
+            resolvedAt: null,
+            resolvedByUserId: null,
+            resolvedViaAgent: false,
+            resolvedViaServiceId: null,
+            resolvedArtworkAssetId: null,
+          },
     )
     .where(eq(panelComments.id, comment.threadId ?? comment.id))
     .returning();
@@ -301,9 +348,38 @@ commentRoutes.post("/comments/:id/resolve", async (c) => {
   return c.json({ comment: await viewOf(c, root!.id) });
 });
 
+const Assign = z.object({ assigneeUserId: z.string().uuid().nullable() });
+doc({
+  method: "POST",
+  path: "/api/comments/:id/assign",
+  summary:
+    "Assign a comment's thread to a member of the project (they are notified), or unassign it with null (any member)",
+  tag: "comments",
+  body: Assign,
+});
+commentRoutes.post("/comments/:id/assign", async (c) => {
+  const { db } = c.get("deps");
+  const [comment] = await db
+    .select()
+    .from(panelComments)
+    .where(eq(panelComments.id, uuidParam(c, "id")));
+  if (!comment) throw notFound("Comment");
+  await projectAccess(c, comment.projectId, "read");
+  const assignee = await assigneeIn(c, comment.projectId, (await body(c, Assign)).assigneeUserId);
+  const rootId = comment.threadId ?? comment.id;
+  const [before] = await db.select().from(panelComments).where(eq(panelComments.id, rootId));
+  await db.update(panelComments).set({ assigneeUserId: assignee }).where(eq(panelComments.id, rootId));
+  if (assignee && assignee !== before?.assigneeUserId)
+    await notify(c, { id: rootId, projectId: comment.projectId }, [{ userId: assignee, kind: "assigned" }]);
+  await publish(c, comment.projectId, comment.panelId);
+  return c.json({ comment: await viewOf(c, rootId) });
+});
+
 const ListQuery = z.object({
   status: z.enum(["open", "resolved", "all"]).default("open"),
   chapterId: z.string().uuid().optional(),
+  /** Only threads assigned to this member ("me" for the caller). */
+  assignee: z.union([z.literal("me"), z.string().uuid()]).optional(),
 });
 doc({
   method: "GET",
@@ -342,6 +418,7 @@ commentRoutes.get("/projects/:projectId/comments", async (c) => {
             ? isNotNull(panelComments.resolvedAt)
             : undefined,
         q.chapterId ? eq(chapters.id, q.chapterId) : undefined,
+        q.assignee ? eq(panelComments.assigneeUserId, q.assignee === "me" ? user(c).id : q.assignee) : undefined,
       ),
     )
     .orderBy(desc(panelComments.createdAt))
@@ -405,6 +482,7 @@ commentRoutes.get("/notifications", async (c) => {
       body: panelComments.body,
       // Who notified you is never you, so the connection is never named here.
       viaAgent: panelComments.viaAgent,
+      guestName: panelComments.guestName,
       panelId: panelComments.panelId,
       pageId: panels.pageId,
     })

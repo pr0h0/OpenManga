@@ -88,6 +88,63 @@ Admin overrides it, and **Use default** goes back to it. Once the ceiling is rea
 402 `instance_budget_exceeded`, queued batches pause, and production runs pause, until an admin raises it or the
 month turns. Users cannot confirm past it. See [COSTS](COSTS.md#keeping-spend-visible).
 
+## YouTube stats
+
+A project's **YouTube stats** page follows the film and Shorts it was published as: link videos from a connected
+channel's uploads or by pasting any YouTube link, then see totals across videos and channels, film against Shorts,
+a daily chart per video (Analytics, reach) and the first-48-hours curve of each release. Agents read the same through
+the MCP tool `get_youtube_stats` (scope `stats:read`).
+
+It is off until the instance has its own Google OAuth client. Being self-hosted, every instance registers its own
+Google Cloud project; nothing goes through a shared app. Under `AI_MOCK_MODE` a built-in fake Google (its own consent
+screen, deterministic channels, uploads, analytics and reports) stands in, so the feature can be tried without one.
+
+**Set up the Google Cloud project** (once, in [console.cloud.google.com](https://console.cloud.google.com)):
+
+1. Create a project.
+2. **APIs & Services → Library**: enable **YouTube Data API v3**, **YouTube Analytics API** and **YouTube Reporting
+   API**. Without the Reporting API, connected channels show "Reach reports unavailable" and have no thumbnail
+   impressions or click-through rate (everything else works).
+3. **Google Auth Platform → Branding / Audience**: user type *External*, an app name and support email. Under
+   **Data access** add the scopes `https://www.googleapis.com/auth/youtube.readonly` and
+   `https://www.googleapis.com/auth/yt-analytics.readonly`. Both are *sensitive* scopes, so an app Google has not
+   verified shows **"Google hasn't verified this app"** at consent (continue via *Advanced*) and is limited to **100
+   users**: fine for one owner and their channels.
+   - While the app's publishing status is *Testing*, only the listed **test users** can connect, and Google expires
+     their refresh tokens after **7 days** (the channel then shows "Access withdrawn: reconnect"). For a channel that
+     stays connected, set the status to *In production*; verification is not needed for this, the warning screen and
+     the 100-user cap simply remain.
+4. **Clients → Create client → Web application**, with the authorized redirect URI
+   `<API_PUBLIC_URL>/youtube/oauth/callback`, e.g. `https://manga.example.com/api/youtube/oauth/callback`.
+5. Optional: **Credentials → Create API key**, restricted to the YouTube Data API v3. It reads the public counters of
+   videos on channels nobody connected; without it, a connected channel's token is used for that.
+
+Then set them in `.env` and restart (`docker compose up -d`):
+
+```bash
+GOOGLE_OAUTH_CLIENT_ID=1234-abc.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-…
+YOUTUBE_API_KEY=AIza…   # optional
+```
+
+**Connecting.** Account → YouTube channels (or the project's YouTube stats page) → *Connect a channel*. Each channel is
+its own connection with read-only scopes: a Google account that manages several brand channels connects each one,
+picking it on Google's screen. Tokens are encrypted at rest like provider keys and rotate with them. *Disconnect*
+revokes the grant at Google and deletes what was stored for the channel.
+
+**What runs.** Connecting creates the channel's Reporting API jobs (`channel_reach_basic_a1`,
+`channel_reach_combined_a1`) at once, because a report exists only from that moment (plus a 30-day backfill) and
+Google deletes reports after 60 days. The worker's hourly `youtube` pass snapshots public counters (hourly in a
+video's first 48 hours, then daily for videos on channels nobody connected), looks for new reach reports twice a day
+per channel and keeps only the rows of linked videos, and applies retention. Linking a connected video re-reads every
+report Google still has, so its last 60 days of impressions appear. Daily Analytics history is queried when a chart
+is opened and cached for 15 minutes; live counters for 5. Analytics and the reports lag two to three days.
+
+**Quota.** The Data API's default is 10,000 units a day per Cloud project; reading counters costs one unit per 50
+videos (`videos.list`), an uploads page one unit. The hourly pass costs at most one unit per 50 videos due a snapshot;
+opening a project page re-reads its counters at most every five minutes. The Analytics and Reporting APIs have their
+own quotas, far above what one instance uses.
+
 ## Future subdomains
 
 Set `APP_PUBLIC_URL`, `API_PUBLIC_URL` and `CDN_PUBLIC_URL` to separate hosts and add nginx server blocks; every URL
@@ -278,10 +335,12 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   anyway"); draft versions are informational. The same issues are written into agent packages. The endpoint also
   reports whether the caller has a usable provider key for further generation.
 - **Kinds**: `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`, `zip_package`, `project_json`,
-  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `video_shorts` (a trailer of `panelIds` up to `video.shortsSeconds`, default 180, at most 600), `youtube_package`.
+  `narration_audio`, `timeline`, `agent_package`, `video_pages`, `video_panels`, `video_shorts` (a trailer of `panelIds` up to `video.shortsSeconds`, default 180, at most 600), `youtube_package`,
+  `print_cover`, `print_preflight` (`docs/PRINT.md`), `psd_pages`, `layered_package`.
   Video kinds take `video.aspect` (`16:9`, `9:16`, `1:1`). `pdf.pageSize`
   takes `source`, A4, A5, B5, letter, tankobon, or an Amazon KDP trim size (`kdp_5x8`, `kdp_5_5x8_5`, `kdp_6x9`,
-  `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `cbz` carries a `ComicInfo.xml`; `epub` is
+  `kdp_7x10`, `kdp_8_5x11`), which prints full bleed with the trim box set. `pdf.toc`, `pdf.rectoChapters` and
+  `pdf.metadata` add a contents page, blank versos so chapters open on a recto, and book metadata (`docs/PRINT.md`). `cbz` carries a `ComicInfo.xml`; `epub` is
   fixed-layout with the cover.
   Narration audio and timeline need a chapter (or page ids). Every page-based kind (page images, PDF, CBZ, EPUB,
   webtoon) also takes the whole project (no `chapterId`), every chapter in order: they all stream to disk, so a long
@@ -291,6 +350,18 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
   project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
   `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
+- **Layered files** for finishing in Photoshop or Clip Studio, at the export's `scale`. `psd_pages` writes one PSD per
+  page (zipped when there are several; RGB, 8-bit, RLE, the resolution set from `pdf.dpi`): a white background, a
+  *Panels* group with a group per panel in reading order holding its layout guide (hidden, 50%), art and frame, then
+  *Effects*, *Captions* (narration and system boxes) and *Dialogue*, each element its own layer named by its text, and
+  the lettered page as the flattened image. `layered_package` zips, per page folder (`p001/`, or `ch01_p001/` for the
+  whole project): `page.png` (lettered), `text-free.png`, `lettering.svg` (all lettering as vector text and shapes,
+  each element a `<g id="<kind>-<id>">`), and `art/`, `frames/`, `guides/` and `lettering/` PNGs, one per layer, cropped
+  to what they cover. `manifest.json` lists every page (`folder`, `width`, `height`, the three page files) and its
+  `layers` bottom to top, each with `z`, `kind` (`guide`, `art`, `frame`, `sfx`, `narration`, `dialogue`), `file`,
+  `x`, `y`, `width`, `height` in page pixels, the panel number or the `text` and its `svgId`. Lettering is drawn by
+  the same code as the page, so placing every layer but the guides at its `x`, `y` in `z` order over white rebuilds
+  the page.
 - **Memory**: every output is written to a file in the job's temp directory as it is built. A PDF, CBZ or EPUB holds
   one page at a time (the EPUB's manifest and spine are written last, from page sizes alone), a webtoon strip one
   chunk (`maxChunkHeight`), a ZIP one entry (a video goes in chunk by chunk), so memory does not grow with project

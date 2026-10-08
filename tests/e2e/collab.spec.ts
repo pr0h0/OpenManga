@@ -1,5 +1,5 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
-import { api, expectNoErrors, firstPagePanels, seedPlannedProject, sharedPage } from "./helpers.ts";
+import { api, expectNoErrors, firstPagePanels, jobDone, seedPlannedProject, sharedPage } from "./helpers.ts";
 
 // People and channels: a second user invited by username who accepts in their own browser, a panel comment that
 // mentions them and reaches their notification bell, channel profiles through the new-project wizard, and an
@@ -133,6 +133,59 @@ test("comments from an agent: marked MCP for everyone, named only for the member
   });
 });
 
+test("review: a pinned, assigned thread on the artwork, and a guest's comment through a reader link", async () => {
+  const a = api(owner.page);
+  const panels = await firstPagePanels(a, s.pageId);
+  const panel = panels[2] ?? panels[0]!;
+  const gen = await a.post<{ job: { id: string } }>(`/panels/${panel.id}/generate`, {});
+  await jobDone(a, gen.job.id);
+  const page = owner.page;
+  await page.goto(`${s.url}/pages/${s.pageId}?panelId=${panel.id}&tab=comments`);
+
+  await test.step("pin a spot on the artwork and assign the thread to the member", async () => {
+    const artwork = page.getByRole("img", { name: "Panel artwork" });
+    await expect(artwork).toBeVisible();
+    await page.getByRole("button", { name: "Pin a spot" }).click();
+    await artwork.click({ position: { x: 20, y: 20 } });
+    await expect(page.getByRole("button", { name: "Remove the pin" })).toBeVisible();
+    await page.getByLabel("Assign the new thread to").selectOption({ label: `@${member.user.username}` });
+    await page.getByLabel("Comment on this panel").fill("This hand needs fixing");
+    await page.getByRole("button", { name: "Comment", exact: true }).click();
+    const thread = page.locator("li.card", { hasText: "This hand needs fixing" });
+    await expect(thread.getByTitle("Pinned spot on the artwork")).toHaveText("1");
+    await expect(thread.getByLabel("Assigned to")).toHaveValue(/.+/);
+  });
+
+  await test.step("the member is told it is theirs", async () => {
+    await member.page.goto("/app/");
+    await member.page.getByRole("button", { name: /^Notifications, \d+ unread$/ }).click();
+    await expect(
+      member.page.getByRole("button", { name: new RegExp(`@${owner.user.username} assigned you a thread`) }),
+    ).toBeVisible();
+  });
+
+  await test.step("a guest comments through a reader link that allows it", async () => {
+    const { share } = await a.post<{ share: { token: string } }>(`/projects/${s.projectId}/shares`, {
+      chapterId: null,
+      allowComments: true,
+    });
+    const anon = await owner.page.context().browser()!.newContext({ baseURL: test.info().project.use.baseURL });
+    const reader = await anon.newPage();
+    await reader.goto(`/app/read/${share.token}`);
+    await reader.getByRole("button", { name: "Comments" }).click();
+    const drawer = reader.getByRole("complementary", { name: "Comments" });
+    await drawer.getByLabel("Your name").fill("Ana");
+    await drawer.getByLabel("Your comment").fill("Lovely art on this page");
+    await drawer.getByRole("button", { name: "Comment", exact: true }).click();
+    await expect(reader.getByText("Comment sent")).toBeVisible();
+    await expect(drawer.getByText("Ana (guest)")).toBeVisible();
+    await anon.close();
+    await page.goto("/app/");
+    await page.getByRole("button", { name: /^Notifications, \d+ unread$/ }).click();
+    await expect(page.getByRole("button", { name: /Ana \(guest\) commented through a reader link/ })).toBeVisible();
+  });
+});
+
 test("channel profiles: voice, pronunciation and branding, picked in the wizard, re-applied with a diff", async () => {
   const page = owner.page;
   const name = "E2E Channel";
@@ -210,4 +263,23 @@ test("experts: a reply becomes a new project through its output action", async (
   await expect(page.getByText("Project created")).toBeVisible();
   await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}/);
   await expect(page.getByRole("heading", { name: "Production run" })).toBeVisible();
+});
+
+test("project agent: a plan to approve, a step that waits for approval, then a summary", async () => {
+  const page = owner.page;
+  await page.goto(`${s.url}/agent`);
+  await page.getByLabel("Goal").fill("Export the project [[mock:agent-export]]");
+  await page.getByRole("button", { name: "Plan it" }).click();
+  const plan = page.getByRole("region", { name: "Plan" });
+  await expect(plan.getByText("Export the project as JSON")).toBeVisible();
+  await plan.getByRole("button", { name: "Approve and start" }).click();
+  // Exporting is sensitive: the in-app agent connection asks first, right on the run.
+  const approval = page.getByRole("region", { name: "Approval needed" });
+  await expect(approval).toBeVisible();
+  await approval.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(page.getByText(/mock agent done after 2 step/)).toBeVisible();
+  const steps = page.getByRole("region", { name: "Steps" });
+  await expect(steps.getByText("get_project_health")).toBeVisible();
+  await expect(steps.getByText("create_export")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Runs" }).getByText("done")).toBeVisible();
 });

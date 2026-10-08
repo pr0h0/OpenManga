@@ -61,6 +61,11 @@ export const EXPORT_AREAS: Record<Exclude<ExportKind, "project_import">, ("art" 
   // Repurposed images are their picked panels' artwork only.
   carousel: [],
   quote_image: [],
+  // The cover is the project's cover art and text; the preflight measures the interior's art.
+  print_cover: [],
+  print_preflight: ["art"],
+  psd_pages: ["art"],
+  layered_package: ["art"],
 };
 
 /**

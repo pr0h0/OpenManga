@@ -54,7 +54,7 @@ import {
   sceneStripV3,
   shotOutlineV3,
   shotPlanningV4,
-  socialCopyV1,
+  socialCopyV2,
   storyAnalysisV3,
   storyRewriteV1,
   stripOutlineV3,
@@ -329,7 +329,7 @@ export async function socialCopy(deps: WorkerDeps, job: ProjectJob) {
   const r = await structured(
     deps,
     job,
-    socialCopyV1.build({
+    socialCopyV2.build({
       project: { title: p.title, description: p.description, language: languageName(p.language) },
       items,
     }),
@@ -343,7 +343,9 @@ export async function socialCopy(deps: WorkerDeps, job: ProjectJob) {
   const [now] = await deps.db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, p.id));
   const next = (now?.settings.repurpose?.items ?? []).map((it) => {
     const c = copy.get(it.id);
-    return c ? { ...it, title: c.title, caption: c.caption } : it;
+    // A video's hook is replaced like its title; a picture has none.
+    const video = ["short", "trailer", "teaser"].includes(it.kind);
+    return c ? { ...it, title: c.title, caption: c.caption, ...(video && c.hook ? { hook: c.hook } : {}) } : it;
   });
   await deps.db
     .update(projects)

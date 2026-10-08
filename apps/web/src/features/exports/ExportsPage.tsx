@@ -1,4 +1,10 @@
-import { captionsSupported, NARRATION_LANGUAGES, SHORTS_DEFAULT_MS, type VideoAspect } from "@openmanga/domain/browser";
+import {
+  captionsSupported,
+  NARRATION_LANGUAGES,
+  type PrintIssue,
+  SHORTS_DEFAULT_MS,
+  type VideoAspect,
+} from "@openmanga/domain/browser";
 import type { ShortsCaptions } from "@openmanga/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileDown, Trash2, XCircle } from "lucide-react";
@@ -19,6 +25,7 @@ import {
 import { ProgressBar } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { CoverCheck, PRINT_SIZES, PreflightReport, type PreflightReportData, PrintIssues } from "./PrintPanels.tsx";
 import { CaptionsField, ShortsPicker } from "./ShortsPicker.tsx";
 import { YoutubePackageCard } from "./YoutubePackage.tsx";
 
@@ -29,6 +36,14 @@ const KINDS = [
   { value: "cbz", label: "CBZ comic archive (Komga, Kavita, comic readers)", chapter: true },
   { value: "epub", label: "EPUB e-book (Kindle, Apple Books, Kobo)", chapter: true },
   { value: "webtoon", label: "Webtoon vertical strip", chapter: true },
+  { value: "print_cover", label: "Print cover: back, spine and front with bleed (PDF)", chapter: true },
+  { value: "print_preflight", label: "Print preflight: DPI, ink, fonts, soft proof", chapter: true },
+  { value: "psd_pages", label: "Layered PSD per page (Photoshop, Clip Studio)", chapter: true },
+  {
+    value: "layered_package",
+    label: "Separated art and lettering (ZIP: text-free pages, SVG, manifest)",
+    chapter: true,
+  },
   { value: "narration_audio", label: "Narration audio package", chapter: true },
   { value: "timeline", label: "Timeline manifest (JSON)", chapter: true },
   { value: "project_json", label: "Project JSON", chapter: false },
@@ -46,6 +61,10 @@ const AREAS: Record<string, ("art" | "narration")[]> = {
   cbz: ["art"],
   epub: ["art"],
   webtoon: ["art"],
+  print_cover: [],
+  print_preflight: ["art"],
+  psd_pages: ["art"],
+  layered_package: ["art"],
   zip_package: ["art"],
   narration_audio: ["narration"],
   timeline: ["narration"],
@@ -65,7 +84,20 @@ const USES_LANGUAGE = new Set([
 ]);
 const isVideo = (k: string) => k === "video_pages" || k === "video_panels" || k === "video_shorts";
 /** Chapter kinds that can also cover the whole project: they stream to disk, so length costs no memory. */
-const WHOLE_PROJECT = new Set(["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon"]);
+const WHOLE_PROJECT = new Set([
+  "png_pages",
+  "jpg_pages",
+  "pdf",
+  "cbz",
+  "epub",
+  "webtoon",
+  "print_cover",
+  "print_preflight",
+  "psd_pages",
+  "layered_package",
+]);
+/** Kinds that take the PDF's page options: the preflight measures the PDF those options make. */
+const PDF_OPTIONS = new Set(["pdf", "print_preflight"]);
 type Issue = {
   code: string;
   area: "art" | "narration";
@@ -97,7 +129,17 @@ export function ExportsPage() {
   const [chapterId, setChapterId] = useState("");
   const [scale, setScale] = useState(1);
   const [jpgQuality, setJpgQuality] = useState(90);
-  const [pdf, setPdf] = useState({ pageSize: "source", marginMm: 0, bleedMm: 0, dpi: 300, readingDirection: "" });
+  const [pdf, setPdf] = useState({
+    pageSize: "source",
+    marginMm: 0,
+    bleedMm: 0,
+    dpi: 300,
+    readingDirection: "",
+    rectoChapters: false,
+    toc: false,
+  });
+  const [bookMeta, setBookMeta] = useState({ title: "", author: "", subject: "", keywords: "", language: "" });
+  const [print, setPrint] = useState({ paper: "white", pageCount: "" });
   const [webtoon, setWebtoon] = useState({ width: 800, gap: 40, split: true, maxChunkHeight: 12000, format: "jpg" });
   const [audio, setAudio] = useState({ format: "mp3", normalize: true });
   const [includeAssets, setIncludeAssets] = useState(true);
@@ -164,7 +206,23 @@ export function ExportsPage() {
         chapterId: scopeChapter,
         scale,
         jpgQuality,
-        pdf: { ...pdf, readingDirection: pdf.readingDirection || undefined },
+        pdf: {
+          ...pdf,
+          // A cover is always a print size; it starts at KDP 6" × 9" when the PDF is set to the page's own size.
+          pageSize: kind === "print_cover" && pdf.pageSize === "source" ? "kdp_6x9" : pdf.pageSize,
+          readingDirection: pdf.readingDirection || undefined,
+          metadata: {
+            title: bookMeta.title || undefined,
+            author: bookMeta.author || undefined,
+            subject: bookMeta.subject || undefined,
+            keywords: bookMeta.keywords
+              .split(",")
+              .map((k) => k.trim())
+              .filter(Boolean),
+            language: bookMeta.language || undefined,
+          },
+        },
+        print: { paper: print.paper, ...(Number(print.pageCount) > 0 ? { pageCount: Number(print.pageCount) } : {}) },
         webtoon,
         audio,
         includeAssets,
@@ -319,6 +377,8 @@ export function ExportsPage() {
             kind === "pdf" ||
             kind === "cbz" ||
             kind === "epub" ||
+            kind === "psd_pages" ||
+            kind === "layered_package" ||
             kind === "agent_package") && (
             <Field label={`Scale ×${scale}`}>
               <input
@@ -347,7 +407,79 @@ export function ExportsPage() {
               />
             </Field>
           )}
-          {kind === "pdf" && (
+          {(kind === "psd_pages" || kind === "layered_package") && (
+            <p className="muted text-xs">
+              {kind === "psd_pages"
+                ? "One Photoshop file per page (zipped when there are several): a white background, a group per panel with its art, frame and hidden layout guide, then effects, captions and dialogue, each element its own named layer at its place on the page. Clip Studio Paint opens it too."
+                : "Per page: the lettered page, the page without lettering, the lettering as one vector SVG, and every panel's art, frame and guide and every bubble, caption and sound effect as its own transparent PNG. manifest.json gives each file's place on the page (x, y, width, height), its stacking order and its text."}
+            </p>
+          )}
+          {kind === "print_cover" && (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Print size">
+                <select
+                  className="input"
+                  value={pdf.pageSize === "source" ? "kdp_6x9" : pdf.pageSize}
+                  onChange={(e) => setPdf({ ...pdf, pageSize: e.target.value })}
+                >
+                  {PRINT_SIZES.map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Paper">
+                <select
+                  className="input"
+                  value={print.paper}
+                  onChange={(e) => setPrint({ ...print, paper: e.target.value })}
+                >
+                  <option value="white">White</option>
+                  <option value="cream">Cream</option>
+                  <option value="color">Colour</option>
+                </select>
+              </Field>
+              <Field label="Page count" hint="Empty: the interior's">
+                <input
+                  type="number"
+                  className="input"
+                  min={1}
+                  max={2000}
+                  placeholder="Interior"
+                  value={print.pageCount}
+                  onChange={(e) => setPrint({ ...print, pageCount: e.target.value })}
+                />
+              </Field>
+              <Field label="DPI">
+                <input
+                  type="number"
+                  className="input"
+                  min={72}
+                  max={600}
+                  value={pdf.dpi}
+                  onChange={(e) => setPdf({ ...pdf, dpi: num(e.target.value) })}
+                />
+              </Field>
+              <div className="col-span-2">
+                <CoverCheck
+                  projectId={projectId}
+                  chapterId={scopeChapter}
+                  pageSize={pdf.pageSize === "source" ? "kdp_6x9" : pdf.pageSize}
+                  paper={print.paper}
+                  pageCount={print.pageCount}
+                  toc={pdf.toc}
+                  rectoChapters={pdf.rectoChapters}
+                />
+              </div>
+              <p className="muted col-span-2 text-xs">
+                One PDF of back, spine and front with 0.125" bleed: the project's cover art on the front with the title
+                and author, the title on the spine (79 pages or more), the description on the back above the barcode
+                area. The page count follows the interior with the contents and right-hand-start options below.
+              </p>
+            </div>
+          )}
+          {PDF_OPTIONS.has(kind) && (
             <div className="grid grid-cols-2 gap-2">
               <Field label="Page size">
                 <select
@@ -423,6 +555,73 @@ export function ExportsPage() {
                 </select>
               </Field>
             </div>
+          )}
+          {(PDF_OPTIONS.has(kind) || kind === "print_cover") && (
+            <div className="space-y-1 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={pdf.rectoChapters}
+                  onChange={(e) => setPdf({ ...pdf, rectoChapters: e.target.checked })}
+                />{" "}
+                Start chapters on a right-hand page (adds blank pages)
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={pdf.toc} onChange={(e) => setPdf({ ...pdf, toc: e.target.checked })} />{" "}
+                Contents page
+              </label>
+            </div>
+          )}
+          {kind === "pdf" && (
+            <details className="text-sm">
+              <summary className="cursor-pointer">Book metadata</summary>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="col-span-2">
+                  <Field label="Title">
+                    <input
+                      className="input"
+                      placeholder={overview?.project.title}
+                      value={bookMeta.title}
+                      onChange={(e) => setBookMeta({ ...bookMeta, title: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <Field label="Author">
+                  <input
+                    className="input"
+                    placeholder={overview?.project.settings.author || "Project author"}
+                    value={bookMeta.author}
+                    onChange={(e) => setBookMeta({ ...bookMeta, author: e.target.value })}
+                  />
+                </Field>
+                <Field label="Language">
+                  <input
+                    className="input"
+                    placeholder={overview?.project.language}
+                    value={bookMeta.language}
+                    onChange={(e) => setBookMeta({ ...bookMeta, language: e.target.value })}
+                  />
+                </Field>
+                <div className="col-span-2">
+                  <Field label="Subject" hint="Empty: the project description">
+                    <input
+                      className="input"
+                      value={bookMeta.subject}
+                      onChange={(e) => setBookMeta({ ...bookMeta, subject: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <div className="col-span-2">
+                  <Field label="Keywords" hint="Comma-separated">
+                    <input
+                      className="input"
+                      value={bookMeta.keywords}
+                      onChange={(e) => setBookMeta({ ...bookMeta, keywords: e.target.value })}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </details>
           )}
           {kind === "webtoon" && (
             <div className="grid grid-cols-2 gap-2">
@@ -744,6 +943,18 @@ export function ExportsPage() {
                       </ul>
                     </details>
                   ) : null}
+                  {j.status === "completed" && j.kind === "print_preflight" && j.result?.preflight ? (
+                    <PreflightReport
+                      report={j.result.preflight as PreflightReportData}
+                      grey={overview?.project.colorMode !== "full_color"}
+                    />
+                  ) : null}
+                  {j.status === "completed" && j.kind === "print_cover" && j.result?.cover ? (
+                    <CoverResult
+                      cover={j.result.cover as CoverResultData}
+                      guides={j.files.find((f) => f.fileName.endsWith("_cover_guides.png"))?.assetId}
+                    />
+                  ) : null}
                   {j.files.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {j.files.map((f) => (
@@ -794,6 +1005,27 @@ function ReadinessList({ issues, loading }: { issues: Issue[]; loading: boolean 
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+type CoverResultData = { spineIn: number; widthIn: number; heightIn: number; pageCount: number; issues: PrintIssue[] };
+
+function CoverResult({ cover, guides }: { cover: CoverResultData; guides?: string }) {
+  return (
+    <div className="mt-2 space-y-2">
+      <p className="muted text-xs">
+        {cover.pageCount} pages, spine {cover.spineIn.toFixed(3)}", full cover {cover.widthIn.toFixed(3)}" ×{" "}
+        {cover.heightIn.toFixed(3)}" with bleed.
+      </p>
+      <PrintIssues issues={cover.issues} ok="Cover: nothing to fix." />
+      {guides && (
+        <img
+          className="w-full max-w-xl rounded border border-[var(--border)]"
+          src={assetUrl(guides)}
+          alt="Cover with trim, safe area, spine and barcode guides"
+        />
+      )}
     </div>
   );
 }

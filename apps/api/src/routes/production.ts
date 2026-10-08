@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { AppEnv, Deps } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { AiChoiceInput } from "../lib/ai.ts";
+import { costPlan } from "../lib/cost-plan.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { advanceRun, cancelRunWork, FAILED_CHECK, initialSteps, pendingWork, STEP_LABELS } from "../lib/production.ts";
@@ -35,8 +36,12 @@ const StartRun = z.object({
 /** A run as the API shows it; an active one also says how many jobs stopping it would cancel (`pendingJobs`). */
 const view = async (deps: Deps, r: typeof productionRuns.$inferSelect) => {
   const work = (ACTIVE as readonly string[]).includes(r.status) ? await pendingWork(deps, r) : null;
+  // Review notes left on the project: a run can finish while people are still asking for changes.
+  const [open] = await deps.db.execute<{ n: number }>(sql`select count(*)::int as n from panel_comments
+    where project_id = ${r.projectId} and thread_id is null and resolved_at is null and deleted_at is null`);
   return {
     ...r,
+    openComments: open?.n ?? 0,
     steps: r.steps.map((s) => ({ ...s, label: STEP_LABELS[s.key as keyof typeof STEP_LABELS] ?? s.key })),
     pendingJobs: work ? work.generation.length + work.audio.length + work.exports.length : 0,
   };
@@ -278,9 +283,33 @@ productionRoutes.post("/projects/:projectId/keep-current", async (c) => {
 });
 
 doc({
+  method: "POST",
+  path: "/api/projects/:projectId/production-runs/estimate",
+  summary:
+    "Cost plan: what a production run with this body would still do and cost before it starts, chapter by chapter (plans, prompts, panels to draw, narration, local-voice audio), plus the project's analysis, references, thumbnail and YouTube text; priced with the chosen models and this server's average usage per job, split into what runs now and what waits in a half-price batch, with the disk the new files will take and how it compares with the budget cap. Chapters not planned yet are estimated and marked `estimated`. Nothing is queued.",
+  tag: "production",
+  body: StartRun,
+});
+productionRoutes.post("/projects/:projectId/production-runs/estimate", async (c) => {
+  // Priced for whoever would start the run: their keys, and the bulk estimates they could request.
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "generate");
+  const input = await body(c, StartRun);
+  return c.json(
+    await costPlan(c, p, {
+      reviewGates: input.reviewGates,
+      preparePrompts: input.preparePrompts,
+      render: input.render,
+      youtube: input.youtube ?? p.settings.format === "film",
+      ai: input.ai,
+      update: input.update,
+    }),
+  );
+});
+
+doc({
   method: "GET",
   path: "/api/projects/:projectId/production-runs",
-  summary: "Recent production runs",
+  summary: "Recent production runs (each with `openComments`: the project's unresolved comment threads)",
   tag: "production",
 });
 productionRoutes.get("/projects/:projectId/production-runs", async (c) => {

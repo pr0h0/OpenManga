@@ -1,14 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot, Check, MessageSquare, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Bot, Check, Crosshair, MessageSquare, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import { type FormEvent, Fragment, useState } from "react";
-import { del, get, patch, post } from "../../api/client.ts";
+import { assetUrl, del, get, patch, post } from "../../api/client.ts";
 import { useAction, useMe } from "../../api/hooks.ts";
 import { ErrorBox, fmt, Spinner } from "../../components/ui.tsx";
 import { useMembers } from "../project/MembersDialog.tsx";
+import { PreviewVideoButton } from "../video/VideoPreview.tsx";
 
+export type Anchor = { x: number; y: number };
 export type Comment = {
   id: string;
   panelId: string;
+  chapterId: string;
+  /** Left by a guest through a reader link: their name, and no account. */
+  guestName: string | null;
+  anchor: Anchor | null;
+  timecodeMs: number | null;
+  assigneeUserId: string | null;
+  assignee: string | null;
+  artworkAssetId: string | null;
+  resolvedArtworkAssetId: string | null;
+  currentArtworkAssetId: string | null;
   threadId: string | null;
   authorUserId: string | null;
   author: string | null;
@@ -188,8 +200,10 @@ function CommentItem({
   return (
     <div className="group space-y-0.5">
       <div className="flex items-baseline gap-1.5 text-xs">
-        <span className="font-medium">{c.authorName || c.author || "Former member"}</span>
-        <Source viaAgent={c.viaAgent} agentName={c.agentName} />
+        <span className="font-medium">
+          {c.guestName ? `${c.guestName} (guest)` : c.authorName || c.author || "Former member"}
+        </span>
+        {!c.guestName && <Source viaAgent={c.viaAgent} agentName={c.agentName} />}
         <span className="muted">
           {fmt.ago(c.createdAt)}
           {c.editedAt && " · edited"}
@@ -233,8 +247,29 @@ function CommentItem({
   );
 }
 
+const mmss = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+
+/** The panel's artwork when the thread was started next to the art it was resolved on (or shows now), when they differ. */
+function BeforeAfter({ t }: { t: Thread }) {
+  const after = t.resolvedAt ? t.resolvedArtworkAssetId : t.currentArtworkAssetId;
+  if (!t.artworkAssetId || !after || after === t.artworkAssetId) return null;
+  return (
+    <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+      {[
+        ["When commented", t.artworkAssetId],
+        [t.resolvedAt ? "When resolved" : "Now", after],
+      ].map(([label, id]) => (
+        <figure key={label} className="space-y-0.5">
+          <img src={assetUrl(id!, "thumbnail")} alt={label!} className="aspect-square w-full rounded object-cover" />
+          <figcaption className="muted">{label}</figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
 /** One thread: its first comment, replies, a reply box, and resolve or reopen. */
-export function ThreadView({ t, projectId }: { t: Thread; projectId: string }) {
+export function ThreadView({ t, projectId, pinNo }: { t: Thread; projectId: string; pinNo?: number }) {
   const invalidate = [commentKeys.panel(t.panelId), commentKeys.project(projectId), commentKeys.counts(projectId)];
   const [replying, setReplying] = useState(false);
   const reply = useAction((body: string) => post(`/panels/${t.panelId}/comments`, { body, threadId: t.id }), {
@@ -242,9 +277,53 @@ export function ThreadView({ t, projectId }: { t: Thread; projectId: string }) {
     onSuccess: () => setReplying(false),
   });
   const resolve = useAction((resolved: boolean) => post(`/comments/${t.id}/resolve`, { resolved }), { invalidate });
+  const assign = useAction((assigneeUserId: string | null) => post(`/comments/${t.id}/assign`, { assigneeUserId }), {
+    invalidate,
+  });
+  const members = useMembers(projectId);
   return (
     <li className={`card space-y-2 p-2.5 ${t.resolvedAt ? "opacity-70" : ""}`}>
+      {(pinNo || t.timecodeMs !== null || t.assignee || !t.resolvedAt) && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          {pinNo && (
+            <span
+              className="inline-flex size-4 items-center justify-center rounded-full bg-accent-600 font-semibold text-white"
+              title="Pinned spot on the artwork"
+            >
+              {pinNo}
+            </span>
+          )}
+          {t.timecodeMs !== null && (
+            <PreviewVideoButton
+              projectId={projectId}
+              scope={{ chapterId: t.chapterId }}
+              label={mmss(t.timecodeMs)}
+              title={`The chapter's video at ${mmss(t.timecodeMs)}`}
+              className="chip px-1.5 py-0 text-[11px]"
+              startAtMs={t.timecodeMs}
+            />
+          )}
+          <label className="ml-auto flex items-center gap-1">
+            <span className="muted">Assigned to</span>
+            <select
+              className="input w-auto py-0 text-[11px]"
+              aria-label="Assigned to"
+              value={t.assigneeUserId ?? ""}
+              disabled={assign.isPending}
+              onChange={(e) => assign.mutate(e.target.value || null)}
+            >
+              <option value="">nobody</option>
+              {members.data?.members.map((m) => (
+                <option key={m.userId} value={m.userId}>
+                  @{m.username}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
       <CommentItem c={t} projectId={projectId} invalidate={invalidate} />
+      <BeforeAfter t={t} />
       {t.replies.length > 0 && (
         <ul className="space-y-2 border-l-2 border-[var(--border)] pl-2.5">
           {t.replies.map((r) => (
@@ -299,20 +378,133 @@ export function ThreadView({ t, projectId }: { t: Thread; projectId: string }) {
   );
 }
 
+/**
+ * The panel's artwork with the open threads' pins, numbered as in the list; while `picking`, a click sets the spot a new
+ * thread points at. The image keeps its own shape, so a click's fraction of its box is a fraction of the artwork.
+ */
+function PinBoard({
+  assetId,
+  pins,
+  picked,
+  picking,
+  onPick,
+}: {
+  assetId: string;
+  pins: { n: number; anchor: Anchor }[];
+  picked: Anchor | null;
+  picking: boolean;
+  onPick: (a: Anchor) => void;
+}) {
+  const dot = (a: Anchor, label: string, extra: string) => (
+    <span
+      key={label}
+      className={`pointer-events-none absolute flex size-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-[10px] font-semibold text-white shadow ring-2 ring-white ${extra}`}
+      style={{ left: `${a.x * 100}%`, top: `${a.y * 100}%` }}
+    >
+      {label}
+    </span>
+  );
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: picking a spot is pointer-only; the comment works without one.
+    <div
+      className={`relative overflow-hidden rounded-lg border border-[var(--border)] ${picking ? "cursor-crosshair ring-2 ring-accent-500" : ""}`}
+      onClick={(e) => {
+        if (!picking) return;
+        const r = e.currentTarget.getBoundingClientRect();
+        onPick({
+          x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+          y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+        });
+      }}
+    >
+      <img src={assetUrl(assetId, "web")} alt="Panel artwork" className="block h-auto w-full" draggable={false} />
+      {pins.map((p) => dot(p.anchor, String(p.n), "bg-accent-600"))}
+      {picked && dot(picked, "+", "bg-amber-500")}
+    </div>
+  );
+}
+
 /** A panel's comment threads and a box to start one. Every member, viewers included, can take part. */
 export function PanelComments({ projectId, panelId }: { projectId: string; panelId: string }) {
   const q = useQuery({
     queryKey: commentKeys.panel(panelId),
     queryFn: () => get<{ threads: Thread[] }>(`/panels/${panelId}/comments`),
   });
-  const create = useAction((body: string) => post(`/panels/${panelId}/comments`, { body }), {
-    invalidate: [commentKeys.panel(panelId), commentKeys.project(projectId), commentKeys.counts(projectId)],
-  });
+  const art = useQuery({
+    queryKey: ["panel-art", panelId],
+    queryFn: () => get<{ panel: { activeArtworkAssetId: string | null } }>(`/panels/${panelId}`),
+  }).data?.panel.activeArtworkAssetId;
+  const members = useMembers(projectId);
+  const [pin, setPin] = useState<Anchor | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [assignee, setAssignee] = useState("");
+  const create = useAction(
+    (body: string) =>
+      post(`/panels/${panelId}/comments`, {
+        body,
+        ...(pin ? { anchor: pin } : {}),
+        ...(assignee ? { assigneeUserId: assignee } : {}),
+      }),
+    {
+      invalidate: [commentKeys.panel(panelId), commentKeys.project(projectId), commentKeys.counts(projectId)],
+      onSuccess: () => {
+        setPin(null);
+        setAssignee("");
+      },
+    },
+  );
   const [showResolved, setShowResolved] = useState(false);
   const threads = q.data?.threads ?? [];
   const resolved = threads.filter((t) => t.resolvedAt).length;
+  // Pins are numbered over the open threads that have one, in list order.
+  const pinNo = new Map(threads.filter((t) => !t.resolvedAt && t.anchor).map((t, i) => [t.id, i + 1] as const));
   return (
     <div className="space-y-3">
+      {art && (
+        <PinBoard
+          assetId={art}
+          pins={threads.filter((t) => pinNo.has(t.id)).map((t) => ({ n: pinNo.get(t.id)!, anchor: t.anchor! }))}
+          picked={pin}
+          picking={picking}
+          onPick={(a) => {
+            setPin(a);
+            setPicking(false);
+          }}
+        />
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        {art &&
+          (pin ? (
+            <button type="button" className="btn-ghost px-1.5 py-0.5 text-xs" onClick={() => setPin(null)}>
+              <X className="size-3" /> Remove the pin
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`btn-ghost px-1.5 py-0.5 text-xs ${picking ? "bg-[var(--panel-2)]" : ""}`}
+              aria-pressed={picking}
+              onClick={() => setPicking((v) => !v)}
+            >
+              <Crosshair className="size-3" /> {picking ? "Click the spot on the artwork" : "Pin a spot"}
+            </button>
+          ))}
+        <label className="ml-auto flex items-center gap-1">
+          <span className="muted">Assign to</span>
+          <select
+            className="input w-auto py-0 text-xs"
+            aria-label="Assign the new thread to"
+            value={assignee}
+            onChange={(e) => setAssignee(e.target.value)}
+          >
+            <option value="">nobody</option>
+            {members.data?.members.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                @{m.username}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <Composer
         projectId={projectId}
         placeholder="Comment on this panel"
@@ -327,7 +519,7 @@ export function PanelComments({ projectId, panelId }: { projectId: string; panel
         {threads
           .filter((t) => showResolved || !t.resolvedAt)
           .map((t) => (
-            <ThreadView key={t.id} t={t} projectId={projectId} />
+            <ThreadView key={t.id} t={t} projectId={projectId} pinNo={pinNo.get(t.id)} />
           ))}
       </ul>
       {resolved > 0 && (

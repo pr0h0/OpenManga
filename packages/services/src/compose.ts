@@ -226,6 +226,57 @@ function sfxSvg(s: RenderSfx, W: number, H: number, fontScale: number) {
 
 type ArtLayer = { input: Buffer; left: number; top: number };
 
+/** A panel's box in page pixels at a `W`×`H` render, before rounding (the art layer rounds it). */
+export function panelBox(frame: Frame, W: number, H: number) {
+  return {
+    x: frame.x * W,
+    y: frame.y * H,
+    w: Math.max(1, frame.width * W),
+    h: Math.max(1, frame.height * H),
+  };
+}
+
+/** A panel's border, as the page draws it at `scale`. */
+export function panelFrameSvg(frame: Frame, W: number, H: number, scale: number) {
+  const { x, y, w, h } = panelBox(frame, W, H);
+  return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="#111" stroke-width="${Math.max(2, 4 * scale).toFixed(1)}"/>`;
+}
+
+export type LetteringPart = {
+  id: string;
+  /** Captions are narration and system boxes; everything else in a bubble is dialogue. */
+  kind: "dialogue" | "narration" | "sfx";
+  text: string;
+  panelId: string | null;
+  /** The element as SVG in page pixels at a `W`×`H` render. */
+  svg: string;
+};
+
+/** The page's lettering as separate vector elements in drawing order: SFX under bubbles, each by its z-index. */
+export function letteringParts(p: RenderPage, W: number, H: number, fontScale: number): LetteringPart[] {
+  return [
+    ...[...p.sfx]
+      .sort((a, b) => a.style.zIndex - b.style.zIndex)
+      .map((s) => ({
+        id: s.id,
+        kind: "sfx" as const,
+        text: s.text,
+        panelId: s.panelId,
+        svg: sfxSvg(s, W, H, fontScale),
+      })),
+    ...[...p.bubbles]
+      .sort((a, b) => a.bubble.zIndex - b.bubble.zIndex)
+      .map((t) => ({
+        id: t.id,
+        kind:
+          t.bubble.type === "narration" || t.bubble.type === "system" ? ("narration" as const) : ("dialogue" as const),
+        text: t.text,
+        panelId: t.panelId,
+        svg: bubbleSvg(t, W, H, fontScale),
+      })),
+  ];
+}
+
 /**
  * Deterministic page composition: artwork cropped into frames, vector borders, bubbles and SFX.
  * With `rasterArt`, artwork is returned as raster layers instead of being inlined as base64 in the SVG:
@@ -244,10 +295,7 @@ export async function renderPageSvg(
     ? []
     : [`<rect width="${W}" height="${H}" fill="${opts.background ?? "#ffffff"}"/>`];
   for (const panel of readingOrder(p.panels, p.readingDirection)) {
-    const x = panel.frame.x * W;
-    const y = panel.frame.y * H;
-    const w = Math.max(1, panel.frame.width * W);
-    const h = Math.max(1, panel.frame.height * H);
+    const { x, y, w, h } = panelBox(panel.frame, W, H);
     if (panel.art && opts.rasterArt) {
       // Same pixel box the SVG <image> would occupy (rounded size at the rounded origin).
       const png = await renderPanelArt(panel.art, Math.round(w), Math.round(h), panel.imageTransform);
@@ -262,14 +310,9 @@ export async function renderPageSvg(
         `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="#f1f1f1"/>`,
       );
     }
-    if (opts.borders !== false)
-      parts.push(
-        `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="#111" stroke-width="${Math.max(2, 4 * scale).toFixed(1)}"/>`,
-      );
+    if (opts.borders !== false) parts.push(panelFrameSvg(panel.frame, W, H, scale));
   }
-  for (const s of [...p.sfx].sort((a, b) => a.style.zIndex - b.style.zIndex)) parts.push(sfxSvg(s, W, H, fontScale));
-  for (const t of [...p.bubbles].sort((a, b) => a.bubble.zIndex - b.bubble.zIndex))
-    parts.push(bubbleSvg(t, W, H, fontScale));
+  for (const part of letteringParts(p, W, H, fontScale)) parts.push(part.svg);
   return {
     svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts.join("\n")}</svg>`,
     width: W,

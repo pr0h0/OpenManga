@@ -454,14 +454,41 @@ accepts `language`, defaulting to the project language.
 
 ## Consistency check (vision QA, opt-in)
 
-`settings.consistencyCheck = { enabled, credentialId, model }`. After a panel generation or edit activates new
-artwork, a `panel_check` job sends the 1024 px preview plus the expected cast (names and appearance) to a
-vision-capable text model (`panel-check` v2, schema `PanelCheck`). The expected appearance uses the outfit the panel
-resolves to (see `docs/IMAGE_REFERENCES.md`), not the bible's default wardrobe. The verdict is computed
-deterministically — missing expected characters, unexpected people, headcount mismatch, readable text drawn in the
-art — and stored on `panels.qa`; the page grid outlines mismatches and the Panel tab's badge names the first problem,
-shows the model's notes on hover, and has a **Run check** button (**Check again** once checked;
-`POST /api/panels/:id/check`). The check's prompt is saved on its job like every other text step's.
+`settings.consistencyCheck = { enabled, credentialId, model, checks, autoFixBudgetUsd }`. After a panel generation
+or edit activates new artwork, a `panel_check` job sends the 1024 px preview plus the expected cast (names, appearance,
+and the expression and pose the panel asks of each) to a vision-capable text model (`panel-check` v3, schema
+`PanelCheck`). The expected appearance uses the outfit the panel resolves to (see `docs/IMAGE_REFERENCES.md`), not the
+bible's default wardrobe. The check's prompt is saved on its job like every other text step's.
+
+**Visual checks.** `checks` sets each aspect to `off`, `flag`, `regenerate_once` or `regenerate_budget`; aspects left
+out take their defaults (headcount, identity, outfit, stray text and covered faces flag; the rest are off):
+
+| Aspect | Judged by | Against |
+| --- | --- | --- |
+| `headcount` | counted | missing expected characters, unexpected people, the headcount |
+| `identity`, `outfit` | the model | each character's sheet and the outfit the panel resolves to |
+| `props`, `location` | the model | the panel's props and location (skipped when it has none) |
+| `expression` | the model | each character's expression and the panel's emotion |
+| `pose` | the model | the pose of a **strict** layout guide (skipped without one) |
+| `framing` | the model | the planned shot type and camera angle |
+| `anatomy` | the model | extra, missing or broken limbs, hands, fingers; melted faces |
+| `text` | the model | readable letters or words drawn into the art |
+| `style`, `palette` | the model | the project's art style and colour mode |
+| `covered_faces` | measured | the panel's bubbles and caption boxes over the face boxes (over 30% of a face) |
+
+Only the aspects that are on and have something to judge against are asked about, all in the one call; the model
+answers each as `{ ok, note }` in `aspects`. The verdict is computed deterministically and stored on `panels.qa`
+(`verdict`, `problems`, `failed`, `checks`, and `autoFix`); the page grid outlines mismatches and the Panel tab's badge
+names the first problem, shows the model's notes on hover, and has a **Run check** button (**Check again** once
+checked; `POST /api/panels/:id/check`).
+
+When a failed aspect is set to regenerate, the project's check is on and the panel still shows the checked art, the
+worker queues a re-roll of the panel with the key that drew it (`operation: "visual-check"`, `parameters.autoFix` =
+the re-roll's number in the row); its new art is checked in turn. `regenerate_once` allows one re-roll in a row;
+`regenerate_budget` allows up to 3 while the project's automatic re-rolls have cost less than `autoFixBudgetUsd`
+(default $2). The count follows the artwork's own generation job, so a check run by hand continues it. Otherwise the
+panel is flagged and `qa.autoFix.skipped` says why. Covered faces is flag only: moving the lettering fixes it. The
+project budget applies to re-rolls like any other generation.
 
 **Check all panels** (`POST /api/projects/:projectId/checks`, scope a page, a chapter or neither for the whole
 project) queues the same check for every panel with artwork, at most 500 at a time. Without `confirm: true` it only
@@ -678,6 +705,23 @@ person would, as the user who started it (`apps/api/src/lib/production.ts`):
 analyse → review → apply → references (characters, locations, props) → review → changed chapters → plan every
 chapter → prepare panel prompts → generate missing artwork → changed narration → write narration → synthesize narration → video thumbnail → YouTube package text
 → review → render the video → YouTube package export.
+
+**Cost plan.** `POST /api/projects/:projectId/production-runs/estimate` (same body as starting a run; MCP
+`estimate_production_run`; shown in the *Produce* and *Update production* dialogs as the options and models change)
+says what that run would still do and cost before it spends anything (`apps/api/src/lib/cost-plan.ts`). It follows the
+run's own "only what is missing" rules: per chapter, a plan if it has no pages, prompts for pages with a panel still
+to draw and no prepared prompt, panels without artwork (and, for an update, artwork whose spec was saved after it was
+drawn: the same `staleArt` the art step redraws), narration if it has no lines, and narration audio (the run voices
+with the local voice, so time and disk, no spend); for the project, the analysis until there are chapters, missing
+references (counted by the bulk route's own `confirm: false` estimate), the thumbnail and the YouTube text. Each unit
+is priced with the chosen models' rates (half for a batch, `batchModel`) and this server's average usage per job of
+that kind over the last 90 days from `ai_usage`, or the built-in `DEFAULT_UNIT_USAGE` until there is any (`fromHistory`
+lists the kinds priced from history). A chapter not planned yet is estimated (`estimated`), from the target runtime's
+shots per chapter or the average size of chapters already planned on this server, and so is the cast before the
+analysis. The plan totals what runs now and what waits in a half-price provider batch, the disk the new artwork
+(measured from recent artwork and its derivatives) and narration (24 kHz WAV) will take, and the budget left, with a
+warning when the total passes the cap (the run would pause there) or a model has no known price. A text model in
+paste mode is free. Nothing is queued.
 
 - **Reuse.** Every step does only what is missing: analysis is skipped once the project has chapters, references
   and artwork are drawn only where missing, only unplanned chapters are planned, narration is written only for

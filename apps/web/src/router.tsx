@@ -142,6 +142,18 @@ const profiles = createRoute({
   staticData: { title: "Channel profiles" },
   component: lazyRouteComponent(() => import("./features/profiles/ChannelProfilesPage.tsx"), "ChannelProfilesPage"),
 });
+const seriesList = createRoute({
+  getParentRoute: () => shell,
+  path: "/series",
+  staticData: { title: "Series" },
+  component: lazyRouteComponent(() => import("./features/series/SeriesPage.tsx"), "SeriesListPage"),
+});
+const seriesDetail = createRoute({
+  getParentRoute: () => shell,
+  path: "/series/$seriesId",
+  staticData: { title: "Series" },
+  component: lazyRouteComponent(() => import("./features/series/SeriesPage.tsx"), "SeriesDetailPage"),
+});
 const usage = createRoute({
   getParentRoute: () => shell,
   path: "/usage",
@@ -180,6 +192,7 @@ const admin = createRoute({
   getParentRoute: () => shell,
   path: "/admin",
   staticData: { title: "Admin" },
+  validateSearch: z.object({ tab: z.enum(["overview", "users", "jobs", "usage", "rates", "storage"]).optional() }),
   component: lazyRouteComponent(() => import("./features/admin/AdminPage.tsx"), "AdminPage"),
 });
 const account = createRoute({
@@ -289,6 +302,13 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/agent",
+    validateSearch: z.object({ run: z.string().uuid().optional() }),
+    staticData: { title: "Agent" },
+    component: lazyRouteComponent(() => import("./features/agent/AgentPage.tsx"), "AgentPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/comments",
     staticData: { title: "Comments" },
     component: lazyRouteComponent(() => import("./features/comments/CommentsPage.tsx"), "CommentsPage"),
@@ -340,6 +360,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/youtube",
+    staticData: { title: "YouTube stats" },
+    component: lazyRouteComponent(() => import("./features/youtube/YoutubePage.tsx"), "YoutubePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/describe",
     staticData: { title: "Describe image" },
     component: lazyRouteComponent(() => import("./features/vision/DescribeImagePage.tsx"), "DescribeImagePage"),
@@ -382,6 +408,8 @@ const routeTree = rootRoute.addChildren([
     dashboard,
     newProject,
     profiles,
+    seriesList,
+    seriesDetail,
     usage,
     experts,
     agents,

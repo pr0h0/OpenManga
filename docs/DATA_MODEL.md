@@ -1,10 +1,10 @@
 # Data model
 
-PostgreSQL via Drizzle. 73 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
-`bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
+PostgreSQL via Drizzle. 80 tables in nine schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+`bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, `youtube.ts`, with shared column helpers and every
 `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0033_chapter_source_fingerprints.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0038_youtube_stats.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -89,13 +89,25 @@ slot).
   replies (its body is blanked; any other deleted comment is removed). `via_agent` and `via_service_id` (migration
   `0034_comment_agent_source`) say a comment was written through an agent connection and which one (`user_services`,
   set null if the connection is deleted, while `via_agent` stays true); `resolved_via_agent` and
-  `resolved_via_service_id` do the same for resolving.
-- `notifications` — one user's mention or reply notice: user, project, `kind` (`mention|reply`), comment, actor,
+  `resolved_via_service_id` do the same for resolving. Migration `0035_better_comments` adds, on a thread's first
+  comment, `anchor` (`{x, y}`: a spot on the panel's artwork as fractions of its width and height), `timecode_ms` (a
+  moment of the chapter's video preview), `assignee_user_id`, and `artwork_asset_id` / `resolved_artwork_asset_id` (the
+  panel's active artwork when the thread was started and when it was resolved: before and after a fix; no foreign key,
+  the art may be deleted later); and `guest_name` / `share_id` for a comment left through a reader link (no author).
+- `share_links.allow_comments` (also `0035`) — whoever opens the link may comment under a name.
+- `notifications` — one user's notice: user, project, `kind` (`mention|reply|assigned|guest`: mentioned, a reply in
+  your thread, a thread assigned to you, a guest's comment through a reader link), comment, actor (none for a guest),
   `read_at`.
 - `story_revisions` — immutable once `locked_at` is set (analyses reference them); editing a locked revision forks a
   new one. Unique per `(project, revision_number)`.
 - `story_analyses` — the validated `StoryAnalysis` JSON for one revision; `pending → completed → applied` (or
   `failed`).
+
+- `series` (`0037_series`) — a series of its owner's: title, description, `library_project_id` (the project holding
+  its shared cast, world, style and bible) and `channel_profile_id`. `projects.series_id`, `series_role`
+  (`episode` | `library`) and `episode_number` place a project in it; `characters`, `locations` and `props` carry
+  `source_id` (the library entry they follow) and `synced_version_id`, and `project_styles` and `bible_facts` carry
+  `source_id`. See `docs/SERIES.md`.
 
 ## Structure (`projects.ts`, `media.ts`)
 
@@ -112,8 +124,9 @@ slot).
   `camera_angle` (free text), `story_beat`, `location_version_id`, `character_version_ids`, `prop_version_ids`,
   `active_artwork_asset_id`, `status`, approval status, plus four prompt and QA fields:
   `prompt_override` (text, a user-edited prompt), `prompt_draft` (JSON, the sections written by the `page_prompts`
-  job), `qa` (JSON, the latest consistency check of the active artwork: verdict, problems, cast and headcount, and
-  face boxes used to move bubbles off faces; marked `stale` when newer artwork replaced the checked one) and
+  job), `qa` (JSON, the latest consistency check of the active artwork: verdict, problems, the visual checks
+  asked and failed, each aspect's verdict, cast and headcount, face boxes used to move bubbles off faces, and `autoFix`
+  — the re-roll it queued or why not; marked `stale` when newer artwork replaced the checked one) and
   `review` (JSON `{reason, message, at}`, set when the artwork needs a human look — for example because it came from the
   content-policy fallback provider). `planned_lettering` (JSON `{dialogue, sfx}`) holds the chapter plan's dialogue
   (speakers resolved to characters) and SFX when automatic lettering was off, until Editor → Lettering → *Letter from
@@ -202,7 +215,9 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 - `export_jobs` and `exports` — `kind` is one of `png_pages`, `jpg_pages`, `pdf`, `cbz`, `epub`, `webtoon`,
   `zip_package`, `project_json`, `narration_audio`, `timeline`, `agent_package`, **`video_pages`**, **`video_panels`**, **`video_shorts`**,
   `youtube_package` (the newest finished video of the scope with its subtitles, chapter timestamps, thumbnail and
-  publishing text, zipped), `carousel` and `quote_image` (repurposed stills, see `docs/VIDEO_EXPORT_REFERENCE.md`),
+  publishing text, zipped), `carousel` and `quote_image` (repurposed stills, see `docs/VIDEO_EXPORT_REFERENCE.md`), `print_cover` and
+  `print_preflight` (the cover's sizes and issues in `result.cover`, the preflight report in `result.preflight`; see
+  `docs/PRINT.md`), `psd_pages` and `layered_package` (layered files for finishing, see `docs/DEPLOYMENT.md`),
   and `project_import` (an import reuses the export job machinery and reports
   `{projectId, warnings}` in `result`; a video render keeps its `series`, the `sectionKeys` of its cached sections and
   `sections: {reused, encoded}` there). Options (for example a PDF's `pageSize`, including the `kdp_*` trim sizes) are JSON on the
@@ -228,7 +243,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only as HMACs.
 
-- `user_services` — a connected agent: its user, kind (`oauth` | `pat`), name, OAuth client id, scopes, project access
+- `user_services` — a connected agent: its user, kind (`oauth` | `pat` | `app`, the in-app agent), name, OAuth client id, scopes, project access
   (`all` | `selected`), `allow_project_create`, approval mode (`ALLOW_ALL` | `REQUIRE_APPROVAL`), last use, revocation.
 - `user_service_projects` — the projects a `selected` connection may touch.
 - `personal_access_tokens` — `om_pat_…` HMACs, last four characters, expiry, last use, revocation.
@@ -244,9 +259,35 @@ What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only a
   (`pending|approved|denied|expired|stale|executed|failed|execution_unknown`), result or error. At most one `pending`
   request per identical call; an `approved` request interrupted mid-run becomes `execution_unknown` and is never re-run.
 - `mcp_approval_rules` — remembered decisions, unique per `(connection, project, action key)`.
+- `agent_runs` (`0036_agent_runs`) — an in-app agent run: its user, project and connection, goal, status
+  (`planning` → `awaiting_plan` → `running` ⇄ `waiting_approval` → `completed` | `stopped` | `failed` | `cancelled`),
+  budget and the project's spend when it started, the text model (`run`), the plan and the user's feedback on it, the
+  steps (thought, tool, arguments, status, result cut short), the thinking job and the approval it waits on.
 - `mcp_idempotency` — a caller's idempotency key per `(connection, tool, key)`, claimed before the call runs: state
   (`running|pending_approval|completed`), the arguments hash, the result to replay.
 - `audit_events.service_id` — the connection an audited action came through (null for the browser).
+
+## YouTube stats (`youtube.ts`)
+
+What [YouTube stats](DEPLOYMENT.md#youtube-stats) store. Everything else (daily Analytics history, live counters) is
+read from Google when a page asks and kept only in a short Redis cache. Retention is described in
+[SECURITY](SECURITY.md#youtube-data).
+
+- `youtube_channels` — a connected channel: its owner, YouTube channel id, title, uploads playlist, the OAuth refresh
+  and access tokens (AES-GCM, same key ring as provider keys), granted scopes, the Reporting API jobs created for it
+  (`reporting`: `basic` / `combined` job ids, the newest report read from each, when reports were last looked for),
+  the last reporting error, `status` (`active|revoked`) and `verified_at` (the last time Google confirmed the
+  authorization). Unique per `(user, channel)`.
+- `youtube_links` — a published video linked to a project: video id, channel id and title, `kind` (`film|short`),
+  title, thumbnail, publish time, duration, the export file (`export_id`) or repurposing-plan Short (`short_id`) it
+  came from, a label, who linked it, and `connection_id` when it is on a channel the linking user connected. Unique
+  per `(project, video)`.
+- `youtube_snapshots` — a video's public counters (views, likes, comments) at one moment, shared by every project
+  linking it. `connection_id` + `authorized` when read with the owning channel's token (deleted with the channel);
+  otherwise kept 30 days.
+- `youtube_reach` — thumbnail impressions from the Reporting API reach reports, per `(connection, video, day, source)`:
+  `source` `''` is the overall row with its click-through rate (`channel_reach_basic_a1`), any other value a traffic
+  source code (`channel_reach_combined_a1`, impressions only). Only rows of videos linked under that connection are kept.
 
 ## Indexes
 

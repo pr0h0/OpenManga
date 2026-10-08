@@ -15,7 +15,13 @@ import {
 } from "@openmanga/db";
 import { captionsSupported, providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
 import { ShortsCaptions } from "@openmanga/schemas";
-import { issuesForExport, projectReadiness, recordAudit, sweepRenderSections } from "@openmanga/services";
+import {
+  issuesForExport,
+  printCoverCheck,
+  projectReadiness,
+  recordAudit,
+  sweepRenderSections,
+} from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -26,6 +32,20 @@ import { doc } from "../lib/openapi.ts";
 import { shortsCandidates } from "./video.ts";
 
 export const exportRoutes = new Hono<AppEnv>();
+
+const PageSize = z.enum([
+  "source",
+  "A4",
+  "A5",
+  "B5",
+  "letter",
+  "tankobon",
+  "kdp_5x8",
+  "kdp_5_5x8_5",
+  "kdp_6x9",
+  "kdp_7x10",
+  "kdp_8_5x11",
+]);
 
 export const ExportOptions = z.object({
   kind: z.enum([
@@ -46,6 +66,10 @@ export const ExportOptions = z.object({
     "youtube_package",
     "carousel",
     "quote_image",
+    "print_cover",
+    "print_preflight",
+    "psd_pages",
+    "layered_package",
   ]),
   chapterId: z.string().uuid().nullable().default(null),
   pageIds: z.array(z.string().uuid()).max(500).optional(),
@@ -67,27 +91,39 @@ export const ExportOptions = z.object({
   pdf: z
     .object({
       /** kdp_* are Amazon KDP trim sizes, printed full bleed (margin and bleed are then ignored). */
-      pageSize: z
-        .enum([
-          "source",
-          "A4",
-          "A5",
-          "B5",
-          "letter",
-          "tankobon",
-          "kdp_5x8",
-          "kdp_5_5x8_5",
-          "kdp_6x9",
-          "kdp_7x10",
-          "kdp_8_5x11",
-        ])
-        .default("source"),
+      pageSize: PageSize.default("source"),
       marginMm: z.number().min(0).max(50).default(0),
       bleedMm: z.number().min(0).max(10).default(0),
       dpi: z.number().int().min(72).max(600).default(300),
       readingDirection: z.enum(["ltr", "rtl", "vertical"]).optional(),
+      /** Every chapter opens on a right-hand (odd) page: a blank page goes before any that would open on a left one. */
+      rectoChapters: z.boolean().default(false),
+      /** A contents page after the cover: each chapter with the PDF page it starts on. */
+      toc: z.boolean().default(false),
+      /** Book metadata written into the PDF. Defaults: the export's title, the project's author, description, language. */
+      metadata: z
+        .object({
+          title: z.string().trim().max(300).optional(),
+          author: z.string().trim().max(200).optional(),
+          subject: z.string().trim().max(2000).optional(),
+          keywords: z.array(z.string().trim().min(1).max(60)).max(30).optional(),
+          language: z.string().trim().min(2).max(16).optional(),
+        })
+        .optional(),
     })
-    .default({ pageSize: "source", marginMm: 0, bleedMm: 0, dpi: 300 }),
+    .default({ pageSize: "source", marginMm: 0, bleedMm: 0, dpi: 300, rectoChapters: false, toc: false }),
+  /**
+   * print_cover: the paper decides the spine (KDP's per-page thickness: white 0.002252", cream 0.0025", color
+   * 0.002347"), or give paperThicknessMm for another printer. The page count defaults to the interior's, counted as
+   * the PDF export prints it with the same pdf.toc and pdf.rectoChapters.
+   */
+  print: z
+    .object({
+      paper: z.enum(["white", "cream", "color"]).default("white"),
+      pageCount: z.number().int().min(1).max(2000).optional(),
+      paperThicknessMm: z.number().min(0.03).max(0.3).optional(),
+    })
+    .default({ paper: "white" }),
   webtoon: z
     .object({
       width: z.number().int().min(320).max(2000).optional(),
@@ -134,6 +170,11 @@ export const ExportOptions = z.object({
        * the frame, "center" a few large words at a time, "two_line" two lines at the bottom. Other videos keep the .srt.
        */
       captions: ShortsCaptions.optional(),
+      /**
+       * video_shorts: an opening line the narrator says before the first shot (the repurposing plan's hook), voiced
+       * with the project's narrator voice on the local voice. Other kinds ignore it.
+       */
+      hook: z.string().trim().max(200).optional(),
     })
     .default({
       fps: 30,
@@ -167,6 +208,10 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
     throw badRequest(
       "Captions can't be drawn in this narration language yet: the render image has no font for its script. Turn captions off; the .srt file still comes with the video.",
     );
+  if (input.kind === "video_shorts" && input.video.hook && !c.get("deps").config.TTS_ENABLED)
+    throw badRequest(
+      "A hook line is spoken by the narrator voice, and narration synthesis is turned off on this server.",
+    );
   // Filled here, so the stored options say what was rendered whoever asked: the app, an agent or a production run.
   const output = p.settings.video?.output;
   input.video.height ??= output?.height ?? 1080;
@@ -192,6 +237,12 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
     if (own.length !== new Set(input.pageIds).size) throw notFound("Page");
   }
   if (input.kind === "quote_image" && !input.still.text) throw badRequest("Write the quote (still.text)");
+  if (input.kind === "print_cover") {
+    const check = await printCoverCheck(deps.db, p, input, { ...input.pdf, print: input.print });
+    if (!check) throw badRequest("Choose a print size for the cover (pdf.pageSize other than source)");
+    const block = check.layout.issues.find((i) => i.severity === "block");
+    if (block) throw badRequest(block.message);
+  }
   if (["video_shorts", "carousel", "quote_image"].includes(input.kind)) {
     if (!input.panelIds?.length) throw badRequest("Pick the panels (panelIds)");
     const own = await deps.db
@@ -338,6 +389,48 @@ exportRoutes.post("/exports/:id/cancel", async (c) => {
   const result = await deps.jobs.cancelExport(id);
   if (result === "not_cancellable") throw conflict(`Export is already ${job.status}`);
   return c.json({ result });
+});
+
+export const CoverCheckQuery = z.object({
+  pageSize: PageSize.exclude(["source"]).default("kdp_6x9"),
+  paper: z.enum(["white", "cream", "color"]).default("white"),
+  pageCount: z.coerce.number().int().min(1).max(2000).optional(),
+  paperThicknessMm: z.coerce.number().min(0.03).max(0.3).optional(),
+  chapterId: z.string().uuid().optional(),
+  toc: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  rectoChapters: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+});
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/print/cover",
+  query: CoverCheckQuery,
+  summary:
+    "Check a print cover before rendering it: the interior's page count (as the PDF prints it with ?toc= and ?rectoChapters=, or ?pageCount=), the spine width for ?paper=, the full cover size with bleed, the safe areas and barcode box, the text layout, and issues (no cover art, art under 300 DPI, no spine text under 79 pages, text that had to be shortened). ?pageSize= is a print size (default kdp_6x9).",
+  tag: "exports",
+});
+exportRoutes.get("/projects/:projectId/print/cover", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const q = query(c, CoverCheckQuery);
+  if (q.chapterId && (await entityAccess(c, "chapter", q.chapterId, "read")).id !== p.id) throw notFound("Chapter");
+  const check = await printCoverCheck(
+    c.get("deps").db,
+    p,
+    { chapterId: q.chapterId ?? null },
+    {
+      pageSize: q.pageSize,
+      toc: q.toc,
+      rectoChapters: q.rectoChapters,
+      print: { paper: q.paper, pageCount: q.pageCount, paperThicknessMm: q.paperThicknessMm },
+    },
+  );
+  return c.json({ pageCount: check!.pageCount, layout: check!.layout });
 });
 
 doc({

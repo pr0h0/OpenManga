@@ -1,9 +1,12 @@
 import {
+  AgentPlan,
+  AgentStep,
   BibleExtraction,
   ChapterOutline,
   ChapterPlan,
   ContinuityReport,
   ImageDescription,
+  type ModelAspect,
   NarrationDraft,
   NarrationDraftV2,
   NarrationFix,
@@ -14,6 +17,7 @@ import {
   type SceneOutline,
   ScenePages,
   SocialCopy,
+  SocialCopyV1,
   StoryAnalysis,
   StoryCoverageMap,
   StoryRewrite,
@@ -454,29 +458,59 @@ export const narrationV4 = defineTextTemplate<Parameters<typeof narrationV3.buil
   },
 });
 
+/** What each aspect a panel check can be asked about means, for the model. */
+const ASPECT_RULES: Record<ModelAspect, string> = {
+  identity: "identity: each expected character's face, hair, eyes and build match their appearance notes.",
+  outfit: "outfit: each expected character wears the clothes in their appearance notes.",
+  props: "props: every listed prop is visible and looks as described.",
+  location: "location: the setting matches the described location.",
+  expression: "expression: the faces show the expressions asked for (and the panel's emotion).",
+  pose: "pose: the figures take the pose described in the strict pose guide.",
+  framing: "framing: the shot type and camera angle are the ones asked for.",
+  anatomy: "anatomy: no extra, missing, fused or broken limbs, hands or fingers; no melted faces.",
+  style: "style: the drawing follows the described art style, not a different one.",
+  palette: "palette: the colours follow the colour directive (for example black and white, or full colour).",
+};
+
 export const panelCheckV1 = defineTextTemplate<{
-  expected: { name: string; appearance: string }[];
+  expected: { name: string; appearance: string; expression?: string; pose?: string }[];
   beat: string;
+  /** The aspects to judge in `aspects`, with what they are judged against. */
+  checks?: ModelAspect[];
+  context?: {
+    props?: { name: string; description: unknown }[];
+    location?: { name: string; description: unknown } | null;
+    shotType?: string;
+    cameraAngle?: string;
+    emotion?: string;
+    poseGuide?: string;
+    style?: string;
+    colorDirective?: string;
+  };
 }>({
   name: "panel-check",
-  version: 2,
-  description: "Vision QA: does a generated panel show the expected cast at the expected headcount?",
+  version: 3,
+  description: "Vision QA: cast and headcount of a generated panel, and the visual aspects the project checks.",
   system: [
-    templateHeader("panel-check", 2),
+    templateHeader("panel-check", 3),
     "You are a strict continuity checker for comic panel artwork. You receive one panel image and the list of characters that should appear.",
     "Count every distinct person or humanoid figure visible (including background figures and partial bodies). Decide which expected characters are clearly present using their appearance notes. Anyone visible who is not one of the expected characters counts as unexpected.",
     "Report readableText=true only when the image contains legible letters or words (signs, speech bubbles, captions, UI).",
     "List every clearly visible face in faces: a tight box around the face (forehead to chin) in fractions of the image, measured from the top-left corner, named with the expected character it belongs to, or unknown.",
+    "When the request lists aspects to judge, answer each one in aspects as { ok, note }: ok=false only for a clear, visible mismatch, with a short note saying what is wrong; ok=true when it matches or cannot be judged from the image. Leave out aspects you were not asked about. The aspects:",
+    Object.values(ASPECT_RULES).join("\n"),
     "Be literal: judge only what is visible, not what the story implies.",
     DATA_RULE,
     schemaInstructions("PanelCheck", PanelCheck),
   ].join("\n\n"),
   build(i) {
+    const checks = i.checks ?? [];
+    const asked = checks.length ? `\nJudge these aspects: ${checks.join(", ")}.` : "";
     return [
       { role: "system", content: this.system },
       {
         role: "user",
-        content: `Expected characters (${i.expected.length}):\n${untrusted("project_data", JSON.stringify({ expected: i.expected, beat: i.beat }))}\nThe panel image is attached.`,
+        content: `Expected characters (${i.expected.length}):\n${untrusted("project_data", JSON.stringify({ expected: i.expected, beat: i.beat, ...(checks.length ? { context: i.context ?? {} } : {}) }))}${asked}\nThe panel image is attached.`,
       },
     ];
   },
@@ -529,6 +563,101 @@ export const narrationRetimeV1 = defineTextTemplate<{
   },
 });
 
+type AgentTool = { name: string; description: string };
+const AGENT_RULES = [
+  "You are the project agent inside OpenManga, a studio that turns stories into manga, webtoons and narrated videos. You act for the signed-in user in one project, through the same tools an external agent uses. Everything you do is recorded and shown to the user.",
+  "Stay inside the goal: do what it asks and nothing else. When the goal says to leave something alone, never call a tool that changes it. Never delete anything unless the goal asks for it.",
+  "Prefer reading before changing: look at the project's state with the read tools before you act on it.",
+  "Some calls wait for the user's approval. That is not an error; the next step is shown its outcome. When the user denies an action, respect it and do not try another way round it.",
+  "Respect the budget: work that spends provider credits (drawing, AI text, cloud voices) counts against it. When it is nearly spent, stop and say what is left.",
+];
+
+/** The agent's plan for a goal, approved by the user before anything runs. */
+export const agentPlanV1 = defineTextTemplate<{
+  goal: string;
+  project: Record<string, unknown>;
+  tools: AgentTool[];
+  budgetUsd: number | null;
+  /** The previous plan and what the user said about it, when they sent it back. */
+  revision?: { plan: unknown; feedback: string } | null;
+}>({
+  name: "agent-plan",
+  version: 1,
+  description: "The in-app project agent's plan for a goal, approved by the user before it runs.",
+  system: [
+    templateHeader("agent-plan", 1),
+    ...AGENT_RULES,
+    "Now write a plan: the steps you will take, in order, each naming the tools it will call (names from the catalogue only). Keep it as short as the goal allows. Estimate what it will spend, and name any risk the user should know about before approving.",
+    DATA_RULE,
+    schemaInstructions("AgentPlan", AgentPlan),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          untrusted("goal", i.goal),
+          untrusted("project_data", JSON.stringify({ project: i.project, budgetUsd: i.budgetUsd })),
+          untrusted("tool_catalogue", JSON.stringify(i.tools)),
+          i.revision ? untrusted("plan_feedback", JSON.stringify(i.revision)) : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ];
+  },
+});
+
+/** The agent's next step: one tool call, or done. */
+export const agentStepV1 = defineTextTemplate<{
+  goal: string;
+  projectId: string;
+  plan: unknown;
+  tools: AgentTool[];
+  /** Input schemas of the tools the plan names, and of any the agent asked about with describe_tools. */
+  schemas: Record<string, unknown>;
+  history: unknown[];
+  stepsLeft: number;
+  budgetLeftUsd: number | null;
+}>({
+  name: "agent-step",
+  version: 1,
+  description: "The in-app project agent's next move: one tool call, or done with a summary.",
+  system: [
+    templateHeader("agent-step", 1),
+    ...AGENT_RULES,
+    "You are carrying out the plan the user approved. Choose the single next tool call, with arguments that match its input schema, or finish. Every project tool takes this project's id. The history shows each call you made and what it returned (results may be cut short).",
+    "To see the input schema of a tool that is not listed in schemas, call the tool describe_tools with { names: [..] }; it costs nothing.",
+    "When the goal is reached, or nothing more can be done (a step was denied, the budget or the steps run out), set done=true, leave action null, and write a summary: what was done, what was not, and what the user may want to do next.",
+    DATA_RULE,
+    schemaInstructions("AgentStep", AgentStep),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          untrusted("goal", i.goal),
+          untrusted(
+            "run_state",
+            JSON.stringify({
+              projectId: i.projectId,
+              plan: i.plan,
+              stepsLeft: i.stepsLeft,
+              budgetLeftUsd: i.budgetLeftUsd,
+            }),
+          ),
+          untrusted("tool_catalogue", JSON.stringify(i.tools)),
+          untrusted("tool_schemas", JSON.stringify(i.schemas)),
+          untrusted("history", JSON.stringify(i.history)),
+        ].join("\n\n"),
+      },
+    ];
+  },
+});
+
 export const socialCopyV1 = defineTextTemplate<{
   project: { title: string; description: string; language: string };
   items: { id: string; kind: string; label: string; quote?: string; narration: string }[];
@@ -539,6 +668,30 @@ export const socialCopyV1 = defineTextTemplate<{
   system: [
     templateHeader("social-copy", 1),
     "You write social media posts for pieces cut from a narrated comic: Shorts, a trailer, a teaser, an image carousel and quote images. For each item write a short, curious title and a caption: a hook line, one or two lines about the moment it shows without spoiling the ending, and three to five relevant hashtags. A trailer or teaser invites people to the whole story; a quote image's caption builds on its quote. Write in the project's language, never invent events, names or facts beyond what you are given. Return every item you were given, with its id unchanged, and nothing else.",
+    DATA_RULE,
+    schemaInstructions("SocialCopy", SocialCopyV1),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      { role: "user", content: untrusted("project_data", JSON.stringify(i)) },
+    ];
+  },
+});
+
+export const socialCopyV2 = defineTextTemplate<{
+  project: { title: string; description: string; language: string };
+  items: { id: string; kind: string; label: string; quote?: string; narration: string }[];
+}>({
+  name: "social-copy",
+  version: 2,
+  description:
+    "A social title and caption for each Short, trailer, teaser, carousel and quote image of a project, and a spoken opening hook for each video.",
+  system: [
+    templateHeader("social-copy", 2),
+    "You write social media posts for pieces cut from a narrated comic: Shorts, a trailer, a teaser, an image carousel and quote images. For each item write a short, curious title and a caption: a hook line, one or two lines about the moment it shows without spoiling the ending, and three to five relevant hashtags. A trailer or teaser invites people to the whole story; a quote image's caption builds on its quote.",
+    "For each Short, trailer and teaser also write `hook`: one line the narrator says before the first shot, to stop a scrolling viewer in the first two seconds. At most fifteen words, spoken (no hashtags, emoji, quotes or stage directions), a question or a striking claim drawn from that item's own narration, never giving away its ending. Leave `hook` out for carousels and quote images.",
+    "Write in the project's language, never invent events, names or facts beyond what you are given. Return every item you were given, with its id unchanged, and nothing else.",
     DATA_RULE,
     schemaInstructions("SocialCopy", SocialCopy),
   ].join("\n\n"),
@@ -1137,11 +1290,14 @@ export const TEXT_TEMPLATES = [
   narrationV3,
   narrationV4,
   panelCheckV1,
+  agentPlanV1,
+  agentStepV1,
   storyRewriteV1,
   youtubePackageV1,
   youtubePackageV2,
   narrationRetimeV1,
   socialCopyV1,
+  socialCopyV2,
   jsonRepairV1,
   imageDescribeV1,
   stripPlanningV1,
