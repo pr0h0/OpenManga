@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-10-08
+
+Upgrading: pull the new images and restart. No migrations and no new settings. Security fixes for features added in
+0.16.0; upgrade if you use the in-app agent, series or YouTube stats with more than one user.
+
 ### Security
 
 - In-app agent: the thinking steps of a run (its plan, tool calls and what they returned) were readable by every
