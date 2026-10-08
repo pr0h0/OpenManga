@@ -5,3 +5,7 @@ numpy<2.3
 fastapi==0.115.12
 uvicorn==0.34.2
 pydantic==2.11.4
+# Pulled in by kokoro without a bound: transformers 5 needs a newer torch than the one pinned in the Dockerfile
+# (it calls torch.accelerator) and fails to import the model. Pin what is known to work with torch 2.5.1.
+transformers==4.57.1
+huggingface_hub==0.36.2
