@@ -13,8 +13,8 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `get_image`, `manage_assets`, `estimate_production_run`, `get_staleness`, `get_project_health` |
-| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `list_series`, `get_series`, `get_image`, `manage_assets`, `estimate_production_run`, `get_staleness`, `get_project_health` |
+| `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_series`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `use_expert_reply` |
@@ -55,6 +55,9 @@ requests) need no scope.
 | [`search_project`](#search_project) | read | `projects:read` |
 | [`get_project_checks`](#get_project_checks) | read | `projects:read` |
 | [`get_project_usage`](#get_project_usage) | read | `usage:read` |
+| [`list_series`](#list_series) | read | `projects:read` |
+| [`get_series`](#get_series) | read | `projects:read` |
+| [`manage_series`](#manage_series) | sensitive-write | `projects:write` |
 | [`get_story`](#get_story) | read | `story:read` |
 | [`get_story_revision`](#get_story_revision) | read | `story:read` |
 | [`save_story_revision`](#save_story_revision) | write | `story:write` |
@@ -2207,6 +2210,232 @@ A project's AI usage and estimated cost breakdown (by kind, provider and model) 
   },
   "required": [
     "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### list_series
+
+The user's series: projects that share one library (cast, places, props, style, story bible) and a channel profile. Each has a libraryProjectId, a project you read and edit with the usual project tools (list_library, manage_story_bible, project_style ...), and its episode count. Read-only; needs a connection with access to all projects.
+
+- **Scopes:** `projects:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/series`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {}
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "series": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "series"
+  ]
+}
+```
+
+</details>
+
+### get_series
+
+A series dashboard: each episode's status, chapters, panels drawn, spend, exports, open comments and `behind` (library entries, style or facts it has not synced yet), with totals and the library's counts. With `appearances` { kind: character|location|prop, id: a library entry's id }, instead every appearance of that entry across the episodes, per chapter. Read-only.
+
+- **Scopes:** `projects:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/series/:id`, `GET /api/series/:id/appearances`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "seriesId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "appearances": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "character",
+            "location",
+            "prop"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ]
+    }
+  },
+  "required": [
+    "seriesId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### manage_series
+
+Create and run series. action=create { title, description?, channelProfileId?, projectType?, format? } makes a series and its library project. update { seriesId, title?, description?, channelProfileId? }. add_episode { seriesId, title, story? } makes a new episode project linked to the whole library. adopt { seriesId, projectId, applyProfile? } makes one of the user's projects the next episode (same-named cast becomes linked). detach { seriesId, projectId }. sync { seriesId, projectId? } brings episodes in step with the library (new versions pointing at the same reference images). split { seriesId, story, perEpisode?, confirm? } splits a long story into episodes at its chapter headings (without confirm: a preview). Creating projects needs the connection's permission to create projects; everything may need the user's approval.
+
+- **Scopes:** `projects:write` — per action, see description
+- **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `series.manage`
+- **Wraps:** `POST /api/series`, `PATCH /api/series/:id`, `POST /api/series/:id/episodes`, `POST /api/series/:id/adopt`, `POST /api/series/:id/episodes/:projectId/detach`, `POST /api/series/:id/sync`, `POST /api/series/:id/split`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "create",
+        "update",
+        "add_episode",
+        "adopt",
+        "detach",
+        "sync",
+        "split"
+      ]
+    },
+    "seriesId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 5000
+    },
+    "channelProfileId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "projectType": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "format": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "story": {
+      "type": "string",
+      "maxLength": 2000000
+    },
+    "perEpisode": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "applyProfile": {
+      "type": "boolean"
+    },
+    "confirm": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action"
   ]
 }
 ```

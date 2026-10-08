@@ -13,6 +13,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   back, then works one tool call at a time through the same MCP tools, scopes and approvals as a connected agent, as
   your In-app agent connection held to that project. Steps that spend or change wait for approval on the page or in
   Agent access; every call and its result is shown. It stops at 25 steps or its budget, and runs in paste mode too.
+- Series and shared libraries (top bar → Series): episodes that share one library of cast, places, props, style and
+  story bible, edited as a project of its own, and a channel profile. Episodes follow the library through a sync
+  that adds new entries, versions changed ones and points at the same reference images (no copies); the dashboard
+  shows each episode's progress, spend, exports, open comments and how far it is behind. Add an episode, adopt a
+  project (its same-named cast becomes linked), split a long story into episodes at its chapter headings, and find
+  every appearance of a library character across the series. MCP `list_series`, `get_series`, `manage_series`.
+  See docs/SERIES.md.
 - Better comments:
   - **Pins:** a thread can point at a spot on the panel's artwork (*Pin a spot*), shown as a numbered pin.
   - **Video moments:** a thread can point at a moment of the chapter's video (*Comment* in the video preview, panel
