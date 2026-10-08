@@ -22,6 +22,7 @@ export const MCP_SCOPES = {
   "exports:create": "Queue and delete project exports.",
   "experts:use": "Read and use your expert chats.",
   "usage:read": "Read usage and cost information.",
+  "stats:read": "Read the YouTube stats of videos linked to your projects.",
 } as const;
 
 export type McpScope = keyof typeof MCP_SCOPES;

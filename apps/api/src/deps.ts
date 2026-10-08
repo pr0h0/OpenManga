@@ -8,11 +8,13 @@ import {
   AssetService,
   CredentialService,
   createTTSProvider,
+  createYouTubeClient,
   GenerationPlanner,
   JobService,
   ProviderResolver,
   providerInfo,
   UsageService,
+  YouTubeService,
 } from "@openmanga/services";
 import { createAssetStorage } from "@openmanga/storage";
 import type { Deps } from "./context.ts";
@@ -30,16 +32,17 @@ export function buildDeps(config: AppConfig): Deps & { close(): Promise<void> } 
   const providers = providerInfo(config);
   const credentials = new CredentialService(db, config);
   const resolver = new ProviderResolver(config, credentials, logger);
+  const urls = new PublicUrlService({
+    appUrl: config.APP_PUBLIC_URL,
+    apiUrl: config.API_PUBLIC_URL,
+    cdnUrl: config.CDN_PUBLIC_URL,
+  });
   return {
     config,
     db,
     redis,
     logger,
-    urls: new PublicUrlService({
-      appUrl: config.APP_PUBLIC_URL,
-      apiUrl: config.API_PUBLIC_URL,
-      cdnUrl: config.CDN_PUBLIC_URL,
-    }),
+    urls,
     auth: new AuthService(db, { secret: config.SESSION_SECRET, sessionTtlDays: config.SESSION_TTL_DAYS }),
     mail: new DevMailProvider(db, logger),
     queue,
@@ -52,6 +55,7 @@ export function buildDeps(config: AppConfig): Deps & { close(): Promise<void> } 
     credentials,
     resolver,
     tts: createTTSProvider(config),
+    youtube: new YouTubeService(db, createYouTubeClient(config, urls), credentials.ring, config, logger),
     providers,
     async close() {
       await queue.close().catch(() => {});

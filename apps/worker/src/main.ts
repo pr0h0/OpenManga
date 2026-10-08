@@ -108,6 +108,12 @@ await maintenance.upsertJobScheduler(
   { name: "batch-poll", data: {}, opts: { priority: 9, attempts: 1 } },
 );
 
+await maintenance.upsertJobScheduler(
+  "youtube-hourly",
+  { every: 3600_000 },
+  { name: "youtube", data: {}, opts: { priority: 9, attempts: 1 } },
+);
+
 log.info("worker started", {
   mockMode: config.AI_MOCK_MODE,
   textProvider: deps.text?.provider ?? "byok",

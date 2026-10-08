@@ -7,3 +7,4 @@ export * from "./jobs.ts";
 export * from "./mcp.ts";
 export * from "./media.ts";
 export * from "./projects.ts";
+export * from "./youtube.ts";

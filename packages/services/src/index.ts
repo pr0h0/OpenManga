@@ -20,3 +20,4 @@ export * from "./staleness.ts";
 export * from "./storage-policy.ts";
 export * from "./usage.ts";
 export * from "./video-plan.ts";
+export * from "./youtube.ts";

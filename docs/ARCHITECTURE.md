@@ -33,6 +33,11 @@ The API also serves the MCP endpoint for AI agents (`/mcp`, with its OAuth autho
 There are **no server-level provider keys**: the outbound HTTPS calls above carry a key the requesting user added, so
 the API and worker images hold no shared credential. See `docs/AI_PIPELINE.md`.
 
+YouTube stats are the one other outbound path: with the instance's own Google OAuth client configured, the API and
+the worker's hourly `youtube` maintenance pass call Google's Data, Analytics and Reporting APIs with tokens of the
+channels users connected (`packages/services/src/youtube.ts`, every call behind the `YouTubeClient` interface, faked
+under `AI_MOCK_MODE`). See `docs/DEPLOYMENT.md#youtube-stats`.
+
 ## Request → job → event flow
 
 Take `POST /api/panels/:id/generate` as the example; every queued AI operation follows the same steps. (An expert

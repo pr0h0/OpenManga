@@ -25,6 +25,14 @@ describe("config", () => {
   test("mock mode refused in production", () => {
     expect(() => parseConfig({ ...base, NODE_ENV: "production", AI_MOCK_MODE: "true" })).toThrow(ConfigError);
   });
+  test("the Google OAuth client for YouTube stats is both id and secret, or neither", () => {
+    expect(parseConfig(base).GOOGLE_OAUTH_CLIENT_ID).toBe("");
+    expect(() => parseConfig({ ...base, GOOGLE_OAUTH_CLIENT_ID: "id" })).toThrow(ConfigError);
+    expect(
+      parseConfig({ ...base, GOOGLE_OAUTH_CLIENT_ID: "id", GOOGLE_OAUTH_CLIENT_SECRET: "s" })
+        .GOOGLE_OAUTH_CLIENT_SECRET,
+    ).toBe("s");
+  });
   test("production boots with no keys at all", () => {
     expect(parseConfig({ ...base, NODE_ENV: "production" }).COOKIE_SECURE).toBe(true);
   });

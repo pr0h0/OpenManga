@@ -12,6 +12,7 @@ import type {
   JobService,
   ProviderResolver,
   UsageService,
+  YouTubeService,
 } from "@openmanga/services";
 import type { ServiceRestriction } from "./mcp/context.ts";
 
@@ -33,6 +34,7 @@ export type Deps = {
   credentials: CredentialService;
   resolver: ProviderResolver;
   tts: TTSProvider | null;
+  youtube: YouTubeService;
   providers: {
     /** null unless AI_MOCK_MODE: keys are the user's own (BYOK). */
     image: { provider: string; model: string; quality: string } | null;

@@ -54,6 +54,7 @@ const ALL = [
   "exports:create",
   "experts:use",
   "usage:read",
+  "stats:read",
 ];
 
 /** A request as it arrives over the network: with the Host header a real client always sends. */

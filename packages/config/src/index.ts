@@ -179,6 +179,16 @@ const EnvSchema = z.object({
    */
   MCP_CIMD_ALLOW_PRIVATE: bool.default(false),
 
+  /**
+   * YouTube stats (docs/DEPLOYMENT.md#youtube-stats): the instance's own Google Cloud OAuth client. Both empty turns
+   * channel connections off (AI_MOCK_MODE uses a built-in fake Google instead). The redirect URI to register is
+   * <API_PUBLIC_URL>/youtube/oauth/callback.
+   */
+  GOOGLE_OAUTH_CLIENT_ID: z.string().default(""),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().default(""),
+  /** Optional: reads public counters of videos on channels nobody connected. Without it a connected channel's token is used. */
+  YOUTUBE_API_KEY: z.string().default(""),
+
   /** Requests to /api per minute for a signed-in user. */
   RATE_LIMIT_PER_MINUTE: int(2000),
   /** Requests to /api per minute from one client address with no session: reader links, sign-in, probes. */
@@ -226,6 +236,8 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
       if (c[k] && !(/^https?:\/\//.test(c[k]) && URL.canParse(c[k])))
         throw new ConfigError(`${k} must be a URL, e.g. https://s3.example.com`);
   }
+  if (Boolean(c.GOOGLE_OAUTH_CLIENT_ID) !== Boolean(c.GOOGLE_OAUTH_CLIENT_SECRET))
+    throw new ConfigError("GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET are set together, or neither");
   const imageSizes = c.IMAGE_SIZES.split(",").map((s) => {
     const [w, h] = s.trim().split("x").map(Number);
     if (!w || !h) throw new ConfigError(`Invalid IMAGE_SIZES entry: ${s}`);

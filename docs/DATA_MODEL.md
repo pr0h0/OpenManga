@@ -1,10 +1,10 @@
 # Data model
 
-PostgreSQL via Drizzle. 76 tables in eight schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
-`bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, with shared column helpers and every
+PostgreSQL via Drizzle. 80 tables in nine schema files under `packages/db/src/schema` (`auth.ts`, `projects.ts`,
+`bible.ts`, `media.ts`, `jobs.ts`, `comments.ts`, `experts.ts`, `mcp.ts`, `youtube.ts`, with shared column helpers and every
 `pgEnum` in `common.ts`). UUID
 primary keys (a few MCP tables are keyed by a token hash or client id instead), `timestamptz` everywhere, migrations in
-`packages/db/drizzle` (`0000_init.sql` … `0033_chapter_source_fingerprints.sql`). Browser-safe row types are re-exported from
+`packages/db/drizzle` (`0000_init.sql` … `0038_youtube_stats.sql`). Browser-safe row types are re-exported from
 `@openmanga/db/types`.
 
 Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `user_role` (`user|admin`), `user_status`
@@ -266,6 +266,28 @@ What the MCP server (see [MCP](MCP.md)) stores. Tokens and codes are kept only a
 - `mcp_idempotency` — a caller's idempotency key per `(connection, tool, key)`, claimed before the call runs: state
   (`running|pending_approval|completed`), the arguments hash, the result to replay.
 - `audit_events.service_id` — the connection an audited action came through (null for the browser).
+
+## YouTube stats (`youtube.ts`)
+
+What [YouTube stats](DEPLOYMENT.md#youtube-stats) store. Everything else (daily Analytics history, live counters) is
+read from Google when a page asks and kept only in a short Redis cache. Retention is described in
+[SECURITY](SECURITY.md#youtube-data).
+
+- `youtube_channels` — a connected channel: its owner, YouTube channel id, title, uploads playlist, the OAuth refresh
+  and access tokens (AES-GCM, same key ring as provider keys), granted scopes, the Reporting API jobs created for it
+  (`reporting`: `basic` / `combined` job ids, the newest report read from each, when reports were last looked for),
+  the last reporting error, `status` (`active|revoked`) and `verified_at` (the last time Google confirmed the
+  authorization). Unique per `(user, channel)`.
+- `youtube_links` — a published video linked to a project: video id, channel id and title, `kind` (`film|short`),
+  title, thumbnail, publish time, duration, the export file (`export_id`) or repurposing-plan Short (`short_id`) it
+  came from, a label, who linked it, and `connection_id` when it is on a channel the linking user connected. Unique
+  per `(project, video)`.
+- `youtube_snapshots` — a video's public counters (views, likes, comments) at one moment, shared by every project
+  linking it. `connection_id` + `authorized` when read with the owning channel's token (deleted with the channel);
+  otherwise kept 30 days.
+- `youtube_reach` — thumbnail impressions from the Reporting API reach reports, per `(connection, video, day, source)`:
+  `source` `''` is the overall row with its click-through rate (`channel_reach_basic_a1`), any other value a traffic
+  source code (`channel_reach_combined_a1`, impressions only). Only rows of videos linked under that connection are kept.
 
 ## Indexes
 

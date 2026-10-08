@@ -28,6 +28,7 @@ gate), `docs/STORAGE.md` (uploads, keys, asset serving) and `docs/PROMPT_SYSTEM.
 | Comments | panel comments are members' untrusted text: stored as written (≤ 4000 characters), rendered only as React text nodes (never markup), plain text in agent results, marked as data in the MCP tool description; any member including viewers may comment (`read`), only the author edits, the author or owner deletes; posting is limited to 60 a minute per user |
 | Audit | `audit_events` for auth, project lifecycle, members and invitations, approvals, deletes (including export and narration-audio deletion), migrations, bulk generation and bulk panel checks, production-run starts, exports, reader links, credential rotation; an agent's actions carry its connection (`service_id`) |
 | AI agents (MCP) | `/mcp` takes Bearer tokens only (OAuth 2.1 with PKCE S256, or personal access tokens), never the session; tokens are opaque and stored as HMACs; per-connection scopes, project grants and approval mode on top of normal membership; sensitive calls can wait for the user's approval; Host/Origin checks against DNS rebinding. Details in `docs/MCP.md` |
+| YouTube channels | read-only scopes only; OAuth with PKCE S256 and a single-use `state` (10 minutes, in Redis) bound to the account that started it; tokens AES-GCM encrypted with the provider-key ring, never returned to a client; a channel's analytics and reach are read only for videos its owner linked; disconnecting revokes the grant at Google; retention follows YouTube's developer policies (see below) |
 | Network exposure | only nginx is published (loopback by default); Postgres, Redis, Kokoro, worker and mock-ai have no host ports |
 | Dev mailbox | 404 unless `DEV_MAILBOX_ENABLED=true`; admin-only in every environment (reset links must not be public) |
 
@@ -58,6 +59,25 @@ in the system. `packages/services/src/credentials.ts` owns it.
   resolve to a public address, checked when saved and again on every use, which keeps a user-supplied endpoint from
   reaching internal services (tested in `packages/services/src/credentials.test.ts`). `AI_ALLOW_PRIVATE_BASE_URLS`
   lifts this for development only (to reach `mock-ai`); leave it off on anything reachable from the internet.
+
+## YouTube data
+
+YouTube stats (`packages/services/src/youtube.ts`, setup in [DEPLOYMENT](DEPLOYMENT.md#youtube-stats)) store as
+little as the feature needs, under the
+[YouTube API Services Developer Policies](https://developers.google.com/youtube/terms/developer-policies), checked
+before retention was built (October 2026). What they say, and what the app does:
+
+| Policy (section III.E.4 and III.D.2) | What the app does |
+| --- | --- |
+| Authorization tokens may be stored as long as needed for the purpose the user consented to | refresh and access tokens are kept per channel, encrypted, and deleted on *Disconnect* |
+| Authorized Data that is analytics, reporting or statistics may be stored as long as necessary, but the client must confirm **every 30 days** that it is still authorized | each successful token refresh (at least twice a day, when reports are checked) records `verified_at`; when it is over 30 days old the hourly pass deletes the channel's reach rows and authorized snapshots |
+| Statistics retrieved as Non-Authorized Data (without the owner's credentials) must not be stored for **more than 30 days** | counters of videos on channels not connected by the linking user, read with the API key or another channel's token, are snapshots without a connection and are deleted after 30 days. This is the cap the roadmap anticipated: a video on someone else's channel keeps at most 30 days of stored history, so its first-48-hours curve disappears 30 days after it was recorded |
+| Other Authorized Data at most 30 days unless refreshed; stored data kept consistent with YouTube; the most up-to-date data shown | nothing else is stored: daily Analytics history is fetched when a chart opens (15-minute cache), counters are read live (5-minute cache), and a video's title, thumbnail and channel name are refreshed with each snapshot |
+| On revocation, revoke the token programmatically and delete the Authorized Data within 7 days (30 days when revoked from the Google account) | *Disconnect* calls Google's revoke endpoint, then deletes the channel's tokens, reach rows and authorized snapshots at once. A refresh Google refuses (`invalid_grant`, e.g. access removed in the Google account) marks the channel revoked and deletes the same data immediately |
+| A user can ask for deletion, and deleting an account deletes the user's data | unlinking a video deletes the snapshots and reach rows no other link needs at the next hourly pass; deleting an account or a project cascades to its channels, links and their data |
+| No new or derived metrics replacing API data | stored rows are the API's own values: reach rows keep the basic report's impressions and CTR per video and day as delivered, and the combined report only summed to impressions per traffic source (operating system and device summed away). Totals across a project's videos and the hourly curve are computed for display only, never stored |
+
+What is stored, per table, is in [DATA_MODEL](DATA_MODEL.md#youtube-stats-youtubets).
 
 ## Operational notes
 
