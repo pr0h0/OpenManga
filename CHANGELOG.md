@@ -93,6 +93,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   It is voiced with the project's narrator voice and pronunciation dictionary, holds the first shot for its length, and
   starts the subtitles and captions. `video.hook` on `video_shorts` exports.
 
+### Fixed
+
+- Local voice (Kokoro): a fresh build installed transformers 5, which needs a newer PyTorch than the one the image
+  pins, so the voice model never loaded and narration audio failed. transformers and huggingface_hub are now pinned.
+
 ## [0.15.0] — 2026-10-05
 
 Upgrading: pull the new images and restart. One migration (`0034_comment_agent_source`) runs on start through the
