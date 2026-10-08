@@ -238,6 +238,7 @@ export function clampFrame(f: Frame): Frame {
     width,
     height,
     ...(f.points ? { points: f.points } : {}),
+    ...(f.edge ? { edge: f.edge } : {}),
   };
 }
 export function clampBox<T extends { x: number; y: number; width: number; height: number }>(b: T): T {

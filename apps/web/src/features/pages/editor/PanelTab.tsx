@@ -1,4 +1,4 @@
-import { CameraAngle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
+import { CameraAngle, type EdgeStyle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -24,6 +24,7 @@ import { useAiBody } from "../../ai/AiPicker.tsx";
 import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
+import { EdgePicker } from "../EdgePicker.tsx";
 import { DescribePose } from "./DescribePose.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
@@ -138,9 +139,19 @@ function AdjustImageButton({ panelId, disabled }: { panelId: string; disabled: b
 function PanelShape({ panelId, disabled }: { panelId: string; disabled: boolean }) {
   const active = useEditor((s) => s.shapeEditFor === panelId);
   const shaped = useEditor((s) => Boolean(s.doc.panels.find((p) => p.id === panelId)?.frame.points));
+  const edge = useEditor((s) => s.doc.panels.find((p) => p.id === panelId)?.frame.edge);
+  const setEdge = (e: EdgeStyle | undefined) =>
+    useEditor.getState().commit((d) => ({
+      ...d,
+      panels: d.panels.map((p) => {
+        if (p.id !== panelId) return p;
+        const { edge: _e, ...frame } = p.frame;
+        return { ...p, frame: e ? { ...frame, edge: e } : frame };
+      }),
+    }));
   return (
     <div className="space-y-2 rounded-lg border border-[var(--border)] p-2">
-      <div className="label">Panel shape</div>
+      <div className="label">Panel shape and border</div>
       <div className="flex flex-wrap gap-1">
         <button
           type="button"
@@ -171,6 +182,13 @@ function PanelShape({ panelId, disabled }: { panelId: string; disabled: boolean 
           </button>
         )}
       </div>
+      <EdgePicker
+        label="Panel border"
+        inheritLabel="Project default"
+        value={edge}
+        disabled={disabled}
+        onChange={setEdge}
+      />
       {active && (
         <p className="muted text-xs">
           Drag a point to move it. Click a dashed circle on an edge to add a point there; double-click a point to remove

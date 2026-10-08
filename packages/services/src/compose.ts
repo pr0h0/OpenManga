@@ -9,20 +9,24 @@ import {
   narrationLines,
   pages,
   panels,
+  projects,
   soundEffects,
   sql,
 } from "@openmanga/db";
 import {
   bubbleGeometry,
+  edgeDepth,
+  edgeOutline,
   featherMask,
-  framePath,
+  framePolygon,
   layoutBubbleText,
+  outlinePath,
   readingOrder,
   type StripBlock,
   stripLayout,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
-import type { Bubble, Frame, ImageTransform, PanelSeam, SfxStyle } from "@openmanga/schemas";
+import type { Bubble, EdgeStyle, Frame, ImageTransform, PanelSeam, SfxStyle } from "@openmanga/schemas";
 import { type AssetStorage, sha256Hex } from "@openmanga/storage";
 import type { AssetService } from "./assets.ts";
 
@@ -37,7 +41,11 @@ export type RenderPanel = {
 };
 export type RenderText = { id: string; panelId: string | null; text: string; bubble: Bubble };
 export type RenderSfx = { id: string; panelId: string | null; text: string; style: SfxStyle };
+/** The project's decorative edges (`settings.edges`): the page outline, and the default border of every panel. */
+export type PageEdges = { page?: EdgeStyle; panels?: EdgeStyle };
 export type RenderPage = {
+  /** Decorative edges from the project's settings; none: straight. */
+  edges?: PageEdges;
   id: string;
   order: number;
   width: number;
@@ -85,7 +93,11 @@ async function loadRenderRows(db: Database, pageId: string, readingDirection: "l
     .orderBy(asc(narrationLines.order));
   const sfx = await db.select().from(soundEffects).where(eq(soundEffects.pageId, pageId));
   const byId = new Map(arts.map((a) => [a.id, a]));
+  const [proj] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, page.projectId));
+  const edges = proj?.settings.edges;
   const render: RenderPage = {
+    // Only when set: a page without edges keeps the render fingerprint (and cached renders) it had.
+    ...(edges?.page || edges?.panels ? { edges } : {}),
     id: page.id,
     order: page.order,
     width: page.width,
@@ -129,7 +141,8 @@ async function withArt(
 /** Bump when the compositor's output changes, so cached page renders are drawn again. */
 const PAGE_RENDER_VERSION = 1;
 
-type PageRenderMeta = { pageId: string; fingerprint: string; width: number };
+/** `cutout`: the copy with what lies outside a decorative page edge left transparent (for video previews). */
+type PageRenderMeta = { pageId: string; fingerprint: string; width: number; cutout?: boolean };
 
 const renderFingerprint = (render: RenderPage, art: ({ sha256: string } | null)[]) =>
   sha256Hex(JSON.stringify({ v: PAGE_RENDER_VERSION, render, art: art.map((a) => a?.sha256 ?? null) }));
@@ -157,6 +170,7 @@ export async function cachedPageRender(
   pageId: string,
   readingDirection: "ltr" | "rtl" | "vertical",
   width: number,
+  cutout = false,
 ) {
   const { render, art } = await loadRenderRows(db, pageId, readingDirection);
   const fingerprint = renderFingerprint(render, art);
@@ -171,10 +185,12 @@ export async function cachedPageRender(
       ),
     );
   const meta = (a: (typeof cached)[number]) => a.metadata.pageRender as PageRenderMeta;
-  const hit = cached.find((a) => meta(a).fingerprint === fingerprint && meta(a).width === width);
+  const same = (a: (typeof cached)[number]) => meta(a).width === width && Boolean(meta(a).cutout) === cutout;
+  const hit = cached.find((a) => meta(a).fingerprint === fingerprint && same(a));
   if (hit && (await assetSvc.storage.exists(hit.storageKey))) return { asset: hit, rendered: false };
   const img = await renderPageImage(await withArt(render, art, assetSvc.storage), "png", {
     scale: Math.min(1, width / render.width),
+    cutout,
   });
   const asset = await assetSvc.store({
     projectId,
@@ -184,11 +200,10 @@ export async function cachedPageRender(
     width: img.width,
     height: img.height,
     data: img.data,
-    metadata: { pageRender: { pageId, fingerprint, width } satisfies PageRenderMeta },
+    metadata: { pageRender: { pageId, fingerprint, width, ...(cutout ? { cutout } : {}) } satisfies PageRenderMeta },
   });
   // Older content goes; the same content at other widths stays for other screens.
-  for (const old of cached)
-    if (meta(old).fingerprint !== fingerprint || meta(old).width === width) await assetSvc.hardDelete(old);
+  for (const old of cached) if (meta(old).fingerprint !== fingerprint || same(old)) await assetSvc.hardDelete(old);
   return { asset, rendered: true };
 }
 
@@ -237,21 +252,66 @@ export function panelBox(frame: Frame, W: number, H: number) {
   };
 }
 
-/** A panel's border, as the page draws it at `scale`: its box, or its polygon outline. */
-export function panelFrameSvg(frame: Frame, W: number, H: number, scale: number) {
-  const stroke = `fill="none" stroke="#111" stroke-width="${Math.max(2, 4 * scale).toFixed(1)}"`;
-  if (frame.points) return `<path d="${framePath(frame, W, H)}" ${stroke} stroke-linejoin="miter"/>`;
-  const { x, y, w, h } = panelBox(frame, W, H);
-  return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" ${stroke}/>`;
+type Pt = { x: number; y: number };
+const effectiveEdge = (frame: Frame, edges?: PageEdges) => {
+  const e = frame.edge ?? edges?.panels;
+  return e && e.style !== "straight" && e.size > 0 ? e : undefined;
+};
+
+/** A panel's outline in page pixels at a `W`×`H` render: its shape (or box), with its decorative edge. */
+export function panelOutline(panel: { id: string; frame: Frame }, W: number, H: number, edges?: PageEdges): Pt[] {
+  const poly = framePolygon(panel.frame).map((p) => ({ x: p.x * W, y: p.y * H }));
+  return edgeOutline(poly, effectiveEdge(panel.frame, edges), Math.min(W, H), panel.id);
+}
+
+/** Whether a panel is drawn as its plain box: no shape and no decorative edge. */
+const plainBox = (panel: { frame: Frame }, edges?: PageEdges) =>
+  !panel.frame.points && !effectiveEdge(panel.frame, edges);
+
+/**
+ * An outline drawn in a style: a plain ink line, a brush stroke of uneven weight, or a scorched edge (a dark glow
+ * inside the outline under a thin burnt line). `key` keeps the SVG ids of one outline apart from another's.
+ */
+function edgeStrokeSvg(d: string, e: EdgeStyle | undefined, sw: number, depth: number, key: string) {
+  if (e?.style === "brush")
+    return `<path d="${d}" fill="none" stroke="#111" stroke-opacity="0.9" stroke-width="${(sw * 1.7).toFixed(1)}" stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="#111" stroke-width="${(sw * 0.7).toFixed(1)}" stroke-dasharray="${(sw * 7).toFixed(1)} ${(sw * 2).toFixed(1)}"/>`;
+  if (e?.style === "burnt")
+    return `<defs><clipPath id="c${key}"><path d="${d}"/></clipPath><filter id="f${key}" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${Math.max(1, depth * 0.6).toFixed(1)}"/></filter></defs><g clip-path="url(#c${key})"><path d="${d}" fill="none" stroke="#3b1e08" stroke-opacity="0.8" stroke-width="${Math.max(sw, depth * 2.2).toFixed(1)}" filter="url(#f${key})"/></g><path d="${d}" fill="none" stroke="#1c0e04" stroke-width="${(sw * 0.8).toFixed(1)}" stroke-linejoin="round"/>`;
+  return `<path d="${d}" fill="none" stroke="#111" stroke-width="${sw.toFixed(1)}" stroke-linejoin="${e ? "round" : "miter"}"/>`;
+}
+
+/** A panel's border, as the page draws it at `scale`: its box, or its outline in its edge style. */
+export function panelFrameSvg(
+  panel: { id: string; frame: Frame },
+  W: number,
+  H: number,
+  scale: number,
+  edges?: PageEdges,
+) {
+  const sw = Math.max(2, 4 * scale);
+  if (plainBox(panel, edges)) {
+    const { x, y, w, h } = panelBox(panel.frame, W, H);
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="#111" stroke-width="${sw.toFixed(1)}"/>`;
+  }
+  const e = effectiveEdge(panel.frame, edges);
+  const d = outlinePath(panelOutline(panel, W, H, edges));
+  return edgeStrokeSvg(d, e, sw, edgeDepth(e, Math.min(W, H)), `p${panel.id.replace(/[^\w-]/g, "")}`);
 }
 
 /**
- * A shaped panel's art cut to its outline: the pixels outside the polygon become transparent. `w`×`h` is the art's
- * pixel size, the panel's box at this render.
+ * Art cut to an outline: the pixels outside it become transparent. The art is `w`×`h` and sits at `left`,`top` on
+ * the page; `outline` is in page pixels. No outline: the art as it is.
  */
-export async function maskToFrame(png: Uint8Array, frame: Frame, w: number, h: number) {
-  if (!frame.points) return png;
-  const pts = frame.points.map((p) => `${(p.x * w).toFixed(1)},${(p.y * h).toFixed(1)}`).join(" ");
+export async function maskToOutline(
+  png: Uint8Array,
+  outline: Pt[] | null,
+  left: number,
+  top: number,
+  w: number,
+  h: number,
+) {
+  if (!outline) return png;
+  const pts = outline.map((p) => `${(p.x - left).toFixed(1)},${(p.y - top).toFixed(1)}`).join(" ");
   const mask = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><polygon points="${pts}" fill="#fff"/></svg>`,
   );
@@ -263,6 +323,10 @@ export async function maskToFrame(png: Uint8Array, frame: Frame, w: number, h: n
       .toBuffer(),
   );
 }
+
+/** The outline a panel's art is cut to, or null for a plain box (nothing to cut). */
+export const artOutline = (panel: { id: string; frame: Frame }, W: number, H: number, edges?: PageEdges) =>
+  plainBox(panel, edges) ? null : panelOutline(panel, W, H, edges);
 
 export type LetteringPart = {
   id: string;
@@ -321,26 +385,35 @@ export async function renderPageSvg(
     if (panel.art && opts.rasterArt) {
       // Same pixel box the SVG <image> would occupy (rounded size at the rounded origin).
       const [rw, rh] = [Math.round(w), Math.round(h)];
-      const png = await maskToFrame(await renderPanelArt(panel.art, rw, rh, panel.imageTransform), panel.frame, rw, rh);
+      const png = await maskToOutline(
+        await renderPanelArt(panel.art, rw, rh, panel.imageTransform),
+        artOutline(panel, W, H, p.edges),
+        Math.round(x),
+        Math.round(y),
+        rw,
+        rh,
+      );
       layers.push({ input: Buffer.from(png), left: Math.round(x), top: Math.round(y) });
     } else if (panel.art) {
-      const png = await maskToFrame(
+      const png = await maskToOutline(
         await renderPanelArt(panel.art, w, h, panel.imageTransform),
-        panel.frame,
+        artOutline(panel, W, H, p.edges),
+        x,
+        y,
         Math.round(w),
         Math.round(h),
       );
       parts.push(
         `<image x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.round(w)}" height="${Math.round(h)}" preserveAspectRatio="none" href="data:image/png;base64,${Buffer.from(png).toString("base64")}"/>`,
       );
-    } else if (panel.frame.points) {
-      parts.push(`<path d="${framePath(panel.frame, W, H)}" fill="#f1f1f1"/>`);
+    } else if (!plainBox(panel, p.edges)) {
+      parts.push(`<path d="${outlinePath(panelOutline(panel, W, H, p.edges))}" fill="#f1f1f1"/>`);
     } else {
       parts.push(
         `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="#f1f1f1"/>`,
       );
     }
-    if (opts.borders !== false) parts.push(panelFrameSvg(panel.frame, W, H, scale));
+    if (opts.borders !== false) parts.push(panelFrameSvg(panel, W, H, scale, p.edges));
   }
   for (const part of letteringParts(p, W, H, fontScale)) parts.push(part.svg);
   return {
@@ -352,7 +425,11 @@ export async function renderPageSvg(
 }
 
 /** Rasterize a page: background, artwork layers, then the vector overlay (borders, SFX, bubbles). */
-async function rasterize(p: RenderPage, scale: number, opts: { borders?: boolean; fontScale?: number } = {}) {
+async function rasterize(
+  p: RenderPage,
+  scale: number,
+  opts: { borders?: boolean; fontScale?: number; cutout?: boolean } = {},
+) {
   const { svg, width, height, layers } = await renderPageSvg(p, scale, { ...opts, rasterArt: true });
   const fit = layers.map((l) => ({
     ...l,
@@ -377,15 +454,45 @@ async function rasterize(p: RenderPage, scale: number, opts: { borders?: boolean
     .composite([...cropped, { input: Buffer.from(svg), left: 0, top: 0 }])
     .png()
     .toBuffer();
-  return { data, width, height };
+  return { data: await pageEdge(p, data, width, height, scale, opts.cutout ?? false), width, height };
+}
+
+/**
+ * The page's decorative edge: the page cut to its edged outline and the edge drawn along it. With `cutout` what
+ * lies outside stays transparent (a video lays the page over its blurred backdrop); otherwise it is paper white.
+ */
+async function pageEdge(p: RenderPage, data: Buffer, W: number, H: number, scale: number, cutout: boolean) {
+  const e = p.edges?.page;
+  if (!e || e.style === "straight" || e.size <= 0) return data;
+  const corners = [
+    { x: 0, y: 0 },
+    { x: W, y: 0 },
+    { x: W, y: H },
+    { x: 0, y: H },
+  ];
+  const outline = edgeOutline(corners, e, Math.min(W, H), p.id);
+  const d = outlinePath(outline);
+  const svg = (body: string) =>
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg>`,
+    );
+  const edged = sharp(data, { limitInputPixels: false }).composite([
+    { input: svg(`<path d="${d}" fill="#fff"/>`), blend: "dest-in" },
+    { input: svg(edgeStrokeSvg(d, e, Math.max(2, 3 * scale), edgeDepth(e, Math.min(W, H)), "page")) },
+  ]);
+  const png = await edged.png().toBuffer();
+  return cutout
+    ? png
+    : await sharp(png, { limitInputPixels: false }).flatten({ background: "#ffffff" }).png().toBuffer();
 }
 
 export async function renderPageImage(
   p: RenderPage,
   format: "png" | "jpg",
-  opts: { scale?: number; quality?: number } = {},
+  /** `cutout`: what lies outside a decorative page edge stays transparent (PNG only). */
+  opts: { scale?: number; quality?: number; cutout?: boolean } = {},
 ) {
-  const { data: base, width, height } = await rasterize(p, opts.scale ?? 1);
+  const { data: base, width, height } = await rasterize(p, opts.scale ?? 1, { cutout: opts.cutout });
   const img = sharp(base, { limitInputPixels: false });
   const data =
     format === "png"

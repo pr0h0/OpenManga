@@ -71,3 +71,34 @@ test("panel shape: add a point on the top edge, drag it out, saved as an outline
     return r.panels.find((p) => p.id === panel!.id)?.frame.points === undefined;
   }, "back to a rectangle");
 });
+
+test("edges: a torn page and brush borders in settings, a burnt panel of its own, drawn in the page image", async () => {
+  await page.goto(`${s.url}/settings`);
+  const sec = page.locator("section", { has: page.getByRole("heading", { name: "Page and panel edges" }) });
+  await sec.getByLabel("Page edge", { exact: true }).selectOption("torn");
+  await sec.getByLabel("Panel borders", { exact: true }).selectOption("brush");
+  await expect(page.getByText("Saved", { exact: true }).first()).toBeVisible();
+  const a = api(page);
+  await until(async () => {
+    const { project } = await a.get<{ project: { settings: { edges?: { page?: { style: string } } } } }>(
+      `/projects/${s.projectId}`,
+    );
+    return project.settings.edges?.page?.style === "torn";
+  }, "edges saved");
+
+  const [panel] = await firstPagePanels(a, s.pageId);
+  await page.goto(`${s.url}/pages/${s.pageId}?panelId=${panel!.id}`);
+  await page.getByLabel("Panel border", { exact: true }).selectOption("burnt");
+  await until(async () => {
+    const r = await a.get<{ panels: { id: string; frame: { edge?: { style: string } } }[] }>(`/pages/${s.pageId}`);
+    return r.panels.find((p) => p.id === panel!.id)?.frame.edge?.style === "burnt";
+  }, "panel border saved");
+  // Back to the project's default.
+  await page.getByLabel("Panel border", { exact: true }).selectOption("");
+  await until(async () => {
+    const r = await a.get<{ panels: { id: string; frame: { edge?: unknown } }[] }>(`/pages/${s.pageId}`);
+    return r.panels.find((p) => p.id === panel!.id)?.frame.edge === undefined;
+  }, "panel border cleared");
+  const png = await page.request.get(`/api/pages/${s.pageId}/render.png?width=400&cutout=1`);
+  expect(png.status()).toBe(200);
+});

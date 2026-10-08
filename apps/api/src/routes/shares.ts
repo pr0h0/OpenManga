@@ -223,7 +223,8 @@ publicShareRoutes.get("/shares/:token", async (c) => {
 doc({
   method: "GET",
   path: "/api/public/shares/:token/pages/:pageId.png",
-  summary: "One page of a reader link, lettered, as a PNG. ?width= up to 1600 (default 1200). No sign-in.",
+  summary:
+    "One page of a reader link, lettered, as a PNG. ?width= up to 1600 (default 1200); ?cutout=1 leaves what lies outside a decorative page edge transparent (as videos draw it). No sign-in.",
   tag: "shares",
   auth: false,
 });
@@ -231,7 +232,10 @@ publicShareRoutes.get("/shares/:token/pages/:file", async (c) => {
   const { s, p } = await openShare(c, c.req.param("token"));
   const pageId = c.req.param("file").replace(/\.png$/, "");
   if (!z.string().uuid().safeParse(pageId).success) throw notFound("Page");
-  const { width } = query(c, z.object({ width: z.coerce.number().int().min(200).max(1600).default(1200) }));
+  const { width, cutout } = query(
+    c,
+    z.object({ width: z.coerce.number().int().min(200).max(1600).default(1200), cutout: z.enum(["1"]).optional() }),
+  );
   const { db, assets } = c.get("deps");
   const [page] = await db
     .select({ chapterId: pages.chapterId })
@@ -241,7 +245,7 @@ publicShareRoutes.get("/shares/:token/pages/:file", async (c) => {
   // Kept as a render keyed by the page's content and a width bucket, so a repeat read is one lookup and any edit
   // draws it again. Widths round up to 200 px steps, which bounds the copies one page can hold to eight.
   const bucket = Math.min(1600, Math.ceil(width / 200) * 200);
-  const { asset } = await cachedPageRender(db, assets, p.id, pageId, p.readingDirection, bucket);
+  const { asset } = await cachedPageRender(db, assets, p.id, pageId, p.readingDirection, bucket, cutout === "1");
   return sendAsset(c, asset, { cacheControl: "public, max-age=300", variants: false });
 });
 

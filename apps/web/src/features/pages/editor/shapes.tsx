@@ -1,5 +1,6 @@
 import {
   bubbleGeometry,
+  edgeOutline,
   framePolygon,
   insertFramePoint,
   layoutBubbleText,
@@ -12,6 +13,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Circle, Group, Image as KImage, Line, Path, Rect, Text } from "react-konva";
 import { assetUrl } from "../../../api/client.ts";
 import type { EditorPanel } from "../../../api/types.ts";
+import { useProject } from "../../project/ProjectLayout.tsx";
 import {
   clampBox,
   clampFrame,
@@ -98,8 +100,20 @@ export function PanelNode({
   const border = Math.max(2, W / 400);
   const adjusting = useEditor((s) => s.adjustImageFor === panel.id) && !readOnly && Boolean(img);
   const shaping = useEditor((s) => s.shapeEditFor === panel.id) && !readOnly;
-  // A shaped panel: its outline in the group's own pixels (the group sits at the box's top-left).
-  const outline = panel.frame.points?.flatMap((p) => [p.x * w, p.y * h]) ?? null;
+  // A shaped or edged panel: its outline (the renderer's, with the panel's or the project's edge style) in the
+  // group's own pixels (the group sits at the box's top-left).
+  const edges = useProject().data?.project.settings.edges;
+  const edge = panel.frame.edge ?? edges?.panels;
+  const styled = Boolean(edge && edge.style !== "straight" && edge.size > 0);
+  const outline =
+    panel.frame.points || styled
+      ? edgeOutline(
+          framePolygon(panel.frame).map((p) => ({ x: p.x * W, y: p.y * H })),
+          styled ? edge : undefined,
+          Math.min(W, H),
+          panel.id,
+        ).flatMap((p) => [p.x - x, p.y - y])
+      : null;
   const clip = outline
     ? (ctx: Konva.Context) => {
         ctx.beginPath();
@@ -238,8 +252,17 @@ export function PanelNode({
       )}
       {(() => {
         const stroke = {
-          stroke: shaping || adjusting ? "#f59e0b" : selected ? "#3b6cf6" : status === "failed" ? "#ef4444" : "#111",
-          strokeWidth: adjusting || selected || shaping ? border * 2 : border,
+          stroke:
+            shaping || adjusting
+              ? "#f59e0b"
+              : selected
+                ? "#3b6cf6"
+                : status === "failed"
+                  ? "#ef4444"
+                  : styled && edge?.style === "burnt"
+                    ? "#3b1e08"
+                    : "#111",
+          strokeWidth: (adjusting || selected || shaping ? border * 2 : border) * (edge?.style === "brush" ? 1.7 : 1),
           dash: adjusting ? [border * 6, border * 3] : undefined,
           listening: false,
         };

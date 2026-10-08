@@ -1,10 +1,10 @@
 import { readingOrder } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
-import type { Frame } from "@openmanga/schemas";
 import {
+  artOutline,
   type LetteringPart,
   letteringParts,
-  maskToFrame,
+  maskToOutline,
   panelBox,
   panelFrameSvg,
   type RenderPage,
@@ -66,14 +66,13 @@ async function panelRaster(
   t: { focalX: number; focalY: number; scale: number },
   W: number,
   H: number,
-  /** A shaped panel's frame: its art is cut to the outline, as on the page. */
-  frame?: Frame,
+  /** The outline (page pixels) the art is cut to, as on the page; null for a plain box. */
+  outline: { x: number; y: number }[] | null = null,
 ): Promise<Raster | null> {
   const left = Math.round(box.x);
   const top = Math.round(box.y);
   const [w, h] = [Math.round(box.w), Math.round(box.h)];
-  const art = await renderPanelArt(image, w, h, t);
-  const png = frame ? await maskToFrame(art, frame, w, h) : art;
+  const png = await maskToOutline(await renderPanelArt(image, w, h, t), outline, left, top, w, h);
   const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const width = Math.min(info.width, W - left);
   const height = Math.min(info.height, H - top);
@@ -95,8 +94,10 @@ export async function pageLayers(p: RenderPage, scale: number, guides: Map<strin
     panels.push({
       id: panel.id,
       number: i + 1,
-      art: panel.art ? await panelRaster(panel.art, box, panel.imageTransform, W, H, panel.frame) : null,
-      frame: await rasterizeFragment(panelFrameSvg(panel.frame, W, H, scale), W, H),
+      art: panel.art
+        ? await panelRaster(panel.art, box, panel.imageTransform, W, H, artOutline(panel, W, H, p.edges))
+        : null,
+      frame: await rasterizeFragment(panelFrameSvg(panel, W, H, scale, p.edges), W, H),
       guide: guide ? await panelRaster(guide, box, { focalX: 0.5, focalY: 0.5, scale: 1 }, W, H) : null,
     });
   }

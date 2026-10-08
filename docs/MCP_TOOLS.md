@@ -1700,6 +1700,57 @@ Change a project's title, description, type, language, reading direction, colour
             }
           }
         },
+        "edges": {
+          "type": "object",
+          "properties": {
+            "page": {
+              "type": "object",
+              "properties": {
+                "style": {
+                  "default": "straight",
+                  "type": "string",
+                  "enum": [
+                    "straight",
+                    "wavy",
+                    "torn",
+                    "rough",
+                    "brush",
+                    "burnt"
+                  ]
+                },
+                "size": {
+                  "default": 0.5,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            "panels": {
+              "type": "object",
+              "properties": {
+                "style": {
+                  "default": "straight",
+                  "type": "string",
+                  "enum": [
+                    "straight",
+                    "wavy",
+                    "torn",
+                    "rough",
+                    "brush",
+                    "burnt"
+                  ]
+                },
+                "size": {
+                  "default": 0.5,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        },
         "repurpose": {
           "type": "object",
           "properties": {
@@ -5630,6 +5681,29 @@ create: add a page to a chapter with a layout template. update: edit the page pl
                   "y"
                 ]
               }
+            },
+            "edge": {
+              "type": "object",
+              "properties": {
+                "style": {
+                  "default": "straight",
+                  "type": "string",
+                  "enum": [
+                    "straight",
+                    "wavy",
+                    "torn",
+                    "rough",
+                    "brush",
+                    "burnt"
+                  ]
+                },
+                "size": {
+                  "default": 0.5,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
             }
           },
           "required": [
@@ -5717,6 +5791,29 @@ create: add a page to a chapter with a layout template. update: edit the page pl
                         "x",
                         "y"
                       ]
+                    }
+                  },
+                  "edge": {
+                    "type": "object",
+                    "properties": {
+                      "style": {
+                        "default": "straight",
+                        "type": "string",
+                        "enum": [
+                          "straight",
+                          "wavy",
+                          "torn",
+                          "rough",
+                          "brush",
+                          "burnt"
+                        ]
+                      },
+                      "size": {
+                        "default": 0.5,
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
                     }
                   }
                 },
@@ -6837,6 +6934,29 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
               "x",
               "y"
             ]
+          }
+        },
+        "edge": {
+          "type": "object",
+          "properties": {
+            "style": {
+              "default": "straight",
+              "type": "string",
+              "enum": [
+                "straight",
+                "wavy",
+                "torn",
+                "rough",
+                "brush",
+                "burnt"
+              ]
+            },
+            "size": {
+              "default": 0.5,
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
           }
         }
       },
