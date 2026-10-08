@@ -33,6 +33,24 @@ const cursor = (kind: string, readOnly: boolean) => (e: Konva.KonvaEventObject<M
   if (el) el.style.cursor = readOnly ? "" : kind;
 };
 
+/**
+ * Keeps a dragged item inside the page while it is being dragged, so it stops at the edge in front of you instead of
+ * jumping back when released (saving clamps it to the page either way). `w`×`h` is its box in page pixels and `ox`,
+ * `oy` where its position sits inside that box (its offset: the centre for bubbles, nothing for panels).
+ */
+function pageBound(W: number, H: number, w: number, h: number, ox = 0, oy = 0) {
+  return function (this: Konva.Node, pos: Konva.Vector2d) {
+    const stage = this.getStage();
+    if (!stage) return pos;
+    const toScreen = stage.getAbsoluteTransform().copy();
+    const p = toScreen.copy().invert().point(pos);
+    return toScreen.point({
+      x: Math.min(Math.max(p.x, ox), Math.max(ox, W - w + ox)),
+      y: Math.min(Math.max(p.y, oy), Math.max(oy, H - h + oy)),
+    });
+  };
+}
+
 const imageCache = new Map<string, HTMLImageElement>();
 export function useHtmlImage(src: string | null) {
   const [img, setImg] = useState<HTMLImageElement | null>(() =>
@@ -136,6 +154,7 @@ export function PanelNode({
       x={x}
       y={y}
       draggable={!readOnly && !adjusting && !shaping}
+      dragBoundFunc={pageBound(W, H, w, h)}
       onDblClick={() => !readOnly && img && useEditor.getState().setAdjustImage(panel.id)}
       onDblTap={() => !readOnly && img && useEditor.getState().setAdjustImage(panel.id)}
       onMouseDown={onSelect}
@@ -295,7 +314,15 @@ export function PanelNode({
   );
 }
 
-export function BubbleNode({ item, W, H, readOnly, selected, onSelect }: Common & { item: DocBubble }) {
+export function BubbleNode({
+  item,
+  W,
+  H,
+  readOnly,
+  selected,
+  onSelect,
+  zoom = 1,
+}: Common & { item: DocBubble; zoom?: number }) {
   const { commit, setInteracting } = useEditor.getState();
   const b = item.bubble;
   const g = bubbleGeometry(b, W, H);
@@ -328,6 +355,7 @@ export function BubbleNode({ item, W, H, readOnly, selected, onSelect }: Common 
         offsetY={g.height / 2}
         rotation={b.rotation}
         draggable={!readOnly}
+        dragBoundFunc={pageBound(W, H, g.width, g.height, g.width / 2, g.height / 2)}
         onMouseEnter={cursor("move", readOnly)}
         onMouseLeave={cursor("", readOnly)}
         onMouseDown={onSelect}
@@ -406,11 +434,12 @@ export function BubbleNode({ item, W, H, readOnly, selected, onSelect }: Common 
           name="tail-handle"
           x={(b.tailTarget?.x ?? b.x + b.width / 2) * W}
           y={(b.tailTarget?.y ?? Math.min(1, b.y + b.height * 1.5)) * H}
-          radius={Math.max(12, W / 110)}
+          // The same size on screen at any zoom, with a generous grab area around it.
+          radius={9 / zoom}
           fill="#3b6cf6"
           stroke="#fff"
-          strokeWidth={3}
-          hitStrokeWidth={20}
+          strokeWidth={2.5 / zoom}
+          hitStrokeWidth={18 / zoom}
           onMouseEnter={cursor("grab", readOnly)}
           onMouseLeave={cursor("", readOnly)}
           onDragMove={(e) => {
@@ -489,6 +518,7 @@ export function SfxNode({ item, W, H, readOnly, selected, onSelect }: Common & {
       shadowColor={selected ? "#3b6cf6" : undefined}
       shadowBlur={selected ? 12 : 0}
       draggable={!readOnly}
+      dragBoundFunc={pageBound(W, H, 0, 0)}
       onMouseEnter={cursor("move", readOnly)}
       onMouseLeave={cursor("", readOnly)}
       onMouseDown={onSelect}
@@ -529,7 +559,8 @@ export function ShapeHandles({ panelId, W, H, zoom }: { panelId: string; W: numb
   if (!panel) return null;
   const { commit, setInteracting } = useEditor.getState();
   const poly = framePolygon(panel.frame);
-  const r = Math.max(5, 7 / zoom);
+  // Handles keep one size on screen at any zoom, with a wider grab area than they draw.
+  const r = 8 / zoom;
   const setFrame = (frame: Frame) => (d: EditorDoc) => ({
     ...d,
     panels: d.panels.map((p) => (p.id === panelId ? { ...p, frame } : p)),
@@ -549,6 +580,7 @@ export function ShapeHandles({ panelId, W, H, zoom }: { panelId: string; W: numb
             x={((p.x + q.x) / 2) * W}
             y={((p.y + q.y) / 2) * H}
             radius={r * 0.8}
+            hitStrokeWidth={12 / zoom}
             fill="#fff"
             stroke="#f59e0b"
             strokeWidth={r / 3}
@@ -568,6 +600,7 @@ export function ShapeHandles({ panelId, W, H, zoom }: { panelId: string; W: numb
           fill="#f59e0b"
           stroke="#fff"
           strokeWidth={r / 3}
+          hitStrokeWidth={14 / zoom}
           draggable
           onDragStart={() => {
             start.current = useEditor.getState().doc;

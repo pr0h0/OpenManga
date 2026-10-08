@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   shows around it (`?cutout=1` on page images does the same for the video preview). Stored in `settings.edges` and
   on the panel's frame (no migration). Stored as optional `points` on the panel's frame (no migration).
 
+### Fixed
+
+- Page editor: dragging a panel, bubble or sound effect against the page edge no longer snaps it back on release:
+  it stops at the edge while you drag. Resize anchors, panel shape points and the bubble tail handle are bigger and
+  keep one size on screen at any zoom, with a wider grab area. *Move / zoom image* has a zoom slider and says why an
+  image at 100% only moves along the side that overflows.
+
 ## [0.16.1] — 2026-10-08
 
 Upgrading: pull the new images and restart. No migrations and no new settings. Security fixes for features added in

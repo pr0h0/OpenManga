@@ -102,3 +102,63 @@ test("edges: a torn page and brush borders in settings, a burnt panel of its own
   const png = await page.request.get(`/api/pages/${s.pageId}/render.png?width=400&cutout=1`);
   expect(png.status()).toBe(200);
 });
+
+test("editor drags: a panel stops at the page edge without jumping, and the image zooms and moves", async () => {
+  const a = api(page);
+  const panels = await firstPagePanels(a, s.pageId);
+  const target = panels.at(-1)!;
+  await page.goto(`${s.url}/pages/${s.pageId}?panelId=${target.id}`);
+  // The canvas loads after the page: wait for its panels before reading them.
+  await page.waitForFunction(
+    (id) =>
+      Boolean(
+        (window as unknown as { Konva?: { stages: { findOne: (s: string) => unknown }[] } }).Konva?.stages[0]?.findOne(
+          `#panel-${id}`,
+        ),
+      ),
+    target.id,
+  );
+  const nodeX = () =>
+    page.evaluate(
+      (id) =>
+        (
+          window as unknown as { Konva: { stages: { findOne: (s: string) => { x: () => number } }[] } }
+        ).Konva.stages[0]!.findOne(`#panel-${id}`).x(),
+      target.id,
+    );
+  const box = await page.evaluate((id) => {
+    const st = (
+      window as unknown as { Konva: { stages: { findOne: (s: string) => unknown; container: () => HTMLElement }[] } }
+    ).Konva.stages[0]!;
+    const r = (
+      st.findOne(`#panel-${id}`) as { getClientRect: () => { x: number; y: number; width: number; height: number } }
+    ).getClientRect();
+    const b = st.container().getBoundingClientRect();
+    return { x: b.left + r.x + r.width / 2, y: b.top + r.y + r.height / 2 };
+  }, target.id);
+  // Far past the right edge: it follows only as far as the page allows, and stays there on release.
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(box.x + i * 60, box.y);
+  const during = await nodeX();
+  await page.mouse.up();
+  expect(Math.abs((await nodeX()) - during)).toBeLessThan(1);
+
+  // The image: zoom in with the slider, then drag it.
+  const doc = await a.get<{ panels: { id: string; activeArtworkAssetId: string | null }[] }>(`/pages/${s.pageId}`);
+  if (doc.panels.find((p) => p.id === target.id)?.activeArtworkAssetId) {
+    await page.getByRole("button", { name: "Move / zoom image on page" }).click();
+    await page.getByLabel("Image zoom").fill("2");
+    await page.mouse.move(box.x - 100, box.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 5; i++) await page.mouse.move(box.x - 100 + i * 8, box.y + i * 6);
+    await page.mouse.up();
+    await until(async () => {
+      const r = await a.get<{ panels: { id: string; imageTransform: { scale: number; focalX: number } }[] }>(
+        `/pages/${s.pageId}`,
+      );
+      const t = r.panels.find((p) => p.id === target.id)!.imageTransform;
+      return t.scale === 2 && t.focalX !== 0.5;
+    }, "image zoomed and moved");
+  }
+});
