@@ -158,8 +158,9 @@ export function clampFrame(fr: Frame): Frame {
     y: round(clamp01(Math.min(fr.y, 1 - height))),
     width: round(width),
     height: round(height),
-    // A shaped panel keeps its outline: its points are relative to the box, so they follow it.
+    // A shaped panel keeps its outline (its points are relative to the box, so they follow it) and its border.
     ...(fr.points ? { points: fr.points } : {}),
+    ...(fr.edge ? { edge: fr.edge } : {}),
   };
 }
 

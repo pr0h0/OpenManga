@@ -1,9 +1,11 @@
+import { edgeOutline, outlinePath } from "@openmanga/domain/browser";
 import type Konva from "konva";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Layer, Rect, Stage, Transformer } from "react-konva";
+import { Layer, Path, Rect, Stage, Transformer } from "react-konva";
 import { create } from "zustand";
 import type { PageDocument } from "../../../api/types.ts";
+import { useProject } from "../../project/ProjectLayout.tsx";
 import { BubbleNode, PanelNode, SfxNode, ShapeHandles } from "./shapes.tsx";
 import { useEditor } from "./store.ts";
 
@@ -45,6 +47,8 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
   const setView = useView((s) => s.set);
   const W = data.page.width;
   const H = data.page.height;
+  const pe = useProject().data?.project.settings.edges?.page;
+  const pageEdge = pe && pe.style !== "straight" && pe.size > 0 ? pe : null;
 
   useLayoutEffect(() => {
     const el = wrap.current;
@@ -150,15 +154,41 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
         }}
       >
         <Layer>
-          <Rect
-            name="page-bg"
-            width={W}
-            height={H}
-            fill="#fff"
-            shadowColor="#000"
-            shadowBlur={30 / zoom}
-            shadowOpacity={0.25}
-          />
+          {pageEdge ? (
+            // The page's decorative edge, as renders cut it (videos show the blurred backdrop beyond it).
+            <Path
+              name="page-bg"
+              data={outlinePath(
+                edgeOutline(
+                  [
+                    { x: 0, y: 0 },
+                    { x: W, y: 0 },
+                    { x: W, y: H },
+                    { x: 0, y: H },
+                  ],
+                  pageEdge,
+                  Math.min(W, H),
+                  data.page.id,
+                ),
+              )}
+              fill="#fff"
+              stroke={pageEdge.style === "burnt" ? "#3b1e08" : "#111"}
+              strokeWidth={Math.max(2, W / 500)}
+              shadowColor="#000"
+              shadowBlur={30 / zoom}
+              shadowOpacity={0.25}
+            />
+          ) : (
+            <Rect
+              name="page-bg"
+              width={W}
+              height={H}
+              fill="#fff"
+              shadowColor="#000"
+              shadowBlur={30 / zoom}
+              shadowOpacity={0.25}
+            />
+          )}
           {ordered.map((p, i) => (
             <PanelNode
               key={p.id}

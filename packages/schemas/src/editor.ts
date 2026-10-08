@@ -26,12 +26,27 @@ export const asPatch = <T extends z.ZodObject<z.ZodRawShape>>(schema: T) =>
  */
 export const FramePoint = z.object({ x: unit, y: unit });
 export type FramePoint = z.infer<typeof FramePoint>;
+/**
+ * A decorative edge: how a page's outline or a panel's border is drawn. `straight` is the plain line; the others
+ * eat into the shape by up to `size` (0–1) of their own depth, deterministically (the same panel always looks the
+ * same): `wavy` a regular wave, `torn` a ripped paper edge, `rough` a hand-cut one, `brush` an ink stroke of
+ * varying weight, `burnt` a scorched edge darkening inwards.
+ */
+export const EDGE_STYLES = ["straight", "wavy", "torn", "rough", "brush", "burnt"] as const;
+export const EdgeStyle = z.object({
+  style: z.enum(EDGE_STYLES).default("straight"),
+  size: z.number().min(0).max(1).default(0.5),
+});
+export type EdgeStyle = z.infer<typeof EdgeStyle>;
+
 export const Frame = z.object({
   x: unit,
   y: unit,
   width: z.number().gt(0).max(1),
   height: z.number().gt(0).max(1),
   points: z.array(FramePoint).min(3).max(24).optional(),
+  /** This panel's border style, in place of the project's default for panels. */
+  edge: EdgeStyle.optional(),
 });
 export type Frame = z.infer<typeof Frame>;
 
@@ -506,6 +521,11 @@ export const ProjectSettings = z.object({
         .optional(),
     })
     .optional(),
+  /**
+   * Decorative edges: `page` for every page's outline (cut out over the blurred backdrop in videos, drawn on paper
+   * elsewhere), `panels` the default border of every panel (a panel's own `frame.edge` wins).
+   */
+  edges: z.object({ page: EdgeStyle.optional(), panels: EdgeStyle.optional() }).optional(),
   /** The repurposing plan: Shorts, trailer, teaser, carousel and quote images, reviewed before rendering. */
   repurpose: z.object({ items: z.array(RepurposeItem).max(40).default([]) }).optional(),
   /**

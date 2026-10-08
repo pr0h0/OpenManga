@@ -164,3 +164,58 @@ describe("shaped panels", () => {
     expect(svg).not.toContain('<rect x="0.0" y="0.0" width="400.0" height="400.0" fill="none"');
   });
 });
+
+describe("decorative edges", () => {
+  const edgePage = async (edges: RenderPage["edges"]): Promise<RenderPage> => ({
+    id: "edge-page",
+    order: 1,
+    width: 400,
+    height: 400,
+    readingDirection: "ltr",
+    edges,
+    panels: [
+      {
+        id: "e1",
+        order: 1,
+        frame: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+        imageTransform: { focalX: 0.5, focalY: 0.5, scale: 1 },
+        art: await art(400, 400),
+      },
+    ],
+    bubbles: [],
+    sfx: [],
+  });
+
+  test("a torn panel border is a path with the art cut to it; the same panel tears the same way every time", async () => {
+    const p = await edgePage({ panels: { style: "torn", size: 1 } });
+    const svg = (await renderPageSvg(p)).svg;
+    expect(svg).not.toContain('fill="none" stroke="#111" stroke-width="4.0"/>'.replace("/>", ' x="40.0"'));
+    expect(svg).toMatch(/<path d="M40\.0 40\.0 L[^"]+ Z" fill="none" stroke="#111"/);
+    expect((await renderPageSvg(p)).svg).toBe(svg);
+    // A panel's own border wins over the project's default.
+    p.panels[0]!.frame.edge = { style: "straight", size: 0.5 };
+    expect((await renderPageSvg(p)).svg).toContain('<rect x="40.0" y="40.0" width="320.0" height="320.0" fill="none"');
+  });
+
+  test("a burnt panel glows inwards, clipped to its outline", async () => {
+    const svg = (await renderPageSvg(await edgePage({ panels: { style: "burnt", size: 1 } }))).svg;
+    expect(svg).toContain('<clipPath id="pe1">'.replace("pe1", "cpe1"));
+    expect(svg).toContain("feGaussianBlur");
+    expect(svg).toContain('stroke="#3b1e08"');
+  });
+
+  test("a page edge: paper white outside it in page images, transparent in the cut-out (video) one", async () => {
+    const p = await edgePage({ page: { style: "wavy", size: 1 } });
+    const paper = await renderPageImage(p, "png");
+    const cut = await renderPageImage(p, "png", { cutout: true });
+    const pixel = async (png: Uint8Array, x: number, y: number) => {
+      const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      return [...data.subarray((y * info.width + x) * 4, (y * info.width + x) * 4 + 4)];
+    };
+    // At a crest of the wave (12 waves along a 400 px side: crests at 50 px, 83 px, …) the page is cut away.
+    expect((await pixel(cut.data, 50, 1))[3]).toBe(0);
+    expect(await pixel(paper.data, 50, 1)).toEqual([255, 255, 255, 255]);
+    // The middle of the page is untouched either way.
+    expect((await pixel(cut.data, 200, 200))[3]).toBe(255);
+  });
+});

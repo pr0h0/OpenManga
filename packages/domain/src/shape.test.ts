@@ -58,6 +58,10 @@ test("points stay between three and 24, and off-page points are clamped", () => 
   expect(out).toMatchObject({ x: 0, y: 0 });
 });
 
+test("clamping keeps a panel's border style", () => {
+  expect(clampFrame({ ...box, edge: { style: "torn", size: 0.4 } }).edge).toEqual({ style: "torn", size: 0.4 });
+});
+
 test("splitting a shaped panel gives two rectangles", () => {
   const peaked = moveFramePoint(insertFramePoint(box, 0), 1, { x: 0.3, y: 0.1 });
   const [a, b] = splitFrame(peaked, "vertical");

@@ -221,14 +221,15 @@ type PreviewUrls = {
   card: (which: "intro" | "outro", version: string, aspect: VideoAspect) => string;
 };
 const signedInUrls = (projectId: string): PreviewUrls => ({
-  page: (pageId, updatedAt) => `${API_BASE}/pages/${pageId}/render.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
+  page: (pageId, updatedAt) =>
+    `${API_BASE}/pages/${pageId}/render.png?width=1600&cutout=1&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => assetUrl(id, variant),
   card: (which, version, aspect) =>
     `${API_BASE}/projects/${projectId}/video-card/${which}.png?${new URLSearchParams({ aspect, v: version })}`,
 });
 const sharedUrls = (token: string): PreviewUrls => ({
   page: (pageId, updatedAt) =>
-    `${API_BASE}/public/shares/${token}/pages/${pageId}.png?width=1600&v=${encodeURIComponent(updatedAt)}`,
+    `${API_BASE}/public/shares/${token}/pages/${pageId}.png?width=1600&cutout=1&v=${encodeURIComponent(updatedAt)}`,
   asset: (id, variant) => `${API_BASE}/public/shares/${token}/assets/${id}${variant ? `?v=${variant}` : ""}`,
   card: (which, version, aspect) =>
     `${API_BASE}/public/shares/${token}/video-card/${which}.png?${new URLSearchParams({ aspect, v: version })}`,

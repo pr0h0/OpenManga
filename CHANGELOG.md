@@ -13,7 +13,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   Panel tab shows a handle on every point (drag it, double-click to remove it) and a dashed circle on every edge (click
   to add a point there), for slanted gutters, pointed tops and two panels sliding into each other. The art is cut to
   the outline and the border follows it in page renders, PDFs and the PSD and layered exports (a webtoon strip
-  re-flows each panel to full width, so it shows the whole art); *Reset to rectangle* undoes it. Stored as optional `points` on the panel's frame (no migration).
+  re-flows each panel to full width, so it shows the whole art); *Reset to rectangle* undoes it.
+- Page and panel edges (project settings → *Page and panel edges*): wavy, torn paper, rough cut, brush stroke or
+  burnt edges, with a depth, for every page's outline and as the default for panel borders; a panel can pick its own
+  on its Panel tab (*Border*). The art is cut to the edge and the edge drawn along it, the same way every time.
+  Page images and PDFs draw a page edge on paper white; videos cut the page out along it, so the blurred backdrop
+  shows around it (`?cutout=1` on page images does the same for the video preview). Stored in `settings.edges` and
+  on the panel's frame (no migration). Stored as optional `points` on the panel's frame (no migration).
 
 ## [0.16.1] — 2026-10-08
 
