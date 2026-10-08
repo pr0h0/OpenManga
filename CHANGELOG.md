@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-10-08
+
+Upgrading: pull the new images and restart. Four migrations run on start through the migrate service:
+`0035_better_comments` (pins, video moments, assignees, guest comments on reader links), `0036_agent_runs` (the
+in-app agent), `0037_series` (series, and the link columns on characters, places, props, styles and bible facts) and
+`0038_youtube_stats` (YouTube channels, linked videos, reach rows and counter snapshots). Nothing existing is changed.
+New optional settings: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and `YOUTUBE_API_KEY` for YouTube stats
+(setup in docs/DEPLOYMENT.md); without them channels cannot be connected and everything else works as before. The
+Kokoro image is rebuilt with pinned dependencies. Reload open tabs to get the new web app.
+
 ### Added
 
 - In-app project agent (project → Agent): give it a goal and an optional budget; it writes a plan to approve or send
