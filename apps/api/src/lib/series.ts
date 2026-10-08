@@ -248,16 +248,17 @@ export async function episodeStaleness(tx: DbOrTx, libraryId: string, episodeId:
 }
 
 /**
- * Whether a user may see a series library's files: they belong to any episode of it. A library's images are shown
- * inside its episodes (their references point at them), so episode collaborators need them without the library.
+ * Whether a user may see another project's image because it is a reference image of a project they belong to: a
+ * series library's references are shared with its episodes (and stay with an episode detached since). Only images
+ * actually referenced there, never the rest of the library.
  */
-export async function seesLibrary(tx: DbOrTx, userId: string, libraryProjectId: string) {
+export async function seesSharedReference(tx: DbOrTx, userId: string, assetId: string) {
   const [r] = await tx
-    .select({ id: projects.id })
-    .from(series)
-    .innerJoin(projects, eq(projects.seriesId, series.id))
+    .select({ id: referenceAssets.id })
+    .from(referenceAssets)
+    .innerJoin(projects, eq(projects.id, referenceAssets.projectId))
     .innerJoin(projectMembers, and(eq(projectMembers.projectId, projects.id), eq(projectMembers.userId, userId)))
-    .where(and(eq(series.libraryProjectId, libraryProjectId), isNull(projects.deletedAt)))
+    .where(and(eq(referenceAssets.assetId, assetId), isNull(projects.deletedAt)))
     .limit(1);
   return Boolean(r);
 }

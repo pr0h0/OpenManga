@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { eq, sql, youtubeChannels } from "@openmanga/db";
+import { eq, projectMembers, sql, youtubeChannels } from "@openmanga/db";
 import {
   credentialKeyStatus,
   FakeYouTubeClient,
@@ -286,6 +286,26 @@ describe("linking videos", () => {
     );
     expect(hist.source).toBe("snapshots");
     expect(hist.reach.daily).toEqual([]);
+  });
+
+  test("a member who leaves takes their channel's grant with them, and reconnecting does not bring it back", async () => {
+    const gamma = `${FakeYouTubeClient.prefix("Gamma")}000`;
+    const [b] = await h.deps.db.execute<{ id: string }>(sql`select id from users where username = 'ytbob'`);
+    await h.deps.db.insert(projectMembers).values({ projectId, userId: b!.id, role: "editor" });
+    await connect(bob, "Gamma");
+    const r = await bob.post<{ link: { id: string; connectionId: string | null } }>(
+      `/api/projects/${projectId}/youtube/links`,
+      { video: gamma },
+      201,
+    );
+    expect(r.link.connectionId).toBeTruthy();
+    await alice.del(`/api/projects/${projectId}/members/${b!.id}`);
+    const after = (await summary()).links.find((l) => l.id === r.link.id)!;
+    expect(after.connection).toBeNull();
+    // Reconnecting the channel re-attaches links only in projects Bob still belongs to.
+    await connect(bob, "Gamma");
+    expect((await summary()).links.find((l) => l.id === r.link.id)!.connection).toBeNull();
+    await alice.del(`/api/projects/${projectId}/youtube/links/${r.link.id}`);
   });
 
   test("edit and unlink", async () => {

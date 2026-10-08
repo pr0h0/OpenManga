@@ -129,6 +129,8 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
       ...j.job,
       compiledPrompt: undefined,
       input: undefined,
+      // Another member's agent run: listed (it is the project's spend) but not what it thought (see jobAccess).
+      ...(j.job.kind === "agent_step" && j.job.userId !== user(c).id ? { result: null, parameters: {} } : {}),
       costUsd: j.costUsd,
       outputAssetId: j.output && !j.output.deleted ? j.output.id : null,
       /** Trashed since; restorable from the job's page until the trash is emptied. */

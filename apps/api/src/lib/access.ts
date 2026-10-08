@@ -57,9 +57,12 @@ export async function projectAccess(
  */
 export async function jobAccess(
   c: Context<AppEnv>,
-  job: { projectId: string | null; userId: string | null },
+  job: { projectId: string | null; userId: string | null; kind?: string },
   action: ProjectAction,
 ): Promise<ProjectRecord | null> {
+  // An in-app agent's thinking carries what its tools returned to the user who started it (their own connections,
+  // profiles and private notes included): like the run itself, it is theirs alone, not the project's.
+  if (job.kind === "agent_step" && job.userId !== user(c).id) throw notFound("Job");
   if (job.projectId) return projectAccess(c, job.projectId, action);
   if (job.userId !== user(c).id) throw notFound("Job");
   return null;
