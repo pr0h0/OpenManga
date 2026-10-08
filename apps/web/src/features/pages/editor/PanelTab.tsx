@@ -132,6 +132,43 @@ function AdjustImageButton({ panelId, disabled }: { panelId: string; disabled: b
 }
 
 /**
+ * While the image is being adjusted: a zoom slider (no wheel needed) and what dragging can do. At 100% the image
+ * just covers the panel, so it moves only along the side where it overflows; zoom in to move it freely.
+ */
+function ImageZoom({ panelId }: { panelId: string }) {
+  const active = useEditor((s) => s.adjustImageFor === panelId);
+  const scale = useEditor((s) => s.doc.panels.find((p) => p.id === panelId)?.imageTransform.scale ?? 1);
+  if (!active) return null;
+  const setScale = (v: number) =>
+    useEditor.getState().commit((d) => ({
+      ...d,
+      panels: d.panels.map((p) => (p.id === panelId ? { ...p, imageTransform: { ...p.imageTransform, scale: v } } : p)),
+    }));
+  return (
+    <div className="w-full space-y-1">
+      <label className="flex items-center gap-2 text-xs">
+        <span className="label w-10">Zoom</span>
+        <input
+          type="range"
+          className="flex-1"
+          aria-label="Image zoom"
+          min={1}
+          max={4}
+          step={0.05}
+          value={scale}
+          onChange={(e) => setScale(Number(e.target.value))}
+        />
+        <span className="w-10 text-right tabular-nums">{Math.round(scale * 100)}%</span>
+      </label>
+      <p className="muted text-xs">
+        Drag the image on the page to move it. At 100% it just covers the panel and moves only along the side that
+        overflows; zoom in (here or with the mouse wheel over it) to move it freely. Enter or Esc when done.
+      </p>
+    </div>
+  );
+}
+
+/**
  * A panel's outline: a rectangle until its points are edited. Edit shape shows a handle on every point (drag it,
  * double-click to remove) and a "+" on every edge (click to add a point there), for slanted gutters, pointed tops and
  * panels that slide into each other.
@@ -692,6 +729,7 @@ export function PanelTab({
               Reset
             </button>
           </div>
+          <ImageZoom panelId={panel.id} />
           <p className="muted text-xs">
             Or double-click the panel on the page. Drag to move the image, scroll to zoom; the faded area shows what is
             cropped out. Press Enter or Esc when done.

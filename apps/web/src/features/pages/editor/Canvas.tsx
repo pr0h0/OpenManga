@@ -220,6 +220,7 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
             .map((b) => (
               <BubbleNode
                 key={b.id}
+                zoom={zoom}
                 item={b}
                 W={W}
                 H={H}
@@ -234,7 +235,10 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
             ignoreStroke
             flipEnabled={false}
             rotationSnaps={[0, 90, 180, 270]}
-            anchorSize={Math.max(8, 10)}
+            // Big enough to grab, with a hit area wider than the square drawn.
+            anchorSize={14}
+            anchorCornerRadius={3}
+            anchorStyleFunc={(a) => a.hitStrokeWidth(16)}
             borderStroke="#3b6cf6"
             anchorStroke="#3b6cf6"
           />
