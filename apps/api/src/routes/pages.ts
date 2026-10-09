@@ -88,6 +88,7 @@ import {
   textRun,
 } from "../lib/ai.ts";
 import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { fitPanels, layoutFrames } from "../lib/layouts.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -139,7 +140,8 @@ pageRoutes.post("/chapters/:id/pages", async (c) => {
   const chapterId = uuidParam(c, "id");
   const project = await entityAccess(c, "chapter", chapterId, "write");
   const input = await body(c, CreatePage);
-  if (!layoutByKey(input.layoutTemplate)) throw badRequest("Unknown layout template");
+  const layoutFramesNew = layoutFrames(input.layoutTemplate, project, user(c), project.readingDirection);
+  if (!layoutFramesNew) throw badRequest("Unknown layout template");
   const { db } = c.get("deps");
   const s = project.settings;
   const page = await db.transaction(async (tx) => {
@@ -162,12 +164,7 @@ pageRoutes.post("/chapters/:id/pages", async (c) => {
         height: s.pageHeight,
       })
       .returning();
-    const frames = templateFrames(input.layoutTemplate, {
-      margin: s.pageMargin,
-      gutter: s.pageGutter,
-      readingDirection: project.readingDirection,
-    });
-    for (const [i, frame] of frames.entries()) {
+    for (const [i, frame] of layoutFramesNew.entries()) {
       const [pn] = await tx
         .insert(panels)
         .values({ projectId: project.id, pageId: pg!.id, sceneId: input.sceneId, order: i + 1, frame })
@@ -338,31 +335,26 @@ const SwapLayout = z.object({ layoutTemplate: z.string().max(64) });
 doc({
   method: "POST",
   path: "/api/pages/:id/layout",
-  summary: "Swap layout template (keeps panels, adds empty ones if needed)",
+  summary:
+    "Swap the page's layout (keeps panels, adds empty ones if the layout has more frames): a built-in template key, or `custom:<id>` for a saved layout (the project's or yours)",
   tag: "pages",
   body: SwapLayout,
 });
 pageRoutes.post("/pages/:id/layout", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const { layoutTemplate } = await body(c, SwapLayout);
-  const tpl = layoutByKey(layoutTemplate);
-  if (!tpl) throw badRequest("Unknown layout template");
+  const dir = page.readingDirection ?? project.readingDirection;
+  const frames = layoutFrames(layoutTemplate, project, user(c), dir);
+  if (!frames) throw badRequest("Unknown layout template");
   const { db } = c.get("deps");
-  const s = project.settings;
-  const opts = {
-    margin: s.pageMargin,
-    gutter: s.pageGutter,
-    readingDirection: page.readingDirection ?? project.readingDirection,
-  };
   await db.transaction(async (tx) => {
     const pns = await tx.select().from(panels).where(eq(panels.pageId, page.id)).orderBy(asc(panels.order));
-    const frames = swapTemplate(pns, layoutTemplate, opts);
-    for (const [i, p] of pns.entries()) await tx.update(panels).set({ frame: frames[i]! }).where(eq(panels.id, p.id));
-    const all = templateFrames(layoutTemplate, opts);
-    for (let i = pns.length; i < all.length; i++) {
+    const { fitted, extra } = fitPanels(pns.length, frames, project.settings.pageMargin);
+    for (const [i, p] of pns.entries()) await tx.update(panels).set({ frame: fitted[i]! }).where(eq(panels.id, p.id));
+    for (const [j, frame] of extra.entries()) {
       const [pn] = await tx
         .insert(panels)
-        .values({ projectId: project.id, pageId: page.id, sceneId: page.sceneId, order: i + 1, frame: all[i]! })
+        .values({ projectId: project.id, pageId: page.id, sceneId: page.sceneId, order: pns.length + j + 1, frame })
         .returning();
       await tx.insert(panelSpecs).values({ panelId: pn!.id, versionNumber: 1, spec: emptySpec(), source: "user" });
     }

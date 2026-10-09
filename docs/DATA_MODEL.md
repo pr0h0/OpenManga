@@ -118,8 +118,10 @@ slot).
   the current ones (`docs/ARCHITECTURE.md`).
 - `scenes` (location, time, weather, characters, purpose/opening/progression/climax/ending, continuity notes,
   initial/final state, continuity deltas) and `story_beats` (ordered within a scene).
-- `pages` — order, purpose, pacing, visual emphasis, page-turn hook, layout template key, `edge` (this page's
-  decorative edge over the project's, `0039_page_edge`), pixel width/height, optional
+- `pages` — order, purpose, pacing, visual emphasis, page-turn hook, layout template key (a built-in template, or
+  `custom:<id>` for a saved layout: the user's are in `users.settings.layouts`, the project's copies in
+  `settings.layouts`), `edge` (this page's decorative edge over the project's, `0039_page_edge`), pixel width/height,
+  optional
   reading-direction override, approval status.
 - `panels` — normalized `frame` (box in page fractions; optional `points`, a polygon outline of 3–24 points relative to
   the box, for shaped panels: the art is cut to it and the border follows it, while crops, bubbles and video shots

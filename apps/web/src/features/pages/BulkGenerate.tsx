@@ -1,3 +1,4 @@
+import { framePolygon } from "@openmanga/domain/browser";
 import type { Frame } from "@openmanga/schemas";
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
@@ -335,18 +336,31 @@ export function LayoutThumb({ frames, className }: { frames: Frame[]; className?
   return (
     <svg viewBox="0 0 100 150" className={className ?? "h-12 w-8"} aria-hidden="true">
       <rect width="100" height="150" fill="currentColor" opacity="0.08" />
-      {frames.map((f, i) => (
-        <rect
-          key={i}
-          x={f.x * 100 + 2}
-          y={f.y * 150 + 2}
-          width={Math.max(1, f.width * 100 - 4)}
-          height={Math.max(1, f.height * 150 - 4)}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="3"
-        />
-      ))}
+      {frames.map((f, i) =>
+        f.points ? (
+          // A shaped panel: its outline.
+          <polygon
+            key={i}
+            points={framePolygon(f)
+              .map((p) => `${(p.x * 100).toFixed(1)},${(p.y * 150).toFixed(1)}`)
+              .join(" ")}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+          />
+        ) : (
+          <rect
+            key={i}
+            x={f.x * 100 + 2}
+            y={f.y * 150 + 2}
+            width={Math.max(1, f.width * 100 - 4)}
+            height={Math.max(1, f.height * 150 - 4)}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+          />
+        ),
+      )}
     </svg>
   );
 }

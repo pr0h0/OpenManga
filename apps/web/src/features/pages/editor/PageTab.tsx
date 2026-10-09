@@ -1,7 +1,9 @@
+import type { CustomLayout } from "@openmanga/schemas";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Download, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
-import { patch, post } from "../../../api/client.ts";
+import { get, patch, post } from "../../../api/client.ts";
 import { qk, useAction, useMeta } from "../../../api/hooks.ts";
 import type { PageDocument } from "../../../api/types.ts";
 import { ConfirmDialog, clsx, Field, StatusChip } from "../../../components/ui.tsx";
@@ -29,6 +31,22 @@ export function PageTab({ data }: { data: PageDocument }) {
     const edges = s.doc.panels.map((pn) => pn.frame.edge);
     const first = edges[0];
     return first && edges.every((e) => e?.style === first.style && e.size === first.size) ? first : undefined;
+  });
+  const [layoutName, setLayoutName] = useState("");
+  const qc = useQueryClient();
+  const library = useQuery({ queryKey: ["layouts"], queryFn: () => get<{ layouts: CustomLayout[] }>("/layouts") });
+  const projectLayouts = useProject().data?.project.settings.layouts ?? [];
+  // The project's copies first, then the rest of the user's library.
+  const saved = [
+    ...projectLayouts,
+    ...(library.data?.layouts ?? []).filter((l) => !projectLayouts.some((x) => x.id === l.id)),
+  ];
+  const saveLayout = useAction((name: string) => post("/layouts", { name, pageId: p.id }), {
+    success: "Saved to your layouts",
+    onSuccess: () => {
+      setLayoutName("");
+      void qc.invalidateQueries({ queryKey: ["layouts"] });
+    },
   });
   useEffect(
     () =>
@@ -161,7 +179,10 @@ export function PageTab({ data }: { data: PageDocument }) {
         </div>
         <div hidden={film}>
           <div className="label">
-            Layout template {p.layoutTemplate ? `(current: ${p.layoutTemplate})` : "(custom)"}
+            Layout template{" "}
+            {p.layoutTemplate
+              ? `(current: ${p.layoutTemplate.startsWith("custom:") ? (saved.find((l) => `custom:${l.id}` === p.layoutTemplate)?.name ?? "a saved layout") : p.layoutTemplate})`
+              : "(custom)"}
           </div>
           <div className="grid grid-cols-4 gap-1.5">
             {meta?.layouts.map((t) => (
@@ -180,6 +201,56 @@ export function PageTab({ data }: { data: PageDocument }) {
               </button>
             ))}
           </div>
+          {saved.length > 0 && (
+            <>
+              <div className="label mt-2">Your layouts</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {saved.map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    title={`${l.name} · ${l.frames.length} panel${l.frames.length === 1 ? "" : "s"}`}
+                    aria-label={`Use layout ${l.name}`}
+                    onClick={() => setSwap(`custom:${l.id}`)}
+                    className={clsx(
+                      "card flex flex-col items-center gap-0.5 p-1.5 text-[10px] hover:border-accent-500",
+                      p.layoutTemplate === `custom:${l.id}` && "border-accent-500",
+                    )}
+                  >
+                    <LayoutThumb frames={l.frames} className="h-10 w-7" />
+                    <span className="w-full truncate text-center">{l.name}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <form
+            className="mt-2 flex gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (layoutName.trim()) saveLayout.mutate(layoutName.trim());
+            }}
+          >
+            <input
+              className="input flex-1 text-xs"
+              aria-label="Layout name"
+              placeholder="Name this page's layout"
+              maxLength={80}
+              value={layoutName}
+              onChange={(e) => setLayoutName(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="btn-secondary text-xs"
+              disabled={saveLayout.isPending || !layoutName.trim()}
+            >
+              Save as layout
+            </button>
+          </form>
+          <p className="muted text-xs">
+            Saves this page's panels (shapes and borders included) to your layouts, for any of your projects. Pick the
+            ones a project plans new pages with in its settings → Page layouts.
+          </p>
         </div>
       </fieldset>
       <div className="grid gap-2">
