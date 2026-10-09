@@ -18,7 +18,7 @@ import { VERSION_ACTIONS } from "../cast/fields.tsx";
 import { ActiveBatches } from "../generation/BatchStatus.tsx";
 import { CheckPanelsButton } from "../generation/CheckPanels.tsx";
 import { BulkGenerateButton } from "../pages/BulkGenerate.tsx";
-import { useProjectId } from "../project/ProjectLayout.tsx";
+import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
 import { DeleteChapterButton } from "./DeleteChapterButton.tsx";
 import { PlanButton } from "./PlanButton.tsx";
@@ -56,6 +56,14 @@ export function ChapterDetailPage() {
   const setPlanStatus = useAction((planStatus: string) => patch(`/chapters/${chapterId}`, { planStatus }), {
     onSuccess: refresh,
   });
+  const projectLayouts = useProject().data?.project.settings.layouts?.length;
+  const applyLayouts = useAction(
+    () => post<{ changed: number; skipped: number }>(`/chapters/${chapterId}/apply-layouts`, {}),
+    {
+      success: (r) => `${r.changed} page(s) re-laid; ${r.skipped} kept (no layout with their number of panels)`,
+      onSuccess: refresh,
+    },
+  );
 
   if (isLoading)
     return (
@@ -161,6 +169,17 @@ export function ChapterDetailPage() {
                   className="btn-secondary"
                 />
               </span>
+            )}
+            {data.pages.length > 0 && (projectLayouts ?? 0) > 0 && (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={applyLayouts.isPending}
+                title="Re-lay this chapter's pages with the project's layouts (settings → Page layouts)"
+                onClick={() => applyLayouts.mutate()}
+              >
+                Apply layouts
+              </button>
             )}
             {data.pages.length > 0 && (
               <span className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg bg-[var(--panel-2)] p-0.5">

@@ -74,7 +74,7 @@ export const panelTools = [
     name: "manage_page",
     title: "Edit pages",
     description:
-      "create: add a page to a chapter with a layout template. update: edit the page plan (purpose, pacing, emphasis, hook, size, status, scene, order). set_layout: swap the layout template (keeps panels, adds empty ones if needed). add_panel: add a panel (or duplicate one). reorder_panels: set the reading order. update_document: move/resize/reorder panels and commit bubble/SFX/caption geometry in one atomic write (replaces those values; sensitive). delete: remove the page (delete class).",
+      "create: add a page to a chapter with a layout template. update: edit the page plan (purpose, pacing, emphasis, hook, size, status, scene, order). set_layout: swap the layout (keeps panels, adds empty ones if needed): a built-in template key, or custom:<id> for a saved layout (manage_layouts list). add_panel: add a panel (or duplicate one). reorder_panels: set the reading order. update_document: move/resize/reorder panels and commit bubble/SFX/caption geometry in one atomic write (replaces those values; sensitive). delete: remove the page (delete class).",
     input: z.object({
       action: z.enum(["create", "update", "set_layout", "add_panel", "reorder_panels", "update_document", "delete"]),
       chapterId: Uuid.optional().describe("For create."),
@@ -537,5 +537,72 @@ export const panelTools = [
               body: { direction: direction ?? "horizontal" },
             }),
           },
+  }),
+  defineMcpTool({
+    name: "manage_layouts",
+    title: "Manage page layouts",
+    description:
+      "The user's saved page layouts (their own arrangements of panels, shapes and borders included, usable in any of their projects). list: the saved layouts and this project's (settings.layouts). save { pageId, name }: save a page's arrangement as a layout. apply { projectId or chapterId, layoutIds? }: re-lay every page of the chapter or project with the project's layouts (each page takes one with its number of panels, in turn; others stay). To choose which layouts a project uses (and plans new pages with), set update_project settings.layouts to the layouts from list. One page: manage_page set_layout with custom:<id>.",
+    input: z.object({
+      action: z.enum(["list", "save", "apply"]),
+      projectId: Uuid.optional(),
+      chapterId: Uuid.optional(),
+      pageId: Uuid.optional(),
+      name: z.string().trim().min(1).max(80).optional(),
+      layoutIds: z.array(Uuid).max(30).optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["chapters:read"],
+    scopesFor: (a) => (a.action === "list" ? ["chapters:read"] : ["chapters:write"]),
+    sensitivity: "write",
+    idempotent: false,
+    routes: [
+      "GET /api/layouts",
+      "POST /api/layouts",
+      "POST /api/chapters/:id/apply-layouts",
+      "POST /api/projects/:projectId/apply-layouts",
+    ],
+    actionKeys: ["layouts.save", "layouts.apply"],
+    classify: async (a, ctx) =>
+      a.action === "list"
+        ? cls("read", "layouts.list", a.projectId ?? null, "List page layouts")
+        : a.action === "save"
+          ? cls(
+              "write",
+              "layouts.save",
+              a.pageId ? await projectOf(ctx, "page", a.pageId) : null,
+              `Save layout "${a.name ?? ""}"`,
+            )
+          : cls(
+              "sensitive-write",
+              "layouts.apply",
+              a.chapterId ? await projectOf(ctx, "chapter", a.chapterId) : (a.projectId ?? null),
+              a.chapterId ? "Re-lay a chapter's pages" : "Re-lay every page of the project",
+            ),
+    handler: async (a, ctx) => {
+      if (a.action === "list") {
+        const mine = await ctx.invoke<{ layouts: unknown[] }>("GET", "/api/layouts");
+        const project = a.projectId
+          ? ((
+              await ctx.invoke<{ project: { settings: { layouts?: unknown[] } } }>(
+                "GET",
+                `/api/projects/${a.projectId}`,
+              )
+            ).project.settings.layouts ?? [])
+          : undefined;
+        return { data: { layouts: mine.layouts, ...(project ? { projectLayouts: project } : {}) } };
+      }
+      if (a.action === "save") {
+        if (!a.pageId || !a.name) throw toolError(422, "validation_error", "pageId and name are required");
+        return { data: await ctx.invoke("POST", "/api/layouts", { body: { pageId: a.pageId, name: a.name } }) };
+      }
+      const body = a.layoutIds ? { layoutIds: a.layoutIds } : {};
+      if (a.chapterId)
+        return { data: await ctx.invoke("POST", `/api/chapters/${a.chapterId}/apply-layouts`, { body }) };
+      if (a.projectId)
+        return { data: await ctx.invoke("POST", `/api/projects/${a.projectId}/apply-layouts`, { body }) };
+      throw toolError(422, "validation_error", "chapterId or projectId is required");
+    },
   }),
 ];

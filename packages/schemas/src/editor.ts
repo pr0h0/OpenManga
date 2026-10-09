@@ -390,6 +390,19 @@ export const VISUAL_CHECK_DEFAULTS: Record<VisualCheck, VisualCheckMode> = {
   covered_faces: "flag",
 };
 
+/**
+ * A page layout of the user's: the frames of a page they arranged (shapes and borders included), in page fractions
+ * with its margins and gutters, as read in `readingDirection` (mirrored for the other one when used). Kept in their
+ * account to reuse in any project, and copied into a project's settings to plan and re-lay its pages with.
+ */
+export const CustomLayout = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  frames: z.array(Frame).min(1).max(5),
+  readingDirection: z.enum(["ltr", "rtl"]).default("ltr"),
+});
+export type CustomLayout = z.infer<typeof CustomLayout>;
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
   pageWidth: z.number().int().min(256).max(8000).default(1600),
@@ -526,6 +539,11 @@ export const ProjectSettings = z.object({
    * elsewhere), `panels` the default border of every panel (a panel's own `frame.edge` wins).
    */
   edges: z.object({ page: EdgeStyle.optional(), panels: EdgeStyle.optional() }).optional(),
+  /**
+   * This project's page layouts (copies of saved ones): chapter planning gives each new page one with its panel
+   * count, in turn, and re-laying a chapter or the project matches existing pages to them the same way.
+   */
+  layouts: z.array(CustomLayout).max(30).optional(),
   /** The repurposing plan: Shorts, trailer, teaser, carousel and quote images, reviewed before rendering. */
   repurpose: z.object({ items: z.array(RepurposeItem).max(40).default([]) }).optional(),
   /**
@@ -592,11 +610,14 @@ export type ChannelProfile = z.infer<typeof ChannelProfile>;
  * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
  * server default still applies and a project created before the preference existed is untouched.
  */
+
 export const UserSettings = z.object({
   /** Kokoro voice id used for new projects' narration. */
   narrationVoice: z.string().trim().max(64).optional(),
   projectTemplates: z.array(ProjectTemplate).max(50).optional(),
   channelProfiles: z.array(ChannelProfile).max(50).optional(),
+  /** The user's saved page layouts, for any of their projects. */
+  layouts: z.array(CustomLayout).max(100).optional(),
 });
 export type UserSettings = z.infer<typeof UserSettings>;
 

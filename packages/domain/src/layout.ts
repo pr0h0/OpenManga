@@ -137,8 +137,32 @@ export function applyGutters(frames: Frame[], margin: number, gutter: number): F
   });
 }
 
-/** Mirror a frame horizontally for RTL manga reading order. */
-export const mirrorFrame = (fr: Frame): Frame => ({ ...fr, x: round(1 - fr.x - fr.width) });
+/** Mirror a frame horizontally for RTL manga reading order (a shaped panel's outline flips with it). */
+export const mirrorFrame = (fr: Frame): Frame => ({
+  ...fr,
+  x: round(1 - fr.x - fr.width),
+  ...(fr.points ? { points: fr.points.map((p) => ({ x: round(1 - p.x), y: p.y })) } : {}),
+});
+
+/** A saved layout's frames for a page read in `dir`: mirrored when it was made for the other direction. */
+export function customLayoutFrames(
+  l: { frames: Frame[]; readingDirection: "ltr" | "rtl" },
+  dir: "ltr" | "rtl" | "vertical",
+): Frame[] {
+  return dir !== "vertical" && dir !== l.readingDirection ? l.frames.map(mirrorFrame) : l.frames;
+}
+
+/**
+ * The layout a page with `n` panels takes from a set: the ones with that many frames in turn (the `k`-th page with
+ * that count gets the `k`-th of them, wrapping round), or none when no layout has that many.
+ */
+export function pickLayout<L extends { frames: Frame[] }>(layouts: L[] | undefined, n: number, k: number): L | null {
+  const fits = (layouts ?? []).filter((l) => l.frames.length === n);
+  return fits.length ? fits[k % fits.length]! : null;
+}
+
+/** The page layout key a saved layout is recorded under on a page. */
+export const customLayoutKey = (id: string) => `custom:${id}`;
 
 export function templateFrames(
   key: string,

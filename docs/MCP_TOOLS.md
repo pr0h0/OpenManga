@@ -20,7 +20,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
-| `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter`, `get_page` |
+| `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter`, `get_page`, `manage_layouts` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
@@ -103,6 +103,7 @@ requests) need no scope.
 | [`manage_panel_artwork`](#manage_panel_artwork) | delete | `panels:read` `panels:write` |
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
+| [`manage_layouts`](#manage_layouts) | write | `chapters:read` |
 | [`list_comments`](#list_comments) | read | `panels:read` |
 | [`post_comment`](#post_comment) | write | `panels:write` |
 | [`resolve_comment`](#resolve_comment) | write | `panels:write` |
@@ -1749,6 +1750,121 @@ Change a project's title, description, type, language, reading direction, colour
                 }
               }
             }
+          }
+        },
+        "layouts": {
+          "maxItems": 30,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "frames": {
+                "minItems": 1,
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "width": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1
+                    },
+                    "height": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "maximum": 1
+                    },
+                    "points": {
+                      "minItems": 3,
+                      "maxItems": 24,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ]
+                      }
+                    },
+                    "edge": {
+                      "type": "object",
+                      "properties": {
+                        "style": {
+                          "default": "straight",
+                          "type": "string",
+                          "enum": [
+                            "straight",
+                            "wavy",
+                            "torn",
+                            "rough",
+                            "brush",
+                            "burnt"
+                          ]
+                        },
+                        "size": {
+                          "default": 0.5,
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y",
+                    "width",
+                    "height"
+                  ]
+                }
+              },
+              "readingDirection": {
+                "default": "ltr",
+                "type": "string",
+                "enum": [
+                  "ltr",
+                  "rtl"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "frames"
+            ]
           }
         },
         "repurpose": {
@@ -5488,7 +5604,7 @@ One page's editor document: its panels with their current specs, speech bubbles,
 
 ### manage_page
 
-create: add a page to a chapter with a layout template. update: edit the page plan (purpose, pacing, emphasis, hook, size, status, scene, order). set_layout: swap the layout template (keeps panels, adds empty ones if needed). add_panel: add a panel (or duplicate one). reorder_panels: set the reading order. update_document: move/resize/reorder panels and commit bubble/SFX/caption geometry in one atomic write (replaces those values; sensitive). delete: remove the page (delete class).
+create: add a page to a chapter with a layout template. update: edit the page plan (purpose, pacing, emphasis, hook, size, status, scene, order). set_layout: swap the layout (keeps panels, adds empty ones if needed): a built-in template key, or custom:<id> for a saved layout (manage_layouts list). add_panel: add a panel (or duplicate one). reorder_panels: set the reading order. update_document: move/resize/reorder panels and commit bubble/SFX/caption geometry in one atomic write (replaces those values; sensitive). delete: remove the page (delete class).
 
 - **Scopes:** `chapters:write`, `panels:write` — per action, see description
 - **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
@@ -7787,6 +7903,90 @@ split: split a panel into two (horizontal or vertical). delete: remove a panel (
   "required": [
     "action",
     "panelId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### manage_layouts
+
+The user's saved page layouts (their own arrangements of panels, shapes and borders included, usable in any of their projects). list: the saved layouts and this project's (settings.layouts). save { pageId, name }: save a page's arrangement as a layout. apply { projectId or chapterId, layoutIds? }: re-lay every page of the chapter or project with the project's layouts (each page takes one with its number of panels, in turn; others stay). To choose which layouts a project uses (and plans new pages with), set update_project settings.layouts to the layouts from list. One page: manage_page set_layout with custom:<id>.
+
+- **Scopes:** `chapters:read` — per action, see description
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `layouts.save`, `layouts.apply`
+- **Wraps:** `GET /api/layouts`, `POST /api/layouts`, `POST /api/chapters/:id/apply-layouts`, `POST /api/projects/:projectId/apply-layouts`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "save",
+        "apply"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "pageId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "layoutIds": {
+      "maxItems": 30,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action"
   ]
 }
 ```

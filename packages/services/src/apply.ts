@@ -30,11 +30,15 @@ import {
   type Tx,
 } from "@openmanga/db";
 import {
+  clampFrame,
+  customLayoutFrames,
+  customLayoutKey,
   defaultTailTarget,
   defaultTemplateForCount,
   draftBubble,
   faceAvoidZone,
   layoutByKey,
+  pickLayout,
   placeBubble,
   quadrantFromArea,
   type ResolvedLettering,
@@ -569,6 +573,8 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
     const s = project.settings;
     const lettering = resolveLettering(s);
     const dir = project.readingDirection;
+    /** How many pages of each panel count took one of the project's layouts so far: the next takes the next one. */
+    const customSeen = new Map<number, number>();
     let pageOrder = 0;
     let lineOrder = 0;
     let panelCount = 0;
@@ -614,13 +620,18 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
         : sc.pages;
       for (const pg of plannedPages) {
         const n = pg.panels.length;
+        // The project's own layouts come first: each new page takes one with its panel count, in turn.
+        const custom = oneFramePerPage ? null : pickLayout(s.layouts, n, customSeen.get(n) ?? 0);
+        if (custom) customSeen.set(n, (customSeen.get(n) ?? 0) + 1);
         const tpl = layoutByKey(pg.layoutTemplate);
         const template = tpl && tpl.frames.length === n ? tpl : defaultTemplateForCount(n);
-        let frames = templateFrames(template.key, {
-          margin: s.pageMargin,
-          gutter: s.pageGutter,
-          readingDirection: dir,
-        });
+        let frames = custom
+          ? customLayoutFrames(custom, dir).map(clampFrame)
+          : templateFrames(template.key, {
+              margin: s.pageMargin,
+              gutter: s.pageGutter,
+              readingDirection: dir,
+            });
         if (frames.length < n) {
           const rowH = (1 - s.pageMargin * 2) / n;
           frames = Array.from({ length: n }, (_, i) => ({
@@ -645,7 +656,11 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
             pacing: pg.pacing,
             visualEmphasis: pg.visualEmphasis,
             pageTurnHook: pg.pageTurnHook,
-            layoutTemplate: frames.length === template.frames.length ? template.key : null,
+            layoutTemplate: custom
+              ? customLayoutKey(custom.id)
+              : frames.length === template.frames.length
+                ? template.key
+                : null,
             width: s.pageWidth,
             height:
               stripHeight?.success === true ? stripPageHeight(s.pageWidth, stripHeight.data.height) : s.pageHeight,

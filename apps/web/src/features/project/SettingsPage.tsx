@@ -23,6 +23,7 @@ import type { TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { EdgePicker } from "../pages/EdgePicker.tsx";
+import { LayoutLibrary } from "../pages/LayoutLibrary.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
 import { PronunciationSection } from "./PronunciationSection.tsx";
 import { PublishingSection, VideoSection } from "./VideoSettings.tsx";
@@ -286,6 +287,10 @@ export function SettingsPage() {
           value={s.targetRuntime ?? null}
           onChange={(v) => setS("targetRuntime", v)}
         />
+
+        {s.format !== "film" && s.format !== "vertical" && (
+          <LayoutLibrary projectId={projectId} value={s.layouts} onChange={(v) => setS("layouts", v)} />
+        )}
 
         <section className="card space-y-3 p-4">
           <h2 className="font-medium">Page and panel edges</h2>
