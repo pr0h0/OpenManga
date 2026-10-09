@@ -53,6 +53,7 @@ import {
   asPatch,
   Bubble,
   CameraAngle,
+  EdgeStyle,
   Frame,
   ImageTransform,
   PanelGuide,
@@ -276,6 +277,8 @@ export const PatchPage = z.object({
   status: z.enum(["draft", "approved", "locked", "superseded"]).optional(),
   sceneId: z.string().uuid().nullable().optional(),
   order: z.number().int().min(1).optional(),
+  /** This page's decorative edge; null goes back to the project's. */
+  edge: EdgeStyle.nullable().optional(),
 });
 doc({
   method: "PATCH",

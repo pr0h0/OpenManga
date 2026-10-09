@@ -65,3 +65,21 @@ test("a panel's own border is kept on its frame and overrides the project's defa
   expect(after.panels.find((x) => x.id !== p.id)!.frame.edge).toBeUndefined();
   expect((await u.raw("GET", `/api/pages/${pageId}/render.png?width=400`)).status).toBe(200);
 });
+
+test("a page's own edge: set on one page, the others keep the project's, and null goes back to it", async () => {
+  await u.patch(`/api/projects/${projectId}`, { settings: { edges: { page: { style: "wavy", size: 1 } } } });
+  const { page } = await u.patch<{ page: { edge: unknown } }>(`/api/pages/${pageId}`, {
+    edge: { style: "burnt", size: 0.7 },
+  });
+  expect(page.edge).toEqual({ style: "burnt", size: 0.7 });
+  // The page's own edge changes its render; going back to the project's changes it again.
+  const png = async () =>
+    new Uint8Array(await (await u.raw("GET", `/api/pages/${pageId}/render.png?width=300`)).arrayBuffer());
+  const burnt = await png();
+  await u.patch(`/api/pages/${pageId}`, { edge: null });
+  const wavy = await png();
+  expect(Buffer.from(burnt).equals(Buffer.from(wavy))).toBe(false);
+  const after = await u.get<{ page: { edge: unknown } }>(`/api/pages/${pageId}`);
+  expect(after.page.edge).toBeNull();
+  await u.patch(`/api/pages/${pageId}`, { edge: { style: "sparkly", size: 1 } }, 422);
+});

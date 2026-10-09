@@ -5625,6 +5625,36 @@ create: add a page to a chapter with a layout template. update: edit the page pl
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
+        },
+        "edge": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "style": {
+                  "default": "straight",
+                  "type": "string",
+                  "enum": [
+                    "straight",
+                    "wavy",
+                    "torn",
+                    "rough",
+                    "brush",
+                    "burnt"
+                  ]
+                },
+                "size": {
+                  "default": 0.5,
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },

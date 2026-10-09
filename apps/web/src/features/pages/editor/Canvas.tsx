@@ -47,7 +47,8 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
   const setView = useView((s) => s.set);
   const W = data.page.width;
   const H = data.page.height;
-  const pe = useProject().data?.project.settings.edges?.page;
+  const projectEdge = useProject().data?.project.settings.edges?.page;
+  const pe = data.page.edge ?? projectEdge;
   const pageEdge = pe && pe.style !== "straight" && pe.size > 0 ? pe : null;
 
   useLayoutEffect(() => {

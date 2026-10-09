@@ -9,6 +9,8 @@ import { ActiveBatches } from "../../generation/BatchStatus.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { BulkGenerateButton, LayoutThumb } from "../BulkGenerate.tsx";
+import { EdgePicker } from "../EdgePicker.tsx";
+import { useEditor } from "./store.ts";
 
 export function PageTab({ data }: { data: PageDocument }) {
   const projectId = useProjectId();
@@ -22,6 +24,12 @@ export function PageTab({ data }: { data: PageDocument }) {
     pageTurnHook: p.pageTurnHook,
   });
   const [swap, setSwap] = useState<string | null>(null);
+  // The panels' border when they all share one (or all follow the project's): shown as the page-wide choice.
+  const panelEdge = useEditor((s) => {
+    const edges = s.doc.panels.map((pn) => pn.frame.edge);
+    const first = edges[0];
+    return first && edges.every((e) => e?.style === first.style && e.size === first.size) ? first : undefined;
+  });
   useEffect(
     () =>
       setForm({ purpose: p.purpose, pacing: p.pacing, visualEmphasis: p.visualEmphasis, pageTurnHook: p.pageTurnHook }),
@@ -124,6 +132,33 @@ export function PageTab({ data }: { data: PageDocument }) {
         >
           Save page plan
         </button>
+        <div hidden={film} className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+          <div className="label">Borders</div>
+          <EdgePicker
+            label="This page's edge"
+            inheritLabel="Project default"
+            value={p.edge ?? undefined}
+            onChange={(edge) => save.mutate({ edge: edge ?? null })}
+          />
+          <EdgePicker
+            label="Every panel on this page"
+            inheritLabel="Project default"
+            value={panelEdge}
+            onChange={(edge) =>
+              useEditor.getState().commit((d) => ({
+                ...d,
+                panels: d.panels.map((pn) => {
+                  const { edge: _e, ...frame } = pn.frame;
+                  return { ...pn, frame: edge ? { ...frame, edge } : frame };
+                }),
+              }))
+            }
+          />
+          <p className="muted text-xs">
+            The page edge overrides the project's for this page only. The panel border is set on every panel of the page
+            at once; a panel can still change its own on its Panel tab.
+          </p>
+        </div>
         <div hidden={film}>
           <div className="label">
             Layout template {p.layoutTemplate ? `(current: ${p.layoutTemplate})` : "(custom)"}
