@@ -1,9 +1,9 @@
 import type { CustomLayout } from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Download, Lock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Lock, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { get, patch, post } from "../../../api/client.ts";
+import { del, get, patch, post } from "../../../api/client.ts";
 import { qk, useAction, useMeta } from "../../../api/hooks.ts";
 import type { PageDocument } from "../../../api/types.ts";
 import { ConfirmDialog, clsx, Field, StatusChip } from "../../../components/ui.tsx";
@@ -48,6 +48,25 @@ export function PageTab({ data }: { data: PageDocument }) {
       void qc.invalidateQueries({ queryKey: ["layouts"] });
     },
   });
+  const [removing, setRemoving] = useState<CustomLayout | null>(null);
+  // Gone from the library and from this project; pages already laid out with it keep their panels.
+  const removeLayout = useAction(
+    async (l: CustomLayout) => {
+      if (library.data?.layouts.some((x) => x.id === l.id)) await del(`/layouts/${l.id}`);
+      if (projectLayouts.some((x) => x.id === l.id))
+        await patch(`/projects/${projectId}`, {
+          settings: { layouts: projectLayouts.filter((x) => x.id !== l.id) },
+        });
+    },
+    {
+      success: "Layout deleted",
+      onSuccess: () => {
+        setRemoving(null);
+        void qc.invalidateQueries({ queryKey: ["layouts"] });
+        void qc.invalidateQueries({ queryKey: qk.project(projectId) });
+      },
+    },
+  );
   useEffect(
     () =>
       setForm({ purpose: p.purpose, pacing: p.pacing, visualEmphasis: p.visualEmphasis, pageTurnHook: p.pageTurnHook }),
@@ -206,20 +225,30 @@ export function PageTab({ data }: { data: PageDocument }) {
               <div className="label mt-2">Your layouts</div>
               <div className="grid grid-cols-4 gap-1.5">
                 {saved.map((l) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    title={`${l.name} · ${l.frames.length} panel${l.frames.length === 1 ? "" : "s"}`}
-                    aria-label={`Use layout ${l.name}`}
-                    onClick={() => setSwap(`custom:${l.id}`)}
-                    className={clsx(
-                      "card flex flex-col items-center gap-0.5 p-1.5 text-[10px] hover:border-accent-500",
-                      p.layoutTemplate === `custom:${l.id}` && "border-accent-500",
-                    )}
-                  >
-                    <LayoutThumb frames={l.frames} className="h-10 w-7" />
-                    <span className="w-full truncate text-center">{l.name}</span>
-                  </button>
+                  <div key={l.id} className="relative">
+                    <button
+                      type="button"
+                      title={`${l.name} · ${l.frames.length} panel${l.frames.length === 1 ? "" : "s"}`}
+                      aria-label={`Use layout ${l.name}`}
+                      onClick={() => setSwap(`custom:${l.id}`)}
+                      className={clsx(
+                        "card flex flex-col items-center gap-0.5 p-1.5 text-[10px] hover:border-accent-500",
+                        p.layoutTemplate === `custom:${l.id}` && "border-accent-500",
+                      )}
+                    >
+                      <LayoutThumb frames={l.frames} className="h-10 w-7" />
+                      <span className="w-full truncate text-center">{l.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete layout ${l.name}`}
+                      title="Delete layout"
+                      onClick={() => setRemoving(l)}
+                      className="absolute -top-1.5 -right-1.5 rounded-full border border-[var(--border)] bg-[var(--panel)] p-0.5 hover:text-red-500"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
                 ))}
               </div>
             </>
@@ -285,6 +314,18 @@ export function PageTab({ data }: { data: PageDocument }) {
       >
         Existing panels are moved into the new frames in reading order (artwork and lettering are kept). Missing frames
         get new empty panels.
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={Boolean(removing)}
+        title={`Delete layout "${removing?.name ?? ""}"?`}
+        confirmLabel="Delete"
+        danger
+        busy={removeLayout.isPending}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => removing && removeLayout.mutate(removing)}
+      >
+        It is removed from your layouts and from this project. Pages already laid out with it keep their panels; other
+        projects that use it keep their copy.
       </ConfirmDialog>
     </div>
   );
