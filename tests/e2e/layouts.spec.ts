@@ -15,7 +15,7 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(() => page?.context().close());
 test.afterEach(() => expectNoErrors(errors));
 
-test("layouts: save a page's layout, use it in the project, re-lay the chapter with it", async () => {
+test("layouts: save a page's layout, use it in the project, re-lay the chapter with it, delete it", async () => {
   const a = api(page);
   await page.goto(`${s.url}/pages/${s.pageId}`);
   await page.getByRole("tab", { name: "Page" }).click();
@@ -39,4 +39,14 @@ test("layouts: save a page's layout, use it in the project, re-lay the chapter w
   await expect(page.getByText(/page\(s\) re-laid/)).toBeVisible();
   const { pages } = await a.get<{ pages: { id: string; layoutTemplate: string | null }[] }>(`/chapters/${s.chapterId}`);
   expect(pages.find((p) => p.id === s.pageId)!.layoutTemplate).toMatch(/^custom:/);
+
+  await page.goto(`${s.url}/pages/${s.pageId}`);
+  await page.getByRole("tab", { name: "Page" }).click();
+  await page.getByRole("button", { name: "Delete layout My first layout" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("button", { name: "Use layout My first layout" })).toHaveCount(0);
+  const { layouts } = await a.get<{ layouts: unknown[] }>("/layouts");
+  expect(layouts).toHaveLength(0);
+  const { project } = await a.get<{ project: { settings: { layouts?: unknown[] } } }>(`/projects/${s.projectId}`);
+  expect(project.settings.layouts ?? []).toHaveLength(0);
 });

@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   borders as one of your layouts, for any of your projects (`/api/layouts`). A project picks the ones it uses
   (settings → *Page layouts*): planning a chapter gives each new page one with its number of panels, in turn, instead
   of a built-in template, and *Apply layouts* re-lays a chapter's pages (or *Re-lay every page* the whole project's)
-  the same way, keeping their art and text. A page can also switch to any saved layout from the Page tab. Layouts are
+  the same way, keeping their art and text. A page can also switch to any saved layout from the Page tab, and delete one there (its ✕). Layouts are
   mirrored for right-to-left books. MCP `manage_layouts`; `manage_page set_layout` takes `custom:<id>`.
 - Panel shapes: a panel can have a polygon outline instead of a rectangle. In the page editor, *Edit shape* on the
   Panel tab shows a handle on every point (drag it, double-click to remove it) and a dashed circle on every edge (click
