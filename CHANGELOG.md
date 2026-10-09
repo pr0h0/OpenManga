@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-10-09
+
+Upgrading: pull the new images and restart. One migration runs on start through the migrate service
+(`0039_page_edge`). No new settings. Panel shapes, page and panel edges, page borders and custom page layouts for the
+page editor, plus editor fixes for dragging and resizing.
+
 ### Added
 
 - Borders for a whole page (page editor → Page tab → *Borders*): this page's own edge, over the project's (migration
