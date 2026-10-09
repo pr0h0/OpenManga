@@ -19,7 +19,35 @@ export const asPatch = <T extends z.ZodObject<z.ZodRawShape>>(schema: T) =>
     // Types as `.partial()` does — every field optional, value types intact — while the runtime drops defaults.
   ) as unknown as ReturnType<T["partial"]>;
 
-export const Frame = z.object({ x: unit, y: unit, width: z.number().gt(0).max(1), height: z.number().gt(0).max(1) });
+/**
+ * A panel's place on the page, in fractions of it. `points` (optional) gives the panel a polygon outline instead of
+ * the box: each point in fractions of the box itself (0,0 its top-left, 1,1 its bottom-right), in drawing order. The
+ * box always bounds the outline, so moving or resizing the box carries the shape with it. No points: a rectangle.
+ */
+export const FramePoint = z.object({ x: unit, y: unit });
+export type FramePoint = z.infer<typeof FramePoint>;
+/**
+ * A decorative edge: how a page's outline or a panel's border is drawn. `straight` is the plain line; the others
+ * eat into the shape by up to `size` (0–1) of their own depth, deterministically (the same panel always looks the
+ * same): `wavy` a regular wave, `torn` a ripped paper edge, `rough` a hand-cut one, `brush` an ink stroke of
+ * varying weight, `burnt` a scorched edge darkening inwards.
+ */
+export const EDGE_STYLES = ["straight", "wavy", "torn", "rough", "brush", "burnt"] as const;
+export const EdgeStyle = z.object({
+  style: z.enum(EDGE_STYLES).default("straight"),
+  size: z.number().min(0).max(1).default(0.5),
+});
+export type EdgeStyle = z.infer<typeof EdgeStyle>;
+
+export const Frame = z.object({
+  x: unit,
+  y: unit,
+  width: z.number().gt(0).max(1),
+  height: z.number().gt(0).max(1),
+  points: z.array(FramePoint).min(3).max(24).optional(),
+  /** This panel's border style, in place of the project's default for panels. */
+  edge: EdgeStyle.optional(),
+});
 export type Frame = z.infer<typeof Frame>;
 
 /** Crop/scale of artwork inside a panel frame. focal = normalized point of the image that sits at frame center. */
@@ -362,6 +390,19 @@ export const VISUAL_CHECK_DEFAULTS: Record<VisualCheck, VisualCheckMode> = {
   covered_faces: "flag",
 };
 
+/**
+ * A page layout of the user's: the frames of a page they arranged (shapes and borders included), in page fractions
+ * with its margins and gutters, as read in `readingDirection` (mirrored for the other one when used). Kept in their
+ * account to reuse in any project, and copied into a project's settings to plan and re-lay its pages with.
+ */
+export const CustomLayout = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  frames: z.array(Frame).min(1).max(5),
+  readingDirection: z.enum(["ltr", "rtl"]).default("ltr"),
+});
+export type CustomLayout = z.infer<typeof CustomLayout>;
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
   pageWidth: z.number().int().min(256).max(8000).default(1600),
@@ -493,6 +534,16 @@ export const ProjectSettings = z.object({
         .optional(),
     })
     .optional(),
+  /**
+   * Decorative edges: `page` for every page's outline (cut out over the blurred backdrop in videos, drawn on paper
+   * elsewhere), `panels` the default border of every panel (a panel's own `frame.edge` wins).
+   */
+  edges: z.object({ page: EdgeStyle.optional(), panels: EdgeStyle.optional() }).optional(),
+  /**
+   * This project's page layouts (copies of saved ones): chapter planning gives each new page one with its panel
+   * count, in turn, and re-laying a chapter or the project matches existing pages to them the same way.
+   */
+  layouts: z.array(CustomLayout).max(30).optional(),
   /** The repurposing plan: Shorts, trailer, teaser, carousel and quote images, reviewed before rendering. */
   repurpose: z.object({ items: z.array(RepurposeItem).max(40).default([]) }).optional(),
   /**
@@ -559,11 +610,14 @@ export type ChannelProfile = z.infer<typeof ChannelProfile>;
  * Per-account preferences that seed a new project. Every field is optional: absent means "no preference", so the
  * server default still applies and a project created before the preference existed is untouched.
  */
+
 export const UserSettings = z.object({
   /** Kokoro voice id used for new projects' narration. */
   narrationVoice: z.string().trim().max(64).optional(),
   projectTemplates: z.array(ProjectTemplate).max(50).optional(),
   channelProfiles: z.array(ChannelProfile).max(50).optional(),
+  /** The user's saved page layouts, for any of their projects. */
+  layouts: z.array(CustomLayout).max(100).optional(),
 });
 export type UserSettings = z.infer<typeof UserSettings>;
 

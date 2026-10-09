@@ -1,9 +1,19 @@
-import { bubbleGeometry, layoutBubbleText } from "@openmanga/domain/browser";
+import {
+  bubbleGeometry,
+  edgeOutline,
+  framePolygon,
+  insertFramePoint,
+  layoutBubbleText,
+  moveFramePoint,
+  removeFramePoint,
+} from "@openmanga/domain/browser";
+import type { Frame } from "@openmanga/schemas";
 import Konva from "konva";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Circle, Group, Image as KImage, Line, Path, Rect, Text } from "react-konva";
 import { assetUrl } from "../../../api/client.ts";
 import type { EditorPanel } from "../../../api/types.ts";
+import { useProject } from "../../project/ProjectLayout.tsx";
 import {
   clampBox,
   clampFrame,
@@ -22,6 +32,24 @@ const cursor = (kind: string, readOnly: boolean) => (e: Konva.KonvaEventObject<M
   const el = e.target.getStage()?.container();
   if (el) el.style.cursor = readOnly ? "" : kind;
 };
+
+/**
+ * Keeps a dragged item inside the page while it is being dragged, so it stops at the edge in front of you instead of
+ * jumping back when released (saving clamps it to the page either way). `w`×`h` is its box in page pixels and `ox`,
+ * `oy` where its position sits inside that box (its offset: the centre for bubbles, nothing for panels).
+ */
+function pageBound(W: number, H: number, w: number, h: number, ox = 0, oy = 0) {
+  return function (this: Konva.Node, pos: Konva.Vector2d) {
+    const stage = this.getStage();
+    if (!stage) return pos;
+    const toScreen = stage.getAbsoluteTransform().copy();
+    const p = toScreen.copy().invert().point(pos);
+    return toScreen.point({
+      x: Math.min(Math.max(p.x, ox), Math.max(ox, W - w + ox)),
+      y: Math.min(Math.max(p.y, oy), Math.max(oy, H - h + oy)),
+    });
+  };
+}
 
 const imageCache = new Map<string, HTMLImageElement>();
 export function useHtmlImage(src: string | null) {
@@ -89,6 +117,29 @@ export function PanelNode({
   }, [busy]);
   const border = Math.max(2, W / 400);
   const adjusting = useEditor((s) => s.adjustImageFor === panel.id) && !readOnly && Boolean(img);
+  const shaping = useEditor((s) => s.shapeEditFor === panel.id) && !readOnly;
+  // A shaped or edged panel: its outline (the renderer's, with the panel's or the project's edge style) in the
+  // group's own pixels (the group sits at the box's top-left).
+  const edges = useProject().data?.project.settings.edges;
+  const edge = panel.frame.edge ?? edges?.panels;
+  const styled = Boolean(edge && edge.style !== "straight" && edge.size > 0);
+  const outline =
+    panel.frame.points || styled
+      ? edgeOutline(
+          framePolygon(panel.frame).map((p) => ({ x: p.x * W, y: p.y * H })),
+          styled ? edge : undefined,
+          Math.min(W, H),
+          panel.id,
+        ).flatMap((p) => [p.x - x, p.y - y])
+      : null;
+  const clip = outline
+    ? (ctx: Konva.Context) => {
+        ctx.beginPath();
+        for (let i = 0; i < outline.length; i += 2)
+          i ? ctx.lineTo(outline[i]!, outline[i + 1]!) : ctx.moveTo(outline[i]!, outline[i + 1]!);
+        ctx.closePath();
+      }
+    : undefined;
   const panStart = useRef<{ doc: EditorDoc; t: DocPanel["imageTransform"] } | null>(null);
   const setTransformLive = (t: DocPanel["imageTransform"]) =>
     useEditor.setState((s) => ({
@@ -102,7 +153,8 @@ export function PanelNode({
       name="panel"
       x={x}
       y={y}
-      draggable={!readOnly && !adjusting}
+      draggable={!readOnly && !adjusting && !shaping}
+      dragBoundFunc={pageBound(W, H, w, h)}
       onDblClick={() => !readOnly && img && useEditor.getState().setAdjustImage(panel.id)}
       onDblTap={() => !readOnly && img && useEditor.getState().setAdjustImage(panel.id)}
       onMouseDown={onSelect}
@@ -145,7 +197,7 @@ export function PanelNode({
           listening={false}
         />
       )}
-      <Group clipX={0} clipY={0} clipWidth={w} clipHeight={h}>
+      <Group {...(clip ? { clipFunc: clip } : { clipX: 0, clipY: 0, clipWidth: w, clipHeight: h })}>
         <Rect width={w} height={h} fill="#e5e7eb" />
         {img && crop ? (
           <KImage image={img} width={w} height={h} crop={crop} />
@@ -217,14 +269,28 @@ export function PanelNode({
           }}
         />
       )}
-      <Rect
-        width={w}
-        height={h}
-        stroke={adjusting ? "#f59e0b" : selected ? "#3b6cf6" : status === "failed" ? "#ef4444" : "#111"}
-        strokeWidth={adjusting || selected ? border * 2 : border}
-        dash={adjusting ? [border * 6, border * 3] : undefined}
-        listening={false}
-      />
+      {(() => {
+        const stroke = {
+          stroke:
+            shaping || adjusting
+              ? "#f59e0b"
+              : selected
+                ? "#3b6cf6"
+                : status === "failed"
+                  ? "#ef4444"
+                  : styled && edge?.style === "burnt"
+                    ? "#3b1e08"
+                    : "#111",
+          strokeWidth: (adjusting || selected || shaping ? border * 2 : border) * (edge?.style === "brush" ? 1.7 : 1),
+          dash: adjusting ? [border * 6, border * 3] : undefined,
+          listening: false,
+        };
+        return outline ? (
+          <Line points={outline} closed lineJoin="miter" {...stroke} />
+        ) : (
+          <Rect width={w} height={h} {...stroke} />
+        );
+      })()}
       <Group x={8} y={8} listening={false}>
         <Rect width={Math.max(28, W / 45)} height={Math.max(22, W / 60)} cornerRadius={6} fill="#111" opacity={0.75} />
         <Text
@@ -248,7 +314,15 @@ export function PanelNode({
   );
 }
 
-export function BubbleNode({ item, W, H, readOnly, selected, onSelect }: Common & { item: DocBubble }) {
+export function BubbleNode({
+  item,
+  W,
+  H,
+  readOnly,
+  selected,
+  onSelect,
+  zoom = 1,
+}: Common & { item: DocBubble; zoom?: number }) {
   const { commit, setInteracting } = useEditor.getState();
   const b = item.bubble;
   const g = bubbleGeometry(b, W, H);
@@ -281,6 +355,7 @@ export function BubbleNode({ item, W, H, readOnly, selected, onSelect }: Common 
         offsetY={g.height / 2}
         rotation={b.rotation}
         draggable={!readOnly}
+        dragBoundFunc={pageBound(W, H, g.width, g.height, g.width / 2, g.height / 2)}
         onMouseEnter={cursor("move", readOnly)}
         onMouseLeave={cursor("", readOnly)}
         onMouseDown={onSelect}
@@ -359,11 +434,12 @@ export function BubbleNode({ item, W, H, readOnly, selected, onSelect }: Common 
           name="tail-handle"
           x={(b.tailTarget?.x ?? b.x + b.width / 2) * W}
           y={(b.tailTarget?.y ?? Math.min(1, b.y + b.height * 1.5)) * H}
-          radius={Math.max(12, W / 110)}
+          // The same size on screen at any zoom, with a generous grab area around it.
+          radius={9 / zoom}
           fill="#3b6cf6"
           stroke="#fff"
-          strokeWidth={3}
-          hitStrokeWidth={20}
+          strokeWidth={2.5 / zoom}
+          hitStrokeWidth={18 / zoom}
           onMouseEnter={cursor("grab", readOnly)}
           onMouseLeave={cursor("", readOnly)}
           onDragMove={(e) => {
@@ -442,6 +518,7 @@ export function SfxNode({ item, W, H, readOnly, selected, onSelect }: Common & {
       shadowColor={selected ? "#3b6cf6" : undefined}
       shadowBlur={selected ? 12 : 0}
       draggable={!readOnly}
+      dragBoundFunc={pageBound(W, H, 0, 0)}
       onMouseEnter={cursor("move", readOnly)}
       onMouseLeave={cursor("", readOnly)}
       onMouseDown={onSelect}
@@ -468,5 +545,81 @@ export function SfxNode({ item, W, H, readOnly, selected, onSelect }: Common & {
         }));
       }}
     />
+  );
+}
+
+/**
+ * The outline editor of one panel, drawn in page pixels over everything: a handle on every point (drag it; double-click
+ * to remove it, down to three) and a "+" halfway along every edge (click to add a point there). Dragging updates the
+ * panel live and records one undo step when released.
+ */
+export function ShapeHandles({ panelId, W, H, zoom }: { panelId: string; W: number; H: number; zoom: number }) {
+  const panel = useEditor((s) => s.doc.panels.find((p) => p.id === panelId));
+  const start = useRef<EditorDoc | null>(null);
+  if (!panel) return null;
+  const { commit, setInteracting } = useEditor.getState();
+  const poly = framePolygon(panel.frame);
+  // Handles keep one size on screen at any zoom, with a wider grab area than they draw.
+  const r = 8 / zoom;
+  const setFrame = (frame: Frame) => (d: EditorDoc) => ({
+    ...d,
+    panels: d.panels.map((p) => (p.id === panelId ? { ...p, frame } : p)),
+  });
+  const at = (e: Konva.KonvaEventObject<DragEvent>) => ({
+    x: Math.min(1, Math.max(0, e.target.x() / W)),
+    y: Math.min(1, Math.max(0, e.target.y() / H)),
+  });
+  return (
+    <Group name="shape-handles">
+      {poly.map((p, i) => {
+        const q = poly[(i + 1) % poly.length]!;
+        return (
+          <Circle
+            key={`m${i}`}
+            name="shape-add"
+            x={((p.x + q.x) / 2) * W}
+            y={((p.y + q.y) / 2) * H}
+            radius={r * 0.8}
+            hitStrokeWidth={12 / zoom}
+            fill="#fff"
+            stroke="#f59e0b"
+            strokeWidth={r / 3}
+            dash={[r / 2, r / 3]}
+            onClick={() => commit(setFrame(insertFramePoint(panel.frame, i)))}
+            onTap={() => commit(setFrame(insertFramePoint(panel.frame, i)))}
+          />
+        );
+      })}
+      {poly.map((p, i) => (
+        <Circle
+          key={`p${i}`}
+          name="shape-point"
+          x={p.x * W}
+          y={p.y * H}
+          radius={r}
+          fill="#f59e0b"
+          stroke="#fff"
+          strokeWidth={r / 3}
+          hitStrokeWidth={14 / zoom}
+          draggable
+          onDragStart={() => {
+            start.current = useEditor.getState().doc;
+            setInteracting(true);
+          }}
+          onDragMove={(e) =>
+            useEditor.setState((s) => ({ doc: setFrame(moveFramePoint(panel.frame, i, at(e)))(s.doc) }))
+          }
+          onDragEnd={(e) => {
+            const frame = moveFramePoint(panel.frame, i, at(e));
+            if (start.current) useEditor.setState({ doc: start.current });
+            start.current = null;
+            setInteracting(false);
+            commit(setFrame(frame));
+          }}
+          onDblClick={() => commit(setFrame(removeFramePoint(panel.frame, i)))}
+          onDblTap={() => commit(setFrame(removeFramePoint(panel.frame, i)))}
+        />
+      ))}
+    </Group>
   );
 }

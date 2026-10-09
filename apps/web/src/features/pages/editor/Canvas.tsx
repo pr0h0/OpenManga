@@ -1,10 +1,12 @@
+import { edgeOutline, outlinePath } from "@openmanga/domain/browser";
 import type Konva from "konva";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Layer, Rect, Stage, Transformer } from "react-konva";
+import { Layer, Path, Rect, Stage, Transformer } from "react-konva";
 import { create } from "zustand";
 import type { PageDocument } from "../../../api/types.ts";
-import { BubbleNode, PanelNode, SfxNode } from "./shapes.tsx";
+import { useProject } from "../../project/ProjectLayout.tsx";
+import { BubbleNode, PanelNode, SfxNode, ShapeHandles } from "./shapes.tsx";
 import { useEditor } from "./store.ts";
 
 /** View state (zoom/pan) is UI-only and never persisted. */
@@ -36,6 +38,7 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
   const select = useEditor((s) => s.select);
   const aimTailFor = useEditor((s) => s.aimTailFor);
   const adjustImageFor = useEditor((s) => s.adjustImageFor);
+  const shapeEditFor = useEditor((s) => s.shapeEditFor);
   useEffect(() => {
     const el = stageRef.current?.container();
     if (el) el.style.cursor = aimTailFor ? "crosshair" : "";
@@ -44,6 +47,9 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
   const setView = useView((s) => s.set);
   const W = data.page.width;
   const H = data.page.height;
+  const projectEdge = useProject().data?.project.settings.edges?.page;
+  const pe = data.page.edge ?? projectEdge;
+  const pageEdge = pe && pe.style !== "straight" && pe.size > 0 ? pe : null;
 
   useLayoutEffect(() => {
     const el = wrap.current;
@@ -66,14 +72,14 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
     if (!tr || !stage) return;
     const prefix = selection?.type === "panel" ? "panel" : selection?.type === "bubble" ? "bubble" : "sfx";
     const nodes =
-      readOnly || !selection || useEditor.getState().adjustImageFor
+      readOnly || !selection || useEditor.getState().adjustImageFor || useEditor.getState().shapeEditFor
         ? []
         : selection.ids.map((id) => stage.findOne(`#${prefix}-${id}`)).filter((n): n is Konva.Node => Boolean(n));
     tr.nodes(nodes);
     tr.rotateEnabled(selection?.type !== "panel");
     tr.keepRatio(selection?.type === "sfx");
     tr.getLayer()?.batchDraw();
-  }, [selection, doc, readOnly, adjustImageFor]);
+  }, [selection, doc, readOnly, adjustImageFor, shapeEditFor]);
 
   const onWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -149,15 +155,41 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
         }}
       >
         <Layer>
-          <Rect
-            name="page-bg"
-            width={W}
-            height={H}
-            fill="#fff"
-            shadowColor="#000"
-            shadowBlur={30 / zoom}
-            shadowOpacity={0.25}
-          />
+          {pageEdge ? (
+            // The page's decorative edge, as renders cut it (videos show the blurred backdrop beyond it).
+            <Path
+              name="page-bg"
+              data={outlinePath(
+                edgeOutline(
+                  [
+                    { x: 0, y: 0 },
+                    { x: W, y: 0 },
+                    { x: W, y: H },
+                    { x: 0, y: H },
+                  ],
+                  pageEdge,
+                  Math.min(W, H),
+                  data.page.id,
+                ),
+              )}
+              fill="#fff"
+              stroke={pageEdge.style === "burnt" ? "#3b1e08" : "#111"}
+              strokeWidth={Math.max(2, W / 500)}
+              shadowColor="#000"
+              shadowBlur={30 / zoom}
+              shadowOpacity={0.25}
+            />
+          ) : (
+            <Rect
+              name="page-bg"
+              width={W}
+              height={H}
+              fill="#fff"
+              shadowColor="#000"
+              shadowBlur={30 / zoom}
+              shadowOpacity={0.25}
+            />
+          )}
           {ordered.map((p, i) => (
             <PanelNode
               key={p.id}
@@ -189,6 +221,7 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
             .map((b) => (
               <BubbleNode
                 key={b.id}
+                zoom={zoom}
                 item={b}
                 W={W}
                 H={H}
@@ -197,12 +230,16 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
                 onSelect={sel("bubble", b.id)}
               />
             ))}
+          {shapeEditFor && !readOnly && <ShapeHandles panelId={shapeEditFor} W={W} H={H} zoom={zoom} />}
           <Transformer
             ref={trRef}
             ignoreStroke
             flipEnabled={false}
             rotationSnaps={[0, 90, 180, 270]}
-            anchorSize={Math.max(8, 10)}
+            // Big enough to grab, with a hit area wider than the square drawn.
+            anchorSize={14}
+            anchorCornerRadius={3}
+            anchorStyleFunc={(a) => a.hitStrokeWidth(16)}
             borderStroke="#3b6cf6"
             anchorStroke="#3b6cf6"
           />

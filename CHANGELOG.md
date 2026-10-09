@@ -7,6 +7,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-10-09
+
+Upgrading: pull the new images and restart. One migration runs on start through the migrate service
+(`0039_page_edge`). No new settings. Panel shapes, page and panel edges, page borders and custom page layouts for the
+page editor, plus editor fixes for dragging and resizing.
+
+### Added
+
+- Borders for a whole page (page editor → Page tab → *Borders*): this page's own edge, over the project's (migration
+  `0039_page_edge`), and one border style set on every panel of the page at once.
+- Custom page layouts: *Save as layout* on a page (page editor → Page tab) keeps its panels' frames, shapes and
+  borders as one of your layouts, for any of your projects (`/api/layouts`). A project picks the ones it uses
+  (settings → *Page layouts*): planning a chapter gives each new page one with its number of panels, in turn, instead
+  of a built-in template, and *Apply layouts* re-lays a chapter's pages (or *Re-lay every page* the whole project's)
+  the same way, keeping their art and text. A page can also switch to any saved layout from the Page tab, and delete one there (its ✕). Layouts are
+  mirrored for right-to-left books. MCP `manage_layouts`; `manage_page set_layout` takes `custom:<id>`.
+- Panel shapes: a panel can have a polygon outline instead of a rectangle. In the page editor, *Edit shape* on the
+  Panel tab shows a handle on every point (drag it, double-click to remove it) and a dashed circle on every edge (click
+  to add a point there), for slanted gutters, pointed tops and two panels sliding into each other. The art is cut to
+  the outline and the border follows it in page renders, PDFs and the PSD and layered exports (a webtoon strip
+  re-flows each panel to full width, so it shows the whole art); *Reset to rectangle* undoes it.
+- Page and panel edges (project settings → *Page and panel edges*): wavy, torn paper, rough cut, brush stroke or
+  burnt edges, with a depth, for every page's outline and as the default for panel borders; a panel can pick its own
+  on its Panel tab (*Border*). The art is cut to the edge and the edge drawn along it, the same way every time.
+  Page images and PDFs draw a page edge on paper white; videos cut the page out along it, so the blurred backdrop
+  shows around it (`?cutout=1` on page images does the same for the video preview). Stored in `settings.edges` and
+  on the panel's frame (no migration). Stored as optional `points` on the panel's frame (no migration).
+
+### Fixed
+
+- Page editor: dragging a panel, bubble or sound effect against the page edge no longer snaps it back on release:
+  it stops at the edge while you drag. Resize anchors, panel shape points and the bubble tail handle are bigger and
+  keep one size on screen at any zoom, with a wider grab area. *Move / zoom image* has a zoom slider and says why an
+  image at 100% only moves along the side that overflows.
+
 ## [0.16.1] — 2026-10-08
 
 Upgrading: pull the new images and restart. No migrations and no new settings. Security fixes for features added in

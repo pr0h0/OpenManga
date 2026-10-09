@@ -7,6 +7,11 @@ AI anywhere in them, consistent with the invariant that exports are deterministi
 a dependency of `packages/audio` (`ffmpegConvert`) for audio transcode and loudness normalisation, and `ffprobe` is
 used for the final duration check.
 
+A project's decorative page edge (`settings.edges.page`: wavy, torn, rough, brush or burnt) is cut out in the page
+cut: the page image keeps what lies outside its edge transparent, so the shot's blurred backdrop shows around it.
+The in-browser preview asks for the same cut-out page images (`?cutout=1`). Panel borders and shapes are part of
+the page image either way; the panel cut shows each panel's whole art.
+
 Code:
 
 | Part | Where |

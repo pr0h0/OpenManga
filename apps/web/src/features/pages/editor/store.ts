@@ -74,6 +74,9 @@ type State = {
   /** Panel whose artwork is being moved/zoomed inside its frame (drag = pan, wheel = zoom). */
   adjustImageFor: string | null;
   setAdjustImage: (id: string | null) => void;
+  /** The panel whose outline points are being edited (drag, add on an edge, double-click to remove). */
+  shapeEditFor: string | null;
+  setShapeEdit: (id: string | null) => void;
   onSaved: (() => void) | null;
   /** Loads a page; on a page newly opened, `panelId` (when it is on the page) is selected instead of the first panel. */
   hydrate: (pageId: string, d: PageDocument, panelId?: string) => void;
@@ -101,7 +104,9 @@ export const useEditor = create<State>((set, get) => ({
   aimTailFor: null,
   setAimTail: (id) => set({ aimTailFor: id }),
   adjustImageFor: null,
-  setAdjustImage: (id) => set({ adjustImageFor: id }),
+  setAdjustImage: (id) => set({ adjustImageFor: id, ...(id ? { shapeEditFor: null } : {}) }),
+  shapeEditFor: null,
+  setShapeEdit: (id) => set({ shapeEditFor: id, ...(id ? { adjustImageFor: null } : {}) }),
   onSaved: null,
 
   hydrate: (pageId, d, panelId) => {
@@ -227,7 +232,14 @@ const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 export function clampFrame(f: Frame): Frame {
   const width = Math.min(1, Math.max(0.02, f.width));
   const height = Math.min(1, Math.max(0.02, f.height));
-  return { x: clamp01(Math.min(f.x, 1 - width)), y: clamp01(Math.min(f.y, 1 - height)), width, height };
+  return {
+    x: clamp01(Math.min(f.x, 1 - width)),
+    y: clamp01(Math.min(f.y, 1 - height)),
+    width,
+    height,
+    ...(f.points ? { points: f.points } : {}),
+    ...(f.edge ? { edge: f.edge } : {}),
+  };
 }
 export function clampBox<T extends { x: number; y: number; width: number; height: number }>(b: T): T {
   const width = Math.min(1, Math.max(0.01, b.width));

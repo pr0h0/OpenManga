@@ -1,7 +1,9 @@
+import type { CustomLayout } from "@openmanga/schemas";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Download, Lock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Lock, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { patch, post } from "../../../api/client.ts";
+import { del, get, patch, post } from "../../../api/client.ts";
 import { qk, useAction, useMeta } from "../../../api/hooks.ts";
 import type { PageDocument } from "../../../api/types.ts";
 import { ConfirmDialog, clsx, Field, StatusChip } from "../../../components/ui.tsx";
@@ -9,6 +11,8 @@ import { ActiveBatches } from "../../generation/BatchStatus.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { BulkGenerateButton, LayoutThumb } from "../BulkGenerate.tsx";
+import { EdgePicker } from "../EdgePicker.tsx";
+import { useEditor } from "./store.ts";
 
 export function PageTab({ data }: { data: PageDocument }) {
   const projectId = useProjectId();
@@ -22,6 +26,47 @@ export function PageTab({ data }: { data: PageDocument }) {
     pageTurnHook: p.pageTurnHook,
   });
   const [swap, setSwap] = useState<string | null>(null);
+  // The panels' border when they all share one (or all follow the project's): shown as the page-wide choice.
+  const panelEdge = useEditor((s) => {
+    const edges = s.doc.panels.map((pn) => pn.frame.edge);
+    const first = edges[0];
+    return first && edges.every((e) => e?.style === first.style && e.size === first.size) ? first : undefined;
+  });
+  const [layoutName, setLayoutName] = useState("");
+  const qc = useQueryClient();
+  const library = useQuery({ queryKey: ["layouts"], queryFn: () => get<{ layouts: CustomLayout[] }>("/layouts") });
+  const projectLayouts = useProject().data?.project.settings.layouts ?? [];
+  // The project's copies first, then the rest of the user's library.
+  const saved = [
+    ...projectLayouts,
+    ...(library.data?.layouts ?? []).filter((l) => !projectLayouts.some((x) => x.id === l.id)),
+  ];
+  const saveLayout = useAction((name: string) => post("/layouts", { name, pageId: p.id }), {
+    success: "Saved to your layouts",
+    onSuccess: () => {
+      setLayoutName("");
+      void qc.invalidateQueries({ queryKey: ["layouts"] });
+    },
+  });
+  const [removing, setRemoving] = useState<CustomLayout | null>(null);
+  // Gone from the library and from this project; pages already laid out with it keep their panels.
+  const removeLayout = useAction(
+    async (l: CustomLayout) => {
+      if (library.data?.layouts.some((x) => x.id === l.id)) await del(`/layouts/${l.id}`);
+      if (projectLayouts.some((x) => x.id === l.id))
+        await patch(`/projects/${projectId}`, {
+          settings: { layouts: projectLayouts.filter((x) => x.id !== l.id) },
+        });
+    },
+    {
+      success: "Layout deleted",
+      onSuccess: () => {
+        setRemoving(null);
+        void qc.invalidateQueries({ queryKey: ["layouts"] });
+        void qc.invalidateQueries({ queryKey: qk.project(projectId) });
+      },
+    },
+  );
   useEffect(
     () =>
       setForm({ purpose: p.purpose, pacing: p.pacing, visualEmphasis: p.visualEmphasis, pageTurnHook: p.pageTurnHook }),
@@ -124,9 +169,39 @@ export function PageTab({ data }: { data: PageDocument }) {
         >
           Save page plan
         </button>
+        <div hidden={film} className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+          <div className="label">Borders</div>
+          <EdgePicker
+            label="This page's edge"
+            inheritLabel="Project default"
+            value={p.edge ?? undefined}
+            onChange={(edge) => save.mutate({ edge: edge ?? null })}
+          />
+          <EdgePicker
+            label="Every panel on this page"
+            inheritLabel="Project default"
+            value={panelEdge}
+            onChange={(edge) =>
+              useEditor.getState().commit((d) => ({
+                ...d,
+                panels: d.panels.map((pn) => {
+                  const { edge: _e, ...frame } = pn.frame;
+                  return { ...pn, frame: edge ? { ...frame, edge } : frame };
+                }),
+              }))
+            }
+          />
+          <p className="muted text-xs">
+            The page edge overrides the project's for this page only. The panel border is set on every panel of the page
+            at once; a panel can still change its own on its Panel tab.
+          </p>
+        </div>
         <div hidden={film}>
           <div className="label">
-            Layout template {p.layoutTemplate ? `(current: ${p.layoutTemplate})` : "(custom)"}
+            Layout template{" "}
+            {p.layoutTemplate
+              ? `(current: ${p.layoutTemplate.startsWith("custom:") ? (saved.find((l) => `custom:${l.id}` === p.layoutTemplate)?.name ?? "a saved layout") : p.layoutTemplate})`
+              : "(custom)"}
           </div>
           <div className="grid grid-cols-4 gap-1.5">
             {meta?.layouts.map((t) => (
@@ -145,6 +220,66 @@ export function PageTab({ data }: { data: PageDocument }) {
               </button>
             ))}
           </div>
+          {saved.length > 0 && (
+            <>
+              <div className="label mt-2">Your layouts</div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {saved.map((l) => (
+                  <div key={l.id} className="relative">
+                    <button
+                      type="button"
+                      title={`${l.name} · ${l.frames.length} panel${l.frames.length === 1 ? "" : "s"}`}
+                      aria-label={`Use layout ${l.name}`}
+                      onClick={() => setSwap(`custom:${l.id}`)}
+                      className={clsx(
+                        "card flex flex-col items-center gap-0.5 p-1.5 text-[10px] hover:border-accent-500",
+                        p.layoutTemplate === `custom:${l.id}` && "border-accent-500",
+                      )}
+                    >
+                      <LayoutThumb frames={l.frames} className="h-10 w-7" />
+                      <span className="w-full truncate text-center">{l.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete layout ${l.name}`}
+                      title="Delete layout"
+                      onClick={() => setRemoving(l)}
+                      className="absolute -top-1.5 -right-1.5 rounded-full border border-[var(--border)] bg-[var(--panel)] p-0.5 hover:text-red-500"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          <form
+            className="mt-2 flex gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (layoutName.trim()) saveLayout.mutate(layoutName.trim());
+            }}
+          >
+            <input
+              className="input flex-1 text-xs"
+              aria-label="Layout name"
+              placeholder="Name this page's layout"
+              maxLength={80}
+              value={layoutName}
+              onChange={(e) => setLayoutName(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="btn-secondary text-xs"
+              disabled={saveLayout.isPending || !layoutName.trim()}
+            >
+              Save as layout
+            </button>
+          </form>
+          <p className="muted text-xs">
+            Saves this page's panels (shapes and borders included) to your layouts, for any of your projects. Pick the
+            ones a project plans new pages with in its settings → Page layouts.
+          </p>
         </div>
       </fieldset>
       <div className="grid gap-2">
@@ -179,6 +314,18 @@ export function PageTab({ data }: { data: PageDocument }) {
       >
         Existing panels are moved into the new frames in reading order (artwork and lettering are kept). Missing frames
         get new empty panels.
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={Boolean(removing)}
+        title={`Delete layout "${removing?.name ?? ""}"?`}
+        confirmLabel="Delete"
+        danger
+        busy={removeLayout.isPending}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => removing && removeLayout.mutate(removing)}
+      >
+        It is removed from your layouts and from this project. Pages already laid out with it keep their panels; other
+        projects that use it keep their copy.
       </ConfirmDialog>
     </div>
   );

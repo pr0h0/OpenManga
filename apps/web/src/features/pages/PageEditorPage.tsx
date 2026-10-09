@@ -110,6 +110,8 @@ export function PageEditorPage() {
         } catch (err) {
           toast.error(err);
         }
+      } else if ((e.key === "Escape" || e.key === "Enter") && st.shapeEditFor) {
+        st.setShapeEdit(null);
       } else if ((e.key === "Escape" || e.key === "Enter") && st.adjustImageFor) {
         st.setAdjustImage(null);
       } else if (e.key === "Escape") {

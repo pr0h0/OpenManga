@@ -137,8 +137,32 @@ export function applyGutters(frames: Frame[], margin: number, gutter: number): F
   });
 }
 
-/** Mirror a frame horizontally for RTL manga reading order. */
-export const mirrorFrame = (fr: Frame): Frame => ({ ...fr, x: round(1 - fr.x - fr.width) });
+/** Mirror a frame horizontally for RTL manga reading order (a shaped panel's outline flips with it). */
+export const mirrorFrame = (fr: Frame): Frame => ({
+  ...fr,
+  x: round(1 - fr.x - fr.width),
+  ...(fr.points ? { points: fr.points.map((p) => ({ x: round(1 - p.x), y: p.y })) } : {}),
+});
+
+/** A saved layout's frames for a page read in `dir`: mirrored when it was made for the other direction. */
+export function customLayoutFrames(
+  l: { frames: Frame[]; readingDirection: "ltr" | "rtl" },
+  dir: "ltr" | "rtl" | "vertical",
+): Frame[] {
+  return dir !== "vertical" && dir !== l.readingDirection ? l.frames.map(mirrorFrame) : l.frames;
+}
+
+/**
+ * The layout a page with `n` panels takes from a set: the ones with that many frames in turn (the `k`-th page with
+ * that count gets the `k`-th of them, wrapping round), or none when no layout has that many.
+ */
+export function pickLayout<L extends { frames: Frame[] }>(layouts: L[] | undefined, n: number, k: number): L | null {
+  const fits = (layouts ?? []).filter((l) => l.frames.length === n);
+  return fits.length ? fits[k % fits.length]! : null;
+}
+
+/** The page layout key a saved layout is recorded under on a page. */
+export const customLayoutKey = (id: string) => `custom:${id}`;
 
 export function templateFrames(
   key: string,
@@ -158,10 +182,15 @@ export function clampFrame(fr: Frame): Frame {
     y: round(clamp01(Math.min(fr.y, 1 - height))),
     width: round(width),
     height: round(height),
+    // A shaped panel keeps its outline (its points are relative to the box, so they follow it) and its border.
+    ...(fr.points ? { points: fr.points } : {}),
+    ...(fr.edge ? { edge: fr.edge } : {}),
   };
 }
 
-export function splitFrame(fr: Frame, direction: "horizontal" | "vertical", gutter = 0.01): [Frame, Frame] {
+/** Splitting a panel gives two rectangles: a polygon outline has no sensible halves. */
+export function splitFrame(frame: Frame, direction: "horizontal" | "vertical", gutter = 0.01): [Frame, Frame] {
+  const { points: _p, ...fr } = frame;
   if (direction === "horizontal") {
     const h = (fr.height - gutter) / 2;
     return [clampFrame({ ...fr, height: h }), clampFrame({ ...fr, y: fr.y + h + gutter, height: h })];

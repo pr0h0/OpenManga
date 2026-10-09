@@ -22,6 +22,8 @@ import { qk, useAction, useMeta } from "../../api/hooks.ts";
 import type { TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
+import { EdgePicker } from "../pages/EdgePicker.tsx";
+import { LayoutLibrary } from "../pages/LayoutLibrary.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
 import { PronunciationSection } from "./PronunciationSection.tsx";
 import { PublishingSection, VideoSection } from "./VideoSettings.tsx";
@@ -285,6 +287,29 @@ export function SettingsPage() {
           value={s.targetRuntime ?? null}
           onChange={(v) => setS("targetRuntime", v)}
         />
+
+        {s.format !== "film" && s.format !== "vertical" && (
+          <LayoutLibrary projectId={projectId} value={s.layouts} onChange={(v) => setS("layouts", v)} />
+        )}
+
+        <section className="card space-y-3 p-4">
+          <h2 className="font-medium">Page and panel edges</h2>
+          <p className="muted text-xs">
+            A decorative edge for every page and for panel borders: wavy, torn, rough, brush or burnt. Pages and PDFs
+            draw it on the paper; videos cut the page out along it over the blurred backdrop. A panel can choose its own
+            border on its Panel tab.
+          </p>
+          <EdgePicker
+            label="Page edge"
+            value={s.edges?.page}
+            onChange={(page) => setS("edges", { ...s.edges, page })}
+          />
+          <EdgePicker
+            label="Panel borders"
+            value={s.edges?.panels}
+            onChange={(panels) => setS("edges", { ...s.edges, panels })}
+          />
+        </section>
 
         <VideoSection
           logoUpload={`/projects/${projectId}/video-logo`}

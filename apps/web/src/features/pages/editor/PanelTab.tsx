@@ -1,4 +1,4 @@
-import { CameraAngle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
+import { CameraAngle, type EdgeStyle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -10,6 +10,7 @@ import {
   PencilLine,
   RefreshCw,
   ScanEye,
+  Spline,
   SplitSquareHorizontal,
   SplitSquareVertical,
   Trash2,
@@ -23,6 +24,7 @@ import { useAiBody } from "../../ai/AiPicker.tsx";
 import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
+import { EdgePicker } from "../EdgePicker.tsx";
 import { DescribePose } from "./DescribePose.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
@@ -126,6 +128,111 @@ function AdjustImageButton({ panelId, disabled }: { panelId: string; disabled: b
     >
       <Move className="size-3.5" /> {active ? "Done moving image" : "Move / zoom image on page"}
     </button>
+  );
+}
+
+/**
+ * While the image is being adjusted: a zoom slider (no wheel needed) and what dragging can do. At 100% the image
+ * just covers the panel, so it moves only along the side where it overflows; zoom in to move it freely.
+ */
+function ImageZoom({ panelId }: { panelId: string }) {
+  const active = useEditor((s) => s.adjustImageFor === panelId);
+  const scale = useEditor((s) => s.doc.panels.find((p) => p.id === panelId)?.imageTransform.scale ?? 1);
+  if (!active) return null;
+  const setScale = (v: number) =>
+    useEditor.getState().commit((d) => ({
+      ...d,
+      panels: d.panels.map((p) => (p.id === panelId ? { ...p, imageTransform: { ...p.imageTransform, scale: v } } : p)),
+    }));
+  return (
+    <div className="w-full space-y-1">
+      <label className="flex items-center gap-2 text-xs">
+        <span className="label w-10">Zoom</span>
+        <input
+          type="range"
+          className="flex-1"
+          aria-label="Image zoom"
+          min={1}
+          max={4}
+          step={0.05}
+          value={scale}
+          onChange={(e) => setScale(Number(e.target.value))}
+        />
+        <span className="w-10 text-right tabular-nums">{Math.round(scale * 100)}%</span>
+      </label>
+      <p className="muted text-xs">
+        Drag the image on the page to move it. At 100% it just covers the panel and moves only along the side that
+        overflows; zoom in (here or with the mouse wheel over it) to move it freely. Enter or Esc when done.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A panel's outline: a rectangle until its points are edited. Edit shape shows a handle on every point (drag it,
+ * double-click to remove) and a "+" on every edge (click to add a point there), for slanted gutters, pointed tops and
+ * panels that slide into each other.
+ */
+function PanelShape({ panelId, disabled }: { panelId: string; disabled: boolean }) {
+  const active = useEditor((s) => s.shapeEditFor === panelId);
+  const shaped = useEditor((s) => Boolean(s.doc.panels.find((p) => p.id === panelId)?.frame.points));
+  const edge = useEditor((s) => s.doc.panels.find((p) => p.id === panelId)?.frame.edge);
+  const setEdge = (e: EdgeStyle | undefined) =>
+    useEditor.getState().commit((d) => ({
+      ...d,
+      panels: d.panels.map((p) => {
+        if (p.id !== panelId) return p;
+        const { edge: _e, ...frame } = p.frame;
+        return { ...p, frame: e ? { ...frame, edge: e } : frame };
+      }),
+    }));
+  return (
+    <div className="space-y-2 rounded-lg border border-[var(--border)] p-2">
+      <div className="label">Panel shape and border</div>
+      <div className="flex flex-wrap gap-1">
+        <button
+          type="button"
+          className={active ? "btn-primary flex-1 text-xs" : "btn-secondary flex-1 text-xs"}
+          disabled={disabled}
+          aria-pressed={active}
+          onClick={() => useEditor.getState().setShapeEdit(active ? null : panelId)}
+        >
+          <Spline className="size-3.5" /> {active ? "Done editing shape" : "Edit shape"}
+        </button>
+        {shaped && (
+          <button
+            type="button"
+            className="btn-ghost text-xs"
+            disabled={disabled}
+            onClick={() =>
+              useEditor.getState().commit((d) => ({
+                ...d,
+                panels: d.panels.map((p) => {
+                  if (p.id !== panelId) return p;
+                  const { points: _p, ...box } = p.frame;
+                  return { ...p, frame: box };
+                }),
+              }))
+            }
+          >
+            Reset to rectangle
+          </button>
+        )}
+      </div>
+      <EdgePicker
+        label="Panel border"
+        inheritLabel="Project default"
+        value={edge}
+        disabled={disabled}
+        onChange={setEdge}
+      />
+      {active && (
+        <p className="muted text-xs">
+          Drag a point to move it. Click a dashed circle on an edge to add a point there; double-click a point to remove
+          it. Enter or Esc when done.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -597,6 +704,8 @@ export function PanelTab({
         invalidate={[...inv, ["prompt-preview", panel.id]]}
       />
 
+      <PanelShape panelId={panel.id} disabled={locked} />
+
       <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
 
       {panel.artwork && (
@@ -620,6 +729,7 @@ export function PanelTab({
               Reset
             </button>
           </div>
+          <ImageZoom panelId={panel.id} />
           <p className="muted text-xs">
             Or double-click the panel on the page. Drag to move the image, scroll to zoom; the faded area shows what is
             cropped out. Press Enter or Esc when done.
