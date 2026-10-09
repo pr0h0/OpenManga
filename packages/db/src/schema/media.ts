@@ -1,5 +1,6 @@
 import type {
   Bubble,
+  EdgeStyle,
   Frame,
   ImageTransform,
   NarrationLineVideo,
@@ -155,6 +156,8 @@ export const pages = pgTable(
     visualEmphasis: text("visual_emphasis").notNull().default(""),
     pageTurnHook: text("page_turn_hook").notNull().default(""),
     layoutTemplate: text("layout_template"),
+    /** This page's decorative edge, over the project's `settings.edges.page`; null: the project's. */
+    edge: jsonb("edge").$type<EdgeStyle>(),
     width: integer("width").notNull(),
     height: integer("height").notNull(),
     readingDirection: readingDirection("reading_direction"),

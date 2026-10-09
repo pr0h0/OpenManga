@@ -94,10 +94,11 @@ async function loadRenderRows(db: Database, pageId: string, readingDirection: "l
   const sfx = await db.select().from(soundEffects).where(eq(soundEffects.pageId, pageId));
   const byId = new Map(arts.map((a) => [a.id, a]));
   const [proj] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, page.projectId));
-  const edges = proj?.settings.edges;
+  // The page's own edge wins over the project's.
+  const edges = { ...proj?.settings.edges, ...(page.edge ? { page: page.edge } : {}) };
   const render: RenderPage = {
     // Only when set: a page without edges keeps the render fingerprint (and cached renders) it had.
-    ...(edges?.page || edges?.panels ? { edges } : {}),
+    ...(edges.page || edges.panels ? { edges } : {}),
     id: page.id,
     order: page.order,
     width: page.width,

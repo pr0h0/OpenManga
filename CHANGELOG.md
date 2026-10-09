@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Borders for a whole page (page editor → Page tab → *Borders*): this page's own edge, over the project's (migration
+  `0039_page_edge`), and one border style set on every panel of the page at once.
 - Panel shapes: a panel can have a polygon outline instead of a rectangle. In the page editor, *Edit shape* on the
   Panel tab shows a handle on every point (drag it, double-click to remove it) and a dashed circle on every edge (click
   to add a point there), for slanted gutters, pointed tops and two panels sliding into each other. The art is cut to

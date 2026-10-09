@@ -162,3 +162,24 @@ test("editor drags: a panel stops at the page edge without jumping, and the imag
     }, "image zoomed and moved");
   }
 });
+
+test("borders for a whole page: this page's edge, and one border on every panel of the page", async () => {
+  const a = api(page);
+  await page.goto(`${s.url}/pages/${s.pageId}`);
+  await page.getByRole("tab", { name: "Page" }).click();
+  await page.getByLabel("This page's edge", { exact: true }).selectOption("burnt");
+  await until(async () => {
+    const r = await a.get<{ page: { edge: { style: string } | null } }>(`/pages/${s.pageId}`);
+    return r.page.edge?.style === "burnt";
+  }, "page edge saved");
+  await page.getByLabel("Every panel on this page", { exact: true }).selectOption("wavy");
+  await until(async () => {
+    const r = await a.get<{ panels: { frame: { edge?: { style: string } } }[] }>(`/pages/${s.pageId}`);
+    return r.panels.length > 0 && r.panels.every((p) => p.frame.edge?.style === "wavy");
+  }, "every panel's border saved");
+  await page.getByLabel("This page's edge", { exact: true }).selectOption("");
+  await until(
+    async () => (await a.get<{ page: { edge: unknown } }>(`/pages/${s.pageId}`)).page.edge === null,
+    "page edge cleared",
+  );
+});
