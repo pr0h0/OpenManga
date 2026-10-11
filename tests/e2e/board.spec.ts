@@ -40,6 +40,9 @@ test("board: add an image, note it, use it as a character reference and a layout
   const [panel] = await firstPagePanels(a, s.pageId);
   await page.goto(`${s.url}/pages/${s.pageId}?panelId=${panel!.id}`);
   await page.getByRole("button", { name: "From board" }).click();
-  await page.getByRole("option", { name: "the blue night light" }).click();
+  await page
+    .getByRole("listbox", { name: "Board images" })
+    .getByRole("option", { name: "the blue night light" })
+    .click();
   await expect(page.getByText("Layout guide set from the board")).toBeVisible();
 });
