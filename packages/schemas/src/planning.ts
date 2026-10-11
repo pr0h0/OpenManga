@@ -77,6 +77,44 @@ export const PanelSpec = z.object({
 });
 export type PanelSpec = z.infer<typeof PanelSpec>;
 
+/**
+ * Directing controls: optional structured staging a person sets on a panel (camera height, lens feel, depth of field,
+ * what the shot is for and what it focuses on, and per figure the side shown, facing, eye-line, depth and what they
+ * hold). Kept beside the planner's spec rather than in it, so the planning answer format is unchanged.
+ */
+export const CAMERA_HEIGHTS = ["ground", "knee", "waist", "eye", "above", "overhead"] as const;
+export const LENS_FEELS = ["ultra-wide", "wide", "normal", "telephoto", "macro"] as const;
+export const SHOT_PURPOSES = ["establish", "reveal", "reaction", "insert", "action", "dialogue", "transition"] as const;
+export const FIGURE_VIEWS = ["frontal", "three-quarter", "profile", "back", "over-the-shoulder", "pov"] as const;
+export const FIGURE_FACINGS = ["camera", "screen-left", "screen-right", "away"] as const;
+export const FIGURE_DEPTHS = ["foreground", "midground", "background"] as const;
+const short = z.string().trim().max(200);
+export const FigureDirection = z.object({
+  characterId: z.string(),
+  view: z.enum(FIGURE_VIEWS).optional(),
+  facing: z.enum(FIGURE_FACINGS).optional(),
+  /** Where they look: "at Hana", "down at the letter". */
+  eyeLine: short.optional(),
+  depth: z.enum(FIGURE_DEPTHS).optional(),
+  /** "sword in right hand". */
+  holding: short.optional(),
+});
+export type FigureDirection = z.infer<typeof FigureDirection>;
+export const PanelDirection = z.object({
+  cameraHeight: z.enum(CAMERA_HEIGHTS).optional(),
+  lens: z.enum(LENS_FEELS).optional(),
+  depthOfField: z.enum(["deep", "shallow"]).optional(),
+  purpose: z.enum(SHOT_PURPOSES).optional(),
+  /** The focus subject: what the eye lands on first. */
+  focus: short.optional(),
+  figures: z.array(FigureDirection).max(12).default([]),
+});
+export type PanelDirection = z.infer<typeof PanelDirection>;
+
+/** A panel's stored spec: the planner's fields plus the directing a person added. */
+export const StoredPanelSpec = PanelSpec.extend({ direction: PanelDirection.optional() });
+export type StoredPanelSpec = z.infer<typeof StoredPanelSpec>;
+
 export const PlannedDialogue = z.object({
   speaker: optStr.describe("character key/id or empty for off-panel"),
   text: str,

@@ -43,7 +43,7 @@ import {
 import { segmentTextSha } from "@openmanga/domain";
 import { probeImage } from "@openmanga/image-utils";
 import { UnrecoverableError } from "@openmanga/queue";
-import { type PanelSpec, ProjectInterchange } from "@openmanga/schemas";
+import { ProjectInterchange, type StoredPanelSpec } from "@openmanga/schemas";
 import type { AssetType } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
@@ -538,11 +538,20 @@ async function restore(
   await progress(0.3);
 
   // Panel specs hold SOURCE uuids; match their first 8 chars against the source refs, drop what can't be mapped.
-  const mapSpec = (spec: PanelSpec): PanelSpec => ({
+  const mapSpec = (spec: StoredPanelSpec): StoredPanelSpec => ({
     ...spec,
     characters: spec.characters.flatMap((c) => {
       const id = byUuid("c", c.characterId);
       return id ? [{ ...c, characterId: id }] : [];
+    }),
+    ...(spec.direction && {
+      direction: {
+        ...spec.direction,
+        figures: spec.direction.figures.flatMap((f) => {
+          const id = byUuid("c", f.characterId);
+          return id ? [{ ...f, characterId: id }] : [];
+        }),
+      },
     }),
     locationId: byUuid("l", spec.locationId),
     propIds: spec.propIds.flatMap((id) => byUuid("p", id) ?? []),

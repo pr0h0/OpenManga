@@ -144,7 +144,10 @@ slot).
 - `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
   project) and `expert_messages` (role, text, status `done|pending|awaiting_input|failed`, attached and generated
   image asset ids, options such as `generateImage` and the reply's `imagePrompt`); see `docs/AI_PIPELINE.md`.
-- `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user.
+- `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user. A
+  user's spec may add `direction` (directing controls: camera height, lens feel, depth of field, shot purpose, focus
+  subject, and per figure the side shown, facing, eye-line, depth and what they hold); it is not part of the
+  planner's answer format.
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
   can carry several narration tracks over the same artwork; optional on-page box; `video` JSON
   `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:

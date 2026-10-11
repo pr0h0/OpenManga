@@ -62,6 +62,7 @@ import {
   SfxStyle,
   ShotType,
   ShotVideo,
+  StoredPanelSpec,
 } from "@openmanga/schemas";
 import {
   credentialOwnedBy,
@@ -747,7 +748,7 @@ pageRoutes.patch("/panels/:id", async (c) => {
   return c.json({ panel: row });
 });
 
-const PutSpec = z.object({ spec: PanelSpec });
+const PutSpec = z.object({ spec: StoredPanelSpec });
 doc({
   method: "PUT",
   path: "/api/panels/:id/spec",

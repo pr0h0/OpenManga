@@ -11,7 +11,7 @@ import {
   ShotVideo,
   StyleDefinition,
 } from "./editor.ts";
-import { PanelSpec, PlannedLettering } from "./planning.ts";
+import { PlannedLettering, StoredPanelSpec } from "./planning.ts";
 import { CharacterBible, LocationDescription, PropDescription } from "./story.ts";
 
 /** Stable project interchange format. Assets are referenced by manifest id, never by DB row. */
@@ -166,7 +166,7 @@ export const ProjectInterchange = z.object({
               /** Prop version refs pinned on the panel; a live generation input, and what the spec's propIds mean. */
               props: z.array(z.string()).default([]),
               approvalStatus: z.string().default("draft"),
-              spec: PanelSpec.nullable(),
+              spec: StoredPanelSpec.nullable(),
               promptOverride: z.string().nullable(),
               artwork: AssetRef.nullable(),
               artworkHistory: z.array(AssetRef),
