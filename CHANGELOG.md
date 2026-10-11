@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Comic effects as layers (page editor → Panel tab → *Effects*): speed and focus lines, an impact flash, screentone,
+  rain, snow, dust, a glow and a flashback tint, up to six per panel, each with its own centre, angle, density,
+  strength, size and colour. Drawn by the app over the art, no AI and no cost, the same on the canvas and in every
+  page, strip, video, carousel and quote render (`effectLayers` in packages/domain), clipped to the panel's shape; the
+  art itself is unchanged. Migration `0044_panel_effects`; MCP `update_panel` takes `effects`.
 - Image tools (page editor → Panel tab → *Image tools*), each making a new artwork version with the previous one kept:
   without AI and free, *Upscale 2x*, *Line art* and a palette taken from a board image (a colour transfer in CIELAB);
   as masked edits of the whole picture, *Repair faces & details*, *Relight*, *Remove background*, *Colourise* and a

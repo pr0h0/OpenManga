@@ -1,0 +1,1 @@
+ALTER TABLE "panels" ADD COLUMN "effects" jsonb;

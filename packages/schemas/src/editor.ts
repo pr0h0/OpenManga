@@ -247,6 +247,28 @@ export type ShotVideo = z.infer<typeof ShotVideo>;
  * as a reference image for layout only: the prompt tells the model to take its composition, framing and poses and
  * to ignore its drawing style. `strict` follows it closely; `loose` lets the panel description win where they differ.
  */
+/**
+ * Comic effects drawn over a panel's art, deterministically (no AI, no cost): speed and focus lines, an impact flash,
+ * screentone, rain, snow, dust, a glow and a flashback tint. `x`/`y` place a centre (0..1 of the panel), `angle` is
+ * in degrees, `density` and `strength` are 0..1, `size` scales the effect.
+ */
+export const EFFECT_TYPES = ["speed", "focus", "impact", "tone", "rain", "snow", "dust", "glow", "flashback"] as const;
+export const PanelEffect = z.object({
+  type: z.enum(EFFECT_TYPES),
+  x: unit.default(0.5),
+  y: unit.default(0.5),
+  angle: z.number().min(-360).max(360).default(0),
+  density: unit.default(0.5),
+  strength: unit.default(0.8),
+  size: z.number().min(0.05).max(1).default(0.35),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default("#000000"),
+});
+export type PanelEffect = z.infer<typeof PanelEffect>;
+export const PanelEffects = z.array(PanelEffect).max(6);
+
 export const PanelGuide = z.object({
   assetId: z.string().uuid(),
   strength: z.enum(["loose", "strict"]).default("loose"),

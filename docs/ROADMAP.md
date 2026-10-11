@@ -19,8 +19,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Panels and images
 
-- **Comic effects as layers.** Speed and focus lines, impact flashes, screentone, rain, snow, dust, glow and a
-  flashback tint drawn deterministically over the art, instead of paying to regenerate a panel for them.
 - **Near-duplicate finder.** Spot near-identical panels, repeated poses and backgrounds, and duplicate thumbnail
   candidates, with local image embeddings.
 - **Model comparison.** Draw one panel with several models side by side, with checks, time and cost, then use the

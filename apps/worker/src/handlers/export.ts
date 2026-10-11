@@ -58,7 +58,7 @@ import {
   trimSizeIn,
   youtubeChapters,
 } from "@openmanga/domain";
-import { extForMime, inkCoverage, renderPanelArt, sharp } from "@openmanga/image-utils";
+import { extForMime, inkCoverage, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
 import {
@@ -69,6 +69,7 @@ import {
   type RenderPage,
   renderCover,
   renderPageImage,
+  renderPanelWithEffects,
   renderQuoteImage,
   renderStrip,
   renderThumbnail,
@@ -634,7 +635,14 @@ async function buildExport(
       const name = `${prefix}_${safeName(opts.label || (job.kind === "carousel" ? "carousel" : "quote")).toLowerCase()}_${width}x${height}`;
       if (job.kind === "quote_image") {
         const s = shots[0]!;
-        const art = await renderPanelArt(await deps.assets.read(s.art!), width, height, s.panel!.imageTransform);
+        const art = await renderPanelWithEffects(
+          await deps.assets.read(s.art!),
+          width,
+          height,
+          s.panel!.imageTransform,
+          s.panel!.effects,
+          s.panel!.id,
+        );
         const lettering = project.settings.lettering?.types;
         const font = lettering?.narration?.font ?? lettering?.normal?.font ?? "DejaVu Sans";
         const png = await renderQuoteImage(art, width, height, opts.still?.text ?? "", project.title, font);
@@ -643,7 +651,14 @@ async function buildExport(
       }
       const zip = new ZipWriter(join(dir, "carousel.zip"));
       for (const [i, s] of shots.entries()) {
-        const png = await renderPanelArt(await deps.assets.read(s.art!), width, height, s.panel!.imageTransform);
+        const png = await renderPanelWithEffects(
+          await deps.assets.read(s.art!),
+          width,
+          height,
+          s.panel!.imageTransform,
+          s.panel!.effects,
+          s.panel!.id,
+        );
         await zip.add(`${name}_${String(i + 1).padStart(2, "0")}.png`, png);
         await progress((i + 1) / shots.length);
       }

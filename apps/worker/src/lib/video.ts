@@ -21,7 +21,7 @@ import {
   videoDriftToleranceMs,
   watermarkBox,
 } from "@openmanga/domain";
-import { renderPanelArt, sharp } from "@openmanga/image-utils";
+import { sharp } from "@openmanga/image-utils";
 import type { ProjectSettings, ShortsCaptions } from "@openmanga/schemas";
 import {
   type BrandedProject,
@@ -32,6 +32,7 @@ import {
   panelAspect,
   planVideoShots,
   renderPageImage,
+  renderPanelWithEffects,
   renderProjectVideoCard,
   type VideoScope,
 } from "@openmanga/services";
@@ -915,7 +916,14 @@ export async function renderPanelCutVideo(
       const superH = Math.max(2, Math.round(superW / aspect / 2) * 2);
       let fgPng: Uint8Array;
       if (art) {
-        fgPng = await renderPanelArt(await deps.assets.read(art), superW, superH, pn.imageTransform);
+        fgPng = await renderPanelWithEffects(
+          await deps.assets.read(art),
+          superW,
+          superH,
+          pn.imageTransform,
+          pn.effects,
+          pn.id,
+        );
         shot.report.source = "art";
       } else {
         const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);

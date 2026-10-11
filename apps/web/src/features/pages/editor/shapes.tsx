@@ -1,6 +1,7 @@
 import {
   bubbleGeometry,
   edgeOutline,
+  effectLayers,
   framePolygon,
   insertFramePoint,
   layoutBubbleText,
@@ -88,6 +89,50 @@ type Common = {
   selected: boolean;
   onSelect: (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => void;
 };
+
+const BLEND = { over: "source-over", multiply: "multiply", screen: "screen" } as const;
+
+/** The panel's art; greyed and warmed by Konva's filters when a flashback effect is on, as renders do. */
+function ArtImage({
+  img,
+  w,
+  h,
+  crop,
+  past,
+}: {
+  img: HTMLImageElement;
+  w: number;
+  h: number;
+  crop: { x: number; y: number; width: number; height: number };
+  past: boolean;
+}) {
+  const ref = useRef<Konva.Image>(null);
+  useEffect(() => {
+    const n = ref.current;
+    if (!n) return;
+    if (past) n.cache();
+    else n.clearCache();
+    n.getLayer()?.batchDraw();
+  }, [past, img, w, h, crop.x, crop.y, crop.width, crop.height]);
+  return (
+    <KImage
+      ref={ref}
+      image={img}
+      width={w}
+      height={h}
+      crop={crop}
+      filters={past ? [Konva.Filters.Grayscale, Konva.Filters.Sepia] : []}
+    />
+  );
+}
+
+/** One effect layer: the same SVG the renders composite, blended the same way. */
+function EffectImage({ svg, blend, w, h }: { svg: string; blend: keyof typeof BLEND; w: number; h: number }) {
+  const img = useHtmlImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+  return img ? (
+    <KImage image={img} width={w} height={h} listening={false} globalCompositeOperation={BLEND[blend]} />
+  ) : null;
+}
 
 export function PanelNode({
   panel,
@@ -200,7 +245,13 @@ export function PanelNode({
       <Group {...(clip ? { clipFunc: clip } : { clipX: 0, clipY: 0, clipWidth: w, clipHeight: h })}>
         <Rect width={w} height={h} fill="#e5e7eb" />
         {img && crop ? (
-          <KImage image={img} width={w} height={h} crop={crop} />
+          <ArtImage
+            img={img}
+            w={w}
+            h={h}
+            crop={crop}
+            past={Boolean(server?.effects?.some((e) => e.type === "flashback"))}
+          />
         ) : (
           <Text
             text={server?.storyBeat || "Empty panel"}
@@ -215,6 +266,11 @@ export function PanelNode({
           />
         )}
         {busy && <Rect width={w} height={h} fill="#0ea5e9" opacity={0.08 + (pulse / 20) * 0.15} listening={false} />}
+        {server?.effects?.length
+          ? effectLayers(server.effects, Math.round(w), Math.round(h), panel.id).map((l, k) => (
+              <EffectImage key={`${k}-${l.svg.length}`} svg={l.svg} blend={l.blend} w={w} h={h} />
+            ))
+          : null}
       </Group>
       {adjusting && img && (
         <Rect
