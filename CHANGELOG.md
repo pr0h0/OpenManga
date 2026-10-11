@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `REGISTER_LIMIT_PER_HOUR` (default 10): sign-ups per hour from one client address, until now fixed at 10.
 - Story source (chapter page → *Story source*): the chapter's text with the part each panel tells marked, its scene
   and narration on hover and a marker that opens the panel; the page editor's Panel tab shows the panel's text
   (*From the story*) and links back. Traced without AI when a chapter is planned (older chapters on first view), from

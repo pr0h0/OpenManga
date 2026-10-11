@@ -193,6 +193,8 @@ const EnvSchema = z.object({
   RATE_LIMIT_PER_MINUTE: int(2000),
   /** Requests to /api per minute from one client address with no session: reader links, sign-in, probes. */
   RATE_LIMIT_ANON_PER_MINUTE: int(300),
+  /** Sign-ups per hour from one client address (the invite-acceptance sign-up shares it). */
+  REGISTER_LIMIT_PER_HOUR: int(10),
   LOGIN_MAX_ATTEMPTS: int(10),
 
   API_PORT: int(3000),
