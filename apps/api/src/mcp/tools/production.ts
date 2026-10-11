@@ -84,28 +84,43 @@ export const productionTools = [
     title: "What is out of date",
     description:
       "What is out of date in a project along story → plan → prompts → art → narration → audio → render, stage by stage: a count and a note each (a story revised after its analysis, chapters without a plan, pages without prepared prompts, panels without artwork or edited after it, chapters without narration, segments without current audio, a whole-project video older than what it is drawn from). Also stalePlans (chapters with pages whose text changed after they were planned) and staleNarration (chapters whose text or panels changed after their narration was written), with page, panel, drawn-panel and narration-line counts: these are never redone on their own; for each, keep it with keep_stale_chapter, or redo it with run_chapter_plan replace=true (replaces its pages and artwork) or run_narration_generation replace=true. Also publishing: the YouTube text and the thumbnail headline, flagged (stale, with reasons) when the title, the chapters or the rendered video changed after they were written; never regenerated on their own: the user regenerates them (Exports → YouTube package in the app; a new headline is settings.thumbnail.title via update_project) or they are kept with keep_publishing_text. update_production runs only the stale steps. Read-only.",
-    input: z.object({ projectId: Uuid }),
+    input: z.object({
+      projectId: Uuid,
+      why: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Also explain each stage item by item (why: per stage, each chapter or panel behind the count, what changed under it and what an update would redo)",
+        ),
+    }),
     output: z
       .object({
         stages: z.array(Passthrough),
         stalePlans: z.array(Passthrough),
         staleNarration: z.array(Passthrough),
         publishing: z.array(Passthrough),
+        why: z.array(Passthrough).optional(),
       })
       .passthrough(),
     scopes: ["projects:read"],
     sensitivity: "read",
     idempotent: true,
-    routes: ["GET /api/projects/:projectId/staleness"],
+    routes: ["GET /api/projects/:projectId/staleness", "GET /api/projects/:projectId/staleness/why"],
     actionKeys: [],
-    handler: async ({ projectId }, ctx) => ({
-      data: await ctx.invoke<{
+    handler: async ({ projectId, why }, ctx) => {
+      const data = await ctx.invoke<{
         stages: Record<string, unknown>[];
         stalePlans: Record<string, unknown>[];
         staleNarration: Record<string, unknown>[];
         publishing: Record<string, unknown>[];
-      }>("GET", `/api/projects/${projectId}/staleness`),
-    }),
+      }>("GET", `/api/projects/${projectId}/staleness`);
+      if (!why) return { data };
+      const w = await ctx.invoke<{ stages: Record<string, unknown>[] }>(
+        "GET",
+        `/api/projects/${projectId}/staleness/why`,
+      );
+      return { data: { ...data, why: w.stages } };
+    },
   }),
 
   defineMcpTool({

@@ -11737,7 +11737,7 @@ What is out of date in a project along story → plan → prompts → art → na
 - **Idempotent:** yes
 - **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
 
-- **Wraps:** `GET /api/projects/:projectId/staleness`
+- **Wraps:** `GET /api/projects/:projectId/staleness`, `GET /api/projects/:projectId/staleness/why`
 
 <details><summary>Input schema</summary>
 
@@ -11750,6 +11750,11 @@ What is out of date in a project along story → plan → prompts → art → na
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "why": {
+      "default": false,
+      "description": "Also explain each stage item by item (why: per stage, each chapter or panel behind the count, what changed under it and what an update would redo)",
+      "type": "boolean"
     }
   },
   "required": [
@@ -11792,6 +11797,14 @@ What is out of date in a project along story → plan → prompts → art → na
       }
     },
     "publishing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    },
+    "why": {
       "type": "array",
       "items": {
         "type": "object",
