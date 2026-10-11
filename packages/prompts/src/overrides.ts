@@ -52,7 +52,7 @@ export function lineDiff(a: string, b: string) {
   return out;
 }
 
-/** The prompts a project may rewrite in the prompt lab, and which project formats use them. */
+/** The prompts a project may rewrite in the prompt lab, and which project formats use them ("film-vertical": 9:16 shots). */
 export const OVERRIDABLE = [
   { name: "chapter-outline", label: "Chapter planning: scene outline", formats: ["comic"] },
   { name: "scene-pages", label: "Chapter planning: each scene's pages and panels", formats: ["comic"] },
@@ -60,12 +60,18 @@ export const OVERRIDABLE = [
   { name: "scene-strip", label: "Strip planning: each scene's panels", formats: ["vertical"] },
   { name: "shot-outline", label: "Shot planning: scene outline", formats: ["film"] },
   { name: "scene-shots", label: "Shot planning: each scene's shots", formats: ["film"] },
-  { name: "panel-prompts", label: "Panel prompts (the text model's sections)", formats: ["comic", "vertical", "film"] },
-  { name: "narration", label: "Narration instructions", formats: ["comic", "vertical", "film"] },
+  { name: "vertical-shot-outline", label: "Vertical shot planning: scene outline", formats: ["film-vertical"] },
+  { name: "vertical-scene-shots", label: "Vertical shot planning: each scene's shots", formats: ["film-vertical"] },
+  {
+    name: "panel-prompts",
+    label: "Panel prompts (the text model's sections)",
+    formats: ["comic", "vertical", "film", "film-vertical"],
+  },
+  { name: "narration", label: "Narration instructions", formats: ["comic", "vertical", "film", "film-vertical"] },
   {
     name: "panel-generation",
     label: "Panel images: project rules and exclusions",
-    formats: ["comic", "vertical", "film"],
+    formats: ["comic", "vertical", "film", "film-vertical"],
     image: true,
   },
 ] as const;

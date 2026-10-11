@@ -26,6 +26,7 @@ versions stay in the array so old jobs remain reproducible.
 | `story-analysis` | 1, 2, 3 | 3 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
 | `page-planning` | 1–7 | 7 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` (the single call a batched plan makes) |
 | `shot-planning` | 1–4 | 4 | same two files, for `format: "film"` projects |
+| `vertical-shot-planning`, `vertical-shot-outline`, `vertical-scene-shots` | 1 | 1 | the same, for film projects with `filmFrame: "9:16"` (`shot-planning` v4 composing for a tall frame; `planningTemplates` picks the set for a project) |
 | `strip-planning` | 1–3 | 3 | same two files, for `format: "vertical"` projects |
 | `chapter-outline`, `shot-outline`, `strip-outline` | 1–3 | 3 | `apps/worker/src/handlers/text.ts` (split planning, pass 1) |
 | `scene-pages`, `scene-shots`, `scene-strip` | 1–3 | 3 | `apps/worker/src/handlers/text.ts` (split planning, pass 2) |
@@ -47,7 +48,7 @@ versions stay in the array so old jobs remain reproducible.
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v6, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v14**, `coverage-sheet` v1 (the panel prompt's sections as a 3x3 grid of nine camera setups, without its own camera), `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+v5, `style-reference` v5, `panel-generation` **v15**, `coverage-sheet` v1 (the panel prompt's sections as a 3x3 grid of nine camera setups, without its own camera), `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
@@ -120,7 +121,7 @@ system-message line telling the model that anything inside those tags is end-use
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v14)
+## Panel prompt sections (`panel-generation` v15)
 
 `compile()` emits these in order, dropping any section with no content:
 
@@ -165,6 +166,10 @@ v14: a panel spec's `direction` (directing controls set on the Panel tab) adds e
 `CHARACTERS` line (side shown, facing, eye-line, depth, what they hold), the camera height, lens feel, depth of field
 and shot purpose to `CAMERA`, and the focus subject first in `COMPOSITION`. A figure whose character is not in the
 panel is left out. Empty fields add nothing.
+
+v15: a film frame taller than wide (a `filmFrame: "9:16"` project) opens as a vertical 9:16 film frame for a narrated
+video watched on a phone held upright, composed top to bottom with the focal subject in the middle third; a 16:9
+frame's opening line is unchanged.
 
 ## Regeneration and user overrides
 

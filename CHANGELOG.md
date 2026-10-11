@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Native vertical projects (new project → *Narrated vertical video (9:16 shots)*, or a film project's *Shot frame*
+  before it has pages): every shot is planned for a tall frame (`vertical-shot-planning`, `vertical-shot-outline`,
+  `vertical-scene-shots` v1), drawn at 1080×1920 with a prompt composed for a phone held upright (`panel-generation`
+  v15) and rendered vertical by default, so nothing is cropped out to make a Short. MCP `create_project` takes
+  `filmFrame`.
 - Edit the video in words (project → *Timing* → *Edit in words*): say what to change — “make chapter 4 faster”,
   “cut every silence over 900 ms”, “add a title card before chapter 8” — and a text job (`video-edit` v1, paste
   mode included) proposes timeline edits, each listed with what it would change now: pauses capped or scaled in a

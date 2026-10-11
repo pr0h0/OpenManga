@@ -38,9 +38,6 @@ Grouped by area, roughly most useful first within each.
 - **Timeline editor.** Video and audio tracks (shots, titles and overlays; narration, music and ambience, effects)
   with waveforms, zoom, markers, shot lengths set by dragging, reorder, split and duplicate, pan and zoom keyframes,
   title tracks, alternative takes per shot, locked tracks, and rendering a selected range from the cached sections.
-- **Native vertical projects.** Plan and draw a project at 9:16 from the start for Shorts-first stories. Today 9:16 and
-  1:1 reframe existing art, which is right for cutting Shorts from a long video but can crop out a second character
-  or a prop.
 - **Hook variants.** Several alternative openings (15–30 s of different narration and first shots, optionally a
   matching title and thumbnail) in front of the same film; incremental rendering makes each one cheap.
 - **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
