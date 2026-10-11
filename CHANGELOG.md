@@ -64,6 +64,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `0041_timeline_events`). The bible's state list tab is now called *States*. MCP `get_timeline`,
   `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`.
 
+### Fixed
+
+- A video with no narration (pages or shots not voiced yet) failed to render: its silent soundtrack measured
+  -inf loudness and the normalising pass broke. Silence is now left as it is.
+
 ## [0.17.0] — 2026-10-09
 
 Upgrading: pull the new images and restart. One migration runs on start through the migrate service

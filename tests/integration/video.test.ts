@@ -1181,3 +1181,35 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     expect({ width: meta.width, height: meta.height }).toEqual({ width: 1080, height: 1350 });
   }, 600_000);
 });
+
+describe.skipIf(!hasFfmpeg)("video export without narration", () => {
+  test("a chapter with no narration renders silent, each page held for the minimum", async () => {
+    const p = await u.post<{ project: { id: string } }>(
+      "/api/projects",
+      { title: "Silent", story: { content: STORY, inputKind: "story" } },
+      201,
+    );
+    const projectId = p.project.id;
+    const story = await u.get<{ latest: { id: string } }>(`/api/projects/${projectId}/story`);
+    const a = await u.post<{ job: { id: string }; analysis: { id: string } }>(
+      `/api/story-revisions/${story.latest.id}/analyze`,
+      {},
+      202,
+    );
+    expect((await waitJob(a.job.id)).status).toBe("completed");
+    await u.post(`/api/story-analyses/${a.analysis.id}/apply`, {});
+    const chapterId = (await u.get<{ chapters: { id: string }[] }>(`/api/projects/${projectId}/chapters`)).chapters[0]!
+      .id;
+    const plan = await u.post<{ job: { id: string } }>(`/api/chapters/${chapterId}/plan`, {}, 202);
+    expect((await waitJob(plan.job.id)).status).toBe("completed");
+    const { pages } = await u.get<{ pages: unknown[] }>(`/api/chapters/${chapterId}`);
+    const fps = 24;
+    const out = await runExport(projectId, {
+      kind: "video_pages",
+      chapterId,
+      video: { height: 720, fps, minHoldMs: 1000 },
+    });
+    const mp4 = await probe(out.files.find((f) => f.mimeType === "video/mp4")!.assetId);
+    expect(Math.abs(mp4.ms - pages.length * 1000)).toBeLessThan(80 + 10 * pages.length);
+  }, 600_000);
+});
