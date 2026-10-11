@@ -354,6 +354,10 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   project costs no more memory than one chapter. Page images spanning chapters are named
   `<title>_project_ch02_p003.png`, since page numbers restart in every chapter. A whole-project webtoon without
   `split` is still one image, capped at 200 MP like any strip, so leave splitting on for a long project.
+  An EPUB describes each page for screen readers: the `alt` of its image is its panels' alt text in reading order
+  (`altTextFor`, `packages/services/src/accessibility.ts`; a panel's own, or one made from its story beat, dialogue
+  and sound effects), and the package declares schema.org accessibility metadata (`accessMode`, `accessModeSufficient`
+  textual when every page is described, `accessibilityFeature` alternativeText and readingOrder, no hazards, a summary).
   `webtoon.exactHeight` cuts any image taller than `maxChunkHeight` (a panel or blended run taller than the limit)
   into pieces that stack back seamlessly (`…_06_a.jpg`, `…_06_b.jpg`), for platforms that refuse taller images.
 - **Export targets** (`GET /api/export-targets`, `packages/domain/src/export-targets.ts`): platform presets — YouTube,

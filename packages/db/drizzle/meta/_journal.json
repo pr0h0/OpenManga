@@ -358,6 +358,13 @@
       "when": 1791746515039,
       "tag": "0050_asset_licence",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791747076647,
+      "tag": "0051_panel_alt_text",
+      "breakpoints": true
     }
   ]
 }

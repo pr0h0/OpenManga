@@ -43,6 +43,7 @@ test("reader page: turn it on, publish a chapter, read it signed out", async ({ 
   await reader.goto(`/app/s/${slug}`);
   await expect(reader.getByRole("heading", { name: "E2E Rain City", level: 2 })).toBeVisible();
   await reader.getByRole("button", { name: "Read" }).first().click();
-  await expect(reader.getByAltText("Page 1")).toBeVisible();
+  // The page described for screen readers: its panels' alt text, from the story.
+  await expect(reader.getByRole("main").getByRole("img").first()).toHaveAttribute("alt", /.{20,}/);
   await reader.context().close();
 });

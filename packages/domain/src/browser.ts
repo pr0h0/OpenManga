@@ -1,3 +1,4 @@
+export * from "./accessibility.ts";
 export * from "./bible.ts";
 export * from "./bubbles.ts";
 export * from "./build.ts";

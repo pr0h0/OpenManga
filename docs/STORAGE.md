@@ -250,6 +250,17 @@ behind the plan and narration (templates, models, job counts), the lettering fon
 `provenance: true` ships it next to its files as `…_provenance.json` and `…_provenance.md`. Content Credentials
 (C2PA) are not embedded.
 
+## Accessibility
+
+`GET /api/projects/:id/accessibility?chapterId=` checks, without AI: how many panels have alt text written by hand
+(`PATCH /api/panels/:id { altText }`, allowed on a locked panel; the rest are described from their beat, words and
+sounds, `GET /api/pages/:id/alt-text`) and which have nothing to describe them by; comic pages whose panel numbers
+differ from where the panels sit (`expectedReadingOrder`: rows top to bottom, each left to right or right to left);
+and lettering under WCAG's 4.5:1 contrast against its bubble or smaller than the format reads (`MIN_TEXT_SHARE`: 1.6%
+of the page width on comic pages, about 7 pt on a 6-inch page; 2.8% on strips, about 11 px on a phone; 2% on film).
+`GET /api/projects/:id/transcript` is the narration as one Markdown text. Health shows all of it; reader links and
+the series reader give each page image its alt text; MCP `get_accessibility`.
+
 ## Deletion
 
 Projects and important assets go to trash first (`deleted_at`); permanent deletion requires that trashing step and

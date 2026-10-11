@@ -89,6 +89,7 @@ community build: MinIO itself no longer publishes images).
 | `panel-shapes.test.ts` | panel shapes: polygon outlines saved through the page document and read back, the page rendered with them, fewer than three points refused |
 | `layouts.test.ts` | custom page layouts: saved from a page with its shapes, private to their owner, applied to a page (adding panels), to a chapter and the project by panel count (others kept), planning that uses the project's layouts, and the MCP tool |
 | `prompt-lab.test.ts` | the prompts a comic project can rewrite; a preview keeping the header, data rule and answer format with a diff; saved planning rules used by a chapter plan and recorded on its job; panel image rules in the preview and the generation; versions switched and reset to the built-in |
+| `accessibility.test.ts` | alt text made from the story, a hand-written one kept on a locked panel; the checks counting it, a page with two panels swapped out of order, faint and tiny lettering; the transcript; an EPUB with accessibility metadata and the page's alt text; a reader link's page alt |
 | `provenance.test.ts` | a chapter's record: build, story revision, a generated panel's template and prompt hash, image and text models, an uploaded reference with its licence note, the bundled font's licence, the readable page; an export with the record beside its files only when asked |
 | `workers.test.ts` | Admin lists a worker without ffmpeg, which leaves video renders; a waiting render shown as taken by no one, naming the worker that lacks ffmpeg; covered once a render worker checks in; gone when they stop |
 | `project-storage.test.ts` | a project's policy deleting older panel versions by their own age and leaving the art a panel shows; over its cap, generation and exports refused; the hourly pass deleting an export past its kind's age |
@@ -173,6 +174,7 @@ Playwright: `./scripts/e2e.sh http://nginx story.spec.ts -g "story bible"` runs 
 | `effects.spec.ts` | Panel tab → *Effects*: speed lines added and tuned, saved on the panel |
 | `duplicates.spec.ts` | Storyboard → *Near-duplicates*: a scan run and its report shown |
 | `compare.spec.ts` | Panel tab → *Compare models*: drawn with two, one picked as the panel's artwork |
+| `accessibility.spec.ts` | Panel tab → *Alt text* from the suggestion, written and saved; Health → *Accessibility* counts it and links the transcript |
 | `provenance.spec.ts` | Exports → *Include a provenance record*: a page export ships `_provenance.json` and `.md` |
 | `project-storage.spec.ts` | Project settings → *Storage*: a policy with its own age for exports and a cap, saved and shown again |
 | `asset-library.spec.ts` | *Assets*: an image favourited, tagged in bulk, filtered by the tag, and its origin shown |

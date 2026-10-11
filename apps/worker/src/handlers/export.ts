@@ -64,6 +64,7 @@ import { extForMime, inkCoverage, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
 import {
+  altTextFor,
   appBuild,
   buildProvenance,
   loadRenderPage,
@@ -936,14 +937,28 @@ async function buildExport(
           const jpg = await sharp(png)
             .jpeg({ quality: opts.jpgQuality, mozjpeg: true })
             .toBuffer({ resolveWithObject: true });
-          cover = { data: new Uint8Array(jpg.data), width: jpg.info.width, height: jpg.info.height };
+          cover = {
+            data: new Uint8Array(jpg.data),
+            width: jpg.info.width,
+            height: jpg.info.height,
+            alt: `Cover: ${meta.title}`,
+          };
         }
       }
       // Each page goes into the archive as it is composed; only its size is kept for the EPUB package files.
+      // An EPUB describes each page for screen readers: its panels' alt text in reading order.
+      const alts =
+        job.kind === "epub"
+          ? await altTextFor(
+              deps.db,
+              ids.map((x) => x.id),
+            )
+          : new Map();
       async function* rendered() {
         for (const [i, { id: pid }] of ids.entries()) {
           const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
-          yield await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
+          const img = await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
+          yield { ...img, alt: alts.get(pid)?.alt };
           await progress(((i + 1) / ids.length) * 0.95);
         }
       }

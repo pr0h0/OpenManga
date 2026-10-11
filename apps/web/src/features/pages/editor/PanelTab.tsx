@@ -454,6 +454,8 @@ export function PanelTab({
         </div>
       )}
 
+      <AltText panelId={panel.id} pageId={data.page.id} value={panel.altText ?? null} />
+
       <fieldset disabled={locked} className="space-y-3">
         <Field label="Story beat">
           <textarea className="input" rows={2} value={spec.beat} onChange={(e) => setField("beat", e.target.value)} />
@@ -1167,5 +1169,54 @@ function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasA
         <RefreshCw className={check.isPending ? "size-3.5 animate-spin" : "size-3.5"} />
       </button>
     </span>
+  );
+}
+
+/**
+ * What the panel shows, for readers who cannot see it (EPUB, readers). Left empty, it is made from the story beat,
+ * the dialogue and the sound effects; editable even on a locked panel.
+ */
+function AltText({ panelId, pageId, value }: { panelId: string; pageId: string; value: string | null }) {
+  const [text, setText] = useState(value ?? "");
+  const suggested = useQuery({
+    queryKey: ["alt-text", pageId],
+    queryFn: () => get<{ panels: { panelId: string; suggested: string }[] }>(`/pages/${pageId}/alt-text`),
+    select: (r) => r.panels.find((p) => p.panelId === panelId)?.suggested ?? "",
+  });
+  const save = useAction((altText: string | null) => patch(`/panels/${panelId}`, { altText }), {
+    invalidate: [["alt-text", pageId]],
+    success: "Alt text saved",
+  });
+  const changed = text.trim() !== (value ?? "");
+  return (
+    <details className="text-sm">
+      <summary className="cursor-pointer">Alt text{value ? "" : " (made from the beat and words)"}</summary>
+      <div className="mt-1 space-y-1">
+        <textarea
+          className="input"
+          rows={3}
+          maxLength={2000}
+          aria-label="Alt text"
+          placeholder={suggested.data || "What the panel shows"}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            className="btn-secondary py-1 text-xs"
+            disabled={!changed || save.isPending}
+            onClick={() => save.mutate(text.trim() || null)}
+          >
+            Save alt text
+          </button>
+          {suggested.data && !text && (
+            <button type="button" className="btn-ghost py-1 text-xs" onClick={() => setText(suggested.data!)}>
+              Start from the suggestion
+            </button>
+          )}
+        </div>
+      </div>
+    </details>
   );
 }
