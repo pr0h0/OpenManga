@@ -171,6 +171,29 @@ export const pages = pgTable(
   (t) => [index("pages_chapter_order_idx").on(t.chapterId, t.order)],
 );
 
+/**
+ * The project's reference board: images collected for mood and look (uploads, or any picture of the project), each with
+ * a note. From the board an image becomes a draft reference of a character, outfit, location state, prop or the style,
+ * or a panel's layout guide, or is described for one aspect.
+ */
+export const boardItems = pgTable(
+  "board_items",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    note: text("note").notNull().default(""),
+    order: integer("order").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("board_items_project_idx").on(t.projectId, t.order)],
+);
+
 export const panels = pgTable(
   "panels",
   {

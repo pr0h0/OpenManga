@@ -170,6 +170,9 @@ slot).
   weather), `from_chapter_id` / `until_chapter_id` (inclusive, null = open). Scenes pick one by hand with
   `scenes.location_state_id`; a state's own reference is a `reference_assets` row with `location_state_id`.
 - `style_presets` (built-in and custom) and `project_styles` (the versioned project style).
+- `board_items` — the project's reference board (migration `0043_board_items`): project, `asset_id` (cascade), `note`,
+  `order`, author. Using an item as a reference stores a copy of the image as that reference's own asset; as a layout
+  guide the panel points at the board image itself.
 - `reference_assets` — links one canonical asset to exactly one subject version (character, location, prop or style),
   with `kind` (`portrait`, `full_body`, `multi_angle`, `expression_sheet`, `outfit`, `location`,
   `location_panorama`, `location_sheet`, `prop`, `prop_multi_angle`, `style`, `uploaded`), an optional outfit, an

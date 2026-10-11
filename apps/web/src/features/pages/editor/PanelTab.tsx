@@ -30,6 +30,7 @@ import { qk, useAction } from "../../../api/hooks.ts";
 import type { EditorPanel, LocationCard, PageDocument, PropCard } from "../../../api/types.ts";
 import { AssetImage, clsx, Field, Spinner, StatusChip, TagInput, toast } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
+import { BoardGuidePicker } from "../../board/BoardPicker.tsx";
 import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
@@ -878,6 +879,12 @@ function LayoutGuide({
           >
             <PencilLine className="size-3.5" /> {g ? "Edit drawing" : "Draw guide"}
           </button>
+          <BoardGuidePicker
+            panelId={panel.id}
+            strength={g?.strength ?? "loose"}
+            disabled={uploading || locked}
+            invalidate={invalidate}
+          />
           {g && (
             <button
               type="button"
