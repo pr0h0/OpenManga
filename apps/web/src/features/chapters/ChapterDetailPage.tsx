@@ -24,6 +24,7 @@ import { DeleteChapterButton } from "./DeleteChapterButton.tsx";
 import { PlanButton } from "./PlanButton.tsx";
 import { SceneEditor } from "./SceneEditor.tsx";
 import { SourceTrace } from "./SourceTrace.tsx";
+import { TranslatedLettering } from "./TranslatedLettering.tsx";
 
 export function ChapterDetailPage() {
   const projectId = useProjectId();
@@ -57,7 +58,8 @@ export function ChapterDetailPage() {
   const setPlanStatus = useAction((planStatus: string) => patch(`/chapters/${chapterId}`, { planStatus }), {
     onSuccess: refresh,
   });
-  const projectLayouts = useProject().data?.project.settings.layouts?.length;
+  const project = useProject().data?.project;
+  const projectLayouts = project?.settings.layouts?.length;
   const applyLayouts = useAction(
     () => post<{ changed: number; skipped: number }>(`/chapters/${chapterId}/apply-layouts`, {}),
     {
@@ -226,6 +228,15 @@ export function ChapterDetailPage() {
       </section>
 
       {data.pages.length > 0 && <SourceTrace key={chapterId} projectId={projectId} chapterId={chapterId} />}
+
+      {data.pages.length > 0 && (
+        <TranslatedLettering
+          key={`lettering-${chapterId}`}
+          chapterId={chapterId}
+          projectLanguage={project?.language ?? "en"}
+          firstPageId={data.pages[0]?.id ?? null}
+        />
+      )}
 
       <section className="card p-4">
         <h2 className="mb-3 font-semibold">Pages</h2>

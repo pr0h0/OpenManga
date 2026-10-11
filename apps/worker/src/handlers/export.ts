@@ -292,7 +292,7 @@ async function buildExport(
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const zip = ids.length > 1 ? new ZipWriter(join(dir, "pages.zip")) : null;
       for (const [i, { id: pid, chapter: chapterNo }] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
         const img = await renderPageImage(page, fmt, { scale: opts.scale, quality: opts.jpgQuality });
         // Page numbers restart in every chapter, so an export spanning chapters names each page by both.
         const pageNo = `p${String(page.order).padStart(3, "0")}`;
@@ -402,7 +402,7 @@ async function buildExport(
       // stitched is read back, so memory is bounded by the chunk height rather than by the length of the strip.
       const blocks: (SeamedBlock & { path: string })[] = [];
       for (const [i, { id: pid }] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
         for (const b of await renderWebtoonBlocks(page, width)) {
           const path = join(dir, `block-${blocks.length}.png`);
           await Bun.write(path, b.data);
@@ -761,7 +761,7 @@ async function buildExport(
       const zip = !psd || ids.length > 1 ? new ZipWriter(join(dir, "layers.zip")) : null;
       const pagesOut: Record<string, unknown>[] = [];
       for (const [i, { id: pid, chapter: chapterNo }] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
         const l = await pageLayers(page, opts.scale, await panelGuides(deps, page));
         // Page numbers restart in every chapter, so a whole-project export names each page by both.
         const pageNo = `p${String(page.order).padStart(3, "0")}`;
@@ -827,7 +827,7 @@ async function buildExport(
       // Each page goes into the archive as it is composed; only its size is kept for the EPUB package files.
       async function* rendered() {
         for (const [i, { id: pid }] of ids.entries()) {
-          const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+          const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
           yield await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
           await progress(((i + 1) / ids.length) * 0.95);
         }
@@ -857,7 +857,13 @@ async function buildExport(
         .where(eq(pages.projectId, project.id));
       for (const ch of chaptersRows) {
         for (const pg of pageRows.filter((p) => p.chapterId === ch.id).sort((a, b) => a.order - b.order)) {
-          const page = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+          const page = await loadRenderPage(
+            deps.db,
+            deps.assets.storage,
+            pg.id,
+            project.readingDirection,
+            opts.language,
+          );
           const img = await renderPageImage(page, "png", { scale: 0.75 });
           await zip.add(
             `pages/${String(ch.order).padStart(2, "0")}_${safeName(ch.title)}/p${String(pg.order).padStart(3, "0")}.png`,
@@ -1024,7 +1030,13 @@ async function* interiorPages(
     } else if (entry.kind === "blank") {
       yield { ...at, page: imagePage(undefined, size.width, size.height, opts, index), size };
     } else {
-      const render = await loadRenderPage(deps.db, deps.assets.storage, entry.pageId, project.readingDirection);
+      const render = await loadRenderPage(
+        deps.db,
+        deps.assets.storage,
+        entry.pageId,
+        project.readingDirection,
+        opts.language,
+      );
       const img = await renderPageImage(render, "png", { scale: opts.scale });
       size = { width: img.width, height: img.height };
       yield {

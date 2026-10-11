@@ -30,6 +30,7 @@ import { renderPanelArt, sharp } from "@openmanga/image-utils";
 import type { Bubble, EdgeStyle, Frame, ImageTransform, PanelEffect, PanelSeam, SfxStyle } from "@openmanga/schemas";
 import { type AssetStorage, sha256Hex } from "@openmanga/storage";
 import type { AssetService } from "./assets.ts";
+import { translationsOf } from "./lettering-translations.ts";
 
 export type RenderPanel = {
   id: string;
@@ -67,13 +68,20 @@ export async function loadRenderPage(
   storage: AssetStorage,
   pageId: string,
   readingDirection: "ltr" | "rtl" | "vertical",
+  /** A translated edition: bubbles and captions in this language where translated (the original elsewhere). */
+  language?: string | null,
 ): Promise<RenderPage> {
-  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection, language);
   return withArt(render, art, storage);
 }
 
 /** Everything a page render is drawn from except the artwork bytes, which are read only when needed. */
-async function loadRenderRows(db: Database, pageId: string, readingDirection: "ltr" | "rtl" | "vertical") {
+async function loadRenderRows(
+  db: Database,
+  pageId: string,
+  readingDirection: "ltr" | "rtl" | "vertical",
+  language?: string | null,
+) {
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error("Page not found");
   const pns = await db.select().from(panels).where(eq(panels.pageId, pageId)).orderBy(asc(panels.order));
@@ -96,7 +104,16 @@ async function loadRenderRows(db: Database, pageId: string, readingDirection: "l
     .orderBy(asc(narrationLines.order));
   const sfx = await db.select().from(soundEffects).where(eq(soundEffects.pageId, pageId));
   const byId = new Map(arts.map((a) => [a.id, a]));
-  const [proj] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, page.projectId));
+  const [proj] = await db
+    .select({ settings: projects.settings, language: projects.language })
+    .from(projects)
+    .where(eq(projects.id, page.projectId));
+  // Another language's edition swaps in its translated lettering, line by line.
+  const translated =
+    language && language !== proj?.language
+      ? await translationsOf(db, [...dialogue.map((d) => d.id), ...narration.map((n) => n.id)], language)
+      : null;
+  const text = (id: string, original: string) => translated?.get(id)?.text ?? original;
   // The page's own edge wins over the project's.
   const edges = { ...proj?.settings.edges, ...(page.edge ? { page: page.edge } : {}) };
   const render: RenderPage = {
@@ -117,10 +134,10 @@ async function loadRenderRows(db: Database, pageId: string, readingDirection: "l
       ...(p.effects?.length ? { effects: p.effects } : {}),
     })),
     bubbles: [
-      ...dialogue.map((d) => ({ id: d.id, panelId: d.panelId, text: d.text, bubble: d.bubble })),
+      ...dialogue.map((d) => ({ id: d.id, panelId: d.panelId, text: text(d.id, d.text), bubble: d.bubble })),
       ...narration
-        .filter((n) => n.showOnPage && n.box)
-        .map((n) => ({ id: n.id, panelId: n.panelId, text: n.text, bubble: n.box! })),
+        .filter((n) => n.showOnPage && n.box && (!proj || n.language === proj.language))
+        .map((n) => ({ id: n.id, panelId: n.panelId, text: text(n.id, n.text), bubble: n.box! })),
     ],
     sfx: sfx.map((s) => ({ id: s.id, panelId: s.panelId, text: s.text, style: s.style })),
   };

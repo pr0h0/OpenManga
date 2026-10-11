@@ -30,6 +30,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [StoryOutline](#storyoutline)
 - [BibleExtraction](#bibleextraction)
 - [TimelineExtraction](#timelineextraction)
+- [LetteringTranslation](#letteringtranslation)
 - [ContinuityReport](#continuityreport)
 - [AgentPlan](#agentplan)
 - [AgentStep](#agentstep)
@@ -3162,6 +3163,49 @@ interface TimelineExtraction {
         "Ines",
         "Tomas"
       ]
+    }
+  ]
+}
+```
+
+</details>
+
+## LetteringTranslation
+
+Asked by **Translate lettering** — a chapter's speech bubbles and captions in another language, for a translated edition.
+
+```ts
+/** A chapter's lettering in another language, for a translated edition of the same art. */
+interface LetteringTranslation {
+  /**
+   * Every line you were given, translated, each with its ref unchanged.
+   * Between 1 and 1000 items.
+   */
+  lines: {
+    /**
+     * The ref the line was given (d1, c2…).
+     * Between 1 and 20 characters.
+     * @example "d1"
+     */
+    ref: string;
+    /**
+     * The translated text, about as long as the original and within its maxChars.
+     * Between 1 and 1000 characters.
+     * @example "¡Ya basta, Tomás!"
+     */
+    text: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "lines": [
+    {
+      "ref": "d1",
+      "text": "¡Ya basta, Tomás!"
     }
   ]
 }

@@ -819,7 +819,7 @@ export async function renderPageCutVideo(
       const pg = shot.page;
       const { w: fgW, h: fgH } = pageShotBox(pg.width, pg.height, frameW, frameH, opts);
       const n = String(i + 1).padStart(5, "0");
-      const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+      const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection, opts.language);
       // A decorative page edge is cut out, so the blurred backdrop shows around it.
       const png = await renderPageImage(render, "png", {
         scale: Math.min(3, Math.max(0.25, (fgW / pg.width) * 1.25)),
@@ -932,7 +932,13 @@ export async function renderPanelCutVideo(
         );
         shot.report.source = "art";
       } else {
-        const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+        const render = await loadRenderPage(
+          deps.db,
+          deps.assets.storage,
+          pg.id,
+          project.readingDirection,
+          opts.language,
+        );
         const scale = Math.min(3, Math.max(0.5, superW / Math.max(1, pn.frame.width * pg.width)));
         const page = await renderPageImage(render, "png", { scale });
         const left = Math.max(0, Math.round(pn.frame.x * page.width));

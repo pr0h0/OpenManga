@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Translated lettering (chapter → *Translated lettering*): a chapter's speech bubbles and on-page captions in
+  another language, translated by the text model (`lettering-translate` v1, paste mode included, fitted to each
+  bubble's length) and edited by hand, for a translated edition of the same art. Page exports (PNG, JPG, PDF, CBZ,
+  EPUB, webtoon) take a *Lettering language*, videos letter in their narration language, and page previews take
+  `?language=`; a line whose original changed shows as out of date, and hand edits survive a new translation
+  (migration `0046_lettering_translations`). MCP `translate_lettering`.
 - Model comparison (page editor → Panel tab → *Compare models*): draw one panel with 2-4 image keys and models at
   once and see them side by side with the time each took, its estimated cost and its visual check (when the
   project's checks are on). The panel keeps its artwork until you pick one; the pick becomes its artwork and your

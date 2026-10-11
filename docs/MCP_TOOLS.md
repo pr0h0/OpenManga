@@ -20,7 +20,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style`, `manage_location_states`, `manage_reference_board` |
-| `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts` |
+| `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `translate_lettering`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `find_duplicates`, `compare_models`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `panel_image_tools`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
@@ -92,6 +92,7 @@ requests) need no scope.
 | [`manage_location_states`](#manage_location_states) | delete | `library:write` |
 | [`manage_reference_board`](#manage_reference_board) | write | `library:write` |
 | [`list_chapters`](#list_chapters) | read | `chapters:read` |
+| [`translate_lettering`](#translate_lettering) | spend | `chapters:read` |
 | [`get_chapter_source`](#get_chapter_source) | read | `chapters:read` |
 | [`get_chapter`](#get_chapter) | read | `chapters:read` |
 | [`manage_chapter`](#manage_chapter) | delete | `chapters:write` |
@@ -241,6 +242,7 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "StoryOutline",
         "BibleExtraction",
         "TimelineExtraction",
+        "LetteringTranslation",
         "ContinuityReport",
         "AgentPlan",
         "AgentStep"
@@ -5768,6 +5770,132 @@ A project's chapters in order, with scene/page/panel counts, how many panels hav
   "required": [
     "chapters"
   ]
+}
+```
+
+</details>
+
+### translate_lettering
+
+A chapter's speech bubbles and on-page captions in another language, for a translated edition of the same art. get: every line with its original, its translation (or null), stale (the original changed since) and edited. translate: a text job translating them (asynchronous; poll get_job; ai.manual=true asks you for a LetteringTranslation answer; a provider run spends the user's credits). edit: lines [{sourceType, sourceId, text}] saved as hand edits (empty text removes one). Exports and page renders take `language` for the edition.
+
+- **Scopes:** `chapters:read` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `lettering.translate`, `lettering.edit`
+- **Wraps:** `GET /api/chapters/:id/lettering`, `PUT /api/chapters/:id/lettering`, `POST /api/chapters/:id/lettering/translate`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "get",
+        "translate",
+        "edit"
+      ]
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16,
+      "description": "The edition's language code, e.g. es, ja."
+    },
+    "lines": {
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "dialogue",
+              "caption"
+            ]
+          },
+          "sourceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "sourceType",
+          "sourceId",
+          "text"
+        ]
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "batch": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action",
+    "chapterId",
+    "language"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
 }
 ```
 

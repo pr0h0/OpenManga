@@ -27,6 +27,7 @@ import { generationRoutes } from "./routes/generations.ts";
 import { imageToolRoutes } from "./routes/image-tools.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { layoutRoutes } from "./routes/layouts.ts";
+import { letteringTranslationRoutes } from "./routes/lettering-translations.ts";
 import { locationStateRoutes } from "./routes/location-states.ts";
 import { memberRoutes, publicInviteRoutes } from "./routes/members.ts";
 import { narrationQaRoutes } from "./routes/narration-qa.ts";
@@ -93,6 +94,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     imageToolRoutes,
     duplicateRoutes,
     compareRoutes,
+    letteringTranslationRoutes,
     locationStateRoutes,
   ])
     api.route("/", r);

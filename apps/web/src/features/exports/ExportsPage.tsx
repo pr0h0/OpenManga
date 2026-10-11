@@ -82,6 +82,8 @@ const USES_LANGUAGE = new Set([
   "video_panels",
   "video_shorts",
 ]);
+/** Page exports that letter the pages: a translated edition swaps in its translated bubbles and captions. */
+const LETTERED = new Set(["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon"]);
 const isVideo = (k: string) => k === "video_pages" || k === "video_panels" || k === "video_shorts";
 /** Chapter kinds that can also cover the whole project: they stream to disk, so length costs no memory. */
 const WHOLE_PROJECT = new Set([
@@ -144,6 +146,7 @@ export function ExportsPage() {
   const [audio, setAudio] = useState({ format: "mp3", normalize: true });
   const [includeAssets, setIncludeAssets] = useState(true);
   const [language, setLanguage] = useState("");
+  const [editionLanguage, setEditionLanguage] = useState("");
   const [video, setVideo] = useState({
     height: 1080,
     fps: 30,
@@ -239,6 +242,7 @@ export function ExportsPage() {
         ...(rangePageIds?.length ? { pageIds: rangePageIds } : {}),
         ...(shorts ? { panelIds: shortsPick } : {}),
         ...(USES_LANGUAGE.has(kind) ? { language: lang } : {}),
+        ...(LETTERED.has(kind) && editionLanguage ? { language: editionLanguage } : {}),
         acknowledgeIssues,
       }),
     {
@@ -699,8 +703,23 @@ export function ExportsPage() {
               </label>
             </div>
           )}
+          {LETTERED.has(kind) && (
+            <Field
+              label="Lettering language"
+              hint="A translated edition: its translated bubbles and captions on the same art (Chapter → Translated lettering)."
+            >
+              <select className="input" value={editionLanguage} onChange={(e) => setEditionLanguage(e.target.value)}>
+                <option value="">Original</option>
+                {NARRATION_LANGUAGES.filter((l) => l.code !== overview?.project.language).map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           {USES_LANGUAGE.has(kind) && (
-            <Field label="Narration language">
+            <Field label={isVideo(kind) ? "Narration and lettering language" : "Narration language"}>
               <select className="input" value={lang} onChange={(e) => setLanguage(e.target.value)}>
                 {NARRATION_LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code}>
