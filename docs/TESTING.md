@@ -89,6 +89,7 @@ community build: MinIO itself no longer publishes images).
 | `panel-shapes.test.ts` | panel shapes: polygon outlines saved through the page document and read back, the page rendered with them, fewer than three points refused |
 | `layouts.test.ts` | custom page layouts: saved from a page with its shapes, private to their owner, applied to a page (adding panels), to a chapter and the project by panel count (others kept), planning that uses the project's layouts, and the MCP tool |
 | `prompt-lab.test.ts` | the prompts a comic project can rewrite; a preview keeping the header, data rule and answer format with a diff; saved planning rules used by a chapter plan and recorded on its job; panel image rules in the preview and the generation; versions switched and reset to the built-in |
+| `hook-variants.test.ts` | a hook's panels and narration opening the preview (the film's shots unchanged after them); a hook refused for a page cut and an unknown one; a render with the hook longer than the same film without it, named for the hook, its title and headline on the result, only its two shots encoded and its narration the first subtitle |
 | `vertical-film.test.ts` | a 9:16 film project sized 1080×1920 with a 9:16 video output, planned by `vertical-shot-planning`, its panel prompt a vertical frame, the prompt lab offering the vertical planner's prompts, the frame fixed once pages exist (and changeable before), the render 720×1280 by default |
 | `video-edits.test.ts` | an instruction proposing pause, chapter-card, fade and shot edits with their effect and nothing changed yet; a subset applied with a changed card title; another project's job and a foreign chapter refused; the chapter card drawn, in the preview and played before the chapter in a render of the right length; a duplicate's cards following its own chapters |
 | `lettering-translations.test.ts` | a chapter's bubbles and captions listed in reading order, translated (the project's own language refused), a hand edit kept through another translation, another chapter's line refused, the edition's page render differing while other languages fall back to the original, a changed original marked stale, a page export in the edition's language |
@@ -166,6 +167,7 @@ Playwright: `./scripts/e2e.sh http://nginx story.spec.ts -g "story bible"` runs 
 | `effects.spec.ts` | Panel tab → *Effects*: speed lines added and tuned, saved on the panel |
 | `duplicates.spec.ts` | Storyboard → *Near-duplicates*: a scan run and its report shown |
 | `compare.spec.ts` | Panel tab → *Compare models*: drawn with two, one picked as the panel's artwork |
+| `hook-variants.spec.ts` | Exports → *Hook variants*: one written over two panels, saved and picked as the opening |
 | `vertical-film.spec.ts` | the wizard's *Narrated vertical video (9:16 shots)*: the project's settings show the 9:16 shot frame and export frame |
 | `video-edits.spec.ts` | *Timing* → *Edit in words*: a card and fades proposed, the card retitled, applied, the card in settings |
 | `translated-lettering.spec.ts` | chapter → *Translated lettering*: translated into Spanish, one line edited by hand |

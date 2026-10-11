@@ -55,3 +55,22 @@ test("a chapter's title card plays before its first shot and pushes everything a
   expect(tl.cues[1]!.startMs).toBe(plain.cues[1]!.startMs + 2000);
   expect(tl.totalMs).toBe(plain.totalMs + 2000);
 });
+
+test("a hook variant's shots open the film; the intro card follows them", () => {
+  const inChapter = (s: PreviewShot, chapterId: string) => ({ ...s, page: { ...s.page, chapterId } }) as PreviewShot;
+  const shots = [
+    inChapter(shot("h1", [seg("h", "A hook.", 1000)]), "c2"),
+    inChapter(shot("s1", [seg("a", "One.", 1000)]), "c1"),
+  ];
+  const intro = { title: "Intro", subtitle: "", durationMs: 2000 };
+  const card = { chapterId: "c1", title: "Chapter 1", subtitle: "", durationMs: 1000 };
+  const tl = buildTimeline(
+    shots,
+    2000,
+    { intro, outro: null, chapters: [card], watermark: null, version: "" },
+    undefined,
+    1,
+  );
+  expect(tl.timed.map((e) => e.key)).toEqual(["h1", "intro", "chapter-c1", "s1"]);
+  expect(tl.timed[0]!.startMs).toBe(0);
+});

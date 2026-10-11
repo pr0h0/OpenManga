@@ -1699,6 +1699,56 @@ Change a project's title, description, type, language, reading direction, colour
                 }
               ]
             },
+            "hooks": {
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  },
+                  "panelIds": {
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "title": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "thumbnailHeadline": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 60
+                  }
+                },
+                "required": [
+                  "id",
+                  "label",
+                  "text",
+                  "panelIds"
+                ]
+              }
+            },
             "chapterCards": {
               "maxItems": 200,
               "type": "array",
@@ -12249,7 +12299,7 @@ The timing pass's trim or expand. start: a text job rewrites only the given line
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed; `pdf.toc` adds a contents page, `pdf.rectoChapters` blank pages so chapters open on a right-hand page, `pdf.metadata` the title, author, subject, keywords and language), a print cover (`print_cover`: one PDF with back, spine and front plus bleed, the spine sized from the interior's page count and `print.paper`; needs the project cover art and a print `pdf.pageSize`), a print preflight (`print_preflight`: a JSON report of the PDF the same `pdf` options make: resolution, total ink, colour shift, fonts, lettering outside the safe area, page count), layered files for finishing in Photoshop or Clip Studio (`psd_pages`: one layered PSD per page with a group per panel of its art, frame and hidden layout guide, then effects, captions and dialogue as named layers; `layered_package`: per page the text-free page, the lettering as SVG and every layer as its own PNG, with manifest.json giving each file's placement, stacking order and text), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer; `video.captions` bottom, center or two_line draws the narration into the picture; `video.hook` is a line the narrator says before the first shot), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed; `pdf.toc` adds a contents page, `pdf.rectoChapters` blank pages so chapters open on a right-hand page, `pdf.metadata` the title, author, subject, keywords and language), a print cover (`print_cover`: one PDF with back, spine and front plus bleed, the spine sized from the interior's page count and `print.paper`; needs the project cover art and a print `pdf.pageSize`), a print preflight (`print_preflight`: a JSON report of the PDF the same `pdf` options make: resolution, total ink, colour shift, fonts, lettering outside the safe area, page count), layered files for finishing in Photoshop or Clip Studio (`psd_pages`: one layered PSD per page with a group per panel of its art, frame and hidden layout guide, then effects, captions and dialogue as named layers; `layered_package`: per page the text-free page, the lettering as SVG and every layer as its own PNG, with manifest.json giving each file's placement, stacking order and text), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer; `video.captions` bottom, center or two_line draws the narration into the picture; `video.hook` is a line the narrator says before the first shot), a hook variant (`video.hookId`, one of the project's settings.video.hooks: alternative openings, each its own narration over chosen panels, then the intro card and the film; video_panels only), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -12668,6 +12718,11 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "hook": {
           "type": "string",
           "maxLength": 200
+        },
+        "hookId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
         }
       }
     },

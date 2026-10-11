@@ -95,6 +95,8 @@ type Preview = {
   branding: Branding;
   unplacedLines: number;
   disabledPanels: number;
+  /** A hook variant's shots at the start. */
+  openingShots?: number;
   shots: PreviewShot[];
 };
 
@@ -163,7 +165,14 @@ type Timed = {
  * narration line spans (narration + offsets + breath, at least the minimum per shot, whole frames), each chapter's
  * title card before the first run of shots of that chapter, the outro card.
  */
-export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined, capMs?: number) {
+export function buildTimeline(
+  shots: PreviewShot[],
+  minHoldMs: number,
+  branding: Branding | undefined,
+  capMs?: number,
+  /** A hook variant's shots at the start: the intro card plays after them. */
+  openingShots = 0,
+) {
   let frames = 0;
   const at = (f: number) => (f * 1000) / FPS;
   const cues: { startMs: number; endMs: number; audioAssetId: string; text: string }[] = [];
@@ -186,7 +195,7 @@ export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding:
     });
     frames += n;
   };
-  card("intro");
+  if (!openingShots) card("intro");
   const voiced = (l: PreviewShot["lines"][number]) => l.segments.filter((x) => x.audioAssetId && x.durationMs);
   // The shared timeline (`timeShots`): the render and the timing report time the film the same way. A Shorts cut ends
   // before the shot that would pass its length limit.
@@ -208,17 +217,32 @@ export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding:
   for (const g of film.groups) {
     const first = shots[g.first]!;
     const chapter =
-      g.first === 0 || shots[g.first - 1]!.page.chapterId !== first.page.chapterId
+      g.first >= openingShots &&
+      (g.first === openingShots || shots[g.first - 1]!.page.chapterId !== first.page.chapterId)
         ? chapterCards.get(first.page.chapterId)
         : undefined;
-    if (chapter) {
-      const n = cardFrames(chapter.durationMs, FPS);
+    const intro = openingShots && g.first === openingShots ? branding?.intro : null;
+    const cards = [
+      ...(intro ? [{ key: "intro", label: "Intro card", which: "intro", c: intro }] : []),
+      ...(chapter
+        ? [
+            {
+              key: `chapter-${chapter.chapterId}`,
+              label: "Chapter card",
+              which: `chapter-${chapter.chapterId}`,
+              c: chapter,
+            },
+          ]
+        : []),
+    ];
+    for (const k of cards) {
+      const n = cardFrames(k.c.durationMs, FPS);
       timed.push({
-        key: `chapter-${chapter.chapterId}`,
-        label: "Chapter card",
+        key: k.key,
+        label: k.label,
         shot: null,
-        card: `chapter-${chapter.chapterId}`,
-        title: chapter.title,
+        card: k.which,
+        title: k.c.title,
         startMs: offset + g.startMs + at(cardFramesSoFar),
         holdMs: at(n),
         frames: n,
@@ -451,6 +475,7 @@ export function VideoPreview({
   title,
   shareToken,
   startAtMs,
+  hookId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -468,6 +493,8 @@ export function VideoPreview({
   title: string;
   /** Played from a reader link: public, read-only routes, and nothing to render. */
   shareToken?: string;
+  /** Panel cut: open with this hook variant, as the render does. */
+  hookId?: string;
 }) {
   const urls = useMemo(() => (shareToken ? sharedUrls(shareToken) : signedInUrls(projectId)), [shareToken, projectId]);
   const [o, setO] = useState<Options>({
@@ -489,6 +516,7 @@ export function VideoPreview({
         .filter(([, v]) => Boolean(v))
         .map(([k, v]) => [k, Array.isArray(v) ? v.join(",") : v]),
     ),
+    ...(hookId && o.cut === "panel" ? { hookId } : {}),
   });
   const preview = useQuery({
     queryKey: ["video-preview", params.toString()],
@@ -497,7 +525,14 @@ export function VideoPreview({
     enabled: open,
   });
   const timeline = useMemo(
-    () => buildTimeline(preview.data?.shots ?? [], o.minHoldMs, preview.data?.branding, capMs),
+    () =>
+      buildTimeline(
+        preview.data?.shots ?? [],
+        o.minHoldMs,
+        preview.data?.branding,
+        capMs,
+        preview.data?.openingShots ?? 0,
+      ),
     [preview.data, o.minHoldMs, capMs],
   );
 
@@ -1117,9 +1152,11 @@ export function PreviewVideoButton({
   defaultMinHoldMs,
   capMs,
   startAtMs,
+  hookId,
 }: {
   projectId: string;
   scope: PreviewScope;
+  hookId?: string;
   label?: string;
   title: string;
   className?: string;
@@ -1148,6 +1185,7 @@ export function PreviewVideoButton({
           capMs={capMs}
           title={title}
           startAtMs={startAtMs}
+          hookId={hookId}
         />
       )}
     </>

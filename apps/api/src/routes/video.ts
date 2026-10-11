@@ -53,6 +53,8 @@ const PreviewQuery = z.object({
     .pipe(z.array(z.string().uuid()).max(100).optional()),
   language: z.string().trim().min(2).max(16).optional(),
   aspect: VideoAspectParam,
+  /** Panel cut: a hook variant (settings.video.hooks) to open with, as the render does. */
+  hookId: z.string().uuid().optional(),
 });
 
 doc({
@@ -76,7 +78,10 @@ videoRoutes.get("/video-preview", async (c) => {
         : await entityAccess(c, "chapter", q.chapterId!, "read");
   const cut = q.panelId || q.panelIds ? "panel" : q.cut;
   return c.json(
-    await previewPayload(c.get("deps").db, project, q, cut, q.language || project.language, { aspect: q.aspect }),
+    await previewPayload(c.get("deps").db, project, q, cut, q.language || project.language, {
+      aspect: q.aspect,
+      hookId: q.hookId,
+    }),
   );
 });
 
@@ -488,13 +493,27 @@ export async function previewPayload(
   scope: Parameters<typeof planVideoShots>[2],
   cut: "page" | "panel",
   language: string,
-  o: { aspect?: VideoAspect } = {},
+  o: { aspect?: VideoAspect; hookId?: string } = {},
 ) {
   const { frameW, frameH } = frameSizeFor(1080, o.aspect);
   const cropAspect = cropsToFrame(o.aspect ?? "16:9") ? frameW / frameH : undefined;
+  const hook = o.hookId ? project.settings?.video?.hooks?.find((h) => h.id === o.hookId) : undefined;
+  if (o.hookId && (!hook || cut !== "panel")) throw notFound("Hook variant");
   let planned: Awaited<ReturnType<typeof planVideoShots>>;
+  let lead: Awaited<ReturnType<typeof planVideoShots>>["shots"] = [];
   try {
     planned = await planVideoShots(db, project, scope, cut, language, { cropAspect });
+    // A hook variant's panels open the film, one shared hold for its narration (as the render times them).
+    if (hook)
+      lead = (
+        await planVideoShots(db, project, { panelIds: hook.panelIds }, "panel", language, { cropAspect })
+      ).shots.map((s, i, all) => ({
+        ...s,
+        key: `opening-${s.key}`,
+        lineIds: [],
+        joinNext: i < all.length - 1,
+        fade: { in: false, out: false },
+      }));
   } catch (e) {
     throw badRequest((e as Error).message);
   }
@@ -513,7 +532,9 @@ export async function previewPayload(
     },
     unplacedLines: planned.unplacedLines,
     disabledPanels: planned.disabledPanels,
-    shots: planned.shots.map((s) => {
+    /** Shots of the hook variant at the start; the intro card plays after them. */
+    openingShots: lead.length,
+    shots: [...lead, ...planned.shots].map((s, i) => {
       const pn = s.panel;
       const art = s.art;
       // Vertical and square frames crop panel art to their own shape, like the render.
@@ -523,7 +544,7 @@ export async function previewPayload(
         key: s.key,
         label: s.label,
         joinNext: s.joinNext,
-        minHoldMs: s.panel?.video?.holdMs ?? null,
+        minHoldMs: i < lead.length ? null : (s.panel?.video?.holdMs ?? null),
         sceneId: s.panel?.sceneId ?? s.page.sceneId,
         fade: s.fade,
         motion: s.motion,
@@ -556,22 +577,34 @@ export async function previewPayload(
                     : null,
               }
             : null,
-        lines: s.lineIds.map((id) => {
-          const v = lineById.get(id)?.video;
-          return {
-            id,
-            text: lineById.get(id)?.text ?? "",
-            startOffsetMs: v?.startOffsetMs ?? 0,
-            endOffsetMs: v?.endOffsetMs ?? 0,
-            segments: (byLine.get(id) ?? []).map(({ s: seg, a }) => ({
-              id: seg.id,
-              text: seg.text,
-              pauseAfterMs: seg.pauseAfterMs,
-              audioAssetId: a?.assetId ?? null,
-              durationMs: a?.durationMs ?? null,
-            })),
-          };
-        }),
+        // The hook's narration over its first shot (voiced at render, so it shows as text here).
+        lines:
+          hook && i === 0
+            ? [
+                {
+                  id: "opening",
+                  text: hook.text,
+                  startOffsetMs: 0,
+                  endOffsetMs: 0,
+                  segments: [{ id: "opening", text: hook.text, pauseAfterMs: 0, audioAssetId: null, durationMs: null }],
+                },
+              ]
+            : s.lineIds.map((id) => {
+                const v = lineById.get(id)?.video;
+                return {
+                  id,
+                  text: lineById.get(id)?.text ?? "",
+                  startOffsetMs: v?.startOffsetMs ?? 0,
+                  endOffsetMs: v?.endOffsetMs ?? 0,
+                  segments: (byLine.get(id) ?? []).map(({ s: seg, a }) => ({
+                    id: seg.id,
+                    text: seg.text,
+                    pauseAfterMs: seg.pauseAfterMs,
+                    audioAssetId: a?.assetId ?? null,
+                    durationMs: a?.durationMs ?? null,
+                  })),
+                };
+              }),
       };
     }),
   };
