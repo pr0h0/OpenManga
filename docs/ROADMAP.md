@@ -14,8 +14,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Canon and continuity
 
-- **Story timeline.** Events in order with dates, ages and elapsed time, so the bible's per-character states can be
-  placed by story time as well as by chapter and scene.
 - **Location states.** Versions of a place by story time (normal, destroyed, snowed in, at night), picked by when the
   scene happens.
 - **Rules checked in the artwork.** The continuity check tests fixed rules against what the plan, dialogue and

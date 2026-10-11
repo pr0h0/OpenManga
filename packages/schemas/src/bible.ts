@@ -93,3 +93,29 @@ export const ContinuityReport = z.object({
     .default([]),
 });
 export type ContinuityReport = z.infer<typeof ContinuityReport>;
+
+/**
+ * The story timeline: events in story-time order (flashbacks sit where they happen, not where they are told).
+ * `day` is a story-day number for elapsed time and ages (any origin, may be negative); `when` is how the story names
+ * the moment ("Spring 1203", "the night of the storm"). A birth event gives a character's age at every dated event.
+ */
+export const TIMELINE_EVENT_KINDS = ["event", "birth"] as const;
+export const TimelineEventKind = z.enum(TIMELINE_EVENT_KINDS);
+export type TimelineEventKind = z.infer<typeof TimelineEventKind>;
+
+/** A proposed event: characters by name, the chapter (and scene) by number, as the model reads them. */
+export const ProposedEvent = z.object({
+  kind: TimelineEventKind.catch("event"),
+  title: str.min(1).max(200),
+  description: str.max(1000).default(""),
+  when: str.max(120).default(""),
+  day: z.number().min(-10_000_000).max(10_000_000).nullable().optional(),
+  chapter: chapterNumber.nullable().optional(),
+  scene: z.number().int().min(1).max(1000).nullable().optional(),
+  characters: z.array(str.min(1).max(200)).max(30).default([]),
+});
+export type ProposedEvent = z.infer<typeof ProposedEvent>;
+
+/** What the "Extract timeline from story" job proposes, in story-time order. Nothing is saved until applied. */
+export const TimelineExtraction = z.object({ events: z.array(ProposedEvent).max(300).default([]) });
+export type TimelineExtraction = z.infer<typeof TimelineExtraction>;

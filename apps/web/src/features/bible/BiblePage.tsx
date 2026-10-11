@@ -102,7 +102,7 @@ export function BiblePage() {
             onChange={setTab}
             tabs={[
               { value: "facts", label: `Facts (${d.facts.length})` },
-              { value: "timeline", label: `Timeline (${d.states.length})` },
+              { value: "timeline", label: `States (${d.states.length})` },
               { value: "continuity", label: "Continuity" },
               { value: "rules", label: "Rule checks" },
             ]}

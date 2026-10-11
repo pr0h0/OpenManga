@@ -260,6 +260,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/timeline",
+    staticData: { title: "Story timeline" },
+    component: lazyRouteComponent(() => import("./features/bible/TimelinePage.tsx"), "TimelinePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/chapters",
     staticData: { title: "Chapters" },
     component: lazyRouteComponent(() => import("./features/chapters/ChaptersPage.tsx"), "ChaptersPage"),

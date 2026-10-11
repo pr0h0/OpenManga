@@ -29,6 +29,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [ProjectPremise](#projectpremise)
 - [StoryOutline](#storyoutline)
 - [BibleExtraction](#bibleextraction)
+- [TimelineExtraction](#timelineextraction)
 - [ContinuityReport](#continuityreport)
 - [AgentPlan](#agentplan)
 - [AgentStep](#agentstep)
@@ -3069,6 +3070,98 @@ interface BibleExtraction {
       "fromScene": null,
       "untilChapter": null,
       "outfit": null
+    }
+  ]
+}
+```
+
+</details>
+
+## TimelineExtraction
+
+Asked by **Extract timeline from story** — proposes the story's events in story-time order, with dates and births, for review.
+
+```ts
+/** A proposed story timeline for the user to review, in story-time order. Nothing is saved until applied. */
+interface TimelineExtraction {
+  /**
+   * Events in the order they happen in the story world (a flashback where it happened), one per item.
+   * At most 300 items.
+   * Optional — defaults to [] when left out.
+   */
+  events?: {
+    /**
+     * event, or birth for the event that gives a character's age.
+     * Optional — defaults to "event" when left out.
+     * @example "event"
+     */
+    kind: "event" | "birth";
+    /**
+     * What happens, short.
+     * Between 1 and 200 characters.
+     * @example "Ines arrives at Vell"
+     */
+    title: string;
+    /**
+     * More detail, optional.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "The supply boat leaves her on the jetty in the storm."
+     */
+    description?: string;
+    /**
+     * How the story names the moment, in its words; empty when it gives none.
+     * At most 120 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Autumn, year 3"
+     */
+    when?: string;
+    /**
+     * A story-day number on one scale for the whole story (later = larger; fractions for hours), or null when the text does not let you work it out.
+     * Optional — may be left out.
+     * @example 0
+     */
+    day?: number | null;
+    /**
+     * Number of the chapter that tells it; null for events only mentioned.
+     * Optional — may be left out.
+     * @example 1
+     */
+    chapter?: number | null;
+    /**
+     * Scene number within that chapter (from 1), when clearly split into scenes; else null.
+     * Optional — may be left out.
+     * @example null
+     */
+    scene?: number | null;
+    /**
+     * Who takes part, by name exactly as in the project.
+     * At most 30 items.
+     * Optional — defaults to [] when left out.
+     * @example ["Ines","Tomas"]
+     */
+    characters?: string[];
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "events": [
+    {
+      "kind": "event",
+      "title": "Ines arrives at Vell",
+      "description": "The supply boat leaves her on the jetty in the storm.",
+      "when": "Autumn, year 3",
+      "day": 0,
+      "chapter": 1,
+      "scene": null,
+      "characters": [
+        "Ines",
+        "Tomas"
+      ]
     }
   ]
 }

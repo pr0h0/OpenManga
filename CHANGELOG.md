@@ -22,6 +22,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   the panels' beats and dialogue in reading order (migration `0040_panel_source_span`). When the story is revised
   under a panel, the chapter lists exactly the panels whose text changed, with what they were planned from; *Trace
   again* or keeping the plan re-traces them. `GET /api/chapters/:id/source`, MCP `get_chapter_source`.
+- Story timeline (project → *Timeline*): the story's events in story-time order (a flashback where it happened), each
+  with the story's own words for when, an optional story day giving the time since the previous event and, from a
+  character's birth event, their age; the chapter and scene that tell it; and the bible's character states shown at
+  the event they start from. A day that runs backwards is flagged. Add, edit, reorder and delete by hand, or
+  *Extract from story* (a text job, paste mode included) and apply the reviewed events, merged in by day (migration
+  `0041_timeline_events`). The bible's state list tab is now called *States*. MCP `get_timeline`,
+  `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`.
 
 ## [0.17.0] — 2026-10-09
 

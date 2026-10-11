@@ -1,5 +1,5 @@
-import type { BibleFactKind, CharacterStateKind } from "@openmanga/schemas";
-import { boolean, index, integer, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import type { BibleFactKind, CharacterStateKind, TimelineEventKind } from "@openmanga/schemas";
+import { boolean, index, integer, jsonb, pgTable, real, text, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
 import { createdAt, id, ts, updatedAt } from "./common.ts";
 import { chapters, characterOutfits, characters, projects } from "./projects.ts";
@@ -69,6 +69,36 @@ export const characterStates = pgTable(
     index("character_states_project_idx").on(t.projectId),
     index("character_states_character_idx").on(t.characterId),
   ],
+);
+
+/**
+ * An event of the story timeline. The list order (`order`) is story-time order, which is not the telling order: a
+ * flashback sits where it happens. `day` (a story-day number, any origin) gives elapsed time between events and, with
+ * a character's `birth` event, their age; `when` is the story's own name for the moment. An event may be tied to the
+ * chapter (and scene number) that tells it, which is how bible states, held by chapter and scene, find story time.
+ */
+export const timelineEvents = pgTable(
+  "timeline_events",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    order: integer("order").notNull(),
+    kind: text("kind").$type<TimelineEventKind>().notNull().default("event"),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    when: text("when").notNull().default(""),
+    day: real("day"),
+    chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+    sceneNumber: integer("scene_number"),
+    characterIds: jsonb("character_ids").$type<string[]>().notNull().default([]),
+    source: text("source").$type<BibleSource>().notNull().default("user"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("timeline_events_project_idx").on(t.projectId, t.order)],
 );
 
 export type FindingSeverity = "high" | "medium" | "low";

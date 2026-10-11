@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { AgentPlan, AgentStep } from "./agent.ts";
 import type { FieldDocs } from "./answer-format.ts";
-import { BibleExtraction, ContinuityReport } from "./bible.ts";
+import { BibleExtraction, ContinuityReport, TimelineExtraction } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
@@ -43,6 +43,7 @@ export const ANSWER_SCHEMAS = {
   ProjectPremise,
   StoryOutline,
   BibleExtraction,
+  TimelineExtraction,
   ContinuityReport,
   AgentPlan,
   AgentStep,
@@ -1004,6 +1005,23 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "For an outfit: the name of one of the character's outfits, when one matches. Null or left out otherwise.",
       null,
     ],
+  },
+
+  TimelineExtraction: {
+    "": "A proposed story timeline for the user to review, in story-time order. Nothing is saved until applied.",
+    events: "Events in the order they happen in the story world (a flashback where it happened), one per item.",
+    "events[].kind": ["event, or birth for the event that gives a character's age.", "event"],
+    "events[].title": ["What happens, short.", "Ines arrives at Vell"],
+    "events[].description": ["More detail, optional.", "The supply boat leaves her on the jetty in the storm."],
+    "events[].when": ["How the story names the moment, in its words; empty when it gives none.", "Autumn, year 3"],
+    "events[].day": [
+      "A story-day number on one scale for the whole story (later = larger; fractions for hours), or null when " +
+        "the text does not let you work it out.",
+      0,
+    ],
+    "events[].chapter": ["Number of the chapter that tells it; null for events only mentioned.", 1],
+    "events[].scene": ["Scene number within that chapter (from 1), when clearly split into scenes; else null.", null],
+    "events[].characters": ["Who takes part, by name exactly as in the project.", ["Ines", "Tomas"]],
   },
 
   ContinuityReport: {
