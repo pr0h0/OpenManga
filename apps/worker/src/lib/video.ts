@@ -663,8 +663,14 @@ async function buildFilm<S extends Shot>(
       "-i",
       rawPath,
       ...videoOut,
-      "-af",
-      `loudnorm=${target}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`,
+      // A film with no narration is silence, which measures -inf: there is nothing to normalise, and the second
+      // pass given -inf breaks.
+      ...(Number.isFinite(Number(m.input_i))
+        ? [
+            "-af",
+            `loudnorm=${target}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`,
+          ]
+        : []),
       ...aac,
       "-movflags",
       "+faststart",
