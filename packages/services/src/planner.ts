@@ -42,6 +42,7 @@ import {
   type StyleContext,
   styleReferenceV1,
   thumbnailV1,
+  withProjectRules,
 } from "@openmanga/prompts";
 import { CharacterBible, type ProjectSettings, type StoredPanelSpec } from "@openmanga/schemas";
 import type { AssetRecord, AssetService } from "./assets.ts";
@@ -49,6 +50,7 @@ import { bibleFor, loadBible } from "./bible.ts";
 import type { JobService, NewGenerationInput } from "./jobs.ts";
 import { sceneLocationState, stateReference } from "./location-states.ts";
 import { outfitReferenceAssets, resolveOutfits, wardrobeText } from "./outfits.ts";
+import { activeOverride } from "./prompt-overrides.ts";
 import { type AiChoice, MISSING_CREDENTIAL, type ProviderResolver } from "./providers.ts";
 import { versionFingerprint } from "./staleness.ts";
 
@@ -553,7 +555,18 @@ export class GenerationPlanner {
       film: settings.format === "film",
       draft,
     };
-    return { panel, page, project, settings, input, refs, compiledPrompt: panelGenerationV1.compile(input) };
+    // The project's own rules for panel images (the prompt lab), after everything the template writes.
+    const override = await activeOverride(this.db, panel.projectId, panelGenerationV1.name);
+    return {
+      panel,
+      page,
+      project,
+      settings,
+      input,
+      refs,
+      override: override ? { id: override.id, version: override.version } : null,
+      compiledPrompt: withProjectRules(panelGenerationV1.compile(input), override?.rules ?? ""),
+    };
   }
 
   private async panelHasLettering(panelId: string) {
@@ -672,6 +685,7 @@ export class GenerationPlanner {
             ...(opts.batchMode ? { batchMode: true } : {}),
             ...(opts.autoFix ? { autoFix: opts.autoFix } : {}),
             ...(opts.compareId ? { compare: opts.compareId } : {}),
+            ...(ctx.override ? { promptOverrides: { [panelGenerationV1.name]: ctx.override.version } } : {}),
           },
           input: {
             pageId: ctx.page.id,

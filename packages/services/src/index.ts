@@ -15,6 +15,7 @@ export * from "./outfits.ts";
 export * from "./planner.ts";
 export * from "./preflight.ts";
 export * from "./print.ts";
+export * from "./prompt-overrides.ts";
 export * from "./providers.ts";
 export * from "./readiness.ts";
 export * from "./render-cache.ts";

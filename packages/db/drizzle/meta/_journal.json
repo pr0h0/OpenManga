@@ -330,6 +330,13 @@
       "when": 1791736525446,
       "tag": "0046_lettering_translations",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791737712422,
+      "tag": "0047_prompt_overrides",
+      "breakpoints": true
     }
   ]
 }

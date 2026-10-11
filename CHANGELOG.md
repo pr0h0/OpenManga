@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Prompt lab (project → *Prompt lab*): rewrite the rules of a built-in prompt for one project — chapter planning
+  (outline and pages, per format), panel prompts and narration — or add rules and exclusions to every panel image
+  prompt. Preview the compiled prompt (or up to three panels' prompts) and the diff against the built-in, save
+  versions, switch between them or back to the built-in. The template header, the rule that story content is data
+  and the answer format are never part of what changes; every job records the version it used (migration
+  `0047_prompt_overrides`). MCP `prompt_lab`.
 - Translated lettering (chapter → *Translated lettering*): a chapter's speech bubbles and on-page captions in
   another language, translated by the text model (`lettering-translate` v1, paste mode included, fitted to each
   bubble's length) and edited by hand, for a translated edition of the same art. Page exports (PNG, JPG, PDF, CBZ,

@@ -34,6 +34,7 @@ import { narrationQaRoutes } from "./routes/narration-qa.ts";
 import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
 import { projectRoutes } from "./routes/projects.ts";
+import { promptLabRoutes } from "./routes/prompt-lab.ts";
 import { referenceRoutes } from "./routes/references.ts";
 import { repurposeRoutes } from "./routes/repurpose.ts";
 import { seriesRoutes } from "./routes/series.ts";
@@ -95,6 +96,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     duplicateRoutes,
     compareRoutes,
     letteringTranslationRoutes,
+    promptLabRoutes,
     locationStateRoutes,
   ])
     api.route("/", r);

@@ -13,7 +13,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `list_series`, `get_series`, `get_image`, `manage_assets`, `estimate_production_run`, `get_staleness`, `get_project_health` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `prompt_lab`, `list_series`, `get_series`, `get_image`, `manage_assets`, `estimate_production_run`, `get_staleness`, `get_project_health` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_series`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `get_timeline`, `run_continuity_check`, `get_continuity_report` |
@@ -57,6 +57,7 @@ requests) need no scope.
 | [`get_project_checks`](#get_project_checks) | read | `projects:read` |
 | [`get_project_usage`](#get_project_usage) | read | `usage:read` |
 | [`get_youtube_stats`](#get_youtube_stats) | read | `stats:read` |
+| [`prompt_lab`](#prompt_lab) | sensitive-write | `projects:read` |
 | [`list_series`](#list_series) | read | `projects:read` |
 | [`get_series`](#get_series) | read | `projects:read` |
 | [`manage_series`](#manage_series) | sensitive-write | `projects:write` |
@@ -2442,6 +2443,88 @@ How the project's published videos do on YouTube. Without linkId: every linked v
     }
   },
   "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### prompt_lab
+
+A project's own rules for its built-in prompts (chapter planning, panel prompts, narration; extra rules appended to panel image prompts). list: the prompts for this project's format, each with its built-in rules, the active version and all versions. preview: the compiled prompt with rules (unsaved, a version, or the active one) and its diff from the built-in; panel images need panelIds (up to 3). save: rules (and a note) as the next version, made active. activate: a version, or 0 for the built-in. The template header, the data rule and the answer format can never be changed.
+
+- **Scopes:** `projects:read` — per action, see description
+- **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `prompt.override`
+- **Wraps:** `GET /api/projects/:projectId/prompt-lab`, `POST /api/projects/:projectId/prompt-lab/:name`, `POST /api/projects/:projectId/prompt-lab/:name/activate`, `POST /api/projects/:projectId/prompt-lab/:name/preview`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "preview",
+        "save",
+        "activate"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "template": {
+      "description": "For preview, save and activate: a name from list.",
+      "type": "string",
+      "maxLength": 40
+    },
+    "rules": {
+      "type": "string",
+      "maxLength": 30000
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "panelIds": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    }
+  },
+  "required": [
+    "action",
     "projectId"
   ]
 }

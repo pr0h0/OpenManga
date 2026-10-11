@@ -188,3 +188,15 @@ job, not a registered template.
 `prompt_hash` (compiled prompt), `references_hash` (roles plus asset and variant ids) and `options_hash`
 (provider/model/parameters) are stored per job for debugging and for grouping experiments. Matching hashes never cause
 output to be reused automatically — every run produces a new asset.
+
+## Prompt lab (project overrides)
+
+A project can rewrite the rules of its built-in prompts (project → *Prompt lab*, `prompt_overrides`): chapter
+planning (outline and scene passes for its format), `panel-prompts` and `narration`, plus rules appended to every
+panel image prompt (`PROJECT RULES:` after the template's sections). For a text template only the rules between its
+header and the data rule change (`splitSystem` / `overrideSystem` in `packages/prompts/src/overrides.ts`): the
+`[template:name-vN]` header, the rule that story content is data and the answer format are always the built-in ones,
+so the answer contract and the injection guard hold. The worker applies the active version when it sends a text
+request (the header names the template) and records it in the job's `parameters.promptOverrides`; panel generation
+does the same. Each save is a version; any version, or the built-in, can be made active again. The preview shows the
+compiled system prompt (or up to 3 panels' prompts) and a line diff against the built-in.

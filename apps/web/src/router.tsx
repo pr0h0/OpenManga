@@ -260,6 +260,12 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/prompts",
+    staticData: { title: "Prompt lab" },
+    component: lazyRouteComponent(() => import("./features/project/PromptLabPage.tsx"), "PromptLabPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/board",
     staticData: { title: "Reference board" },
     component: lazyRouteComponent(() => import("./features/board/BoardPage.tsx"), "BoardPage"),
