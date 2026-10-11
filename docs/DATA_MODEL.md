@@ -181,6 +181,8 @@ slot).
 - `asset_features` — near-duplicate features of an image, computed once per asset (migration
   `0045_asset_features`): a 64-bit difference hash, a 16x16 edge map of its middle and a colour histogram of its
   outer ring.
+- `asset_marks` — how the asset library files an asset (migration `0049_asset_marks`): `tags` and `collections`
+  (string arrays) and `favourite`, per asset (cascade); copied with the files when a project is duplicated.
 - `board_items` — the project's reference board (migration `0043_board_items`): project, `asset_id` (cascade), `note`,
   `order`, author. Using an item as a reference stores a copy of the image as that reference's own asset; as a layout
   guide the panel points at the board image itself.

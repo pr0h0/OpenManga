@@ -188,6 +188,24 @@ export const assetFeatures = pgTable("asset_features", {
   createdAt: createdAt(),
 });
 
+/** How the owner files an asset in the asset library: tags, collections and a favourite mark. */
+export const assetMarks = pgTable(
+  "asset_marks",
+  {
+    assetId: uuid("asset_id")
+      .primaryKey()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    collections: jsonb("collections").$type<string[]>().notNull().default([]),
+    favourite: boolean("favourite").notNull().default(false),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("asset_marks_project_idx").on(t.projectId)],
+);
+
 export const boardItems = pgTable(
   "board_items",
   {

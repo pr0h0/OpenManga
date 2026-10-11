@@ -77,8 +77,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Assets and infrastructure
 
-- **Asset library.** Tags, collections, favourites, search by name, character, place or prop, filters by source,
-  model and date, "find images like this", unused and duplicate views, bulk actions, and where each file came from.
 - **Storage policies, further.** A server-wide policy by age and total size shipped (Admin → Storage). Still to do: a
   policy per project, per-kind ages (keep exports longer than the render cache), project storage caps and cold
   archives.
