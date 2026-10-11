@@ -19,8 +19,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Panels and images
 
-- **Near-duplicate finder.** Spot near-identical panels, repeated poses and backgrounds, and duplicate thumbnail
-  candidates, with local image embeddings.
 - **Model comparison.** Draw one panel with several models side by side, with checks, time and cost, then use the
   winner for the chapter or project.
 - **Translated lettering.** Translate bubbles and captions per language and export each edition from the same art,

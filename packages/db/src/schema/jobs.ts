@@ -20,6 +20,8 @@ export type GenerationKind =
   | "cover"
   /** One image of a panel's moment from nine camera setups, to pick framings from (not the panel's art). */
   | "coverage_sheet"
+  /** Finds near-identical panels, repeated poses and backgrounds and duplicate thumbnails, without AI. */
+  | "duplicate_scan"
   /** A 16:9 YouTube thumbnail background; its headline is composited by the app. */
   | "thumbnail"
   /** Publishing text (titles, description, tags…) for the project's video. */

@@ -472,3 +472,165 @@ export async function extendCanvas(data: Uint8Array, aspect: number) {
   );
   return { canvas, mask };
 }
+
+// ---------------------------------------------------------------- near-duplicate features
+
+/**
+ * Small deterministic features of an image for finding near-duplicates without a model: a 64-bit difference hash
+ * of the whole picture (near-identical images), a 16x16 edge map of its middle (where figures usually are: repeated
+ * poses), and a colour histogram of its outer ring (repeated backgrounds).
+ */
+export type ImageFeatures = { dhash: string; center: number[]; border: number[] };
+
+export async function imageFeatures(data: Uint8Array): Promise<ImageFeatures> {
+  const grey = await sharp(data, { limitInputPixels: false })
+    .flatten({ background: "#ffffff" })
+    .greyscale()
+    .resize(9, 8, { fit: "fill" })
+    .raw()
+    .toBuffer();
+  let bits = "";
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits += grey[y * 9 + x]! < grey[y * 9 + x + 1]! ? "1" : "0";
+  const dhash = BigInt(`0b${bits}`).toString(16).padStart(16, "0");
+
+  const meta = await sharp(data).metadata();
+  const [w, h] = [meta.width ?? 1, meta.height ?? 1];
+  const mid = await sharp(data, { limitInputPixels: false })
+    .flatten({ background: "#ffffff" })
+    .extract({
+      left: Math.round(w * 0.2),
+      top: Math.round(h * 0.2),
+      width: Math.max(1, Math.round(w * 0.6)),
+      height: Math.max(1, Math.round(h * 0.6)),
+    })
+    .greyscale()
+    .resize(18, 18, { fit: "fill" })
+    .raw()
+    .toBuffer();
+  // Gradient magnitude on the inner 16x16, zero-mean and unit-length, so a dot product is a correlation.
+  const center: number[] = [];
+  for (let y = 1; y < 17; y++)
+    for (let x = 1; x < 17; x++) {
+      const gx = mid[y * 18 + x + 1]! - mid[y * 18 + x - 1]!;
+      const gy = mid[(y + 1) * 18 + x]! - mid[(y - 1) * 18 + x]!;
+      center.push(Math.hypot(gx, gy));
+    }
+  const m = center.reduce((a, b) => a + b, 0) / center.length;
+  const centred = center.map((v) => v - m);
+  const norm = Math.hypot(...centred) || 1;
+
+  const small = await sharp(data, { limitInputPixels: false })
+    .flatten({ background: "#ffffff" })
+    .removeAlpha()
+    .resize(32, 32, { fit: "fill" })
+    .raw()
+    .toBuffer();
+  const border = new Array<number>(64).fill(0);
+  let n = 0;
+  for (let y = 0; y < 32; y++)
+    for (let x = 0; x < 32; x++) {
+      if (x >= 5 && x < 27 && y >= 5 && y < 27) continue;
+      const i = (y * 32 + x) * 3;
+      border[(small[i]! >> 6) * 16 + (small[i + 1]! >> 6) * 4 + (small[i + 2]! >> 6)]! += 1;
+      n++;
+    }
+  return {
+    dhash,
+    center: centred.map((v) => Math.round((v / norm) * 1e4) / 1e4),
+    border: border.map((v) => Math.round((v / n) * 1e4) / 1e4),
+  };
+}
+
+/** Bits that differ between two difference hashes (0 = the same picture). */
+export function hashDistance(a: string, b: string) {
+  let x = BigInt(`0x${a}`) ^ BigInt(`0x${b}`);
+  let d = 0;
+  while (x) {
+    d += Number(x & 1n);
+    x >>= 1n;
+  }
+  return d;
+}
+
+/** Dot product of two unit vectors (center edge maps: a correlation). */
+export const correlation = (a: number[], b: number[]) => a.reduce((s, v, i) => s + v * (b[i] ?? 0), 0);
+
+/** Histogram intersection of two border histograms: 1 = the same colours in the same amounts. */
+export const histogramOverlap = (a: number[], b: number[]) => a.reduce((s, v, i) => s + Math.min(v, b[i] ?? 0), 0);
+
+export type DuplicateKind = "identical" | "pose" | "background" | "thumbnail";
+export type DuplicateItem = ImageFeatures & {
+  id: string;
+  /** Reading position across the project (panels in order); neighbours are expected to look alike. */
+  seq: number;
+  /** The scene it belongs to: a background repeating inside one scene is continuity, not a duplicate. */
+  scene: string | null;
+  thumbnail?: boolean;
+};
+
+/**
+ * Groups of near-duplicates: near-identical images, the same figure staging (pose) in panels that are not
+ * neighbours, the same background across different scenes, and near-identical thumbnail candidates. Each group is
+ * the connected pairs above the threshold, with its strongest pair's score.
+ */
+export function groupDuplicates(items: DuplicateItem[], max = 200) {
+  const kinds: DuplicateKind[] = ["identical", "thumbnail", "pose", "background"];
+  const parent = new Map<string, string>();
+  const best = new Map<string, number>();
+  const key = (kind: DuplicateKind, id: string) => `${kind}:${id}`;
+  const find = (x: string): string => {
+    const p = parent.get(x);
+    if (!p || p === x) return x;
+    const r = find(p);
+    parent.set(x, r);
+    return r;
+  };
+  const join = (kind: DuplicateKind, a: string, b: string, score: number) => {
+    const [ra, rb] = [find(key(kind, a)), find(key(kind, b))];
+    if (ra !== rb) parent.set(ra, rb);
+    parent.set(key(kind, a), find(key(kind, a)));
+    parent.set(key(kind, b), find(key(kind, b)));
+    const r = find(rb);
+    best.set(r, Math.max(best.get(r) ?? 0, best.get(ra) ?? 0, score));
+  };
+  // Hashes as two 32-bit halves: a pair's distance is two popcounts, not a BigInt loop.
+  const halves = items.map((i) => [
+    Number.parseInt(i.dhash.slice(0, 8), 16),
+    Number.parseInt(i.dhash.slice(8, 16), 16),
+  ]);
+  const pop = (v: number) => {
+    let x = v - ((v >>> 1) & 0x55555555);
+    x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+    return (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+  };
+  for (let a = 0; a < items.length; a++)
+    for (let b = a + 1; b < items.length; b++) {
+      const [x, y] = [items[a]!, items[b]!];
+      if (Boolean(x.thumbnail) !== Boolean(y.thumbnail)) continue;
+      const dist = pop((halves[a]![0]! ^ halves[b]![0]!) >>> 0) + pop((halves[a]![1]! ^ halves[b]![1]!) >>> 0);
+      if (dist <= 6) {
+        join(x.thumbnail ? "thumbnail" : "identical", x.id, y.id, 1 - dist / 64);
+        continue;
+      }
+      if (x.thumbnail || Math.abs(x.seq - y.seq) <= 1) continue;
+      const c = correlation(x.center, y.center);
+      if (c >= 0.85) join("pose", x.id, y.id, c);
+      if (x.scene !== y.scene) {
+        const o = histogramOverlap(x.border, y.border);
+        if (o >= 0.9) join("background", x.id, y.id, o);
+      }
+    }
+  const out: { kind: DuplicateKind; score: number; ids: string[] }[] = [];
+  for (const kind of kinds) {
+    const groups = new Map<string, string[]>();
+    for (const i of items) {
+      const k = key(kind, i.id);
+      if (!parent.has(k)) continue;
+      const r = find(k);
+      groups.set(r, [...(groups.get(r) ?? []), i.id]);
+    }
+    for (const [root, ids] of groups)
+      if (ids.length > 1) out.push({ kind, score: Math.round((best.get(root) ?? 0) * 1000) / 1000, ids });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, max);
+}

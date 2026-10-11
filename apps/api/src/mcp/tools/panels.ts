@@ -552,6 +552,33 @@ export const panelTools = [
   }),
 
   defineMcpTool({
+    name: "find_duplicates",
+    title: "Find near-duplicates",
+    description:
+      "Near-duplicate finder, without AI: run=true queues a scan (a job; poll get_job), run=false reads the newest report: groups of near-identical panels, the same figure staging in panels that are not neighbours (pose), the same background across different scenes, and near-identical cover or thumbnail art, each with a score and its panels (page, chapter).",
+    input: z.object({ projectId: Uuid, run: z.boolean().default(false) }),
+    output: Passthrough,
+    scopes: ["panels:read"],
+    scopesFor: (a) => (a.run ? ["panels:write"] : ["panels:read"]),
+    sensitivity: "write",
+    idempotent: false,
+    routes: ["POST /api/projects/:projectId/duplicates/scan", "GET /api/projects/:projectId/duplicates"],
+    actionKeys: ["duplicates.scan"],
+    classify: async ({ projectId, run }) =>
+      cls(
+        run ? "write" : "read",
+        "duplicates.scan",
+        projectId,
+        run ? "Scan for near-duplicates" : "Read the duplicate report",
+      ),
+    handler: async ({ projectId, run }, ctx) => {
+      if (!run) return { data: await ctx.invoke("GET", `/api/projects/${projectId}/duplicates`) };
+      const r = await ctx.invoke<Jobbed>("POST", `/api/projects/${projectId}/duplicates/scan`);
+      return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(projectId, r.job.id) } };
+    },
+  }),
+
+  defineMcpTool({
     name: "manage_panel_artwork",
     title: "Panel artwork versions",
     description:

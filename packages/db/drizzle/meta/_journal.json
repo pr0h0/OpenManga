@@ -316,6 +316,13 @@
       "when": 1791734776714,
       "tag": "0044_panel_effects",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791735389448,
+      "tag": "0045_asset_features",
+      "breakpoints": true
     }
   ]
 }
