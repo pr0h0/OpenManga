@@ -38,8 +38,6 @@ Grouped by area, roughly most useful first within each.
 - **Timeline editor.** Video and audio tracks (shots, titles and overlays; narration, music and ambience, effects)
   with waveforms, zoom, markers, shot lengths set by dragging, reorder, split and duplicate, pan and zoom keyframes,
   title tracks, alternative takes per shot, locked tracks, and rendering a selected range from the cached sections.
-- **Hook variants.** Several alternative openings (15–30 s of different narration and first shots, optionally a
-  matching title and thumbnail) in front of the same film; incremental rendering makes each one cheap.
 - **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
   Burns shots. Costly per clip, so opt-in and budgeted.
 

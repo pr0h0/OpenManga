@@ -289,6 +289,7 @@ and show in the preview:
 | --- | --- | --- |
 | `watermark` | `{assetId, corner, opacity (0.8), size (0.12)}` or null | A logo over every frame, cards included |
 | `intro`, `outro` | `{title, subtitle, durationMs (3000)}` or null | A title card before or after the film |
+| `hooks` | `[{id, label, text, panelIds (1–6), title, thumbnailHeadline}]` | Hook variants: alternative openings. A `video_panels` export with `video.hookId` plays the hook's panels first (story order, one shared hold), its text voiced like a Shorts hook over them, then the intro card and the film; only those shots are encoded, the film's sections are reused |
 | `chapterCards` | `[{chapterId, title, subtitle, durationMs}]` | A title card before a chapter's first shot (at the start of its first run of shots), drawn over that chapter's first artwork; its chapter timestamp points at the card |
 
 **Watermark.** The logo is an image of the project: upload one with `POST /api/projects/:projectId/video-logo`

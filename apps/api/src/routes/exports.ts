@@ -175,6 +175,8 @@ export const ExportOptions = z.object({
        * with the project's narrator voice on the local voice. Other kinds ignore it.
        */
       hook: z.string().trim().max(200).optional(),
+      /** video_panels: a hook variant (settings.video.hooks) to open the film with, before the intro card. */
+      hookId: z.string().uuid().optional(),
     })
     .default({
       fps: 30,
@@ -212,6 +214,13 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
     throw badRequest(
       "A hook line is spoken by the narrator voice, and narration synthesis is turned off on this server.",
     );
+  if (input.video.hookId) {
+    if (input.kind !== "video_panels") throw badRequest("A hook variant opens a panel-cut video (video_panels)");
+    const hook = p.settings.video?.hooks?.find((h) => h.id === input.video.hookId);
+    if (!hook) throw notFound("Hook variant");
+    if (!c.get("deps").config.TTS_ENABLED)
+      throw badRequest("A hook is spoken by the narrator voice, and narration synthesis is turned off on this server.");
+  }
   // Filled here, so the stored options say what was rendered whoever asked: the app, an agent or a production run.
   const output = p.settings.video?.output;
   input.video.height ??= output?.height ?? 1080;

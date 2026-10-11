@@ -519,6 +519,12 @@ async function buildExport(
     case "video_panels":
     case "video_shorts": {
       const shorts = job.kind === "video_shorts";
+      // A hook variant opens a panel cut: its panels and narration, then the intro and the film.
+      const hook =
+        job.kind === "video_panels" && opts.video?.hookId
+          ? project.settings.video?.hooks?.find((h) => h.id === opts.video?.hookId)
+          : undefined;
+      if (opts.video?.hookId && !hook) throw new Error("That hook variant was removed from the project");
       const aspect = opts.video?.aspect ?? (shorts ? "9:16" : "16:9");
       const v: VideoOptions = {
         height: 1080,
@@ -540,6 +546,7 @@ async function buildExport(
         captions: shorts ? opts.video?.captions : undefined,
         hook: shorts ? opts.video?.hook : undefined,
         hookUserId: job.userId,
+        opening: hook ? { text: hook.text, panelIds: hook.panelIds } : undefined,
       };
       const render = job.kind === "video_pages" ? renderPageCutVideo : renderPanelCutVideo;
       // A panel or page selection narrows the film to those; otherwise the chapter, or the whole project.
@@ -604,7 +611,18 @@ async function buildExport(
           ? "panel-cut"
           : "page-cut";
       const shape = aspect === "16:9" ? "" : `_${aspect.replace(":", "x")}`;
-      const name = `${prefix}_${out.report.language}_${cut}${shape}_${v.height}p`;
+      const variant = hook ? `_hook-${safeName(hook.label).toLowerCase()}` : "";
+      const name = `${prefix}_${out.report.language}_${cut}${variant}${shape}_${v.height}p`;
+      // The version's own title and thumbnail headline, for its upload.
+      if (hook)
+        await deps.db
+          .update(exportJobs)
+          .set({
+            result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({
+              hook: { id: hook.id, label: hook.label, title: hook.title, thumbnailHeadline: hook.thumbnailHeadline },
+            })}::jsonb`,
+          })
+          .where(eq(exportJobs.id, job.id));
       return [
         {
           name: `${name}.mp4`,

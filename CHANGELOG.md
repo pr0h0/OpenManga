@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Hook variants (Exports → panel-cut video → *Hook variants*): alternative openings in front of the same film, each
+  its own narration (about 15–30 s, voiced with the narrator voice) over 1–6 panels you pick, with an optional title
+  and thumbnail headline for that version's upload (the thumbnail downloads with that headline). Pick one as the
+  export's *Opening*: it plays first, then the intro card and the film, in the preview and the render; the file is
+  named for the hook, and only the opening's shots are encoded — the film's sections are reused. Export option
+  `video.hookId`; hooks live in `settings.video.hooks`.
 - Native vertical projects (new project → *Narrated vertical video (9:16 shots)*, or a film project's *Shot frame*
   before it has pages): every shot is planned for a tall frame (`vertical-shot-planning`, `vertical-shot-outline`,
   `vertical-scene-shots` v1), drawn at 1080×1920 with a prompt composed for a phone held upright (`panel-generation`

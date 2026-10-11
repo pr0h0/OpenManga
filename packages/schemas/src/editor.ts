@@ -214,6 +214,17 @@ export const VideoWatermark = z.object({
 export type VideoWatermark = z.infer<typeof VideoWatermark>;
 
 /** A title card before or after a video, composited from the project's art and lettering font. */
+/** One alternative opening for a video: its narration (about 15–30 s spoken) over 1–6 chosen panels. */
+export const VideoHook = z.object({
+  id: z.string().uuid(),
+  label: z.string().trim().min(1).max(60),
+  text: z.string().trim().min(1).max(600),
+  panelIds: z.array(z.string().uuid()).min(1).max(6),
+  title: z.string().trim().max(100).default(""),
+  thumbnailHeadline: z.string().trim().max(60).default(""),
+});
+export type VideoHook = z.infer<typeof VideoHook>;
+
 export const VideoCard = z.object({
   title: z.string().max(120).default(""),
   subtitle: z.string().max(200).default(""),
@@ -557,6 +568,12 @@ export const ProjectSettings = z.object({
       watermark: VideoWatermark.nullable().optional(),
       intro: VideoCard.nullable().optional(),
       outro: VideoCard.nullable().optional(),
+      /**
+       * Hook variants: alternative openings in front of the same film (panel cut). Each plays its panels first with its
+       * own narration spread over them, then the intro card and the film; `title` and `thumbnailHeadline` go with it
+       * for that version's upload. A render picks one with `video.hookId`.
+       */
+      hooks: z.array(VideoHook).max(10).optional(),
       /** A title card before a chapter's first shot in whole-project videos, drawn like the intro card. */
       chapterCards: z
         .array(VideoCard.extend({ chapterId: z.string().uuid() }))

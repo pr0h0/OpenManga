@@ -25,6 +25,7 @@ import {
 import { ProgressBar } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { HookVariants } from "./HookVariants.tsx";
 import { CoverCheck, PRINT_SIZES, PreflightReport, type PreflightReportData, PrintIssues } from "./PrintPanels.tsx";
 import { CaptionsField, ShortsPicker } from "./ShortsPicker.tsx";
 import { YoutubePackageCard } from "./YoutubePackage.tsx";
@@ -160,6 +161,9 @@ export function ExportsPage() {
   const [shortsPick, setShortsPick] = useState<string[]>([]);
   const [shortsSeconds, setShortsSeconds] = useState(SHORTS_DEFAULT_MS / 1000);
   const [captions, setCaptions] = useState<ShortsCaptions>("off");
+  // A hook variant to open a panel cut with ("" = the film as it starts).
+  const [hookId, setHookId] = useState("");
+  const hooks = overview?.project.settings.video?.hooks ?? [];
   // Partial renders: the first N minutes, and/or a range of pages within the chosen chapter.
   const [maxMinutes, setMaxMinutes] = useState("");
   const [pageRange, setPageRange] = useState({ from: "", to: "" });
@@ -235,6 +239,7 @@ export function ExportsPage() {
           pageWidthRatio: aspect === "16:9" ? video.pageWidthRatio : 1,
           aspect,
           ...(shorts ? { shortsSeconds, captions: captionsSupported(lang) ? captions : "off" } : {}),
+          ...(kind === "video_panels" && hooks.some((h) => h.id === hookId) ? { hookId } : {}),
           ...(isVideo(kind) && !shorts && Number(maxMinutes) > 0
             ? { maxDurationMs: Math.round(Number(maxMinutes) * 60_000) }
             : {}),
@@ -753,6 +758,7 @@ export function ExportsPage() {
                     className="btn-secondary w-full"
                     defaultAspect={aspect}
                     defaultMinHoldMs={video.minHoldMs}
+                    hookId={kind === "video_panels" ? hookId || undefined : undefined}
                   />
                 ) : (
                   <p className="muted text-xs">Pick a chapter to preview it in the browser before rendering.</p>
@@ -777,6 +783,25 @@ export function ExportsPage() {
                 </select>
               </Field>
               {shorts && <CaptionsField value={captions} onChange={setCaptions} language={lang} />}
+              {kind === "video_panels" && (
+                <Field label="Opening" hint="A hook variant plays first, then the intro card and the film.">
+                  <select className="input" value={hookId} onChange={(e) => setHookId(e.target.value)}>
+                    <option value="">The film as it starts</option>
+                    {hooks.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        Hook: {h.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {kind === "video_panels" && overview && (
+                <HookVariants
+                  key={JSON.stringify(hooks)}
+                  projectId={projectId}
+                  video={overview.project.settings.video}
+                />
+              )}
               {!shorts && (
                 <Field label="Only the first … minutes (for a check)">
                   <input
