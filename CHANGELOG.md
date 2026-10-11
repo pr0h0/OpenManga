@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Story source (chapter page → *Story source*): the chapter's text with the part each panel tells marked, its scene
+  and narration on hover and a marker that opens the panel; the page editor's Panel tab shows the panel's text
+  (*From the story*) and links back. Traced without AI when a chapter is planned (older chapters on first view), from
+  the panels' beats and dialogue in reading order (migration `0040_panel_source_span`). When the story is revised
+  under a panel, the chapter lists exactly the panels whose text changed, with what they were planned from; *Trace
+  again* or keeping the plan re-traces them. `GET /api/chapters/:id/source`, MCP `get_chapter_source`.
+
 ## [0.17.0] — 2026-10-09
 
 Upgrading: pull the new images and restart. One migration runs on start through the migrate service

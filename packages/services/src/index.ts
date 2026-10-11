@@ -18,6 +18,7 @@ export * from "./readiness.ts";
 export * from "./render-cache.ts";
 export * from "./staleness.ts";
 export * from "./storage-policy.ts";
+export * from "./trace.ts";
 export * from "./usage.ts";
 export * from "./video-plan.ts";
 export * from "./youtube.ts";

@@ -281,6 +281,13 @@
       "when": 1791504513315,
       "tag": "0039_page_edge",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791727305086,
+      "tag": "0040_panel_source_span",
+      "breakpoints": true
     }
   ]
 }

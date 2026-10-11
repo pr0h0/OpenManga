@@ -9,8 +9,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Production you can trust
 
-- **Source-to-panel traceability.** Every chapter, scene, panel and narration line links back to the span of the story
-  it came from, so a revised paragraph points at exactly what it affects.
 - **Why is this stale.** A dependency view behind the staleness list: story revision → chapter plan → panel →
   artwork, so it is clear what changed and what an update would redo.
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.

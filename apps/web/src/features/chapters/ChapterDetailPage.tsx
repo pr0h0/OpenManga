@@ -23,6 +23,7 @@ import { PreviewVideoButton } from "../video/VideoPreview.tsx";
 import { DeleteChapterButton } from "./DeleteChapterButton.tsx";
 import { PlanButton } from "./PlanButton.tsx";
 import { SceneEditor } from "./SceneEditor.tsx";
+import { SourceTrace } from "./SourceTrace.tsx";
 
 export function ChapterDetailPage() {
   const projectId = useProjectId();
@@ -223,6 +224,8 @@ export function ChapterDetailPage() {
           {!data.scenes.length && <p className="muted text-sm">No scenes. Plan the chapter or add scenes manually.</p>}
         </div>
       </section>
+
+      {data.pages.length > 0 && <SourceTrace key={chapterId} projectId={projectId} chapterId={chapterId} />}
 
       <section className="card p-4">
         <h2 className="mb-3 font-semibold">Pages</h2>
