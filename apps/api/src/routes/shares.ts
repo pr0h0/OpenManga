@@ -207,6 +207,8 @@ publicShareRoutes.get("/shares/:token", async (c) => {
       author: p.settings.author ?? "",
       readingDirection: p.readingDirection,
       format: p.settings.format,
+      /** The video shape a reader's preview opens at. */
+      videoAspect: p.settings.video?.output?.aspect ?? "16:9",
     },
     chapters: chs.map((ch) => ({
       ...ch,

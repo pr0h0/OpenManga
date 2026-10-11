@@ -8,6 +8,7 @@ import {
   TEXT_TEMPLATES,
   withProjectRules,
 } from "@openmanga/prompts";
+import { isVerticalFilm } from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -49,7 +50,7 @@ promptLabRoutes.get("/projects/:projectId/prompt-lab", async (c) => {
     .from(promptOverrides)
     .where(eq(promptOverrides.projectId, p.id))
     .orderBy(asc(promptOverrides.templateName), desc(promptOverrides.version));
-  const format = p.settings.format ?? "comic";
+  const format = isVerticalFilm(p.settings) ? "film-vertical" : (p.settings.format ?? "comic");
   return c.json({
     templates: OVERRIDABLE.filter((o) => (o.formats as readonly string[]).includes(format)).map((o) => {
       const b = builtIn(o.name);

@@ -274,21 +274,38 @@ export const chapterPlanningV5 = defineTextTemplate<Parameters<typeof chapterPla
   },
 });
 
-/** Film: the page planner's direction, turned into a shot list. */
-function shotPlanning(base: typeof chapterPlanningV5, version: number) {
-  return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+/** How a shot list is framed: widescreen, or vertical for Shorts-first projects watched on a phone. */
+const SHOT_FRAME = {
+  "16:9": {
     name: "shot-planning",
-    version,
     description: "Film projects: a shot list of drawable full-frame 16:9 shots for a narrated video.",
+    role: "You are a film storyboard director adapting a chapter into a sequence of cinematic 16:9 shots for a narrated video (a slow camera move over each still, with voice-over).",
+    compose:
+      "Compose for a wide 16:9 frame with the focal subject slightly off-centre and room for a slow push-in or pull-out.",
+  },
+  "9:16": {
+    name: "vertical-shot-planning",
+    description:
+      "Vertical film projects: a shot list of drawable full-frame 9:16 shots for a narrated video watched on a phone.",
+    role: "You are a film storyboard director adapting a chapter into a sequence of cinematic vertical 9:16 shots for a narrated Shorts-style video watched on a phone held upright (a slow camera move over each still, with voice-over).",
+    compose:
+      "Compose for a tall 9:16 frame: stack subject and setting top to bottom, keep the focal subject in the middle third and whole in the frame, prefer one or two figures per shot (show a group in depth, not side by side), and leave room for a slow push-in or a vertical pan.",
+  },
+} as const;
+
+/** Film: the page planner's direction, turned into a shot list. */
+function shotPlanning(base: typeof chapterPlanningV5, version: number, frame: keyof typeof SHOT_FRAME = "16:9") {
+  const f = SHOT_FRAME[frame];
+  return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+    name: f.name,
+    version,
+    description: f.description,
     system: base.system
-      .replace(templateHeader(base.name, base.version), templateHeader("shot-planning", version))
-      .replace(
-        PLAN_ROLE_V5,
-        "You are a film storyboard director adapting a chapter into a sequence of cinematic 16:9 shots for a narrated video (a slow camera move over each still, with voice-over).",
-      )
+      .replace(templateHeader(base.name, base.version), templateHeader(f.name, version))
+      .replace(PLAN_ROLE_V5, f.role)
       .replace(
         PLAN_PAGES_V5,
-        'SHOTS: plan the shot list per scene as pages. EVERY page is exactly ONE shot with exactly one panel and layoutTemplate "full-page". Use page purpose for the shot\'s story purpose and pacing for its rhythm. Plan roughly one shot per one to three sentences of the source, so each shot carries about six to ten seconds of narration. Compose for a wide 16:9 frame with the focal subject slightly off-centre and room for a slow push-in or pull-out.',
+        `SHOTS: plan the shot list per scene as pages. EVERY page is exactly ONE shot with exactly one panel and layoutTemplate "full-page". Use page purpose for the shot's story purpose and pacing for its rhythm. Plan roughly one shot per one to three sentences of the source, so each shot carries about six to ten seconds of narration. ${f.compose}`,
       )
       .replace(
         PLAN_TEXT_V5,
@@ -1100,6 +1117,19 @@ export const shotOutlineV3 = outlinePass(shotPlanningV4, "shot-outline", 3);
 export const scenePagesV3 = pagePass(chapterPlanningV7, "scene-pages", 3);
 export const sceneStripV3 = pagePass(stripPlanningV3, "scene-strip", 3);
 export const sceneShotsV3 = pagePass(shotPlanningV4, "scene-shots", 3);
+/** Vertical film (9:16 shots): the same planner, composing for a phone held upright. */
+export const verticalShotPlanningV1 = shotPlanning(chapterPlanningV7, 1, "9:16");
+export const verticalShotOutlineV1 = outlinePass(verticalShotPlanningV1, "vertical-shot-outline", 1);
+export const verticalSceneShotsV1 = pagePass(verticalShotPlanningV1, "vertical-scene-shots", 1);
+
+/** The chapter planner for a project's format and shot frame: the whole plan, and its outline and per-scene passes. */
+export function planningTemplates(s: { format?: string; filmFrame?: string }) {
+  if (s.format === "film" && s.filmFrame === "9:16")
+    return { plan: verticalShotPlanningV1, outline: verticalShotOutlineV1, pages: verticalSceneShotsV1 };
+  if (s.format === "film") return { plan: shotPlanningV4, outline: shotOutlineV3, pages: sceneShotsV3 };
+  if (s.format === "vertical") return { plan: stripPlanningV3, outline: stripOutlineV3, pages: sceneStripV3 };
+  return { plan: chapterPlanningV7, outline: chapterOutlineV3, pages: scenePagesV3 };
+}
 
 /** v5: panel prompt sections respect the story bible in effect for the page's scene. */
 export const panelPromptsV5 = defineTextTemplate<Parameters<typeof panelPromptsV1.build>[0]>({
@@ -1420,6 +1450,9 @@ export const TEXT_TEMPLATES = [
   chapterOutlineV3,
   stripOutlineV3,
   shotOutlineV3,
+  verticalShotPlanningV1,
+  verticalShotOutlineV1,
+  verticalSceneShotsV1,
   scenePagesV3,
   sceneStripV3,
   sceneShotsV3,

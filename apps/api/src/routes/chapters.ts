@@ -14,7 +14,7 @@ import {
   storyBeats,
 } from "@openmanga/db";
 import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
-import { chapterPlanningV7, shotPlanningV4, stripPlanningV3 } from "@openmanga/prompts";
+import { planningTemplates } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
 import {
   chapterTrace,
@@ -383,18 +383,8 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
         targetType: "chapter",
         targetId: id,
         batchId,
-        templateName:
-          p.settings.format === "film"
-            ? shotPlanningV4.name
-            : p.settings.format === "vertical"
-              ? stripPlanningV3.name
-              : chapterPlanningV7.name,
-        templateVersion:
-          p.settings.format === "film"
-            ? shotPlanningV4.version
-            : p.settings.format === "vertical"
-              ? stripPlanningV3.version
-              : chapterPlanningV7.version,
+        templateName: planningTemplates(p.settings).plan.name,
+        templateVersion: planningTemplates(p.settings).plan.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(input.batch) },

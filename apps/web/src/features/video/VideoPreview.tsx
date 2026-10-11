@@ -12,7 +12,7 @@ import {
   type VideoAspect,
   watermarkBox,
 } from "@openmanga/domain/browser";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Captions,
   Clapperboard,
@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, ApiError, assetUrl, get, post } from "../../api/client.ts";
+import { qk } from "../../api/hooks.ts";
+import type { ProjectOverview } from "../../api/types.ts";
 import { ConfirmDialog, ErrorBox, Field, Modal, Spinner, toast } from "../../components/ui.tsx";
 
 type Crop = { left: number; top: number; width: number; height: number };
@@ -1127,6 +1129,8 @@ export function PreviewVideoButton({
   startAtMs?: number;
 }) {
   const [open, setOpen] = useState(false);
+  // The project's own video shape (a vertical film opens at 9:16), when the project is loaded.
+  const project = useQueryClient().getQueryData<ProjectOverview>(qk.project(projectId));
   return (
     <>
       <button type="button" className={className} onClick={() => setOpen(true)}>
@@ -1139,7 +1143,7 @@ export function PreviewVideoButton({
           projectId={projectId}
           scope={scope}
           defaultCut="panel"
-          defaultAspect={defaultAspect}
+          defaultAspect={defaultAspect ?? project?.project.settings.video?.output?.aspect}
           defaultMinHoldMs={defaultMinHoldMs}
           capMs={capMs}
           title={title}

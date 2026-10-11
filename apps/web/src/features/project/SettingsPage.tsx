@@ -156,10 +156,23 @@ export function SettingsPage() {
             {s.format === "film" ? "Shots & generation" : "Pages & generation"}
           </h2>
           {s.format === "film" ? (
-            <p className="muted text-sm sm:col-span-3">
-              Narrated video project: every page is one full-frame 16:9 shot (1920×1080, no margins), planned as a shot
-              list and exported as a Ken Burns video. The format can't change once pages exist.
-            </p>
+            <>
+              <p className="muted text-sm sm:col-span-2">
+                Narrated video project: every page is one full-frame shot (no margins), planned as a shot list and
+                exported as a Ken Burns video. A vertical project plans and draws every shot tall for Shorts and phones,
+                and renders vertical without cropping. Neither can change once pages exist.
+              </p>
+              <Field label="Shot frame">
+                <select
+                  className="input"
+                  value={s.filmFrame ?? "16:9"}
+                  onChange={(e) => setS("filmFrame", e.target.value as "16:9" | "9:16")}
+                >
+                  <option value="16:9">16:9 widescreen (1920×1080)</option>
+                  <option value="9:16">9:16 vertical (1080×1920)</option>
+                </select>
+              </Field>
+            </>
           ) : (
             <>
               <Field label="Default page width (px)">{num("pageWidth", 256, 8000)}</Field>

@@ -493,10 +493,10 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 14,
+  version: 15,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
-  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA (with the directing: height, lens, depth of field, purpose), COMPOSITION (with the focus subject), LOCATION (with the state it is in now), LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
+  body: "ROLE / GOAL (vertical 9:16 film frames composed for a phone), POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA (with the directing: height, lens, depth of field, purpose), COMPOSITION (with the focus subject), LOCATION (with the state it is in now), LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
   compile(i) {
     const s = i.panel.spec;
     const d = i.draft ?? {};
@@ -555,9 +555,11 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
     const negative = s?.negativeSpace;
 
     return join([
-      i.film
-        ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
-        : `Create one clean ${i.style.definition?.photoreal ? "photorealistic live-action film still" : `${kindLabel(i.style)} panel`}, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
+      i.film && i.panel.aspectRatio < 1
+        ? `Create one cinematic vertical ${i.panel.aspectRatio > 0.54 && i.panel.aspectRatio < 0.59 ? "9:16" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video watched on a phone held upright. Full-bleed tall composition: subject and setting stacked top to bottom, the focal subject in the middle third and whole in the frame, with some room above and below for a slow camera move. Artwork only.`
+        : i.film
+          ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
+          : `Create one clean ${i.style.definition?.photoreal ? "photorealistic live-action film still" : `${kindLabel(i.style)} panel`}, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
       // Up front, because the written composition further down otherwise out-votes a sketch the model only skims.
       i.guide
         ? section("POSE / LAYOUT", [

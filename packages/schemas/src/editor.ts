@@ -152,6 +152,14 @@ export type LetteringDefaults = z.infer<typeof LetteringDefaults>;
 export const ProjectFormat = z.enum(["comic", "film", "vertical"]);
 export type ProjectFormat = z.infer<typeof ProjectFormat>;
 export const FILM_PAGE = { pageWidth: 1920, pageHeight: 1080, pageMargin: 0, pageGutter: 0 } as const;
+/** A film project's shot shape: widescreen, or vertical 9:16 for Shorts-first stories planned and drawn tall. */
+export const FilmFrame = z.enum(["16:9", "9:16"]);
+export type FilmFrame = z.infer<typeof FilmFrame>;
+export const FILM_VERTICAL_PAGE = { pageWidth: 1080, pageHeight: 1920, pageMargin: 0, pageGutter: 0 } as const;
+export const filmPage = (frame: FilmFrame | undefined) => (frame === "9:16" ? FILM_VERTICAL_PAGE : FILM_PAGE);
+/** A film project of vertical 9:16 shots. */
+export const isVerticalFilm = (s: { format?: string; filmFrame?: FilmFrame }) =>
+  s.format === "film" && s.filmFrame === "9:16";
 /**
  * 2:3 per panel, which is the aspect every image provider offers exactly, so a strip panel is generated at its
  * real shape instead of being stretched into it. Panel height is varied per page (pages carry their own height),
@@ -427,6 +435,8 @@ export type CustomLayout = z.infer<typeof CustomLayout>;
 
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
+  /** Film projects: the shape every shot is planned, drawn and rendered at. Fixed once pages exist. */
+  filmFrame: FilmFrame.optional(),
   pageWidth: z.number().int().min(256).max(8000).default(1600),
   pageHeight: z.number().int().min(256).max(20000).default(2400),
   pageGutter: z.number().min(0).max(0.1).default(0.015),

@@ -28,6 +28,7 @@ import {
   panelPromptsV3,
   panelPromptsV4,
   panelPromptsV5,
+  planningTemplates,
   propReferenceV1,
   scenePagesV2,
   sceneShotsV2,
@@ -262,12 +263,28 @@ describe("panel prompt compilation", () => {
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
-    expect(panelGenerationV1.version).toBe(14);
+    expect(panelGenerationV1.version).toBe(15);
     expect(p.startsWith("Create one cinematic 16:9 film frame")).toBe(true);
     expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
     expect(p).not.toContain("panel,");
     expect(p).toContain("no white margins, bands, borders, frames, panel lines or letterboxing");
     expect(panelGenerationV1.compile(base)).toContain("DIALOGUE NEGATIVE SPACE");
+  });
+
+  test("vertical film frames are 9:16, composed for a phone", () => {
+    const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 9 / 16 }, film: true });
+    expect(p.startsWith("Create one cinematic vertical 9:16 film frame")).toBe(true);
+    expect(p).toContain("phone held upright");
+    expect(p).not.toContain("widescreen");
+    expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
+  });
+
+  test("the planner follows the shot frame", () => {
+    expect(planningTemplates({ format: "film", filmFrame: "9:16" }).plan.name).toBe("vertical-shot-planning");
+    expect(planningTemplates({ format: "film", filmFrame: "9:16" }).pages.system).toContain("tall 9:16 frame");
+    expect(planningTemplates({ format: "film" }).plan).toBe(shotPlanningV4);
+    expect(planningTemplates({ format: "vertical", filmFrame: "9:16" }).plan).toBe(stripPlanningV3);
+    expect(planningTemplates({}).plan).toBe(chapterPlanningV7);
   });
 
   test("deterministic", () => {

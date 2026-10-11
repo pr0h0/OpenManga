@@ -8,6 +8,7 @@
   "image:panel-generation@12": "bb44afc795300f6bc54e132c3e0f475e057d6e4c2fca7b7c904be2349de0a616",
   "image:panel-generation@13": "88d1ef0805e2fb2464dcf180148c3e4504d768e3eda8ed36f70e44e6310449c3",
   "image:panel-generation@14": "ccd0d7f6bb4a281bcdb50eb0221a22216c4043ce723d06b85bd70a7228c457e2",
+  "image:panel-generation@15": "628f1d553e976b36f3052265e009fe9d50f54f50866eb06456ab07a59ba8ebd8",
   "image:prop-reference@5": "f1282dfebcdd9faff653a810351a3df93a4d784e26b8288064a659faaffd47e1",
   "image:style-reference@5": "17ce6cc21a5466b06b738065043bb8f76a861cbad642d97d3b555b580eced219",
   "image:thumbnail@1": "5f2bd222143f2afcaa7f844945e4f5faa948833be10f516c6a0865fc98c951f2",
@@ -79,6 +80,9 @@
   "text:strip-planning@2": "d0e7419d73b0534bccaaadec09ff1ebdfeb0fb8c2a5bfde5ac2d9a3cede88321",
   "text:strip-planning@3": "d0c4dbe1b324f006968ab9a48839a72e586f6588543abb1c29e0397ad320a568",
   "text:timeline-extract@1": "27fa4d7ddcf07d2ae335886d097a9db858a34362df262a23330fb11dd4478f17",
+  "text:vertical-scene-shots@1": "dc1567b90a48e6acb18a208e804d5d6b466c6893fc7fde8b95d29720ee5186be",
+  "text:vertical-shot-outline@1": "9305800fbbee6738351a619722eb1f54c013f77a07ea2a3082f717a9563e379d",
+  "text:vertical-shot-planning@1": "519ef73077296f2a1c1f7e0937dba194d0f769b0a280416e64da7843b91dbfa1",
   "text:video-edit@1": "d5fde269e31b7e918fc1851b15b4b324703a150aafb78d6520fa0394ad486245",
   "text:youtube-package@1": "ad989df3fcbe919377ffba22dac96ef8faf678168996f0351b9fdfe24d463d56",
   "text:youtube-package@2": "86535bbfa49d06a69791288b2c6c30de14d948a5accf6220de720cf976df2ba6"

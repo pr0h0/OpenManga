@@ -633,7 +633,7 @@ The user's channel profiles: publication identities (default preset, target runt
 
 ### create_project
 
-Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
+Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots; `filmFrame` 9:16 plans and draws every shot vertical for Shorts and renders vertical without cropping). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
 
 - **Scopes:** `projects:create`
 - **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
@@ -704,6 +704,13 @@ Create a new project (optionally with its first story revision in `story`). Need
         "comic",
         "film",
         "vertical"
+      ]
+    },
+    "filmFrame": {
+      "type": "string",
+      "enum": [
+        "16:9",
+        "9:16"
       ]
     },
     "preset": {
@@ -848,6 +855,13 @@ Change a project's title, description, type, language, reading direction, colour
             "comic",
             "film",
             "vertical"
+          ]
+        },
+        "filmFrame": {
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16"
           ]
         },
         "pageWidth": {

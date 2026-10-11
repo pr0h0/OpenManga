@@ -10,7 +10,14 @@ import { GuestComments } from "./GuestComments.tsx";
 type Shared = {
   /** The link lets readers comment (each page then lists its panels). */
   allowComments: boolean;
-  project: { title: string; description: string; author: string; readingDirection: string; format: string };
+  project: {
+    title: string;
+    description: string;
+    author: string;
+    readingDirection: string;
+    format: string;
+    videoAspect?: "16:9" | "9:16" | "1:1";
+  };
   chapters: {
     id: string;
     title: string;
@@ -156,6 +163,7 @@ export function ReaderPage() {
           projectId=""
           scope={{ chapterId: chapter.id }}
           defaultCut={data.project.format === "film" ? "panel" : "page"}
+          defaultAspect={data.project.videoAspect}
           title={chapter.title}
           shareToken={token}
         />
