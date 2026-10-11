@@ -327,3 +327,148 @@ export async function cropRegion(data: Uint8Array, r: { left: number; top: numbe
     .toBuffer({ resolveWithObject: true });
   return { data: new Uint8Array(out), width: info.width, height: info.height, mime: "image/png" as const };
 }
+
+// ---------------------------------------------------------------- image tools (deterministic)
+
+const toPng = async (img: ReturnType<typeof sharp>) => {
+  const { data, info } = await img.png().toBuffer({ resolveWithObject: true });
+  return { data: new Uint8Array(data), width: info.width, height: info.height, mime: "image/png" as const };
+};
+
+/** Larger by `factor` (Lanczos, a light sharpen), capped at `max` px on the long side. */
+export async function upscale(data: Uint8Array, factor = 2, max = 4096) {
+  const m = await sharp(data).metadata();
+  const scale = Math.min(factor, max / Math.max(m.width ?? 1, m.height ?? 1));
+  if (scale <= 1) throw new InvalidImageError("Already at the largest size");
+  return toPng(
+    sharp(data, { limitInputPixels: false })
+      .resize(Math.round((m.width ?? 1) * scale), Math.round((m.height ?? 1) * scale), { kernel: "lanczos3" })
+      .sharpen({ sigma: 0.6 }),
+  );
+}
+
+/** Black lines on white from an illustration: edges of the grey image, inverted and thresholded. */
+export async function lineArt(data: Uint8Array) {
+  return toPng(
+    sharp(data, { limitInputPixels: false })
+      .flatten({ background: "#ffffff" })
+      .greyscale()
+      .blur(0.6)
+      .convolve({ width: 3, height: 3, kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1] })
+      .negate()
+      .normalise()
+      .threshold(200),
+  );
+}
+
+/** A rough sketch made clean: grey paper and smudges to white, strokes to solid black. */
+export async function cleanSketch(data: Uint8Array) {
+  return toPng(
+    sharp(data, { limitInputPixels: false })
+      .flatten({ background: "#ffffff" })
+      .greyscale()
+      .normalise()
+      .median(3)
+      .threshold(150),
+  );
+}
+
+// sRGB <-> CIELAB (D65), for a palette transfer that moves colour without moving lightness structure.
+const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const gam = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+const fLab = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+const fInv = (t: number) => (t ** 3 > 0.008856 ? t ** 3 : (t - 16 / 116) / 7.787);
+function toLab(r: number, g: number, b: number): [number, number, number] {
+  const [R, G, B] = [lin(r / 255), lin(g / 255), lin(b / 255)];
+  const x = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
+  const y = R * 0.2126 + G * 0.7152 + B * 0.0722;
+  const z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
+  const [fx, fy, fz] = [fLab(x), fLab(y), fLab(z)];
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+function fromLab(L: number, a: number, b: number): [number, number, number] {
+  const fy = (L + 16) / 116;
+  const [x, y, z] = [fInv(fy + a / 500) * 0.95047, fInv(fy), fInv(fy - b / 200) * 1.08883];
+  const R = x * 3.2406 + y * -1.5372 + z * -0.4986;
+  const G = x * -0.9689 + y * 1.8758 + z * 0.0415;
+  const B = x * 0.0557 + y * -0.204 + z * 1.057;
+  const c = (v: number) => Math.max(0, Math.min(255, Math.round(gam(Math.max(0, v)) * 255)));
+  return [c(R), c(G), c(B)];
+}
+async function labPixels(data: Uint8Array, maxSide?: number) {
+  let img = sharp(data, { limitInputPixels: false }).flatten({ background: "#ffffff" }).removeAlpha();
+  if (maxSide) img = img.resize(maxSide, maxSide, { fit: "inside", withoutEnlargement: true });
+  const { data: px, info } = await img.raw().toBuffer({ resolveWithObject: true });
+  const lab = new Float32Array(info.width * info.height * 3);
+  for (let i = 0; i < info.width * info.height; i++) {
+    const [L, A, B] = toLab(px[i * 3]!, px[i * 3 + 1]!, px[i * 3 + 2]!);
+    lab[i * 3] = L;
+    lab[i * 3 + 1] = A;
+    lab[i * 3 + 2] = B;
+  }
+  return { lab, width: info.width, height: info.height };
+}
+const stats = (lab: Float32Array) => {
+  const n = lab.length / 3;
+  const mean = [0, 0, 0];
+  const sd = [0, 0, 0];
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) mean[k]! += lab[i * 3 + k]! / n;
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) sd[k]! += (lab[i * 3 + k]! - mean[k]!) ** 2 / n;
+  return { mean, sd: sd.map((v) => Math.sqrt(v) || 1) };
+};
+
+/**
+ * The colours of `palette` on `data` (Reinhard transfer in CIELAB): each channel's mean and spread matched, so the
+ * picture takes the other image's palette while its shapes and light stay. `strength` 0..1 blends with the original.
+ */
+export async function paletteTransfer(data: Uint8Array, palette: Uint8Array, strength = 1) {
+  const src = await labPixels(data);
+  const ref = await labPixels(palette, 512);
+  const s = stats(src.lab);
+  const r = stats(ref.lab);
+  const out = Buffer.alloc(src.width * src.height * 3);
+  for (let i = 0; i < src.width * src.height; i++) {
+    const v = [0, 1, 2].map((k) => {
+      const x = src.lab[i * 3 + k]!;
+      const moved = ((x - s.mean[k]!) / s.sd[k]!) * r.sd[k]! + r.mean[k]!;
+      return x + (moved - x) * strength;
+    });
+    const [R, G, B] = fromLab(v[0]!, v[1]!, v[2]!);
+    out[i * 3] = R;
+    out[i * 3 + 1] = G;
+    out[i * 3 + 2] = B;
+  }
+  return toPng(sharp(out, { raw: { width: src.width, height: src.height, channels: 3 } }));
+}
+
+/** A mask that lets an edit change the whole image (painted = editable, as user masks are drawn). */
+export async function fullMask(width: number, height: number) {
+  return toPng(sharp({ create: { width, height, channels: 4, background: "#ffffff" } }));
+}
+
+/**
+ * The picture centred on a larger canvas of aspect `aspect` (width / height), and the mask of the new area, for an
+ * edit that paints the scene outwards (outpainting): 16:9 art widened to 9:16 instead of cropped.
+ */
+export async function extendCanvas(data: Uint8Array, aspect: number) {
+  const m = await sharp(data).metadata();
+  const [w, h] = [m.width ?? 1, m.height ?? 1];
+  const [W, H] = w / h > aspect ? [w, Math.round(w / aspect)] : [Math.round(h * aspect), h];
+  if (W === w && H === h) throw new InvalidImageError("The picture already has that shape");
+  const left = Math.floor((W - w) / 2);
+  const top = Math.floor((H - h) / 2);
+  const canvas = await toPng(
+    sharp(data, { limitInputPixels: false })
+      .flatten({ background: "#808080" })
+      .extend({ left, right: W - w - left, top, bottom: H - h - top, background: "#808080" }),
+  );
+  const keep = await sharp({ create: { width: w, height: h, channels: 4, background: "#000000" } })
+    .png()
+    .toBuffer();
+  const mask = await toPng(
+    sharp({ create: { width: W, height: H, channels: 4, background: "#ffffff" } }).composite([
+      { input: keep, left, top },
+    ]),
+  );
+  return { canvas, mask };
+}

@@ -631,7 +631,7 @@ async function artworkVersions(db: Database, panelId: string, projectId: string)
       asset: assets,
       jobKind: generationJobs.kind,
       jobId: generationJobs.id,
-      operation: sql<string | null>`${generationJobs.parameters}->>'operation'`,
+      operation: sql<string | null>`coalesce(${generationJobs.parameters}->>'operation', ${assets.metadata}->>'tool')`,
       prompt: generationJobs.compiledPrompt,
     })
     .from(assets)

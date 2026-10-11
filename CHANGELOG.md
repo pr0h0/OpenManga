@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Image tools (page editor → Panel tab → *Image tools*), each making a new artwork version with the previous one kept:
+  without AI and free, *Upscale 2x*, *Line art* and a palette taken from a board image (a colour transfer in CIELAB);
+  as masked edits of the whole picture, *Repair faces & details*, *Relight*, *Remove background*, *Colourise* and a
+  character's expression; and *Outpaint* to 9:16, 16:9, 1:1, 4:5 or 2:3, painting the scene outwards on a wider
+  canvas so art is widened instead of cropped. A layout guide can be cleaned up (sketch to solid strokes) or turned to
+  line art. `POST /api/panels/:id/tools`, `POST /api/panels/:id/guide/tools`; MCP `panel_image_tools`.
 - Reference board (project → *Board*): images collected for mood and look, each with a note. Drop one onto a
   character, an outfit, a location (or one of its states), a prop or the project style as a draft reference to
   approve, use it as a panel's layout guide (page editor → Panel tab → *Layout guide* → *From board*), or have one

@@ -19,9 +19,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Panels and images
 
-- **Image tools.** Upscaling, face and detail repair, relighting, background removal, sketch cleanup for guides,
-  line-art extraction, colourising black-and-white pages, palette transfer, expression edits, and outpainting so
-  16:9 art can be widened to 9:16 instead of cropped.
 - **Comic effects as layers.** Speed and focus lines, impact flashes, screentone, rain, snow, dust, glow and a
   flashback tint drawn deterministically over the art, instead of paying to regenerate a panel for them.
 - **Near-duplicate finder.** Spot near-identical panels, repeated poses and backgrounds, and duplicate thumbnail
