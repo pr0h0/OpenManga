@@ -8,6 +8,7 @@ import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { AnalysisDiff } from "../story/AnalysisDiff.tsx";
 import { CostPlan } from "./CostPlan.tsx";
 import { PublishingFlags, StaleChapters, useStaleness } from "./StaleChapters.tsx";
+import { WhyStale } from "./WhyStale.tsx";
 
 type Step = { key: string; label: string; status: string; note?: string; ref?: string };
 type Run = {
@@ -76,6 +77,7 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
   const aiText = useAiBody("text");
   const aiImage = useAiBody("image");
   const [open, setOpen] = useState(false);
+  const [why, setWhy] = useState<string | null>(null);
   const [o, setO] = useState({ reviewGates: true, preparePrompts: true, render: true, youtube: format === "film" });
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -137,17 +139,23 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
           {staleness.data.stages.map((s, i) => (
             <li key={s.key} className="flex items-center gap-1">
               {i > 0 && <span className="muted">→</span>}
-              <span
-                className={
-                  s.count > 0
-                    ? "chip bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                    : "chip bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                }
-                title={s.count > 0 ? s.note : "Up to date"}
-              >
-                {STAGE_LABEL[s.key] ?? s.key}
-                {s.count > 0 && s.key !== "render" && s.key !== "story" ? ` ${s.count}` : s.count > 0 ? " !" : " ✓"}
-              </span>
+              {s.count > 0 ? (
+                // Out of date: opens why, item by item, below.
+                <button
+                  type="button"
+                  className={`chip bg-amber-500/15 text-amber-700 dark:text-amber-300 ${why === s.key ? "ring-1 ring-amber-500" : ""}`}
+                  title={`${s.note} (click for why)`}
+                  aria-expanded={why === s.key}
+                  onClick={() => setWhy(why === s.key ? null : s.key)}
+                >
+                  {STAGE_LABEL[s.key] ?? s.key}
+                  {s.key !== "render" && s.key !== "story" ? ` ${s.count}` : " !"}
+                </button>
+              ) : (
+                <span className="chip bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" title="Up to date">
+                  {STAGE_LABEL[s.key] ?? s.key} ✓
+                </span>
+              )}
             </li>
           ))}
           {staleness.data.publishing
@@ -160,6 +168,9 @@ export function ProductionRunCard({ projectId, format }: { projectId: string; fo
               </li>
             ))}
         </ol>
+      )}
+      {why && staleness.data?.stages.some((s) => s.key === why && s.count > 0) && (
+        <WhyStale projectId={projectId} stage={why} label={STAGE_LABEL[why] ?? why} />
       )}
       {!run && (
         <p className="muted text-xs">

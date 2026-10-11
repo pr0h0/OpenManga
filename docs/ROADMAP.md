@@ -9,8 +9,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Production you can trust
 
-- **Why is this stale.** A dependency view behind the staleness list: story revision → chapter plan → panel →
-  artwork, so it is clear what changed and what an update would redo.
 - **Snapshots and undo** for risky project-wide actions such as re-planning a chapter or a bulk regeneration.
 - **Fork a chapter.** Keep a chapter's current production as one version and re-plan a copy, once snapshots exist.
 

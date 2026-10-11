@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Why is this stale: on the project overview, each out-of-date stage of the production card (story → plan → prompts
+  → art → narration → audio → render) opens the chapters, pages and panels behind its count, each with what changed
+  under it and what an update would redo: a story revision's new and removed paragraphs, the panels a chapter's text
+  revision hit, the spec fields edited after a panel's artwork, the panels changed after a chapter's narration, why
+  each chapter's audio is outdated (missing, text, voice or speed), and what changed after the newest video.
+  `GET /api/projects/:projectId/staleness/why`; MCP `get_staleness` with `why: true`.
 - `REGISTER_LIMIT_PER_HOUR` (default 10): sign-ups per hour from one client address, until now fixed at 10.
 - Story source (chapter page → *Story source*): the chapter's text with the part each panel tells marked, its scene
   and narration on hover and a marker that opens the panel; the page editor's Panel tab shows the panel's text
