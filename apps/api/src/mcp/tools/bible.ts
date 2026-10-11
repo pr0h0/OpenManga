@@ -250,7 +250,9 @@ export const bibleTools = [
       action: z.enum(["add", "edit", "delete", "reorder"]),
       projectId: Uuid.optional().describe("For add and reorder."),
       id: Uuid.optional().describe("The event, for edit and delete."),
-      event: asPatch(EventInput).optional().describe("For add (title required) and edit: only the fields given change."),
+      event: asPatch(EventInput)
+        .optional()
+        .describe("For add (title required) and edit: only the fields given change."),
       ids: z.array(Uuid).max(2000).optional().describe("For reorder."),
     }),
     output: Passthrough,
