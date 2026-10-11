@@ -34,6 +34,7 @@ const OPERATION_LABELS: Record<string, string> = {
   bible_extract: "Story bible",
   timeline_extract: "Story timeline",
   lettering_translate: "Lettering translation",
+  video_edit: "Video edits in words",
   continuity_check: "Continuity checks",
 };
 

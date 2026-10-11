@@ -466,6 +466,18 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
     const style = map(src.currentStyleId);
     const cover = await copyAsset(src.coverAssetId);
     await tx.update(projects).set({ currentStyleId: style, coverAssetId: cover }).where(eq(projects.id, np));
+    // Chapter title cards follow their chapters to the copy.
+    if (src.settings.video?.chapterCards?.length) {
+      const [cur] = await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, np));
+      const video = cur!.settings.video!;
+      const chapterCards = (video.chapterCards ?? []).flatMap((c) =>
+        ids.has(c.chapterId) ? [{ ...c, chapterId: ids.get(c.chapterId)! }] : [],
+      );
+      await tx
+        .update(projects)
+        .set({ settings: { ...cur!.settings, video: { ...video, chapterCards } } })
+        .where(eq(projects.id, np));
+    }
     return p!;
   });
 }

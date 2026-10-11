@@ -547,6 +547,11 @@ export const ProjectSettings = z.object({
       watermark: VideoWatermark.nullable().optional(),
       intro: VideoCard.nullable().optional(),
       outro: VideoCard.nullable().optional(),
+      /** A title card before a chapter's first shot in whole-project videos, drawn like the intro card. */
+      chapterCards: z
+        .array(VideoCard.extend({ chapterId: z.string().uuid() }))
+        .max(200)
+        .optional(),
       /** What a video export renders at when its request does not say: frame shape, and the short side in pixels. */
       output: z
         .object({

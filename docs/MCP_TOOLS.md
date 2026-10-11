@@ -25,7 +25,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `find_duplicates`, `compare_models`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `panel_image_tools`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `edit_video`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
 | `exports:read` | Read export status and files. | `suggest_shorts`, `suggest_repurpose`, `list_exports` |
@@ -147,6 +147,7 @@ requests) need no scope.
 | [`apply_timing_fix`](#apply_timing_fix) | write | `narration:write` `panels:write` |
 | [`retime_narration`](#retime_narration) | spend | `narration:write` `generations:run` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
+| [`edit_video`](#edit_video) | sensitive-write | `generations:run` |
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
 | [`suggest_repurpose`](#suggest_repurpose) | read | `exports:read` |
 | [`write_social_copy`](#write_social_copy) | spend | `generations:run` `projects:write` |
@@ -244,6 +245,7 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "BibleExtraction",
         "TimelineExtraction",
         "LetteringTranslation",
+        "VideoEditPlan",
         "ContinuityReport",
         "AgentPlan",
         "AgentStep"
@@ -1682,6 +1684,39 @@ Change a project's title, description, type, language, reading direction, colour
                   "type": "null"
                 }
               ]
+            },
+            "chapterCards": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "subtitle": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "durationMs": {
+                    "default": 3000,
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 15000
+                  },
+                  "chapterId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "chapterId"
+                ]
+              }
             },
             "output": {
               "type": "object",
@@ -12669,6 +12704,322 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
   "required": [
     "job"
   ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### edit_video
+
+Change the video's timeline from an instruction, e.g. "make chapter 4 faster", "cut every silence over 900 ms", "add a title card before chapter 8". propose: a text job turns the instruction into edits (asynchronous; poll get_job: result.edits lists each with its op, a label and what it would change now; result.dropped what could not be done; ai.manual=true asks you for a VideoEditPlan answer; a provider run spends the user's credits). apply: the job's edits, or `ops` (a subset, or changed: pauses {chapterId|null, maxPauseMs, pauseScale}, holds {chapterId|null, holdMs|null}, shot {panelId, disabled, motion, fade}, card {which intro|outro|chapter, chapterId, card {title, subtitle, durationMs}|null}, scene_fades {on}); waits for the user's approval. Existing art and audio only: nothing is drawn or voiced.
+
+- **Scopes:** `generations:run` — per action, see description
+- **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `video.edit_propose`, `video.edit_apply`
+- **Wraps:** `POST /api/projects/:projectId/video-edits`, `POST /api/projects/:projectId/video-edits/:jobId/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "propose",
+        "apply"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "instruction": {
+      "description": "propose: what to change, in words.",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 2000
+    },
+    "jobId": {
+      "description": "apply: the propose job.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ops": {
+      "description": "apply: the edits to apply; left out, all proposed.",
+      "maxItems": 60,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "pauses"
+              },
+              "chapterId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "maxPauseMs": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pauseScale": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "chapterId",
+              "maxPauseMs",
+              "pauseScale"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "holds"
+              },
+              "chapterId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "holdMs": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 500,
+                    "maximum": 60000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "chapterId",
+              "holdMs"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "shot"
+              },
+              "panelId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "motion": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "static",
+                  "pan-left",
+                  "pan-right",
+                  "pan-up",
+                  "pan-down",
+                  "push-in",
+                  "pull-out"
+                ]
+              },
+              "fade": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "on",
+                  "off"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "panelId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "card"
+              },
+              "which": {
+                "type": "string",
+                "enum": [
+                  "intro",
+                  "outro",
+                  "chapter"
+                ]
+              },
+              "chapterId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "card": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "default": "",
+                        "type": "string",
+                        "maxLength": 120
+                      },
+                      "subtitle": {
+                        "default": "",
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "durationMs": {
+                        "default": 3000,
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 15000
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "which",
+              "chapterId",
+              "card"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "scene_fades"
+              },
+              "on": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "op",
+              "on"
+            ]
+          }
+        ]
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action",
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": {}
 }
 ```

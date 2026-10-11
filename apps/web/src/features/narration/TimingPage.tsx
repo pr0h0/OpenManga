@@ -8,6 +8,7 @@ import { clsx, EmptyState, ErrorBox, Field, PageHeader, Spinner } from "../../co
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { EditInWords } from "./EditInWords.tsx";
 
 type Hold = { key: string; beforeMs: number; afterMs: number };
 type Effect = { holds: Hold[]; deltaMs: number };
@@ -90,6 +91,7 @@ export function TimingPage() {
           Plan a chapter and voice its narration first.
         </EmptyState>
       )}
+      {project.data && project.data.chapters.length > 0 && <EditInWords projectId={projectId} />}
       {project.data && project.data.chapters.length > 0 && (
         <div className="overflow-x-auto">
           <table className="mb-6 w-full min-w-[34rem] text-sm">

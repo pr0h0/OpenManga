@@ -21,11 +21,14 @@ const CORNERS: [VideoWatermark["corner"], string][] = [
 export function VideoSection({
   logoUpload,
   projectTitle,
+  chapters,
   value,
   onChange,
 }: {
   logoUpload: string;
   projectTitle: string;
+  /** A project's chapters, for title cards before each (a channel profile has none). */
+  chapters?: { id: string; order: number; title: string }[];
   value: ProjectSettings["video"];
   onChange: (v: Video) => void;
 }) {
@@ -150,6 +153,35 @@ export function VideoSection({
         />
         <CardFields label="Outro card" value={v.outro ?? null} fallbackTitle="" onChange={(outro) => set({ outro })} />
       </div>
+
+      {chapters && chapters.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-sm">
+            Chapter cards ({v.chapterCards?.length ?? 0} on): a title card before each chapter's first shot
+          </summary>
+          <div className="mt-2 grid gap-4 sm:grid-cols-2">
+            {chapters.map((ch) => {
+              const card = v.chapterCards?.find((c) => c.chapterId === ch.id) ?? null;
+              return (
+                <CardFields
+                  key={ch.id}
+                  label={`Chapter ${ch.order} card`}
+                  value={card}
+                  fallbackTitle={`Chapter ${ch.order}: ${ch.title}`.slice(0, 120)}
+                  onChange={(next) =>
+                    set({
+                      chapterCards: [
+                        ...(v.chapterCards ?? []).filter((c) => c.chapterId !== ch.id),
+                        ...(next ? [{ ...next, chapterId: ch.id }] : []),
+                      ],
+                    })
+                  }
+                />
+              );
+            })}
+          </div>
+        </details>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Field

@@ -23,6 +23,7 @@ import {
   StoryCoverageMap,
   StoryRewrite,
   TimelineExtraction,
+  VideoEditPlan,
   YoutubePackage,
 } from "@openmanga/schemas";
 import { expertConceptV1, expertOutlineV1, expertPremiseV1, expertYoutubeV1 } from "./expert-actions.ts";
@@ -560,6 +561,35 @@ export const narrationRetimeV1 = defineTextTemplate<{
       {
         role: "user",
         content: untrusted("project_data", JSON.stringify({ language: i.language, style: i.style, lines: i.lines })),
+      },
+    ];
+  },
+});
+
+/** "Edit the video in words": a sentence turned into timeline edits, reviewed before any is applied. */
+export const videoEditV1 = defineTextTemplate<{
+  instruction: string;
+  video: Record<string, unknown>;
+}>({
+  name: "video-edit",
+  version: 1,
+  description: "Turn an editor's instruction about a narrated video into timeline edits for review.",
+  system: [
+    templateHeader("video-edit", 1),
+    "You edit the timeline of a narrated comic video. The editor gives an instruction in their own words; return the smallest set of edits that does what it asks, and nothing it does not ask. The video data lists the chapters (by number) with their shots and pauses, the title cards and settings, and, when the project is small enough, each panel by its ref.",
+    "The edits you can make: pauses (cap the silence after narration segments at maxPauseMs and/or multiply it by pauseScale, in one chapter or the whole video when chapter is null; making a chapter faster or slower is mostly this), holds (set each shot's own minimum hold to holdMs in a chapter or the whole video; holdMs null puts them back to the export's), shot (one panel by its ref: disabled true leaves it out of the video, motion, fade), card (card intro, outro or chapter: a title card with title, subtitle and seconds; for a chapter card give its chapter; title null removes the card), scene_fades (on: fade to black at scene breaks). Leave every field an edit does not use null.",
+    "Use only chapter numbers and panel refs that are in the data. When the instruction cannot be done with these edits, return no edits and say why in summary. summary is one or two sentences for the editor on what the edits do.",
+    DATA_RULE,
+    schemaInstructions("VideoEditPlan", VideoEditPlan),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [untrusted("instruction", i.instruction), untrusted("project_data", JSON.stringify(i.video))].join(
+          "\n\n",
+        ),
       },
     ];
   },
@@ -1361,6 +1391,7 @@ export const TEXT_TEMPLATES = [
   youtubePackageV1,
   youtubePackageV2,
   narrationRetimeV1,
+  videoEditV1,
   socialCopyV1,
   socialCopyV2,
   jsonRepairV1,

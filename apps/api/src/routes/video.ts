@@ -383,17 +383,29 @@ export const CardQuery = z.object({
   aspect: VideoAspectParam,
 });
 
-/** A project's intro or outro card PNG, the pixels the render encodes; 404 when that card is off. */
+/**
+ * A project's intro, outro or chapter card PNG (`chapter-<id>`), the pixels the render encodes; 404 when that card is
+ * off. `chapterOk` limits which chapters' cards can be read (a reader link's scope).
+ */
 export async function videoCardResponse(
   deps: AppEnv["Variables"]["deps"],
   project: BrandedProject,
   which: string,
   q: z.infer<typeof CardQuery>,
   cacheControl: string,
+  chapterOk: (chapterId: string) => boolean = () => true,
 ) {
-  if (which !== "intro" && which !== "outro") throw notFound("Card");
+  const chapterId = /^chapter-([0-9a-f-]{36})$/.exec(which)?.[1];
+  if (which !== "intro" && which !== "outro" && !(chapterId && chapterOk(chapterId))) throw notFound("Card");
   const { frameW, frameH } = frameSizeFor(q.height, q.aspect);
-  const png = await renderProjectVideoCard(deps.db, deps.assets, project, which, frameW, frameH);
+  const png = await renderProjectVideoCard(
+    deps.db,
+    deps.assets,
+    project,
+    chapterId ? { chapterId } : (which as "intro" | "outro"),
+    frameW,
+    frameH,
+  );
   if (!png) throw notFound("Card");
   return new Response(png, { headers: { "content-type": "image/png", "cache-control": cacheControl } });
 }
@@ -402,7 +414,7 @@ doc({
   method: "GET",
   path: "/api/projects/:projectId/video-card/:which.png",
   summary:
-    "The project's intro or outro video card (`which`: intro|outro) as the render draws it, at ?height= (the short side) and ?aspect= (16:9, 9:16, 1:1). 404 when the card is off.",
+    "The project's intro, outro or chapter title card (`which`: intro|outro|chapter-<chapterId>) as the render draws it, at ?height= (the short side) and ?aspect= (16:9, 9:16, 1:1). 404 when the card is off.",
   tag: "exports",
 });
 videoRoutes.get("/projects/:projectId/video-card/:file", async (c) => {
@@ -457,6 +469,7 @@ async function brandingPayload(
   return {
     intro: noCards ? null : (v?.intro ?? null),
     outro: noCards ? null : (v?.outro ?? null),
+    chapters: noCards ? [] : (v?.chapterCards ?? []),
     watermark:
       wm && logo?.width && logo.height && !logo.deletedAt && logo.projectId === projectId
         ? { ...wm, width: logo.width, height: logo.height }
@@ -517,6 +530,7 @@ export async function previewPayload(
         page: {
           id: s.page.id,
           order: s.page.order,
+          chapterId: s.page.chapterId,
           chapterOrder: s.page.chapterOrder,
           width: s.page.width,
           height: s.page.height,

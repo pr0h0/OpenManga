@@ -256,20 +256,35 @@ export async function renderProjectVideoCard(
   db: Database,
   assetSvc: AssetService,
   project: BrandedProject,
-  which: "intro" | "outro",
+  which: "intro" | "outro" | { chapterId: string },
   width: number,
   height: number,
 ) {
-  const card = project.settings.video?.[which];
+  const chapterId = typeof which === "object" ? which.chapterId : null;
+  const card = chapterId
+    ? project.settings.video?.chapterCards?.find((c) => c.chapterId === chapterId)
+    : project.settings.video?.[which as "intro" | "outro"];
   if (!card) return null;
   const candidates = [project.settings.thumbnail?.assetId, project.coverAssetId].filter((x): x is string => Boolean(x));
   let art: typeof assets.$inferSelect | null = null;
-  for (const id of candidates) {
+  for (const id of chapterId ? [] : candidates) {
     const a = await assetSvc.get(id);
     if (a && !a.deletedAt) {
       art = a;
       break;
     }
+  }
+  // A chapter's card is drawn over that chapter's own first artwork.
+  if (chapterId) {
+    const [first] = await db
+      .select({ a: assets })
+      .from(panels)
+      .innerJoin(pages, eq(pages.id, panels.pageId))
+      .innerJoin(assets, eq(assets.id, panels.activeArtworkAssetId))
+      .where(and(eq(pages.chapterId, chapterId), eq(panels.projectId, project.id), isNull(assets.deletedAt)))
+      .orderBy(asc(pages.order), asc(panels.order))
+      .limit(1);
+    if (first) art = first.a;
   }
   if (!art) {
     const [first] = await db

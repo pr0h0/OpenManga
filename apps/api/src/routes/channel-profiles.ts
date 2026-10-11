@@ -298,6 +298,8 @@ channelProfileRoutes.post("/projects/:projectId/channel-profile", async (c) => {
   if (list.length >= 50) throw badRequest("You have 50 channel profiles; delete one first");
   const picked = Object.fromEntries(PROFILE_SETTING_KEYS.map((k) => [k, p.settings[k]]));
   const settings = ChannelProfileSettings.parse(picked);
+  // Chapter cards name this project's chapters: not something a channel shares.
+  if (settings.video) delete settings.video.chapterCards;
   // The project's logo is the project's: the profile gets its own copy, so either can be deleted on its own.
   const mark = settings.video?.watermark;
   if (mark) {

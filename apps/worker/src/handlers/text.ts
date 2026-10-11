@@ -63,6 +63,7 @@ import {
   stripOutlineV3,
   stripPlanningV3,
   timelineExtractV1,
+  videoEditV1,
   youtubePackageV2,
 } from "@openmanga/prompts";
 import {
@@ -81,6 +82,8 @@ import {
   StoryAnalysis,
   StoryRewrite,
   TimelineExtraction,
+  type VideoEditOp,
+  VideoEditPlan,
   YoutubePackage,
 } from "@openmanga/schemas";
 import {
@@ -88,9 +91,11 @@ import {
   applyChapterPlan,
   applyNarrationPauses,
   bibleFor,
+  cardOf,
   chapterLettering,
   loadBible,
   recordNarrationFingerprint,
+  resolveVideoEdit,
   saveTranslations,
   youtubeSourceFingerprint,
 } from "@openmanga/services";
@@ -1228,4 +1233,128 @@ export async function letteringTranslate(deps: WorkerDeps, job: ProjectJob) {
     }),
   );
   return { chapterId, language, lines: lines.length, saved, repaired: r.repaired };
+}
+
+/** Panels listed to the model one by one, by ref; a bigger project is edited by chapter only. */
+const VIDEO_EDIT_PANEL_LIMIT = 400; // ponytail: cap the prompt; list only the chapters an instruction names if needed
+
+/**
+ * "Edit the video in words": the project's timeline in brief (chapters with their shots and pauses, the cards and
+ * settings, the panels by ref when there are not too many), the instruction, and back a list of edits by id, each
+ * with what it would change now. Nothing is applied here: the user ticks, changes or rejects them.
+ */
+export async function videoEdit(deps: WorkerDeps, job: ProjectJob) {
+  const instruction = String(job.input.instruction ?? "");
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!p) throw new InputError("The project is gone");
+  const chs = await deps.db
+    .select({ id: chapters.id, order: chapters.order, title: chapters.title })
+    .from(chapters)
+    .where(eq(chapters.projectId, p.id))
+    .orderBy(asc(chapters.order));
+  if (!chs.length) throw new InputError("This project has no chapters yet");
+  const pns = await deps.db
+    .select({
+      id: panels.id,
+      order: panels.order,
+      pageOrder: pages.order,
+      chapterId: pages.chapterId,
+      beat: panels.storyBeat,
+      video: panels.video,
+    })
+    .from(panels)
+    .innerJoin(pages, eq(pages.id, panels.pageId))
+    .where(eq(panels.projectId, p.id))
+    .orderBy(asc(pages.order), asc(panels.order));
+  const pauses = await deps.db
+    .select({ chapterId: narrationLines.chapterId, ms: narrationSegments.pauseAfterMs })
+    .from(narrationSegments)
+    .innerJoin(narrationLines, eq(narrationLines.id, narrationSegments.narrationLineId))
+    .where(eq(narrationSegments.projectId, p.id));
+  const orderOf = new Map(chs.map((c) => [c.id, c.order]));
+  const refOf = (x: (typeof pns)[number]) => `c${orderOf.get(x.chapterId)}-p${x.pageOrder}-n${x.order}`;
+  const v = p.settings.video;
+  const video = {
+    chapters: chs.map((c) => {
+      const ms = pauses.filter((x) => x.chapterId === c.id).map((x) => x.ms);
+      return {
+        chapter: c.order,
+        title: c.title,
+        shots: pns.filter((x) => x.chapterId === c.id).length,
+        pauses: ms.length,
+        longestPauseMs: ms.length ? Math.max(...ms) : 0,
+        averagePauseMs: ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) : 0,
+        shotsWithOwnHold: pns.filter((x) => x.chapterId === c.id && x.video?.holdMs != null).length,
+      };
+    }),
+    intro: v?.intro ?? null,
+    outro: v?.outro ?? null,
+    chapterCards: (v?.chapterCards ?? []).flatMap((c) =>
+      orderOf.has(c.chapterId) ? [{ chapter: orderOf.get(c.chapterId), title: c.title }] : [],
+    ),
+    sceneFades: v?.fadeAtSceneBreaks ?? false,
+    panels:
+      pns.length <= VIDEO_EDIT_PANEL_LIMIT
+        ? pns.map((x) => ({
+            ref: refOf(x),
+            beat: x.beat.slice(0, 100),
+            ...(x.video?.disabled ? { disabled: true } : {}),
+            ...(x.video?.motion && x.video.motion !== "auto" ? { motion: x.video.motion } : {}),
+            ...(x.video?.holdMs != null ? { holdMs: x.video.holdMs } : {}),
+          }))
+        : `Too many panels to list (${pns.length}); edit by chapter.`,
+  };
+  const r = await structured(
+    deps,
+    job,
+    videoEditV1.build({ instruction, video }),
+    VideoEditPlan,
+    "VideoEditPlan",
+    8_000,
+  );
+  const idOfChapter = new Map(chs.map((c) => [c.order, c.id]));
+  const idOfRef = new Map(pns.map((x) => [refOf(x), x.id]));
+  const edits: { op: VideoEditOp; label: string; effect: string; changes: number }[] = [];
+  const dropped: string[] = [];
+  for (const o of r.data.ops) {
+    const chapterId = o.chapter == null ? null : (idOfChapter.get(o.chapter) ?? undefined);
+    if (chapterId === undefined) {
+      dropped.push(`${o.op}: there is no chapter ${o.chapter}`);
+      continue;
+    }
+    let op: VideoEditOp | null = null;
+    if (o.op === "pauses" && (o.maxPauseMs != null || o.pauseScale != null))
+      op = { op: "pauses", chapterId, maxPauseMs: o.maxPauseMs, pauseScale: o.pauseScale };
+    else if (o.op === "holds") op = { op: "holds", chapterId, holdMs: o.holdMs };
+    else if (o.op === "shot") {
+      const panelId = o.panel ? idOfRef.get(o.panel) : undefined;
+      if (panelId)
+        op = {
+          op: "shot",
+          panelId,
+          ...(o.disabled != null ? { disabled: o.disabled } : {}),
+          ...(o.motion ? { motion: o.motion } : {}),
+          ...(o.fade ? { fade: o.fade } : {}),
+        };
+      else dropped.push(`shot: there is no panel ${o.panel ?? "(none given)"}`);
+    } else if (o.op === "card" && o.card && (o.card !== "chapter" || chapterId))
+      op = {
+        op: "card",
+        which: o.card,
+        chapterId: o.card === "chapter" ? chapterId : null,
+        card: cardOf(o.title, o.subtitle, o.seconds),
+      };
+    else if (o.op === "scene_fades" && o.on != null) op = { op: "scene_fades", on: o.on };
+    if (!op) {
+      if (o.op !== "shot") dropped.push(`${o.op}: incomplete`);
+      continue;
+    }
+    try {
+      const res = await resolveVideoEdit(deps.db, p, op);
+      edits.push({ op, label: res.label, effect: res.effect, changes: res.changes });
+    } catch (e) {
+      dropped.push(`${o.op}: ${(e as Error).message}`);
+    }
+  }
+  return { instruction, summary: r.data.summary, edits, dropped, repaired: r.repaired };
 }

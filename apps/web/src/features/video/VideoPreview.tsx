@@ -49,7 +49,15 @@ export type PreviewShot = {
   fade: { in: boolean; out: boolean };
   /** Panel cut: the resolved camera move. */
   motion: Motion | null;
-  page: { id: string; order: number; chapterOrder: number; width: number; height: number; updatedAt: string };
+  page: {
+    id: string;
+    order: number;
+    chapterId: string;
+    chapterOrder: number;
+    width: number;
+    height: number;
+    updatedAt: string;
+  };
   panel: {
     id: string;
     shotType: string;
@@ -66,6 +74,8 @@ type Card = { title: string; subtitle: string; durationMs: number };
 type Branding = {
   intro: Card | null;
   outro: Card | null;
+  /** Title cards before chapters. */
+  chapters: (Card & { chapterId: string })[];
   watermark: {
     assetId: string;
     corner: "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -132,12 +142,14 @@ type Options = {
   maxScrollPxPerSec: number;
 };
 
-/** One entry of the timeline: a shot, or the intro or outro card. */
+/** One entry of the timeline: a shot, or the intro, outro or a chapter card (`chapter-<id>`). */
 type Timed = {
   key: string;
   label: string;
   shot: PreviewShot | null;
-  card: "intro" | "outro" | null;
+  card: string | null;
+  /** A card's title. */
+  title?: string;
   startMs: number;
   holdMs: number;
   frames: number;
@@ -146,7 +158,8 @@ type Timed = {
 
 /**
  * Timeline with the same holds as the final render: the intro card, the shared `timeGroup` over each run of shots a
- * narration line spans (narration + offsets + breath, at least the minimum per shot, whole frames), the outro card.
+ * narration line spans (narration + offsets + breath, at least the minimum per shot, whole frames), each chapter's
+ * title card before the first run of shots of that chapter, the outro card.
  */
 export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding: Branding | undefined, capMs?: number) {
   let frames = 0;
@@ -163,6 +176,7 @@ export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding:
       label,
       shot: null,
       card: which,
+      title: c.title,
       startMs: at(frames),
       holdMs: at(n),
       frames: n,
@@ -186,30 +200,55 @@ export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding:
     { minHoldMs, fps: FPS, capMs: capMs ? capMs - at(frames) : undefined },
   );
   const offset = at(frames);
+  const chapterCards = new Map((branding?.chapters ?? []).map((c) => [c.chapterId, c]));
+  // Chapter cards so far: everything after one plays that much later, as in the render.
+  let cardFramesSoFar = 0;
   for (const g of film.groups) {
+    const first = shots[g.first]!;
+    const chapter =
+      g.first === 0 || shots[g.first - 1]!.page.chapterId !== first.page.chapterId
+        ? chapterCards.get(first.page.chapterId)
+        : undefined;
+    if (chapter) {
+      const n = cardFrames(chapter.durationMs, FPS);
+      timed.push({
+        key: `chapter-${chapter.chapterId}`,
+        label: "Chapter card",
+        shot: null,
+        card: `chapter-${chapter.chapterId}`,
+        title: chapter.title,
+        startMs: offset + g.startMs + at(cardFramesSoFar),
+        holdMs: at(n),
+        frames: n,
+        missingAudio: 0,
+      });
+      cardFramesSoFar += n;
+    }
+    const shift = offset + at(cardFramesSoFar);
     const lines = shots.slice(g.first, g.last + 1).flatMap((s) => s.lines);
     lines.forEach((l, k) => {
       voiced(l).forEach((x, j) => {
-        const start = offset + g.startMs + g.starts[k]![j]!;
+        const start = shift + g.startMs + g.starts[k]![j]!;
         cues.push({ startMs: start, endMs: start + x.durationMs!, audioAssetId: x.audioAssetId!, text: x.text });
       });
     });
+    for (let i = g.first; i <= g.last; i++) {
+      const t = film.shots[i]!;
+      const shot = shots[i]!;
+      const all = shot.lines.flatMap((l) => l.segments);
+      timed.push({
+        key: shot.key,
+        label: shot.label,
+        shot,
+        card: null,
+        startMs: shift + t.startMs,
+        holdMs: t.holdMs,
+        frames: t.frames,
+        missingAudio: all.length - all.filter((x) => x.audioAssetId && x.durationMs).length,
+      });
+    }
   }
-  film.shots.forEach((t, i) => {
-    const shot = shots[i]!;
-    const all = shot.lines.flatMap((l) => l.segments);
-    timed.push({
-      key: shot.key,
-      label: shot.label,
-      shot,
-      card: null,
-      startMs: offset + t.startMs,
-      holdMs: t.holdMs,
-      frames: t.frames,
-      missingAudio: all.length - all.filter((x) => x.audioAssetId && x.durationMs).length,
-    });
-  });
-  frames += film.totalFrames;
+  frames += film.totalFrames + cardFramesSoFar;
   card("outro");
   return { timed, cues, totalMs: at(frames) };
 }
@@ -218,7 +257,7 @@ export function buildTimeline(shots: PreviewShot[], minHoldMs: number, branding:
 type PreviewUrls = {
   page: (pageId: string, updatedAt: string) => string;
   asset: (id: string, variant?: "web") => string;
-  card: (which: "intro" | "outro", version: string, aspect: VideoAspect) => string;
+  card: (which: string, version: string, aspect: VideoAspect) => string;
 };
 const signedInUrls = (projectId: string): PreviewUrls => ({
   page: (pageId, updatedAt) =>
@@ -1039,7 +1078,7 @@ export function VideoPreview({
                         {/* Truncated to keep the row one line; the title shows the whole narration on hover. */}
                         <span className="muted truncate" title={narration || undefined}>
                           {s.card
-                            ? (preview.data?.branding[s.card]?.title ?? "")
+                            ? (s.title ?? "")
                             : narration || (continues ? "↳ narration continues" : "— no narration —")}
                         </span>
                       </button>

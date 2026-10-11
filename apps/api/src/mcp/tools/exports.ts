@@ -1,4 +1,5 @@
 import { and, eq, exportJobs, ne, notInArray } from "@openmanga/db";
+import { VideoEditOp } from "@openmanga/schemas";
 import { z } from "zod";
 import { ExportOptions } from "../../routes/exports.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
@@ -30,6 +31,56 @@ export const exportTools = [
         body,
       });
       return { data: { ...r, job: jobView(r.job) }, links: { exports: links(ctx).exports(projectId) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "edit_video",
+    title: "Edit the video in words",
+    description:
+      'Change the video\'s timeline from an instruction, e.g. "make chapter 4 faster", "cut every silence over 900 ms", "add a title card before chapter 8". propose: a text job turns the instruction into edits (asynchronous; poll get_job: result.edits lists each with its op, a label and what it would change now; result.dropped what could not be done; ai.manual=true asks you for a VideoEditPlan answer; a provider run spends the user\'s credits). apply: the job\'s edits, or `ops` (a subset, or changed: pauses {chapterId|null, maxPauseMs, pauseScale}, holds {chapterId|null, holdMs|null}, shot {panelId, disabled, motion, fade}, card {which intro|outro|chapter, chapterId, card {title, subtitle, durationMs}|null}, scene_fades {on}); waits for the user\'s approval. Existing art and audio only: nothing is drawn or voiced.',
+    input: z.object({
+      action: z.enum(["propose", "apply"]),
+      projectId: Uuid,
+      instruction: z.string().min(3).max(2000).optional().describe("propose: what to change, in words."),
+      jobId: Uuid.optional().describe("apply: the propose job."),
+      ops: z.array(VideoEditOp).max(60).optional().describe("apply: the edits to apply; left out, all proposed."),
+      ai: AiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["generations:run"],
+    scopesFor: (a) =>
+      a.action === "apply" ? ["projects:write", "narration:write", "panels:write"] : ["generations:run"],
+    sensitivity: "sensitive-write",
+    idempotent: false,
+    routes: ["POST /api/projects/:projectId/video-edits", "POST /api/projects/:projectId/video-edits/:jobId/apply"],
+    actionKeys: ["video.edit_propose", "video.edit_apply"],
+    classify: async (a) =>
+      a.action === "apply"
+        ? cls(
+            "sensitive-write",
+            "video.edit_apply",
+            a.projectId,
+            `Apply ${a.ops ? a.ops.length : "the proposed"} video edits`,
+          )
+        : cls(textSpend(a.ai, "write"), "video.edit_propose", a.projectId, `Propose video edits ${aiLabel(a.ai)}`),
+    handler: async (a, ctx) => {
+      if (a.action === "apply") {
+        if (!a.jobId) throw toolError(400, "bad_request", "jobId is required for apply");
+        return {
+          data: await ctx.invoke("POST", `/api/projects/${a.projectId}/video-edits/${a.jobId}/apply`, {
+            body: { ops: a.ops },
+          }),
+        };
+      }
+      if (!a.instruction) throw toolError(400, "bad_request", "instruction is required for propose");
+      const r = await ctx.invoke<{ job: Record<string, unknown> & { id: string; projectId: string } }>(
+        "POST",
+        `/api/projects/${a.projectId}/video-edits`,
+        { body: { instruction: a.instruction, ai: await restAi(ctx, a.ai) } },
+      );
+      return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(r.job.projectId, r.job.id) } };
     },
   }),
 

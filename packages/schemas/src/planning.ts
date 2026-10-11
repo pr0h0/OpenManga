@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PanelSeam, StripPanelHeight } from "./editor.ts";
+import { PanelSeam, ShotMotion, StripPanelHeight, VideoCard } from "./editor.ts";
 
 const str = z.string().trim();
 const optStr = z.string().trim().optional().default("");
@@ -454,3 +454,66 @@ export const LetteringTranslation = z.object({
     .max(1000),
 });
 export type LetteringTranslation = z.infer<typeof LetteringTranslation>;
+
+/**
+ * "Edit the video in words": the changes a sentence asks for, as timeline edits the user reviews before any is
+ * applied. One flat shape for every kind (the model fills the fields its `op` uses and leaves the rest null).
+ * pauses: cap and/or scale the pauses after narration segments and the lines' start/end offsets. holds: each shot's
+ * own minimum hold (null = back to the export's). shot: one panel's motion, fade or whether it plays. card: an intro,
+ * outro or chapter title card (title null removes it). scene_fades: fade to black at scene breaks.
+ */
+export const VIDEO_EDIT_KINDS = ["pauses", "holds", "shot", "card", "scene_fades"] as const;
+export const VideoEditPlan = z.object({
+  summary: str.max(500).default(""),
+  ops: z
+    .array(
+      z.object({
+        op: z.enum(VIDEO_EDIT_KINDS),
+        chapter: z.number().int().min(1).nullable().default(null),
+        maxPauseMs: z.number().int().min(0).max(10_000).nullable().default(null),
+        pauseScale: z.number().min(0).max(4).nullable().default(null),
+        holdMs: z.number().int().min(500).max(60_000).nullable().default(null),
+        panel: str.max(40).nullable().default(null),
+        disabled: z.boolean().nullable().default(null),
+        motion: ShotMotion.nullable().default(null),
+        fade: z.enum(["auto", "on", "off"]).nullable().default(null),
+        card: z.enum(["intro", "outro", "chapter"]).nullable().default(null),
+        title: str.max(120).nullable().default(null),
+        subtitle: str.max(200).nullable().default(null),
+        seconds: z.number().min(1).max(15).nullable().default(null),
+        on: z.boolean().nullable().default(null),
+      }),
+    )
+    .max(60),
+});
+export type VideoEditPlan = z.infer<typeof VideoEditPlan>;
+
+/** One reviewed timeline edit, by ids: what a proposal holds and what applying it takes (edited or not). */
+export const VideoEditOp = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("pauses"),
+    chapterId: z.string().uuid().nullable(),
+    maxPauseMs: z.number().int().min(0).max(10_000).nullable(),
+    pauseScale: z.number().min(0).max(4).nullable(),
+  }),
+  z.object({
+    op: z.literal("holds"),
+    chapterId: z.string().uuid().nullable(),
+    holdMs: z.number().int().min(500).max(60_000).nullable(),
+  }),
+  z.object({
+    op: z.literal("shot"),
+    panelId: z.string().uuid(),
+    disabled: z.boolean().optional(),
+    motion: ShotMotion.optional(),
+    fade: z.enum(["auto", "on", "off"]).optional(),
+  }),
+  z.object({
+    op: z.literal("card"),
+    which: z.enum(["intro", "outro", "chapter"]),
+    chapterId: z.string().uuid().nullable(),
+    card: VideoCard.nullable(),
+  }),
+  z.object({ op: z.literal("scene_fades"), on: z.boolean() }),
+]);
+export type VideoEditOp = z.infer<typeof VideoEditOp>;

@@ -40,6 +40,7 @@ versions stay in the array so old jobs remain reproducible.
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` | 1 | 1 | `apps/api/src/routes/experts.ts`, `apps/worker/src/handlers/expert-extract.ts` (expert output actions, defined in `packages/prompts/src/expert-actions.ts`) |
 | `bible-extract` | 1 | 1 | `apps/api/src/routes/bible.ts`, `apps/worker/src/handlers/text.ts` (proposes story bible facts and character states, schema `BibleExtraction`) |
+| `video-edit` | 1 | 1 | `apps/api/src/routes/video-edits.ts`, `apps/worker/src/handlers/text.ts` (an instruction about the video as timeline edits for review, schema `VideoEditPlan`) |
 | `lettering-translate` | 1 | 1 | `apps/api/src/routes/lettering-translations.ts`, `apps/worker/src/handlers/text.ts` (a chapter's bubbles and captions in another language, schema `LetteringTranslation`) |
 | `timeline-extract` | 1 | 1 | `apps/api/src/routes/timeline.ts`, `apps/worker/src/handlers/text.ts` (proposes the story timeline in story-time order, schema `TimelineExtraction`) |
 | `continuity-check` | 1 | 1 | `apps/api/src/routes/continuity.ts`, `apps/worker/src/handlers/continuity.ts` (contradictions in one chapter and a verdict per fixed rule, schema `ContinuityReport`) |

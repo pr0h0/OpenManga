@@ -29,6 +29,7 @@ export const KIND_LABELS: Record<string, string> = {
   bible_extract: "Bible extraction",
   timeline_extract: "Timeline extraction",
   lettering_translate: "Lettering translation",
+  video_edit: "Video edit",
   continuity_check: "Continuity check",
 };
 

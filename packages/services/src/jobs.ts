@@ -30,6 +30,7 @@ export const QUEUE_FOR_KIND: Record<GenerationKind, QueueName> = {
   bible_extract: "text-ai",
   timeline_extract: "text-ai",
   lettering_translate: "text-ai",
+  video_edit: "text-ai",
   continuity_check: "text-ai",
   character_reference: "image-generation",
   location_reference: "image-generation",

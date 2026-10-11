@@ -19,7 +19,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { qk, useAction, useMeta } from "../../api/hooks.ts";
-import type { TtsStatus } from "../../api/types.ts";
+import type { ChapterListItem, TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { EdgePicker } from "../pages/EdgePicker.tsx";
@@ -44,6 +44,11 @@ export function SettingsPage() {
   const qc = useQueryClient();
   const meta = useMeta();
   const navigate = useNavigate();
+  const chapters = useQuery({
+    queryKey: qk.chapters(projectId),
+    queryFn: () => get<{ chapters: ChapterListItem[] }>(`/projects/${projectId}/chapters`),
+    select: (r) => r.chapters,
+  });
   const tts = useQuery({ queryKey: ["tts-status"], queryFn: () => get<TtsStatus>("/tts/status"), staleTime: 60_000 });
   const [form, setForm] = useState<Form | null>(null);
   const [confirm, setConfirm] = useState<null | "archive" | "trash">(null);
@@ -314,6 +319,7 @@ export function SettingsPage() {
         <VideoSection
           logoUpload={`/projects/${projectId}/video-logo`}
           projectTitle={form.title}
+          chapters={chapters.data}
           value={s.video}
           onChange={(v) => setS("video", v)}
         />

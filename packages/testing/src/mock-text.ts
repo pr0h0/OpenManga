@@ -393,6 +393,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "bible-extract": "bible-extract-v1",
     "timeline-extract": "timeline-extract-v1",
     "lettering-translate": "lettering-translate-v1",
+    "video-edit": "video-edit-v1",
     "continuity-check": "continuity-check-v1",
     "youtube-package": "youtube-package-v1",
     "story-coverage": "story-coverage-v1",
@@ -594,6 +595,21 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
             ]
           : [],
       };
+    }
+    case "video-edit-v1": {
+      // Keyword-driven, enough for a test: "faster" caps chapter N's pauses, "card" adds a chapter card, "fade" turns
+      // scene fades on, "skip" leaves the first listed panel out.
+      const ins = extractTagged(user, "instruction")[0] ?? "";
+      const raw = extractTagged(user, "project_data")[0];
+      const d = (raw ? JSON.parse(raw) : {}) as { panels?: { ref: string }[] };
+      const chapter = Number(/chapter (\d+)/i.exec(ins)?.[1] ?? 1);
+      const ops: Record<string, unknown>[] = [];
+      if (/faster|silence/i.test(ins)) ops.push({ op: "pauses", chapter, maxPauseMs: 200 });
+      if (/card/i.test(ins))
+        ops.push({ op: "card", card: "chapter", chapter, title: `Chapter ${chapter}`, seconds: 2 });
+      if (/fade/i.test(ins)) ops.push({ op: "scene_fades", on: true });
+      if (/skip/i.test(ins) && d.panels?.[0]) ops.push({ op: "shot", panel: d.panels[0].ref, disabled: true });
+      return { summary: ops.length ? "Done as asked." : "Nothing to change.", ops };
     }
     case "lettering-translate-v1": {
       // Each line marked with the target language, so a test can tell the edition apart.
