@@ -1,5 +1,6 @@
+import { eq, projects } from "@openmanga/db";
 import { BATCH_CAPABLE_PROVIDERS, PROVIDER_CATALOG, ProviderError, type ProviderKind } from "@openmanga/domain";
-import { instanceBudget, instanceBudgetReason, projectBudget } from "@openmanga/services";
+import { instanceBudget, instanceBudgetReason, projectBudget, projectStorageUse } from "@openmanga/services";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -147,7 +148,27 @@ export async function overBudgetAllowed(c: Context<AppEnv>, projectId: string) {
  * (header `x-allow-over-budget: 1`, sent by the web client after asking the user). Above that sits the server's
  * monthly ceiling, which an administrator sets and nobody else can confirm past.
  */
+/**
+ * A project over its own storage cap (project settings → Storage) makes nothing new until files are freed: its
+ * policy deletes expendable files at the next maintenance pass, or the owner raises the cap.
+ */
+export async function assertStorageRoom(c: Context<AppEnv>, projectId: string) {
+  const { db } = c.get("deps");
+  const [p] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, projectId));
+  const s = p?.settings.storage;
+  if (!s?.enabled || !s.capGb) return;
+  const use = await projectStorageUse(db, projectId, s);
+  if (use.overCap)
+    throw new ApiError(
+      409,
+      "storage_cap_exceeded",
+      `This project stores ${(use.bytes / 1024 ** 3).toFixed(2)} GB, over its ${s.capGb} GB cap. Free space (Project settings → Storage → Apply now, or the trash) or raise the cap.`,
+      use,
+    );
+}
+
 export async function assertBudget(c: Context<AppEnv>, projectId: string, extraUsd = 0) {
+  await assertStorageRoom(c, projectId);
   await assertServerBudget(c, extraUsd);
   const b = await projectBudget(c.get("deps").db, projectId);
   if (b.limitUsd === null || (await overBudgetAllowed(c, projectId))) return b;

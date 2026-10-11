@@ -77,9 +77,8 @@ Grouped by area, roughly most useful first within each.
 
 ### Assets and infrastructure
 
-- **Storage policies, further.** A server-wide policy by age and total size shipped (Admin → Storage). Still to do: a
-  policy per project, per-kind ages (keep exports longer than the render cache), project storage caps and cold
-  archives.
+- **Cold archives.** Move a finished project's files to cheaper storage (or one package) and bring them back on
+  demand; the server-wide and per-project storage policies, per-kind ages and project caps shipped.
 - **Workers by capability.** Workers declare what they can do (ffmpeg, Kokoro, ComfyUI, a GPU) and jobs go to one
   that can, so a single server can grow into an API host with separate GPU and render machines.
 - **Provenance package.** Per output: the app version, story revision, prompt versions, models, references and jobs

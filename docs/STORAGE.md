@@ -197,7 +197,8 @@ An administrator can add a server-wide policy on top of the table above (**Admin
 - **Limits.** `maxAgeDays` and `maxTotalGb`, either or both. Every expendable file older than the age limit is due, and
   then, while everything stored (every file and derivative, in use or not) still totals more than the size limit, the
   oldest of the rest, until it is under — whichever limit is crossed first (`selectForRetention`,
-  `packages/domain/src/retention.ts`).
+  `packages/domain/src/retention.ts`). `kindAges` gives a kind its own age in place of `maxAgeDays` (keep exports 90
+  days and the render cache 7), or `null`: never deleted for its age, only to get under the size limit.
 - **Expendable files only** (`storageCandidates`, `packages/services/src/storage-policy.ts`), each counted once with its
   derivatives: cached video sections, export files (the job row stays), older AI-drawn panel versions that no panel
   shows and that are not approved, locked or used as a reference, narration takes no segment plays, trashed files, and
@@ -210,6 +211,17 @@ An administrator can add a server-wide policy on top of the table above (**Admin
   touched; audit `storage.policy_approved`) or changes the policy so nothing is due. A size limit that cannot be met
   even after every expendable file (the rest is in use) keeps the warning too, in either mode.
 - **Dry run.** The Storage tab shows what is stored, what is expendable by kind, and what the policy would delete now.
+
+### A project's own policy and cap
+
+A project's owner can give it a policy of its own (**Project settings → Storage**, `GET`/`PUT
+/api/projects/:id/storage`, `settings.storage`): `maxAgeDays`, `kindAges` and `capGb`, over the same expendable files
+of that project only. It is always applied by itself — at each hourly maintenance pass (`enforceProjectPolicies`,
+audit `project.storage_auto`) or now (`POST /api/projects/:id/storage/apply`) — deleting by age, then the oldest
+until the project is under its cap. While the project still stores more than its cap (what is in use cannot be
+deleted to make room), new AI work and exports are refused with `storage_cap_exceeded` (409) until space is freed or
+the cap is raised. The server-wide policy still applies on top. Editors cannot change it, through the form or
+`PATCH`; MCP `project_storage`.
 
 ## Asset library
 

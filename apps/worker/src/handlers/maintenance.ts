@@ -10,9 +10,11 @@ import {
   exportsTable,
   generationJobs,
   inArray,
+  isNull,
   lt,
   or,
   passwordResetTokens,
+  projects,
   sessions,
   sql,
 } from "@openmanga/db";
@@ -24,6 +26,7 @@ import {
   KeyRing,
   pendingSummary,
   planStorage,
+  projectRetention,
   recordAudit,
   rotateCredentials,
   setStoragePending,
@@ -52,6 +55,28 @@ export async function enforceStoragePolicy(deps: WorkerDeps, approvedBy: string 
     plan = await planStorage(deps.db, policy);
   }
   await setStoragePending(deps.db, plan && (plan.files || plan.overLimitBytes) ? pendingSummary(plan) : null);
+  return deleted;
+}
+
+/** Each project's own storage policy (its owner's), applied by itself: ages per kind, then down to its cap. */
+export async function enforceProjectPolicies(deps: WorkerDeps) {
+  const rows = await deps.db
+    .select({ id: projects.id, settings: projects.settings })
+    .from(projects)
+    .where(and(isNull(projects.deletedAt), sql`${projects.settings}->'storage'->>'enabled' = 'true'`));
+  let deleted = 0;
+  for (const p of rows) {
+    const plan = await planStorage(deps.db, projectRetention(p.settings.storage), new Date(), p.id);
+    if (!plan?.files) continue;
+    const n = await applyStoragePlan(deps.db, deps.assets, plan);
+    deleted += n;
+    await recordAudit(deps.db, {
+      userId: null,
+      projectId: p.id,
+      action: "project.storage_auto",
+      metadata: { files: n, bytes: plan.bytes, reasons: plan.reasons, byKind: plan.byKind },
+    });
+  }
   return deleted;
 }
 
@@ -273,6 +298,7 @@ export async function runMaintenance(deps: WorkerDeps) {
     sql`delete from outbox where status = 'published' and published_at < now() - interval '7 days'`,
   );
   result.storagePolicyDeleted = await enforceStoragePolicy(deps);
+  result.projectPolicyDeleted = await enforceProjectPolicies(deps);
   const rot = await rotateCredentials(deps.db, new KeyRing(deps.config), { logger: log });
   result.credentialsRotated = rot.rotated;
   result.credentialRotationFailures = rot.failed;

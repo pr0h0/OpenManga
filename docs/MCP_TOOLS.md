@@ -13,7 +13,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `prompt_lab`, `list_series`, `get_series`, `get_image`, `manage_assets`, `asset_library`, `estimate_production_run`, `get_staleness`, `get_project_health` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `project_storage`, `prompt_lab`, `list_series`, `get_series`, `get_image`, `manage_assets`, `asset_library`, `estimate_production_run`, `get_staleness`, `get_project_health` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_series`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `get_timeline`, `run_continuity_check`, `get_continuity_report` |
@@ -57,6 +57,7 @@ requests) need no scope.
 | [`get_project_checks`](#get_project_checks) | read | `projects:read` |
 | [`get_project_usage`](#get_project_usage) | read | `usage:read` |
 | [`get_youtube_stats`](#get_youtube_stats) | read | `stats:read` |
+| [`project_storage`](#project_storage) | delete | `projects:read` |
 | [`prompt_lab`](#prompt_lab) | sensitive-write | `projects:read` |
 | [`list_series`](#list_series) | read | `projects:read` |
 | [`get_series`](#get_series) | read | `projects:read` |
@@ -858,6 +859,67 @@ Change a project's title, description, type, language, reading direction, colour
             "film",
             "vertical"
           ]
+        },
+        "storage": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "maxAgeDays": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3650
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kindAges": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "enum": [
+                  "render_cache",
+                  "export",
+                  "panel_version",
+                  "audio_take",
+                  "trash",
+                  "prompt_reference"
+                ]
+              },
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3650
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "capGb": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 100000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
         },
         "filmFrame": {
           "type": "string",
@@ -2544,6 +2606,121 @@ How the project's published videos do on YouTube. Without linkId: every linked v
     }
   },
   "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### project_storage
+
+A project's own storage policy and cap. get: the policy, the bytes stored (and whether over the cap), what may be deleted by kind (render_cache, export, panel_version, audio_take, trash, prompt_reference) and a dry run of what the policy would delete now. set (owner): { enabled, maxAgeDays, kindAges (a kind's own age in days, null for no age limit), capGb } — applied at each hourly maintenance pass; while the project is over its cap, AI work and exports are refused (storage_cap_exceeded). apply (owner): delete what the dry run lists now — delete class, may need approval. Artwork a panel shows, approved art, references, uploads and narration in use are never deleted.
+
+- **Scopes:** `projects:read` — per action, see description
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `project.storage_policy`, `project.storage_apply`
+- **Wraps:** `GET /api/projects/:projectId/storage`, `PUT /api/projects/:projectId/storage`, `POST /api/projects/:projectId/storage/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "get",
+        "set",
+        "apply"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "maxAgeDays": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kindAges": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "render_cache",
+              "export",
+              "panel_version",
+              "audio_take",
+              "trash",
+              "prompt_reference"
+            ]
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3650
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "capGb": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 100000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "action",
     "projectId"
   ]
 }

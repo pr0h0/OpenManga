@@ -1,4 +1,5 @@
 import { projects } from "@openmanga/db";
+import { ProjectStorage } from "@openmanga/schemas";
 import { z } from "zod";
 import { CreateProject, UpdateProject } from "../../routes/projects.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
@@ -292,6 +293,42 @@ export const projectTools = [
       ),
     }),
   }),
+  defineMcpTool({
+    name: "project_storage",
+    title: "Project storage policy",
+    description:
+      "A project's own storage policy and cap. get: the policy, the bytes stored (and whether over the cap), what may be deleted by kind (render_cache, export, panel_version, audio_take, trash, prompt_reference) and a dry run of what the policy would delete now. set (owner): { enabled, maxAgeDays, kindAges (a kind's own age in days, null for no age limit), capGb } — applied at each hourly maintenance pass; while the project is over its cap, AI work and exports are refused (storage_cap_exceeded). apply (owner): delete what the dry run lists now — delete class, may need approval. Artwork a panel shows, approved art, references, uploads and narration in use are never deleted.",
+    input: z.object({
+      action: z.enum(["get", "set", "apply"]),
+      projectId: Uuid,
+      policy: ProjectStorage.optional(),
+    }),
+    output: Passthrough,
+    scopes: ["projects:read"],
+    scopesFor: (a) => (a.action === "get" ? ["projects:read"] : ["projects:write"]),
+    sensitivity: "delete",
+    idempotent: false,
+    routes: [
+      "GET /api/projects/:projectId/storage",
+      "PUT /api/projects/:projectId/storage",
+      "POST /api/projects/:projectId/storage/apply",
+    ],
+    actionKeys: ["project.storage_policy", "project.storage_apply"],
+    classify: async (a) =>
+      a.action === "get"
+        ? cls("read", "project.storage_read", a.projectId, "Read the storage policy")
+        : a.action === "set"
+          ? cls("sensitive-write", "project.storage_policy", a.projectId, "Set the project's storage policy")
+          : cls("delete", "project.storage_apply", a.projectId, "Delete expendable files under the storage policy now"),
+    handler: async (a, ctx) => {
+      const path = `/api/projects/${a.projectId}/storage`;
+      if (a.action === "get") return { data: await ctx.invoke("GET", path) };
+      if (a.action === "apply") return { data: await ctx.invoke("POST", `${path}/apply`) };
+      if (!a.policy) throw toolError(400, "bad_request", "policy is required for set");
+      return { data: await ctx.invoke("PUT", path, { body: a.policy }) };
+    },
+  }),
+
   defineMcpTool({
     name: "prompt_lab",
     title: "Prompt lab",

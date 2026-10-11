@@ -444,8 +444,28 @@ export const CustomLayout = z.object({
 });
 export type CustomLayout = z.infer<typeof CustomLayout>;
 
+/**
+ * A project's own storage policy, set by its owner: expendable files (cached video sections, exports, older panel
+ * versions, unused narration takes, trash, prompt reference copies) older than `maxAgeDays` — or a kind's own age in
+ * `kindAges` — are deleted at each maintenance pass, then the oldest until the project is under `capGb`. While it is
+ * still over the cap, new AI work and exports are refused.
+ */
+export const ProjectStorage = z.object({
+  enabled: z.boolean().default(false),
+  maxAgeDays: z.number().int().min(1).max(3650).nullable().default(null),
+  kindAges: z
+    .partialRecord(
+      z.enum(["render_cache", "export", "panel_version", "audio_take", "trash", "prompt_reference"]),
+      z.number().int().min(1).max(3650).nullable(),
+    )
+    .optional(),
+  capGb: z.number().positive().max(100_000).nullable().default(null),
+});
+export type ProjectStorage = z.infer<typeof ProjectStorage>;
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
+  storage: ProjectStorage.optional(),
   /** Film projects: the shape every shot is planned, drawn and rendered at. Fixed once pages exist. */
   filmFrame: FilmFrame.optional(),
   pageWidth: z.number().int().min(256).max(8000).default(1600),

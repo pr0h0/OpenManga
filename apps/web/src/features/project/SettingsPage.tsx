@@ -26,6 +26,7 @@ import { EdgePicker } from "../pages/EdgePicker.tsx";
 import { LayoutLibrary } from "../pages/LayoutLibrary.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
 import { PronunciationSection } from "./PronunciationSection.tsx";
+import { StorageSection } from "./StorageSection.tsx";
 import { PublishingSection, VideoSection } from "./VideoSettings.tsx";
 
 type Form = {
@@ -70,7 +71,9 @@ export function SettingsPage() {
     form,
     async (v) => {
       if (!v) return;
-      await patch(`/projects/${projectId}`, v);
+      // The storage policy has its own save (and owner check); a stale copy here must not overwrite it.
+      const { storage: _storage, ...settings } = v.settings;
+      await patch(`/projects/${projectId}`, { ...v, settings });
       await qc.invalidateQueries({ queryKey: qk.project(projectId) });
     },
     { enabled: Boolean(form) },
@@ -336,6 +339,8 @@ export function SettingsPage() {
           value={s.video}
           onChange={(v) => setS("video", v)}
         />
+
+        <StorageSection projectId={projectId} owner={owner} />
 
         <PublishingSection value={s} onChange={(v) => setForm({ ...form, settings: { ...form.settings, ...v } })} />
 

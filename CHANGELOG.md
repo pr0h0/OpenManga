@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Storage policies per project (project settings → *Storage*, owner only): how long each kind of expendable file is
+  kept (cached video sections, exports, older panel versions, unused narration takes, trash, prompt reference
+  copies) and a storage cap the project stays under, applied at each hourly maintenance pass or at once with *Apply
+  now*; while a project is still over its cap, new AI work and exports wait. The server-wide policy (Admin →
+  Storage) gains the same per-kind ages, e.g. exports kept longer than the render cache. MCP `project_storage`.
 - Asset library (project → *Assets*): tags, collections and favourites; search by name, type or tag; filters by
   character, place or prop (their reference images and the panels they are drawn in), source (generated, uploaded,
   edited), model and date; *Unused* (old versions and images nothing uses) and *Duplicates* (the same file stored
