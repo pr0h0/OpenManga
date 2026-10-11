@@ -13,6 +13,7 @@ import {
   eq,
   inArray,
   isNull,
+  locationStates,
   locations,
   locationVersions,
   narrationLines,
@@ -44,6 +45,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
     const ids = new Map<string, string>();
     const map = (id: string | null | undefined) => (id ? (ids.get(id) ?? null) : null);
     const mapArr = (arr: string[]) => arr.map((i) => ids.get(i)).filter((x): x is string => Boolean(x));
+    const stateRanges: { id: string; from: string | null; until: string | null }[] = [];
 
     const [p] = await tx
       .insert(projects)
@@ -204,6 +206,24 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         ids.set(v.id, nv!.id);
       }
       ids.set(l.id, nl!.id);
+      // Its states; their chapter range is mapped once the chapters are copied.
+      for (const s of await tx.select().from(locationStates).where(eq(locationStates.locationId, l.id))) {
+        const [ns] = await tx
+          .insert(locationStates)
+          .values({
+            ...s,
+            id: undefined,
+            projectId: np,
+            locationId: nl!.id,
+            fromChapterId: null,
+            untilChapterId: null,
+            createdAt: undefined,
+            updatedAt: undefined,
+          })
+          .returning();
+        ids.set(s.id, ns!.id);
+        stateRanges.push({ id: ns!.id, from: s.fromChapterId, until: s.untilChapterId });
+      }
       await tx
         .update(locations)
         .set({ currentVersionId: map(l.currentVersionId) })
@@ -259,6 +279,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         propVersionId: map(r.propVersionId),
         projectStyleId: map(r.projectStyleId),
         outfitId: map(r.outfitId),
+        locationStateId: map(r.locationStateId),
         createdAt: undefined,
       });
     }
@@ -285,6 +306,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
             projectId: np,
             chapterId: nch!.id,
             locationId: map(sc.locationId),
+            locationStateId: map(sc.locationStateId),
             characterIds: mapArr(sc.characterIds),
             createdAt: undefined,
             updatedAt: undefined,
@@ -344,6 +366,12 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         await copyPageChildren(tx, pg.id, npg!.id, np, ids);
       }
     }
+    for (const s of stateRanges)
+      if (s.from || s.until)
+        await tx
+          .update(locationStates)
+          .set({ fromChapterId: map(s.from), untilChapterId: map(s.until) })
+          .where(eq(locationStates.id, s.id));
     for (const nl of await tx.select().from(narrationLines).where(eq(narrationLines.projectId, projectId))) {
       const chapterId = ids.get(nl.chapterId);
       if (!chapterId) continue;

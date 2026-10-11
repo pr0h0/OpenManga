@@ -5,6 +5,7 @@ import { useAction } from "../../api/hooks.ts";
 import type { ChapterDetail } from "../../api/types.ts";
 import { ConfirmDialog, TagInput } from "../../components/ui.tsx";
 import { BulkGenerateButton } from "../pages/BulkGenerate.tsx";
+import { useLocationStates } from "../world/LocationStates.tsx";
 
 type Scene = ChapterDetail["scenes"][number];
 type Option = { id: string; name: string };
@@ -154,7 +155,7 @@ export function SceneEditor({
               <select
                 className="input"
                 value={s.locationId ?? ""}
-                onChange={(e) => setS({ ...s, locationId: e.target.value || null })}
+                onChange={(e) => setS({ ...s, locationId: e.target.value || null, locationStateId: null })}
               >
                 <option value="">None</option>
                 {locations.map((l) => (
@@ -166,6 +167,13 @@ export function SceneEditor({
             </label>
             {text("time", "Time")}
             {text("weather", "Weather")}
+            {s.locationId && (
+              <StatePick
+                locationId={s.locationId}
+                value={s.locationStateId}
+                onChange={(v) => setS({ ...s, locationStateId: v })}
+              />
+            )}
           </div>
           {text("summary", "Summary", true)}
           <div>
@@ -262,5 +270,32 @@ export function SceneEditor({
         Pages and panels keep existing but lose their scene link.
       </ConfirmDialog>
     </div>
+  );
+}
+
+/** The place's state this scene shows: picked by hand, or left to its time, weather and chapter. */
+function StatePick({
+  locationId,
+  value,
+  onChange,
+}: {
+  locationId: string;
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  const states = useLocationStates(locationId);
+  if (!states.data?.length) return null;
+  return (
+    <label className="block">
+      <span className="label">Location state</span>
+      <select className="input" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">By time, weather and chapter</option>
+        {states.data.map((st) => (
+          <option key={st.id} value={st.id}>
+            {st.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

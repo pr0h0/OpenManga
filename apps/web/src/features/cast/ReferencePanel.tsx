@@ -37,6 +37,7 @@ export function ReferencePanel({
   versionStatus,
   references,
   outfits,
+  stateNames,
   onChanged,
   trashed,
 }: {
@@ -46,6 +47,8 @@ export function ReferencePanel({
   versionStatus: string;
   references: Reference[];
   outfits?: CharacterOutfitRow[];
+  /** Locations: the place's states by id, to label a state's reference. */
+  stateNames?: Map<string, string>;
   onChanged: () => void;
   /** The subject is in the trash, and these images with it: shown dimmed until it is restored. */
   trashed?: boolean;
@@ -265,6 +268,9 @@ export function ReferencePanel({
               <div className="space-y-1.5 p-2 text-xs">
                 <div className="flex items-center gap-1">
                   <span className="font-medium capitalize">{kindLabel(r.kind)}</span>
+                  {r.locationStateId && (
+                    <span className="chip text-[10px]">{stateNames?.get(r.locationStateId) ?? "state"}</span>
+                  )}
                   {r.isPrimary && <Star className="size-3.5 fill-amber-400 text-amber-400" aria-label="Primary" />}
                   <span className="ml-auto flex items-center gap-1">
                     {r.stale && (

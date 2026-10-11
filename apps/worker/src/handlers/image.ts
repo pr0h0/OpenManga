@@ -383,6 +383,7 @@ export async function attachReference(deps: WorkerDeps, job: ProjectJob, r: Imag
       propVersionId: subject === "prop" ? versionId : null,
       projectStyleId: subject === "style" ? versionId : null,
       outfitId: (job.input.outfitId as string | null) ?? null,
+      locationStateId: (job.input.locationStateId as string | null | undefined) ?? null,
       kind,
       assetId: asset.id,
       isPrimary: !primary && kind !== "expression_sheet",

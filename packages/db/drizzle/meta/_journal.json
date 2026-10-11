@@ -295,6 +295,13 @@
       "when": 1791729485367,
       "tag": "0041_timeline_events",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791732470840,
+      "tag": "0042_location_states",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import {
 import { FieldGroup, ListRow, TextRow, VERSION_ACTIONS } from "../cast/fields.tsx";
 import { ReferencePanel } from "../cast/ReferencePanel.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
+import { LocationStates, useLocationStates } from "./LocationStates.tsx";
 
 type Kind = "location" | "prop";
 type Version = LocationVersionRow | PropVersionRow;
@@ -39,6 +40,8 @@ function EntityDetail({ kind }: { kind: Kind }) {
       get<Record<string, unknown> & { versions: Version[]; references: Reference[] }>(`/${plural}/${entityId}`),
   });
   const [selected, setSelected] = useState<string | null>(null);
+  const states = useLocationStates(kind === "location" ? entityId : "");
+  const stateNames = new Map((kind === "location" ? (states.data ?? []) : []).map((s) => [s.id, s.name]));
   const [trashOpen, setTrashOpen] = useState(false);
   const refresh = useCallback(() => {
     qc.invalidateQueries({ queryKey: kind === "location" ? qk.location(entityId) : qk.prop(entityId) });
@@ -186,9 +189,18 @@ function EntityDetail({ kind }: { kind: Kind }) {
               versionId={version.id}
               versionStatus={version.status}
               references={data.references}
+              stateNames={stateNames}
               onChanged={refresh}
               trashed={Boolean(entity.deletedAt)}
             />
+            {kind === "location" && (
+              <LocationStates
+                locationId={entityId}
+                versionId={version.id}
+                references={data.references}
+                onChanged={refresh}
+              />
+            )}
           </div>
         )}
       </div>
