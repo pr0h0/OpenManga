@@ -204,8 +204,10 @@ export async function panelGeneration(deps: WorkerDeps, job: ProjectJob) {
     parent,
   );
   if (cancelled) throw new JobCancelledError();
-  await activatePanelArt(deps, job, panelId, asset.id, review);
-  await maybeQueuePanelCheck(deps, job, panelId, asset.id).catch((e) =>
+  // A comparison run keeps its artwork as a version to pick from; it is checked, not made active.
+  const compare = typeof job.parameters.compare === "string";
+  if (!compare) await activatePanelArt(deps, job, panelId, asset.id, review);
+  await maybeQueuePanelCheck(deps, job, panelId, asset.id, { compare }).catch((e) =>
     deps.logger.warn("panel check not queued", { panelId, error: (e as Error).message }),
   );
   return { assetId: asset.id, width: asset.width, height: asset.height, references: inputs.length };

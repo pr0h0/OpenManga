@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Model comparison (page editor → Panel tab → *Compare models*): draw one panel with 2-4 image keys and models at
+  once and see them side by side with the time each took, its estimated cost and its visual check (when the
+  project's checks are on). The panel keeps its artwork until you pick one; the pick becomes its artwork and your
+  image model, so the chapter's *Generate* draws with the winner. Runs stay in the panel's versions. MCP
+  `compare_models`.
 - Near-duplicate finder (Storyboard → *Near-duplicates*): a scan without AI (a `duplicate_scan` job) groups
   near-identical panels, the same figure staging in panels that are not neighbours, the same background reused in
   another scene, and near-identical cover or thumbnail art, with a score and links to each panel. Uses small image

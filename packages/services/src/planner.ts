@@ -631,6 +631,8 @@ export class GenerationPlanner {
       batchMode?: boolean;
       /** The how-many-th automatic re-roll by the panel's visual checks this is. */
       autoFix?: number;
+      /** One run of a model comparison: its artwork is kept as a version but not made active. */
+      compareId?: string;
     },
   ) {
     const run = await this.imageRun(opts.ai, userId);
@@ -669,6 +671,7 @@ export class GenerationPlanner {
             ...(opts.allowOverBudget ? { allowOverBudget: true } : {}),
             ...(opts.batchMode ? { batchMode: true } : {}),
             ...(opts.autoFix ? { autoFix: opts.autoFix } : {}),
+            ...(opts.compareId ? { compare: opts.compareId } : {}),
           },
           input: {
             pageId: ctx.page.id,
@@ -682,7 +685,8 @@ export class GenerationPlanner {
         },
         { enqueue: !opts.batchMode },
       );
-      await tx.update(panels).set({ status: "queued" }).where(eq(panels.id, panelId));
+      // A comparison run leaves the panel as it is: only a pick changes its artwork.
+      if (!opts.compareId) await tx.update(panels).set({ status: "queued" }).where(eq(panels.id, panelId));
       return j;
     });
     return job;

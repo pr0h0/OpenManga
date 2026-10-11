@@ -77,7 +77,7 @@ export function DuplicatesButton({ projectId }: { projectId: string }) {
           {s?.result && (
             <>
               <p className="text-xs">
-                {s.result.panels} panels scanned · {s.result.groups.length} group
+                {s.result.panels} panel{s.result.panels === 1 ? "" : "s"} scanned · {s.result.groups.length} group
                 {s.result.groups.length === 1 ? "" : "s"} found
               </p>
               {!s.result.groups.length && <p className="muted">Nothing repeats.</p>}

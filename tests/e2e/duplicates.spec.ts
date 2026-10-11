@@ -19,5 +19,5 @@ test("near-duplicates: scan the project from the storyboard", async () => {
   await page.goto(`${s.url}/storyboard?chapterId=${s.chapterId}`);
   await page.getByRole("button", { name: "Near-duplicates" }).click();
   await page.getByRole("button", { name: "Scan the project" }).click();
-  await expect(page.getByText(/panels scanned/)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/scanned/)).toBeVisible({ timeout: 60_000 });
 });

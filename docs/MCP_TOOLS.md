@@ -22,7 +22,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style`, `manage_location_states`, `manage_reference_board` |
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
-| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `find_duplicates`, `manage_panel_artwork`, `list_comments`, `get_image` |
+| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `find_duplicates`, `compare_models`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `panel_image_tools`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
 | `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
@@ -110,6 +110,7 @@ requests) need no scope.
 | [`coverage_sheet`](#coverage_sheet) | spend | `generations:run` |
 | [`panel_image_tools`](#panel_image_tools) | spend | `panels:write` |
 | [`find_duplicates`](#find_duplicates) | write | `panels:read` |
+| [`compare_models`](#compare_models) | spend | `panels:read` |
 | [`manage_panel_artwork`](#manage_panel_artwork) | delete | `panels:read` `panels:write` |
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
@@ -8899,6 +8900,97 @@ Near-duplicate finder, without AI: run=true queues a scan (a job; poll get_job),
   },
   "required": [
     "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### compare_models
+
+Draw one panel with 2-4 image models side by side. run: runs (each an ai choice: credentialId, model) — each spends that key's credits (may need approval); asynchronous, returns the jobs. get: the newest comparison — per run provider, model, status, artwork (assetId: see it with get_image), time taken, estimated cost and visual check. pick: jobId — that run's artwork becomes the panel's active version; draw more panels with the same credentialId and model (generate_panel / run_bulk_generation ai).
+
+- **Scopes:** `panels:read` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `panel.compare`, `panel.compare_pick`
+- **Wraps:** `POST /api/panels/:id/compare`, `GET /api/panels/:id/compare`, `POST /api/panels/:id/compare/pick`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "run",
+        "get",
+        "pick"
+      ]
+    },
+    "panelId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "runs": {
+      "minItems": 2,
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "credentialId": {
+            "description": "One of the user's saved provider keys (ids from get_server_info).",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "provider": {
+            "description": "Use the user's first saved key for this provider kind.",
+            "type": "string",
+            "maxLength": 40
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "jobId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action",
+    "panelId"
   ]
 }
 ```
