@@ -1,7 +1,7 @@
-import { ProposedEvent, ProposedFact, ProposedState } from "@openmanga/schemas";
+import { asPatch, ProposedEvent, ProposedFact, ProposedState } from "@openmanga/schemas";
 import { z } from "zod";
 import { FactPatch, StatePatch } from "../../routes/bible.ts";
-import { EventInput, EventPatch } from "../../routes/timeline.ts";
+import { EventInput } from "../../routes/timeline.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
 import { toolError } from "../runtime.ts";
 import { AiInput, aiLabel, cls, jobView, links, projectOf, restAi, textSpend, Uuid } from "./common.ts";
@@ -250,7 +250,7 @@ export const bibleTools = [
       action: z.enum(["add", "edit", "delete", "reorder"]),
       projectId: Uuid.optional().describe("For add and reorder."),
       id: Uuid.optional().describe("The event, for edit and delete."),
-      event: EventInput.partial().optional().describe("For add (title required) and edit."),
+      event: asPatch(EventInput).optional().describe("For add (title required) and edit: only the fields given change."),
       ids: z.array(Uuid).max(2000).optional().describe("For reorder."),
     }),
     output: Passthrough,
@@ -292,7 +292,7 @@ export const bibleTools = [
         case "edit":
           return {
             data: await ctx.invoke("PATCH", `/api/timeline-events/${need(id, "id")}`, {
-              body: EventPatch.parse(event ?? {}),
+              body: event ?? {},
             }),
           };
         case "delete":

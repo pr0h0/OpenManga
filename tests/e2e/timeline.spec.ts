@@ -25,7 +25,7 @@ test("timeline: extract from the story, save the reviewed events, add one by han
   const list = page.getByRole("list", { name: "Timeline" });
   // The mock gives the first character a birth 17 years before the first chapter's event.
   await expect(list.getByText(/, 17$/).first()).toBeVisible();
-  await expect(list.getByText("2 days later").first()).toBeVisible();
+  await expect(list.getByText("17 years later")).toBeVisible();
 
   await page.getByRole("button", { name: "Add event" }).click();
   const dialog = page.getByRole("dialog");

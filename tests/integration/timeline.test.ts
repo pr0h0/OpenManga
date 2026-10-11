@@ -169,7 +169,11 @@ test("MCP: read the timeline and add an event", async () => {
     event: { title: "The lamp is relit", day: 365.25 * 17 + 31 },
   });
   expect((added.data.event as { title: string }).title).toBe("The lamp is relit");
+  const id = (added.data.event as { id: string }).id;
+  // Editing one field leaves the others as they were.
+  await call("manage_timeline", { action: "edit", id, event: { when: "that night" } });
   const read = await call("get_timeline", { projectId });
-  expect((read.data.events as Event[]).some((e) => e.title === "The lamp is relit")).toBe(true);
+  const relit = (read.data.events as (Event & { when: string })[]).find((e) => e.id === id)!;
+  expect(relit).toMatchObject({ title: "The lamp is relit", when: "that night", day: 365.25 * 17 + 31 });
   await client.close();
 });
