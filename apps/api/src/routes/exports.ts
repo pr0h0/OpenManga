@@ -13,7 +13,15 @@ import {
   panels,
   sql,
 } from "@openmanga/db";
-import { captionsSupported, providerSupports, SHORTS_DEFAULT_MS, shortsLengthWarning } from "@openmanga/domain";
+import {
+  captionsSupported,
+  checkExportTarget,
+  EXPORT_TARGETS,
+  exportTarget,
+  providerSupports,
+  SHORTS_DEFAULT_MS,
+  shortsLengthWarning,
+} from "@openmanga/domain";
 import { ShortsCaptions } from "@openmanga/schemas";
 import {
   issuesForExport,
@@ -29,7 +37,7 @@ import type { AppEnv } from "../context.ts";
 import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
 import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
-import { shortsCandidates } from "./video.ts";
+import { chapterTiming, shortsCandidates } from "./video.ts";
 
 export const exportRoutes = new Hono<AppEnv>();
 
@@ -130,9 +138,15 @@ export const ExportOptions = z.object({
       gap: z.number().int().min(0).max(1000).optional(),
       split: z.boolean().default(true),
       maxChunkHeight: z.number().int().min(1000).max(40_000).optional(),
+      /**
+       * Never taller than maxChunkHeight: an image that would be (a panel, or a blended run, taller than the limit)
+       * is cut into pieces that stack seamlessly, for platforms that refuse taller images. Off: such a run goes out
+       * whole.
+       */
+      exactHeight: z.boolean().default(false),
       format: z.enum(["png", "jpg"]).default("jpg"),
     })
-    .default({ split: true, format: "jpg" }),
+    .default({ split: true, exactHeight: false, format: "jpg" }),
   audio: z
     .object({ format: z.enum(["wav", "mp3", "ogg"]).default("mp3"), normalize: z.boolean().default(true) })
     .default({ format: "mp3", normalize: true }),
@@ -189,6 +203,11 @@ export const ExportOptions = z.object({
     }),
   /** Narration track language for narration/timeline/agent/video exports (default: project language). */
   language: z.string().trim().min(2).max(16).optional(),
+  /**
+   * A platform target (GET /api/export-targets): its limits are checked against the files made, on the job's result
+   * as `targetCheck`. Check before exporting with GET /api/projects/:projectId/export-targets/:key/check.
+   */
+  target: z.string().max(40).optional(),
   /** Export even though the readiness check found problems (the issues are recorded in the package). */
   acknowledgeIssues: z.boolean().default(false),
 });
@@ -220,6 +239,11 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
     if (!hook) throw notFound("Hook variant");
     if (!c.get("deps").config.TTS_ENABLED)
       throw badRequest("A hook is spoken by the narrator voice, and narration synthesis is turned off on this server.");
+  }
+  if (input.target) {
+    const t = exportTarget(input.target);
+    if (!t) throw notFound("Export target");
+    if (t.kind !== input.kind) throw badRequest(`${t.label} is a ${t.kind} export`);
   }
   // Filled here, so the stored options say what was rendered whoever asked: the app, an agent or a production run.
   const output = p.settings.video?.output;
@@ -530,4 +554,75 @@ exportRoutes.delete("/projects/:projectId/exports", async (c) => {
   const ids = jobs.filter((j) => !RUNNING_EXPORT.has(j.status) && j.kind !== "project_import").map((j) => j.id);
   const out = await deleteExportJobs(c, p.id, ids);
   return c.json({ ...out, skippedRunning: jobs.filter((j) => RUNNING_EXPORT.has(j.status)).length });
+});
+
+doc({
+  method: "GET",
+  path: "/api/export-targets",
+  summary:
+    "Platform presets for exports (YouTube, Shorts, TikTok, Reels, Instagram carousel, WEBTOON Canvas, Tapas, KDP, PDF): the export kind and options each sets, the limits checked (length, file and image sizes, image count, strip image height, page count) and notes on safe areas, naming and codecs.",
+  tag: "exports",
+});
+exportRoutes.get("/export-targets", (c) => c.json({ targets: EXPORT_TARGETS }));
+
+const TargetCheck = z.object({
+  chapterId: z.string().uuid().optional(),
+  /** Panel cut: the minimum hold to estimate the length with. */
+  minHoldMs: z.coerce.number().int().min(500).max(30_000).optional(),
+  language: z.string().trim().min(2).max(16).optional(),
+  /** A Shorts cut or a carousel: its length in ms (the pick), or its number of slides. */
+  durationMs: z.coerce.number().int().min(0).optional(),
+  images: z.coerce.number().int().min(0).max(1000).optional(),
+});
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/export-targets/:key/check",
+  summary:
+    "Check a platform target before exporting (the chapter, else the whole project): the length a panel cut will run (from the timing), the pages a PDF prints, the strip images a webtoon export cuts, a pick's length or slide count (durationMs, images), against the target's limits. Sizes in bytes are only known after the export; its job result carries targetCheck.",
+  tag: "exports",
+  query: TargetCheck,
+});
+exportRoutes.get("/projects/:projectId/export-targets/:key/check", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const t = exportTarget(c.req.param("key"));
+  if (!t) throw notFound("Export target");
+  const q = query(c, TargetCheck);
+  const { db } = c.get("deps");
+  if (q.chapterId && (await entityAccess(c, "chapter", q.chapterId, "read")).id !== p.id) throw notFound("Chapter");
+  const chapterIds = q.chapterId
+    ? [q.chapterId]
+    : (
+        await db.select({ id: chapters.id }).from(chapters).where(eq(chapters.projectId, p.id)).orderBy(chapters.order)
+      ).map((r) => r.id);
+  const pageRows = chapterIds.length
+    ? await db
+        .select({ width: pages.width, height: pages.height })
+        .from(pages)
+        .where(inArray(pages.chapterId, chapterIds))
+    : [];
+  const facts: Parameters<typeof checkExportTarget>[1] = {};
+  if (t.kind === "video_panels") {
+    let ms = 0;
+    for (const id of chapterIds)
+      ms += await chapterTiming(db, p, id, { minHoldMs: q.minHoldMs, language: q.language }, null)
+        .then((r) => r.totalMs)
+        .catch(() => 0); // a chapter with nothing to show adds nothing
+    facts.durationMs = ms;
+  } else if (t.kind === "video_shorts") facts.durationMs = q.durationMs;
+  else if (t.kind === "pdf") facts.pages = pageRows.length;
+  else if (t.kind === "carousel")
+    facts.images = Array.from({ length: q.images ?? 0 }, (_, i) => ({ name: `slide ${i + 1}`, width: 1080 }));
+  else if (t.kind === "webtoon" && t.options.webtoon) {
+    // The strip at the target's width, cut into images no taller than its limit (the gap between pages included).
+    const w = t.options.webtoon;
+    const gap = p.settings.webtoonGap ?? 0;
+    const strip = pageRows.reduce((n, pg) => n + Math.round((pg.height * w.width) / pg.width) + gap, 0);
+    const n = Math.max(1, Math.ceil(strip / w.maxChunkHeight));
+    facts.images = Array.from({ length: pageRows.length ? n : 0 }, (_, i) => ({
+      name: `image ${i + 1}`,
+      width: w.width,
+      height: Math.min(w.maxChunkHeight, strip - i * w.maxChunkHeight),
+    }));
+  }
+  return c.json({ target: t, facts, issues: checkExportTarget(t, facts) });
 });

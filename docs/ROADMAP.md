@@ -58,8 +58,6 @@ Grouped by area, roughly most useful first within each.
   optional scheduling, playlist, language and category, the altered-or-synthetic content declaration, processing
   status, retry without re-rendering, and the video id kept on the export. It adds the upload scope to the channel
   connections YouTube stats already make. (Unaudited API projects can only upload privately.)
-- **Export targets.** Presets that check a platform's limits before export (YouTube, Shorts, TikTok, Reels, carousels,
-  WEBTOON, Tapas, KDP, generic PDF): size, aspect, file size, strip height, page count, safe areas, naming, codecs.
 - **Public series reader.** An optional public or unlisted series page: cover, description, chapters with publish and
   schedule dates, page and scroll modes, languages, an RSS feed and social previews.
 

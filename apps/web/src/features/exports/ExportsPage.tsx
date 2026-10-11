@@ -1,8 +1,10 @@
 import {
   captionsSupported,
+  exportTarget,
   NARRATION_LANGUAGES,
   type PrintIssue,
   SHORTS_DEFAULT_MS,
+  type TargetIssue,
   type VideoAspect,
 } from "@openmanga/domain/browser";
 import type { ShortsCaptions } from "@openmanga/schemas";
@@ -25,6 +27,7 @@ import {
 import { ProgressBar } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { ExportTargetPicker } from "./ExportTargets.tsx";
 import { HookVariants } from "./HookVariants.tsx";
 import { CoverCheck, PRINT_SIZES, PreflightReport, type PreflightReportData, PrintIssues } from "./PrintPanels.tsx";
 import { CaptionsField, ShortsPicker } from "./ShortsPicker.tsx";
@@ -126,6 +129,8 @@ export function ExportsPage() {
   });
 
   const [chosenKind, setKind] = useState<Kind>();
+  // A platform target: its settings applied, its limits checked before and after the export.
+  const [targetKey, setTargetKey] = useState("");
   // A strip's natural export is the stitched webtoon image, not a PDF of pages that do not exist as pages.
   const format = overview?.project.settings.format;
   const kind: Kind = chosenKind ?? (format === "film" ? "video_panels" : format === "vertical" ? "webtoon" : "pdf");
@@ -248,6 +253,7 @@ export function ExportsPage() {
         ...(shorts ? { panelIds: shortsPick } : {}),
         ...(USES_LANGUAGE.has(kind) ? { language: lang } : {}),
         ...(LETTERED.has(kind) && editionLanguage ? { language: editionLanguage } : {}),
+        ...(targetKey && exportTarget(targetKey)?.kind === kind ? { target: targetKey } : {}),
         acknowledgeIssues,
       }),
     {
@@ -333,6 +339,27 @@ export function ExportsPage() {
             void submit(false);
           }}
         >
+          <ExportTargetPicker
+            projectId={projectId}
+            kinds={KINDS.map((k) => k.value)}
+            value={targetKey && exportTarget(targetKey)?.kind === kind ? targetKey : ""}
+            chapterId={needsChapter ? selectedChapter || null : agentChapter || null}
+            minHoldMs={video.minHoldMs}
+            durationMs={shorts ? shortsSeconds * 1000 : undefined}
+            onChange={(t) => {
+              setTargetKey(t?.key ?? "");
+              if (!t) return;
+              setKind(t.kind as Kind);
+              const o = t.options;
+              if (o.video) {
+                setAspect(o.video.aspect);
+                setVideo((v) => ({ ...v, height: o.video!.height }));
+              }
+              if (o.webtoon) setWebtoon((w) => ({ ...w, ...o.webtoon! }));
+              if (o.pdf) setPdf((p) => ({ ...p, ...o.pdf! }));
+              if (o.jpgQuality) setJpgQuality(o.jpgQuality);
+            }}
+          />
           <Field label="Format">
             <select className="input" value={kind} onChange={(e) => setKind(e.target.value as Kind)}>
               {KINDS.map((k) => (
@@ -987,6 +1014,22 @@ export function ExportsPage() {
                       </ul>
                     </details>
                   ) : null}
+                  {j.status === "completed" && j.result?.targetCheck
+                    ? (() => {
+                        const tc = j.result.targetCheck as { label: string; issues: TargetIssue[] };
+                        return tc.issues.length ? (
+                          <ul className="mt-1 space-y-0.5 text-xs" aria-label={`${tc.label} check`}>
+                            {tc.issues.map((i) => (
+                              <li key={i.code} className={i.level === "block" ? "text-red-600" : "text-amber-600"}>
+                                {tc.label}: {i.message}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-1 text-xs text-emerald-600">Within {tc.label}'s limits.</p>
+                        );
+                      })()
+                    : null}
                   {j.status === "completed" && j.kind === "print_preflight" && j.result?.preflight ? (
                     <PreflightReport
                       report={j.result.preflight as PreflightReportData}

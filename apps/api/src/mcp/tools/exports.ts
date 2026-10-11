@@ -85,6 +85,37 @@ export const exportTools = [
   }),
 
   defineMcpTool({
+    name: "export_targets",
+    title: "Platform export targets",
+    description:
+      "Platform presets for exports (YouTube, Shorts, TikTok, Reels, Instagram carousel, WEBTOON Canvas, Tapas, KDP, PDF). list: each target's export kind, the options it sets, its limits (length, file and image sizes, image count, strip image height, page count) and notes on safe areas, naming and codecs. check: a target against the project before exporting (chapterId, else the whole project; durationMs for a Shorts cut's length, images for a carousel's slides). Pass `target` to create_export to have the files checked once made (the job's result.targetCheck). Read-only.",
+    input: z.object({
+      action: z.enum(["list", "check"]),
+      projectId: Uuid.optional(),
+      key: z.string().max(40).optional(),
+      chapterId: Uuid.optional(),
+      minHoldMs: z.number().int().min(500).max(30_000).optional(),
+      durationMs: z.number().int().min(0).optional(),
+      images: z.number().int().min(0).max(1000).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["exports:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/export-targets", "GET /api/projects/:projectId/export-targets/:key/check"],
+    actionKeys: [],
+    handler: async ({ action, projectId, key, ...query }, ctx) => {
+      if (action === "list") return { data: await ctx.invoke("GET", "/api/export-targets") };
+      if (!projectId || !key) throw toolError(400, "bad_request", "projectId and key are required for check");
+      return {
+        data: await ctx.invoke("GET", `/api/projects/${projectId}/export-targets/${encodeURIComponent(key)}/check`, {
+          query,
+        }),
+      };
+    },
+  }),
+
+  defineMcpTool({
     name: "suggest_shorts",
     title: "Suggest a Shorts cut",
     description:

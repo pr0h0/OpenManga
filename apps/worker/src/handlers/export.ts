@@ -42,7 +42,9 @@ import {
 } from "@openmanga/db";
 import {
   buildTimeline,
+  checkExportTarget,
   chunkStrip,
+  exportTarget,
   type InteriorEntry,
   interiorSequence,
   KDP_TRIM_IN,
@@ -96,6 +98,8 @@ type Opts = {
   /** video_shorts, carousel, quote_image: the picked panels. */
   panelIds?: string[];
   label?: string;
+  /** A platform target (export-targets) whose limits are checked against the files made. */
+  target?: string;
   social?: { title: string; caption: string };
   still?: { aspect: "1:1" | "4:5"; text: string };
   scale: number;
@@ -111,7 +115,14 @@ type Opts = {
     metadata?: { title?: string; author?: string; subject?: string; keywords?: string[]; language?: string };
   };
   print?: { paper?: PaperType; pageCount?: number; paperThicknessMm?: number };
-  webtoon: { width?: number; gap?: number; split: boolean; maxChunkHeight?: number; format: "png" | "jpg" };
+  webtoon: {
+    width?: number;
+    gap?: number;
+    split: boolean;
+    maxChunkHeight?: number;
+    exactHeight?: boolean;
+    format: "png" | "jpg";
+  };
   audio: { format: "wav" | "mp3" | "ogg"; normalize: boolean };
   includeAssets: boolean;
   language?: string;
@@ -165,6 +176,31 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
     // Files built on disk (video, PDF, archives) are stored from the temp dir, so everything happens before it is removed.
     const files = await withTempDir(deps.config.TEMP_ROOT, async (dir) => {
       const files = await buildExport(deps, job, opts, project, progress, dir);
+      // A platform target's limits against what was actually made (sizes, image heights, length).
+      const target = opts.target ? exportTarget(opts.target) : undefined;
+      if (target) {
+        const sized = await Promise.all(
+          files.map(async (f) => ({ ...f, bytes: "data" in f ? f.data.byteLength : Bun.file(f.path).size })),
+        );
+        const media = sized.filter((f) => !f.name.endsWith(".txt") && !f.name.endsWith(".srt"));
+        const issues = checkExportTarget(target, {
+          durationMs: media.find((f) => f.durationMs)?.durationMs,
+          files: media.map((f) => ({ name: f.name, bytes: f.bytes })),
+          images: media.flatMap(
+            (f) =>
+              f.parts ??
+              (f.mime.startsWith("image/") ? [{ name: f.name, width: f.width, height: f.height, bytes: f.bytes }] : []),
+          ),
+        });
+        await deps.db
+          .update(exportJobs)
+          .set({
+            result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({
+              targetCheck: { target: target.key, label: target.label, issues },
+            })}::jsonb`,
+          })
+          .where(eq(exportJobs.id, id));
+      }
       await deps.db.transaction(async (tx) => {
         for (const f of files) {
           const asset = await deps.assets.store(
@@ -232,10 +268,15 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
   }
 }
 
-type OutFile = { name: string; mime: string; width?: number; height?: number; durationMs?: number } & (
-  | { data: Uint8Array }
-  | { path: string }
-);
+type OutFile = {
+  name: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  /** An archive's images, for a platform target's per-image limits. */
+  parts?: { name: string; width: number; height: number; bytes: number }[];
+} & ({ data: Uint8Array } | { path: string });
 
 /**
  * The export's pages in reading order, each with its chapter's number: a chosen chapter, a page selection, or the
@@ -414,6 +455,7 @@ async function buildExport(
       // and stacking has to honour them. With no seams this produces the same strip as the old uniform stack.
       const chunks = opts.webtoon.split ? chunkStrip(blocks, maxH, { gap }) : [blocks];
       const zip = chunks.length > 1 ? new ZipWriter(join(dir, "webtoon.zip")) : null;
+      const parts: NonNullable<OutFile["parts"]> = [];
       for (const [i, chunk] of chunks.entries()) {
         const loaded = await Promise.all(chunk.map(async (b) => ({ ...b, data: await Bun.file(b.path).bytes() })));
         const strip = await renderStrip(loaded, width, gap);
@@ -426,12 +468,41 @@ async function buildExport(
               )
             : strip.data;
         const name = `${prefix}_webtoon_${String(i + 1).padStart(2, "0")}.${opts.webtoon.format}`;
-        if (!zip) return [{ name, data, mime: opts.webtoon.format === "jpg" ? "image/jpeg" : "image/png", width }];
+        // A platform that refuses taller images gets this one cut into pieces that stack back seamlessly.
+        if (opts.webtoon.exactHeight && strip.height > maxH) {
+          const out = zip ?? new ZipWriter(join(dir, "webtoon.zip"));
+          for (let top = 0, k = 0; top < strip.height; top += maxH, k++) {
+            const h = Math.min(maxH, strip.height - top);
+            const img = sharp(data, { limitInputPixels: false }).extract({ left: 0, top, width, height: h });
+            const piece = new Uint8Array(
+              await (opts.webtoon.format === "jpg"
+                ? img.jpeg({ quality: opts.jpgQuality, mozjpeg: true })
+                : img.png()
+              ).toBuffer(),
+            );
+            const pieceName = name.replace(/\.(\w+)$/, `_${String.fromCharCode(97 + k)}.$1`);
+            parts.push({ name: pieceName, width, height: h, bytes: piece.byteLength });
+            await out.add(pieceName, piece);
+          }
+          if (!zip) return [{ name: `${prefix}_webtoon.zip`, path: await out.close(), mime: "application/zip", parts }];
+          continue;
+        }
+        if (!zip)
+          return [
+            {
+              name,
+              data,
+              mime: opts.webtoon.format === "jpg" ? "image/jpeg" : "image/png",
+              width,
+              height: strip.height,
+            },
+          ];
+        parts.push({ name, width, height: strip.height, bytes: data.byteLength });
         await zip.add(name, data);
         await progress(0.8 + ((i + 1) / chunks.length) * 0.2);
       }
       await progress(1);
-      return [{ name: `${prefix}_webtoon.zip`, path: await zip!.close(), mime: "application/zip" }];
+      return [{ name: `${prefix}_webtoon.zip`, path: await zip!.close(), mime: "application/zip", parts }];
     }
     case "narration_audio":
     case "timeline": {
@@ -668,6 +739,7 @@ async function buildExport(
         return [{ name: `${name}.png`, data: png, mime: "image/png", width, height }, ...captionFile(opts, name)];
       }
       const zip = new ZipWriter(join(dir, "carousel.zip"));
+      const parts: NonNullable<OutFile["parts"]> = [];
       for (const [i, s] of shots.entries()) {
         const png = await renderPanelWithEffects(
           await deps.assets.read(s.art!),
@@ -677,12 +749,14 @@ async function buildExport(
           s.panel!.effects,
           s.panel!.id,
         );
-        await zip.add(`${name}_${String(i + 1).padStart(2, "0")}.png`, png);
+        const slide = `${name}_${String(i + 1).padStart(2, "0")}.png`;
+        parts.push({ name: slide, width, height, bytes: png.byteLength });
+        await zip.add(slide, png);
         await progress((i + 1) / shots.length);
       }
       const caption = captionFile(opts, name)[0];
       if (caption) await zip.add(caption.name, caption.data);
-      return [{ name: `${name}.zip`, path: await zip.close(), mime: "application/zip" }];
+      return [{ name: `${name}.zip`, path: await zip.close(), mime: "application/zip", parts }];
     }
     case "youtube_package": {
       // Packs what already exists (exports make no AI calls): the newest finished video of the same scope, with

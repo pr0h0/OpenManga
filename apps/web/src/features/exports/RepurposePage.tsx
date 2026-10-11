@@ -57,6 +57,8 @@ function exportBody(it: RepurposeItem, language: string) {
     label: it.label || it.kind,
     social,
     still: { aspect: it.aspect === "1:1" ? "1:1" : "4:5", text: it.text },
+    // A carousel is checked against Instagram's limits (slides, size) once it is made.
+    ...(it.kind === "carousel" ? { target: "instagram_carousel" } : {}),
   };
 }
 
