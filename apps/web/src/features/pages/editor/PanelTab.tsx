@@ -1,4 +1,12 @@
-import { CameraAngle, type EdgeStyle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
+import {
+  CameraAngle,
+  type EdgeStyle,
+  type PanelGuide,
+  PanelSpec,
+  ShotType,
+  ShotVideo,
+  type StoredPanelSpec,
+} from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -27,6 +35,7 @@ import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { EdgePicker } from "../EdgePicker.tsx";
 import { DescribePose } from "./DescribePose.tsx";
+import { Directing } from "./Directing.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
 import { useEditor } from "./store.ts";
@@ -248,7 +257,7 @@ export function PanelTab({
 }) {
   const projectId = useProjectId();
   const locked = panel.approvalStatus === "locked";
-  const [spec, setSpec] = useState<PanelSpec>(
+  const [spec, setSpec] = useState<StoredPanelSpec>(
     () => panel.spec ?? PanelSpec.parse({ beat: panel.storyBeat || "New panel" }),
   );
   useEffect(
@@ -703,6 +712,13 @@ export function PanelTab({
             </select>
           </Field>
         </div>
+        <Directing
+          value={spec.direction}
+          figures={data.cast
+            .filter((c) => attached.some((a) => a.characterId === c.id))
+            .map((c) => ({ id: c.id, name: c.name }))}
+          onChange={(direction) => setSpec((s) => ({ ...s, direction }))}
+        />
         <button
           type="button"
           className="btn-primary w-full"

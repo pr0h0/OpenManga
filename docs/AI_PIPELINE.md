@@ -8,7 +8,7 @@
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v5 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
 | Narration text | `narration_text` / text-ai | `narration` v6 | narration lines → TTS segments |
 | References | `character_reference` … `style_reference` / image-generation | `character-reference`, `prop-reference` v5, `location-reference` v6 (location and prop take a kind: panorama, sheet, multi-angle; a location one of its states, drawn from the approved design), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v13 | a new `panel_art` asset, activated on the panel |
+| Panels | `panel_generation` / image-generation | `panel-generation` v14 | a new `panel_art` asset, activated on the panel |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |

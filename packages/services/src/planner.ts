@@ -42,7 +42,7 @@ import {
   styleReferenceV1,
   thumbnailV1,
 } from "@openmanga/prompts";
-import { CharacterBible, type PanelSpec, type ProjectSettings } from "@openmanga/schemas";
+import { CharacterBible, type ProjectSettings, type StoredPanelSpec } from "@openmanga/schemas";
 import type { AssetRecord, AssetService } from "./assets.ts";
 import { bibleFor, loadBible } from "./bible.ts";
 import type { JobService, NewGenerationInput } from "./jobs.ts";
@@ -265,7 +265,7 @@ export class GenerationPlanner {
       .where(eq(panelSpecs.panelId, panelId))
       .orderBy(desc(panelSpecs.versionNumber))
       .limit(1);
-    const spec: PanelSpec | null = specRow?.spec ?? null;
+    const spec: StoredPanelSpec | null = specRow?.spec ?? null;
     const { style, styleRef } = await this.styleContext(panel.projectId);
 
     const refs: {
@@ -534,6 +534,16 @@ export class GenerationPlanner {
       characters: chars,
       location,
       props: propCtx,
+      // Figures are named for the prompt; one whose character is not in the panel is left out.
+      direction: spec?.direction
+        ? {
+            ...spec.direction,
+            figures: spec.direction.figures.flatMap(({ characterId, ...f }) => {
+              const c = charRows.find((r) => r.c.id === characterId || r.c.analysisKey === characterId)?.c;
+              return c ? [{ ...f, name: c.name }] : [];
+            }),
+          }
+        : null,
       guide: guideInput,
       previousPanelImageIndex,
       continuity: [...new Set(continuity)].slice(0, 12),

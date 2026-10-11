@@ -415,6 +415,15 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
       const spec = {
         ...s.spec,
         characters: s.spec.characters.map((c) => ({ ...c, characterId: ids.get(c.characterId) ?? c.characterId })),
+        ...(s.spec.direction && {
+          direction: {
+            ...s.spec.direction,
+            figures: s.spec.direction.figures.map((f) => ({
+              ...f,
+              characterId: ids.get(f.characterId) ?? f.characterId,
+            })),
+          },
+        }),
         locationId: s.spec.locationId ? (ids.get(s.spec.locationId) ?? s.spec.locationId) : undefined,
         dialogueIds: mapArr(s.spec.dialogueIds),
         narrationIds: mapArr(s.spec.narrationIds),

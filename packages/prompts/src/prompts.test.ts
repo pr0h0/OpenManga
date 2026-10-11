@@ -142,6 +142,39 @@ describe("panel prompt compilation", () => {
     expect(pano).toContain("Reference image 2 is a panorama across the whole location");
   });
 
+  test("directing: camera height, lens, depth of field, purpose, focus, and each figure's staging", () => {
+    const p = panelGenerationV1.compile({
+      ...base,
+      direction: {
+        cameraHeight: "knee",
+        lens: "telephoto",
+        depthOfField: "shallow",
+        purpose: "reveal",
+        focus: "the bloodied letter",
+        figures: [
+          {
+            name: "Woo Jin",
+            view: "three-quarter",
+            facing: "screen-left",
+            eyeLine: "at the letter",
+            depth: "foreground",
+            holding: "the letter in his right hand",
+          },
+        ],
+      },
+    });
+    expect(p).toContain(
+      "Woo Jin — right half, in three-quarter view, facing screen left, looking at the letter, in the foreground, holding the letter in his right hand",
+    );
+    expect(p).toContain("Camera at knee height");
+    expect(p).toContain("Telephoto lens feel");
+    expect(p).toContain("Shallow depth of field");
+    expect(p).toContain("Shot purpose: reveal something the reader has not seen yet.");
+    expect(p).toContain("Focus subject: the bloodied letter.");
+    // Without directing, nothing extra.
+    expect(panelGenerationV1.compile(base)).not.toContain("Focus subject");
+  });
+
   test("a place in one of its states: the panel says how it is now, and the state's reference is drawn from the design", () => {
     const room = { name: "Mina's room", description: LocationDescription.parse({ summary: "a small bedroom" }) };
     const state = { name: "after the fire", description: "walls blackened, window smashed", hasReference: true };
@@ -212,7 +245,7 @@ describe("panel prompt compilation", () => {
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
-    expect(panelGenerationV1.version).toBe(13);
+    expect(panelGenerationV1.version).toBe(14);
     expect(p.startsWith("Create one cinematic 16:9 film frame")).toBe(true);
     expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
     expect(p).not.toContain("panel,");

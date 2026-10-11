@@ -6,10 +6,10 @@ import type {
   NarrationLineVideo,
   PanelGuide,
   PanelSeam,
-  PanelSpec,
   PlannedLettering,
   SfxStyle,
   ShotVideo,
+  StoredPanelSpec,
 } from "@openmanga/schemas";
 import { bigint, boolean, index, integer, jsonb, pgTable, real, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
@@ -227,7 +227,7 @@ export const panelSpecs = pgTable(
       .notNull()
       .references(() => panels.id, { onDelete: "cascade" }),
     versionNumber: integer("version_number").notNull(),
-    spec: jsonb("spec").$type<PanelSpec>().notNull(),
+    spec: jsonb("spec").$type<StoredPanelSpec>().notNull(),
     source: text("source").$type<"ai" | "user">().notNull(),
     createdAt: createdAt(),
   },

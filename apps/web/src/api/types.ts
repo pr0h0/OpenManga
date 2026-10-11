@@ -34,7 +34,7 @@ import type {
   UserRow,
 } from "@openmanga/db/types";
 import type { LayoutTemplate } from "@openmanga/domain/browser";
-import type { PanelSpec } from "@openmanga/schemas";
+import type { StoredPanelSpec } from "@openmanga/schemas";
 
 export type * from "@openmanga/db/types";
 
@@ -128,7 +128,7 @@ export type ChapterDetail = {
 };
 
 export type EditorPanel = PanelRow & {
-  spec: PanelSpec | null;
+  spec: StoredPanelSpec | null;
   specVersion: number;
   artwork: { id: string; width: number | null; height: number | null } | null;
   latestJob: { id: string; status: string; kind: string; failureReason: string | null } | null;

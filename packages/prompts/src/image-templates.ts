@@ -1,9 +1,11 @@
 import type {
   CharacterBible,
+  FigureDirection,
   LocationDescription,
   PanelCharacterSpec,
-  PanelSpec,
+  PanelDirection,
   PropDescription,
+  StoredPanelSpec,
   StyleDefinition,
 } from "@openmanga/schemas";
 
@@ -370,7 +372,7 @@ export type PanelPromptInput = {
     shotType: string;
     cameraAngle: string | null;
     aspectRatio: number;
-    spec: PanelSpec | null;
+    spec: StoredPanelSpec | null;
   };
   characters: PanelCharacterContext[];
   /** `referenceKind` says how the reference presents the subject: a sheet or panorama is used, never copied. */
@@ -386,6 +388,10 @@ export type PanelPromptInput = {
   /** The panel's layout sketch, sent after the subject references and before the previous panel. */
   guide?: { imageIndex: number; strength: "loose" | "strict"; pose?: string };
   previousPanelImageIndex?: number;
+  /** The panel's directing, its figures named (the planner resolves their ids). */
+  direction?:
+    | (Omit<PanelDirection, "figures"> & { figures: (Omit<FigureDirection, "characterId"> & { name: string })[] })
+    | null;
   continuity: string[];
   /** Visible canon from the story bible in effect here: fixed rules, facts and character states (injuries, looks, items). */
   canon?: string[];
@@ -425,6 +431,60 @@ const angleText: Record<string, string> = {
   pov: "First-person point of view",
 };
 
+const heightText: Record<string, string> = {
+  ground: "Camera at ground level",
+  knee: "Camera at knee height",
+  waist: "Camera at waist height",
+  eye: "Camera at eye height",
+  above: "Camera just above head height",
+  overhead: "Camera high overhead",
+};
+const lensText: Record<string, string> = {
+  "ultra-wide": "Ultra-wide lens feel: exaggerated perspective and deep space",
+  wide: "Wide lens feel: the setting reads around the subject",
+  normal: "Normal lens: natural perspective",
+  telephoto: "Telephoto lens feel: compressed depth, the background close behind the subject",
+  macro: "Macro: one small detail fills the frame",
+};
+const dofText: Record<string, string> = {
+  deep: "Deep focus: everything from foreground to background sharp",
+  shallow: "Shallow depth of field: the focus subject sharp, the rest softly blurred",
+};
+const purposeText: Record<string, string> = {
+  establish: "establish the place and who is in it",
+  reveal: "reveal something the reader has not seen yet",
+  reaction: "show a reaction",
+  insert: "a close insert of a detail that matters",
+  action: "show the action at its clearest moment",
+  dialogue: "carry a conversation",
+  transition: "bridge to the next moment or place",
+};
+const viewText: Record<string, string> = {
+  frontal: "seen from the front",
+  "three-quarter": "in three-quarter view",
+  profile: "in profile",
+  back: "seen from behind",
+  "over-the-shoulder": "seen over their shoulder",
+  pov: "the viewer sees through their eyes",
+};
+const facingText: Record<string, string> = {
+  camera: "facing the camera",
+  "screen-left": "facing screen left",
+  "screen-right": "facing screen right",
+  away: "facing away",
+};
+/** One figure's directing, as phrases for its CHARACTERS line. */
+const figureLine = (f?: Omit<FigureDirection, "characterId">) =>
+  f
+    ? [
+        f.view ? viewText[f.view] : "",
+        f.facing ? facingText[f.facing] : "",
+        f.eyeLine ? `looking ${clean(f.eyeLine)}` : "",
+        f.depth ? `in the ${f.depth}` : "",
+        f.holding ? `holding ${clean(f.holding)}` : "",
+      ]
+    : [];
+
 function orientation(ar: number) {
   if (ar > 1.3) return "landscape";
   if (ar < 0.77) return "portrait";
@@ -433,10 +493,10 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 13,
+  version: 14,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
-  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION (with the state it is in now), LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
+  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA (with the directing: height, lens, depth of field, purpose), COMPOSITION (with the focus subject), LOCATION (with the state it is in now), LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
   compile(i) {
     const s = i.panel.spec;
     const d = i.draft ?? {};
@@ -484,6 +544,7 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
       );
 
     const nobody = chars.length === 0;
+    const dir = i.direction;
     const continuity = [
       ...new Set(
         [...(i.continuity ?? []), ...(s?.continuityRequirements ?? []), ...(d.continuity ?? [])]
@@ -526,7 +587,10 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
         nobody
           ? ["No characters appear in this panel."]
           : chars
-              .map((c) => `${c.name}${c.panel?.position ? ` — ${clean(c.panel.position)}` : ""}`)
+              .map((c) => {
+                const staged = [clean(c.panel?.position), ...figureLine(dir?.figures.find((f) => f.name === c.name))];
+                return `${c.name}${staged.filter(Boolean).length ? ` — ${staged.filter(Boolean).join(", ")}` : ""}`;
+              })
               .concat([
                 `Exactly ${chars.length} character${chars.length > 1 ? "s" : ""} visible. Do not add other people.`,
               ]),
@@ -565,8 +629,13 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
       section("CAMERA", [
         shotText[i.panel.shotType] ?? i.panel.shotType,
         i.panel.cameraAngle ? (angleText[i.panel.cameraAngle] ?? i.panel.cameraAngle) : "",
+        dir?.cameraHeight ? heightText[dir.cameraHeight] : "",
+        dir?.lens ? lensText[dir.lens] : "",
+        dir?.depthOfField ? dofText[dir.depthOfField] : "",
+        dir?.purpose ? `Shot purpose: ${purposeText[dir.purpose]}.` : "",
       ]),
       section("COMPOSITION", [
+        dir?.focus ? `Focus subject: ${clean(dir.focus)}. It is where the eye lands first.` : "",
         clean(d.composition) || clean(s?.composition),
         line("Foreground", s?.foreground),
         line("Midground", s?.midground),

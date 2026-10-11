@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Directing controls (page editor → Panel tab → *Directing*): optional camera height, lens feel, depth of field, shot
+  purpose (establish, reveal, reaction, insert, action, dialogue, transition) and focus subject, and for each figure
+  the side shown (frontal, three-quarter, profile, back, over the shoulder, point of view), facing, eye-line, depth
+  and what they hold. Saved with the panel spec (`direction`), so drawn art goes out of date when they change; the
+  panel prompt states them (`panel-generation` v14). MCP `update_panel` takes them in `spec.direction`.
 - Location states: a place's states over story time ("after the fire", "snowed in", "at night"), on the location's
   page (World → location → *States over story time*): what differs from the design, words matched against a scene's
   time and weather, and/or a chapter range; each can get its own reference image, drawn from the place's approved
