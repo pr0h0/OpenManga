@@ -25,7 +25,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
 | `exports:read` | Read export status and files. | `suggest_shorts`, `suggest_repurpose`, `list_exports` |
@@ -106,6 +106,7 @@ requests) need no scope.
 | [`get_panel_prompt`](#get_panel_prompt) | read | `panels:read` |
 | [`prepare_page_prompts`](#prepare_page_prompts) | spend | `panels:write` `generations:run` |
 | [`generate_panel`](#generate_panel) | spend | `generations:run` |
+| [`coverage_sheet`](#coverage_sheet) | spend | `generations:run` |
 | [`manage_panel_artwork`](#manage_panel_artwork) | delete | `panels:read` `panels:write` |
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
@@ -8357,6 +8358,110 @@ Queue artwork generation for one panel. Always creates a new artwork version (ol
   "required": [
     "job"
   ]
+}
+```
+
+</details>
+
+### coverage_sheet
+
+A panel's moment from nine camera setups in one image (3x3: 1 wide, 2 full, 3 medium, 4 close-up, 5 extreme close-up, 6 over the shoulder, 7 insert, 8 low angle, 9 high angle), to pick framings from. generate: queue one sheet (an image job; spends image-provider credits, may need approval; poll get_job, see it with get_image). list: the panel's sheets. use: turn picked cells (jobId, cells 1-9) into panels — mode this (one cell) reframes the panel itself, mode new adds them as new panels with the panel's cast, place and spec on a new page right after; each takes its cell as a strict layout guide and its setup's shot type and angle. Nothing is drawn by use.
+
+- **Scopes:** `generations:run` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `coverage.generate`, `coverage.use`
+- **Wraps:** `POST /api/panels/:id/coverage`, `GET /api/panels/:id/coverage`, `POST /api/coverage-sheets/:jobId/use`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "generate",
+        "list",
+        "use"
+      ]
+    },
+    "panelId": {
+      "description": "For generate and list.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "jobId": {
+      "description": "For use: the coverage sheet job.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "cells": {
+      "minItems": 1,
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9
+      }
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "this",
+        "new"
+      ]
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
 }
 ```
 

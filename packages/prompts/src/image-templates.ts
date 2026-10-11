@@ -805,12 +805,80 @@ export const thumbnailV1: ImageTemplate<ThumbnailInput> = {
   },
 };
 
+/**
+ * The nine camera setups of a coverage sheet, in reading order of its 3x3 grid, with the shot type and angle a pick
+ * gives the panel it becomes.
+ */
+export const COVERAGE_CELLS = [
+  {
+    label: "Wide",
+    shotType: "wide",
+    cameraAngle: "eye-level",
+    text: "wide shot: the whole setting and everyone in it",
+  },
+  { label: "Full", shotType: "full", cameraAngle: "eye-level", text: "full shot: whole figures, head to toe" },
+  { label: "Medium", shotType: "medium", cameraAngle: "eye-level", text: "medium shot: waist up" },
+  { label: "Close-up", shotType: "close", cameraAngle: "eye-level", text: "close-up: the main face fills the cell" },
+  {
+    label: "Extreme close-up",
+    shotType: "extreme-close",
+    cameraAngle: "eye-level",
+    text: "extreme close-up: eyes, hands or one telling detail of a figure",
+  },
+  {
+    label: "Over the shoulder",
+    shotType: "medium-close",
+    cameraAngle: "over-shoulder",
+    text: "over-the-shoulder: past one figure's shoulder toward the other, or toward what they look at",
+  },
+  {
+    label: "Insert",
+    shotType: "insert",
+    cameraAngle: "eye-level",
+    text: "insert: the key object or detail of the moment",
+  },
+  { label: "Low angle", shotType: "medium", cameraAngle: "low", text: "low angle: the camera low, looking up" },
+  { label: "High angle", shotType: "medium", cameraAngle: "high", text: "high angle: the camera high, looking down" },
+] as const;
+
+/**
+ * A coverage sheet: one image of a 3x3 grid showing the panel's moment from nine camera setups, to pick framings
+ * from. It carries the panel prompt's direction (style, cast, references, place, light) without its own camera.
+ */
+export const coverageSheetV1: ImageTemplate<PanelPromptInput> = {
+  name: "coverage-sheet",
+  version: 1,
+  kind: "image",
+  description: "One image: a 3x3 grid of the same story moment from nine camera setups, to pick panel framings from.",
+  body: "ROLE / GOAL (3x3 grid, nine setups in order), the panel prompt's sections without CAMERA, POSE / LAYOUT or text space, GRID RULES",
+  compile(i) {
+    const panel = panelGenerationV1.compile({ ...i, guide: undefined, direction: null, reserveTextSpace: false });
+    const blocks = panel
+      .split("\n\n")
+      .slice(1)
+      .filter((b) => !/^(CAMERA|POSE \/ LAYOUT|DIALOGUE NEGATIVE SPACE):/.test(b));
+    return join([
+      `Create one coverage sheet in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)}`} style: a single image divided into a 3x3 grid of nine equal cells with thin clean white gutters, each cell the same shape as the whole image (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Every cell shows the SAME moment described below — the same people, clothes, place, light and action — from a different camera setup. Artwork only.`,
+      section(
+        "CELLS (left to right, top to bottom)",
+        COVERAGE_CELLS.map((c, n) => `${n + 1}. ${c.text}`),
+      ),
+      ...blocks,
+      section("GRID RULES", [
+        "Identity, outfits, the place and the lighting are identical in all nine cells; only the camera changes.",
+        "No numbers, captions, labels, borders inside the cells or text of any kind.",
+      ]),
+    ]);
+  },
+};
+
 export const IMAGE_TEMPLATES = [
   characterReferenceV1,
   locationReferenceV1,
   propReferenceV1,
   styleReferenceV1,
   panelGenerationV1,
+  coverageSheetV1,
   panelEditV1,
   coverV1,
   thumbnailV1,

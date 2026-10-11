@@ -19,8 +19,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Panels and images
 
-- **Coverage sheet.** For one story beat, draw a 3×3 sheet of angles (wide, medium, close, over-the-shoulder,
-  insert, low, high) in one image and turn the picks into panels.
 - **Reference board.** A moodboard of images that can be dropped onto a character, location, prop, outfit, style or
   panel guide, or described for one aspect only ("the lighting", "the costume silhouette").
 - **Image tools.** Upscaling, face and detail repair, relighting, background removal, sketch cleanup for guides,

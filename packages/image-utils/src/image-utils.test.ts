@@ -5,7 +5,9 @@ import {
   chooseImageDimensions,
   computeCrop,
   createPromptReference,
+  cropRegion,
   fitInside,
+  gridCell,
   probeImage,
   type ReferenceParams,
   referenceCacheKey,
@@ -153,5 +155,18 @@ describe("OpenAI size menu", () => {
     expect(chooseImageDimensions(1.72, menu)).toEqual({ width: 1792, height: 1024 });
     // a very wide page-width strip still gets the widest option
     expect(chooseImageDimensions(4, menu)).toEqual({ width: 2048, height: 1152 });
+  });
+});
+
+describe("coverage grid", () => {
+  test("nine cells in reading order, gutters inset away, cropped exactly", async () => {
+    expect(gridCell(900, 600, 0)).toEqual({ left: 9, top: 6, width: 282, height: 188 });
+    expect(gridCell(900, 600, 4)).toMatchObject({ left: 309, top: 206 });
+    expect(gridCell(900, 600, 8)).toMatchObject({ left: 609, top: 406 });
+    const img = await sharp({ create: { width: 900, height: 600, channels: 3, background: "#336699" } })
+      .png()
+      .toBuffer();
+    const cell = await cropRegion(new Uint8Array(img), gridCell(900, 600, 5));
+    expect([cell.width, cell.height, cell.mime]).toEqual([282, 188, "image/png"]);
   });
 });

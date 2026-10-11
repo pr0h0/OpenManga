@@ -443,3 +443,31 @@ export async function coverGeneration(deps: WorkerDeps, job: ProjectJob) {
   await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));
   return { assetId: asset.id };
 }
+
+/** A coverage sheet for a panel: one image of its moment from nine setups. Kept as an image of the project, not art. */
+export async function coverageSheet(deps: WorkerDeps, job: ProjectJob) {
+  const panelId = job.targetId!;
+  const inputs = await inputsOf(deps, job.id);
+  const references: ImageInputFile[] = [];
+  for (const i of inputs) references.push(await loadInputFile(deps, i));
+  if (await isCancelRequested(deps, job.id)) throw new JobCancelledError();
+  const r = await (await imageProviderFor(deps, job)).generate({
+    prompt: job.compiledPrompt ?? "",
+    aspectRatio: Number(job.parameters.aspectRatio ?? 1),
+    quality: String(job.parameters.quality ?? deps.config.IMAGE_QUALITY),
+    references,
+    label: `coverage ${panelId.slice(0, 8)}`,
+  });
+  await recordImageUsage(deps, job, r, inputs);
+  const { asset, cancelled } = await finalizeOutput(
+    deps,
+    job,
+    r,
+    "source_image",
+    { role: "coverage_sheet", panelId },
+    null,
+  );
+  if (cancelled) throw new JobCancelledError();
+  await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));
+  return { assetId: asset.id, width: asset.width, height: asset.height };
+}
