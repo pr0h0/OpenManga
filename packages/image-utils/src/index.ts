@@ -300,3 +300,30 @@ export async function inkCoverage(data: Uint8Array, width: number, grey: boolean
 }
 
 export { sharp };
+
+/**
+ * Cell `index` (0-8, reading order) of an image divided into a 3x3 grid, inset by `inset` of a cell on every side so
+ * the gutters between cells are left out.
+ */
+export function gridCell(width: number, height: number, index: number, inset = 0.03) {
+  const cw = width / 3;
+  const ch = height / 3;
+  const [col, row] = [index % 3, Math.floor(index / 3)];
+  const left = Math.round(col * cw + cw * inset);
+  const top = Math.round(row * ch + ch * inset);
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.round(cw * (1 - 2 * inset))),
+    height: Math.max(1, Math.round(ch * (1 - 2 * inset))),
+  };
+}
+
+/** A region of an image, as a lossless PNG. */
+export async function cropRegion(data: Uint8Array, r: { left: number; top: number; width: number; height: number }) {
+  const { data: out, info } = await sharp(data, { limitInputPixels: false })
+    .extract(r)
+    .png()
+    .toBuffer({ resolveWithObject: true });
+  return { data: new Uint8Array(out), width: info.width, height: info.height, mime: "image/png" as const };
+}

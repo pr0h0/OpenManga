@@ -45,7 +45,7 @@ versions stay in the array so old jobs remain reproducible.
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
 Image templates keep one registered version each: `character-reference` v5, `location-reference` v6, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v14**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+v5, `style-reference` v5, `panel-generation` **v14**, `coverage-sheet` v1 (the panel prompt's sections as a 3x3 grid of nine camera setups, without its own camera), `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job

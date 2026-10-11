@@ -34,6 +34,7 @@ import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { EdgePicker } from "../EdgePicker.tsx";
+import { CoverageSheet } from "./CoverageSheet.tsx";
 import { DescribePose } from "./DescribePose.tsx";
 import { Directing } from "./Directing.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
@@ -728,6 +729,8 @@ export function PanelTab({
           Save panel spec
         </button>
       </fieldset>
+
+      <CoverageSheet panelId={panel.id} pageId={data.page.id} locked={locked} />
 
       <LayoutGuide
         panel={panel}

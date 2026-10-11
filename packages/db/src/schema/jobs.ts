@@ -18,6 +18,8 @@ export type GenerationKind =
   | "panel_edit"
   | "panel_check"
   | "cover"
+  /** One image of a panel's moment from nine camera setups, to pick framings from (not the panel's art). */
+  | "coverage_sheet"
   /** A 16:9 YouTube thumbnail background; its headline is composited by the app. */
   | "thumbnail"
   /** Publishing text (titles, description, tags…) for the project's video. */

@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Coverage sheet (page editor → Panel tab → *Coverage sheet*): one image of the panel's moment from nine camera
+  setups (wide, full, medium, close-up, extreme close-up, over the shoulder, insert, low and high angle), drawn with
+  the panel's references (`coverage-sheet` v1, a `coverage_sheet` job). Pick cells: one reframes the panel, several
+  become new panels on a page right after it (one page per pick in film and strips); each takes its cell as a strict
+  layout guide and its setup's shot type and angle, ready to draw at full size. MCP `coverage_sheet`.
 - Directing controls (page editor → Panel tab → *Directing*): optional camera height, lens feel, depth of field, shot
   purpose (establish, reveal, reaction, insert, action, dialogue, transition) and focus subject, and for each figure
   the side shown (frontal, three-quarter, profile, back, over the shoulder, point of view), facing, eye-line, depth

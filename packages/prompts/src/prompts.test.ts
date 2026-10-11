@@ -12,6 +12,7 @@ import {
   chapterPlanningV7,
   characterReferenceV1,
   continuityCheckV1,
+  coverageSheetV1,
   locationReferenceV1,
   narrationV1,
   narrationV2,
@@ -140,6 +141,18 @@ describe("panel prompt compilation", () => {
       location: { ...room, referenceImageIndex: 2, referenceKind: "location_panorama" },
     });
     expect(pano).toContain("Reference image 2 is a panorama across the whole location");
+  });
+
+  test("a coverage sheet: nine setups of the same moment, the panel's direction without its own camera", () => {
+    const p = coverageSheetV1.compile({ ...base, direction: { cameraHeight: "knee", figures: [] } });
+    expect(p).toContain("3x3 grid of nine equal cells");
+    expect(p).toContain("1. wide shot");
+    expect(p).toContain("9. high angle");
+    expect(p).toContain("Woo Jin");
+    expect(p).toContain("CANONICAL APPEARANCE REQUIREMENTS");
+    expect(p).not.toContain("CAMERA:");
+    expect(p).not.toContain("Camera at knee height");
+    expect(p).toContain("No numbers, captions, labels");
   });
 
   test("directing: camera height, lens, depth of field, purpose, focus, and each figure's staging", () => {

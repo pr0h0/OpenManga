@@ -31,6 +31,7 @@ import { aspectRatioOf, bibleLines, COLOR_MODE_DIRECTIVES } from "@openmanga/dom
 import type { ReferenceParams } from "@openmanga/image-utils";
 import {
   characterReferenceV1,
+  coverageSheetV1,
   coverV1,
   locationReferenceV1,
   type PanelCharacterContext,
@@ -685,6 +686,46 @@ export class GenerationPlanner {
       return j;
     });
     return job;
+  }
+
+  /**
+   * A coverage sheet for a panel: its moment from nine camera setups in one image, with the panel's references. The
+   * panel's own layout guide is left out (it would pin every cell to one pose), and nothing on the panel changes.
+   */
+  async enqueueCoverage(panelId: string, userId: string | null, opts: { ai?: AiChoice | null } = {}) {
+    const run = await this.imageRun(opts.ai, userId);
+    const ctx = await this.panelContext(panelId);
+    const refs = ctx.refs.filter((r) => r.role !== "layout_guide");
+    const input = { ...ctx.input, guide: undefined };
+    // Reference numbers in the prompt follow the images actually sent.
+    if (ctx.input.previousPanelImageIndex)
+      input.previousPanelImageIndex = refs.findIndex((r) => r.role === "previous_panel") + 1 || undefined;
+    const inputs: NewGenerationInput[] = [];
+    for (const r of refs)
+      inputs.push(await this.derivativeInput(r.asset, r.role, r.label, r.subjectVersionId, ctx.settings, run.provider));
+    return this.db.transaction((tx) =>
+      this.jobs.createGenerationJob(tx, {
+        projectId: ctx.panel.projectId,
+        userId,
+        kind: "coverage_sheet",
+        priority: 2,
+        targetType: "panel",
+        targetId: panelId,
+        templateName: coverageSheetV1.name,
+        templateVersion: coverageSheetV1.version,
+        compiledPrompt: coverageSheetV1.compile(input),
+        provider: run.provider,
+        model: run.model,
+        parameters: {
+          ai: run.ai,
+          quality: ctx.settings.imageQuality ?? this.image?.quality ?? "low",
+          aspectRatio: ctx.input.panel.aspectRatio,
+          referenceCount: inputs.length,
+        },
+        input: { pageId: ctx.page.id },
+        inputs,
+      }),
+    );
   }
 
   private sizeString(aspect: number) {

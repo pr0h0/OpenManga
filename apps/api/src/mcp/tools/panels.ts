@@ -428,6 +428,65 @@ export const panelTools = [
   }),
 
   defineMcpTool({
+    name: "coverage_sheet",
+    title: "Coverage sheet",
+    description:
+      "A panel's moment from nine camera setups in one image (3x3: 1 wide, 2 full, 3 medium, 4 close-up, 5 extreme close-up, 6 over the shoulder, 7 insert, 8 low angle, 9 high angle), to pick framings from. generate: queue one sheet (an image job; spends image-provider credits, may need approval; poll get_job, see it with get_image). list: the panel's sheets. use: turn picked cells (jobId, cells 1-9) into panels — mode this (one cell) reframes the panel itself, mode new adds them as new panels with the panel's cast, place and spec on a new page right after; each takes its cell as a strict layout guide and its setup's shot type and angle. Nothing is drawn by use.",
+    input: z.object({
+      action: z.enum(["generate", "list", "use"]),
+      panelId: Uuid.optional().describe("For generate and list."),
+      jobId: Uuid.optional().describe("For use: the coverage sheet job."),
+      cells: z.array(z.number().int().min(1).max(9)).min(1).max(9).optional(),
+      mode: z.enum(["this", "new"]).optional(),
+      ai: ImageAiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["generations:run"],
+    scopesFor: (a) =>
+      a.action === "generate" ? ["generations:run"] : a.action === "use" ? ["panels:write"] : ["panels:read"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/panels/:id/coverage", "GET /api/panels/:id/coverage", "POST /api/coverage-sheets/:jobId/use"],
+    actionKeys: ["coverage.generate", "coverage.use"],
+    classify: async (a, ctx) => {
+      if (a.action === "list")
+        return cls("read", "coverage.list", await projectOf(ctx, "panel", a.panelId ?? ""), "List coverage sheets");
+      if (a.action === "generate")
+        return cls(
+          "spend",
+          "coverage.generate",
+          await projectOf(ctx, "panel", a.panelId ?? ""),
+          `Draw a coverage sheet with ${a.ai?.provider ?? "the chosen image key"}; spends image-provider credits`,
+        );
+      return cls(
+        "write",
+        "coverage.use",
+        await projectOf(ctx, "generation", a.jobId ?? ""),
+        "Turn coverage picks into panels",
+      );
+    },
+    handler: async (a, ctx) => {
+      const need = <T>(v: T | undefined, name: string) => {
+        if (v === undefined) throw toolError(400, "bad_request", `${name} is required for ${a.action}`);
+        return v;
+      };
+      if (a.action === "list")
+        return { data: await ctx.invoke("GET", `/api/panels/${need(a.panelId, "panelId")}/coverage`) };
+      if (a.action === "use")
+        return {
+          data: await ctx.invoke("POST", `/api/coverage-sheets/${need(a.jobId, "jobId")}/use`, {
+            body: { cells: need(a.cells, "cells"), mode: a.mode },
+          }),
+        };
+      const r = await ctx.invoke<Jobbed>("POST", `/api/panels/${need(a.panelId, "panelId")}/coverage`, {
+        body: { ai: await restAi(ctx, a.ai) },
+      });
+      return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(r.job.projectId, r.job.id) } };
+    },
+  }),
+
+  defineMcpTool({
     name: "manage_panel_artwork",
     title: "Panel artwork versions",
     description:
