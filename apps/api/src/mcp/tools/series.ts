@@ -61,7 +61,7 @@ export const seriesTools = [
     name: "manage_series",
     title: "Manage series",
     description:
-      "Create and run series. action=create { title, description?, channelProfileId?, projectType?, format? } makes a series and its library project. update { seriesId, title?, description?, channelProfileId? }. add_episode { seriesId, title, story? } makes a new episode project linked to the whole library. adopt { seriesId, projectId, applyProfile? } makes one of the user's projects the next episode (same-named cast becomes linked). detach { seriesId, projectId }. sync { seriesId, projectId? } brings episodes in step with the library (new versions pointing at the same reference images). split { seriesId, story, perEpisode?, confirm? } splits a long story into episodes at its chapter headings (without confirm: a preview). Creating projects needs the connection's permission to create projects; everything may need the user's approval.",
+      "Create and run series. action=create { title, description?, channelProfileId?, projectType?, format? } makes a series and its library project. update { seriesId, title?, description?, channelProfileId?, visibility?, publicSlug? } (visibility off, unlisted or public turns the series' reader page at /s/<publicSlug> on, with an RSS feed; chapters appear there from their publishAt, set with manage_chapter). add_episode { seriesId, title, story? } makes a new episode project linked to the whole library. adopt { seriesId, projectId, applyProfile? } makes one of the user's projects the next episode (same-named cast becomes linked). detach { seriesId, projectId }. sync { seriesId, projectId? } brings episodes in step with the library (new versions pointing at the same reference images). split { seriesId, story, perEpisode?, confirm? } splits a long story into episodes at its chapter headings (without confirm: a preview). Creating projects needs the connection's permission to create projects; everything may need the user's approval.",
     input: z.object({
       action: z.enum(["create", "update", "add_episode", "adopt", "detach", "sync", "split"]),
       seriesId: Uuid.optional(),
@@ -69,6 +69,8 @@ export const seriesTools = [
       title: z.string().max(200).optional(),
       description: z.string().max(5000).optional(),
       channelProfileId: Uuid.nullable().optional(),
+      visibility: z.enum(["off", "unlisted", "public"]).optional(),
+      publicSlug: z.string().max(60).optional(),
       projectType: z.string().max(40).optional(),
       format: z.string().max(20).optional(),
       story: z.string().max(2_000_000).optional(),
@@ -129,7 +131,13 @@ export const seriesTools = [
         case "update":
           return {
             data: await ctx.invoke("PATCH", base, {
-              body: { title: a.title, description: a.description, channelProfileId: a.channelProfileId },
+              body: {
+                title: a.title,
+                description: a.description,
+                channelProfileId: a.channelProfileId,
+                visibility: a.visibility,
+                publicSlug: a.publicSlug,
+              },
             }),
           };
         case "add_episode":

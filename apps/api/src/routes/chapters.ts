@@ -187,6 +187,8 @@ export const PatchChapter = z.object({
   revealedFacts: z.array(z.string().max(1000)).max(100).optional(),
   order: z.number().int().min(1).optional(),
   planStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),
+  /** On the series' reader page from this moment (a future one shows as scheduled); null takes it off. */
+  publishAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 doc({
   method: "PATCH",
@@ -198,8 +200,13 @@ doc({
 chapterRoutes.patch("/chapters/:id", async (c) => {
   const id = uuidParam(c, "id");
   await entityAccess(c, "chapter", id, "write");
-  const input = await body(c, PatchChapter);
-  const [row] = await c.get("deps").db.update(chapters).set(input).where(eq(chapters.id, id)).returning();
+  const { publishAt, ...input } = await body(c, PatchChapter);
+  const [row] = await c
+    .get("deps")
+    .db.update(chapters)
+    .set({ ...input, ...(publishAt !== undefined ? { publishAt: publishAt ? new Date(publishAt) : null } : {}) })
+    .where(eq(chapters.id, id))
+    .returning();
   return c.json({ chapter: row });
 });
 

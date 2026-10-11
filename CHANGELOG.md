@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Public series reader (series → *Reader page*): an optional unlisted or public page at `/s/<address>` with the
+  series' cover and description and, per episode, the chapters you publish — now or on a date (a scheduled chapter
+  is listed as coming). Readers need no account: page by page or as one scroll, right to left where the series
+  reads that way, in the original language or any its lettering was translated into, with an RSS feed of new
+  chapters and a social preview (title, description, cover). Migration `0048_public_series`; nginx routes `/s/`.
+  MCP `manage_series` and `manage_chapter` set the page and publish dates.
 - Export targets (Exports → *Export for*): presets for YouTube, YouTube Shorts, TikTok, Instagram Reels, Instagram
   carousels, WEBTOON Canvas, Tapas, an Amazon KDP paperback and plain PDF. Picking one sets the export (kind, frame,
   resolution, strip width and image height, page size), lists what a check cannot measure (safe areas, naming,

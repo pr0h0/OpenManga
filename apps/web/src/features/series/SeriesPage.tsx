@@ -3,6 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { BookCopy, Link2Off, Plus, RefreshCw, Scissors, Search } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { del, get, patch, post } from "../../api/client.ts";
+import { useAction } from "../../api/hooks.ts";
 import {
   ConfirmDialog,
   EmptyState,
@@ -30,7 +31,11 @@ type Episode = {
   behind: number;
 };
 type Dashboard = {
-  series: SeriesItem & { channelProfileId: string | null };
+  series: SeriesItem & {
+    channelProfileId: string | null;
+    visibility: "off" | "unlisted" | "public";
+    publicSlug: string | null;
+  };
   library: { projectId: string; characters: number; locations: number; props: number; facts: number };
   episodes: Episode[];
   totals: {
@@ -182,6 +187,12 @@ export function SeriesDetailPage() {
           </div>
         ))}
       </section>
+
+      <ReaderPage
+        key={`${q.data.series.visibility}-${q.data.series.publicSlug}`}
+        dashboard={q.data}
+        onSaved={() => void qc.invalidateQueries({ queryKey: key })}
+      />
 
       <section aria-label="Library" className="card space-y-2 p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -592,5 +603,140 @@ function Appearances({ seriesId, libraryId }: { seriesId: string; libraryId: str
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * The series' reader page: off, unlisted (anyone with the link) or public, at /s/<address>, with an RSS feed. Each
+ * chapter appears there from its publish date; a future date shows it as coming.
+ */
+function ReaderPage({ dashboard, onSaved }: { dashboard: Dashboard; onSaved: () => void }) {
+  const s = dashboard.series;
+  const [visibility, setVisibility] = useState(s.visibility);
+  const [slug, setSlug] = useState(s.publicSlug ?? "");
+  const save = useAction(
+    () =>
+      patch(`/series/${s.id}`, {
+        visibility,
+        ...(slug.trim() && slug.trim() !== s.publicSlug ? { publicSlug: slug.trim() } : {}),
+      }),
+    { success: "Reader page saved", onSuccess: onSaved },
+  );
+  const share = s.publicSlug ? `${window.location.origin}/s/${s.publicSlug}` : null;
+  return (
+    <section className="card space-y-3 p-4" aria-label="Reader page">
+      <div>
+        <h2 className="font-medium">Reader page</h2>
+        <p className="muted text-xs">
+          A page where readers follow the series: its cover, description and the chapters you publish, page by page or
+          as a scroll, in every language its lettering was translated into, with an RSS feed.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Visibility">
+          <select
+            className="input"
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value as typeof visibility)}
+          >
+            <option value="off">Off</option>
+            <option value="unlisted">Unlisted: anyone with the link, not in search engines</option>
+            <option value="public">Public</option>
+          </select>
+        </Field>
+        <Field label="Address (/s/…)" hint="Left empty, an unguessable one is made.">
+          <input
+            className="input w-56"
+            value={slug}
+            maxLength={60}
+            placeholder="my-series"
+            onChange={(e) => setSlug(e.target.value.toLowerCase())}
+          />
+        </Field>
+        <button type="button" className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
+          Save
+        </button>
+      </div>
+      {s.visibility !== "off" && share && (
+        <p className="text-sm">
+          <a className="underline" href={share} target="_blank" rel="noreferrer">
+            {share}
+          </a>
+          <span className="muted"> · </span>
+          <a
+            className="underline"
+            href={`/api/public/series/${s.publicSlug}/feed.xml`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            RSS
+          </a>
+        </p>
+      )}
+      <div className="space-y-1">
+        <div className="label">Publishing</div>
+        {dashboard.episodes.map((e) => (
+          <details key={e.id}>
+            <summary className="cursor-pointer text-sm">
+              Episode {e.episodeNumber}: {e.title}
+            </summary>
+            <EpisodeSchedule projectId={e.id} />
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** When each chapter of an episode appears on the reader page. */
+function EpisodeSchedule({ projectId }: { projectId: string }) {
+  const q = useQuery({
+    queryKey: ["project", projectId, "chapters"],
+    queryFn: () =>
+      get<{ chapters: { id: string; order: number; title: string; publishAt: string | null }[] }>(
+        `/projects/${projectId}/chapters`,
+      ),
+  });
+  const set = (id: string, publishAt: string | null) =>
+    patch(`/chapters/${id}`, { publishAt })
+      .then(() => q.refetch())
+      .catch(toast.error);
+  // datetime-local speaks the reader's local time, without a zone.
+  const local = (iso: string | null) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  };
+  return (
+    <ul className="mt-1 space-y-1 pl-4 text-sm">
+      {q.data?.chapters.map((ch) => (
+        <li key={ch.id} className="flex flex-wrap items-center gap-2">
+          <span className="mr-auto">
+            {ch.order}. {ch.title}
+          </span>
+          <input
+            type="datetime-local"
+            className="input w-auto py-0.5 text-xs"
+            aria-label={`Publish ${ch.title} at`}
+            value={local(ch.publishAt)}
+            onChange={(e) => void set(ch.id, e.target.value ? new Date(e.target.value).toISOString() : null)}
+          />
+          {!ch.publishAt && (
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => void set(ch.id, new Date().toISOString())}
+            >
+              Publish now
+            </button>
+          )}
+          {ch.publishAt && (
+            <button type="button" className="btn-ghost text-xs" onClick={() => void set(ch.id, null)}>
+              Unpublish
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

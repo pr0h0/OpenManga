@@ -69,10 +69,16 @@ export const series = pgTable(
     libraryProjectId: uuid("library_project_id").notNull(),
     /** One of the owner's channel profiles (users.settings), applied to every new or adopted episode. */
     channelProfileId: text("channel_profile_id"),
+    /**
+     * The series' reader page (/s/:slug): `off`, `unlisted` (anyone with the link, kept out of search engines) or
+     * `public`. Only chapters with a publish date that has come are readable there.
+     */
+    visibility: text("visibility").$type<"off" | "unlisted" | "public">().notNull().default("off"),
+    publicSlug: text("public_slug"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("series_owner_idx").on(t.ownerUserId)],
+  (t) => [index("series_owner_idx").on(t.ownerUserId), uniqueIndex("series_public_slug_uq").on(t.publicSlug)],
 );
 
 export const projectMembers = pgTable(
@@ -193,6 +199,8 @@ export const chapters = pgTable(
      */
     planFingerprint: text("plan_fingerprint"),
     narrationFingerprint: text("narration_fingerprint"),
+    /** On a series' reader page from this moment (a future one shows as scheduled). Null: not published. */
+    publishAt: ts("publish_at"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

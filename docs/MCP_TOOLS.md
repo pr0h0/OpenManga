@@ -2761,7 +2761,7 @@ A series dashboard: each episode's status, chapters, panels drawn, spend, export
 
 ### manage_series
 
-Create and run series. action=create { title, description?, channelProfileId?, projectType?, format? } makes a series and its library project. update { seriesId, title?, description?, channelProfileId? }. add_episode { seriesId, title, story? } makes a new episode project linked to the whole library. adopt { seriesId, projectId, applyProfile? } makes one of the user's projects the next episode (same-named cast becomes linked). detach { seriesId, projectId }. sync { seriesId, projectId? } brings episodes in step with the library (new versions pointing at the same reference images). split { seriesId, story, perEpisode?, confirm? } splits a long story into episodes at its chapter headings (without confirm: a preview). Creating projects needs the connection's permission to create projects; everything may need the user's approval.
+Create and run series. action=create { title, description?, channelProfileId?, projectType?, format? } makes a series and its library project. update { seriesId, title?, description?, channelProfileId?, visibility?, publicSlug? } (visibility off, unlisted or public turns the series' reader page at /s/<publicSlug> on, with an RSS feed; chapters appear there from their publishAt, set with manage_chapter). add_episode { seriesId, title, story? } makes a new episode project linked to the whole library. adopt { seriesId, projectId, applyProfile? } makes one of the user's projects the next episode (same-named cast becomes linked). detach { seriesId, projectId }. sync { seriesId, projectId? } brings episodes in step with the library (new versions pointing at the same reference images). split { seriesId, story, perEpisode?, confirm? } splits a long story into episodes at its chapter headings (without confirm: a preview). Creating projects needs the connection's permission to create projects; everything may need the user's approval.
 
 - **Scopes:** `projects:write` — per action, see description
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -2818,6 +2818,18 @@ Create and run series. action=create { title, description?, channelProfileId?, p
           "type": "null"
         }
       ]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "off",
+        "unlisted",
+        "public"
+      ]
+    },
+    "publicSlug": {
+      "type": "string",
+      "maxLength": 60
     },
     "projectType": {
       "type": "string",
@@ -6227,7 +6239,7 @@ One chapter: memory (summary, opening/closing state, continuity), scenes with th
 
 ### manage_chapter
 
-create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.
+create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan), or publishAt (ISO time, null to unpublish: when the chapter appears on its series' reader page). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.
 
 - **Scopes:** `chapters:write`
 - **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
@@ -6324,6 +6336,18 @@ create: add a chapter to a project (title, summary, sourceExcerpt: the story tex
             "approved",
             "locked",
             "superseded"
+          ]
+        },
+        "publishAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }
