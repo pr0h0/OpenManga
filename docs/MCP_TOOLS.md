@@ -13,7 +13,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `prompt_lab`, `list_series`, `get_series`, `get_image`, `manage_assets`, `estimate_production_run`, `get_staleness`, `get_project_health` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `prompt_lab`, `list_series`, `get_series`, `get_image`, `manage_assets`, `asset_library`, `estimate_production_run`, `get_staleness`, `get_project_health` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_series`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `get_timeline`, `run_continuity_check`, `get_continuity_report` |
@@ -123,6 +123,7 @@ requests) need no scope.
 | [`assign_comment`](#assign_comment) | write | `panels:write` |
 | [`get_image`](#get_image) | read | `panels:read` `library:read` `projects:read` |
 | [`manage_assets`](#manage_assets) | delete | `projects:read` `projects:write` |
+| [`asset_library`](#asset_library) | delete | `projects:read` |
 | [`list_jobs`](#list_jobs) | read | `generations:read` |
 | [`get_job`](#get_job) | read | `generations:read` |
 | [`get_manual_prompt`](#get_manual_prompt) | read | `generations:read` |
@@ -10060,6 +10061,198 @@ The project's stored images and files, as the app's Assets and Trash pages show 
       "type": "integer",
       "minimum": 1,
       "maximum": 200
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### asset_library
+
+The asset library. search: the project's files with their tags, collections and favourite mark, filtered by q (name, type or tag), type, tag, collection, favourite, characterId / locationId / propId (its reference images and the panels it is drawn in), source (generated, uploaded, derived), model, from / to (dates); view unused (images nothing uses) or duplicates (the same file stored twice). get: one asset with where it came from (job, model, template, upload name, tool) and what uses it. similar: images that look like it, scored 0–1 (no AI). mark: set an asset's tags, collections or favourite. bulk: tag, untag, collect, uncollect, favourite, unfavourite, trash or restore many (trash may need approval).
+
+- **Scopes:** `projects:read` — per action, see description
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `asset.mark`, `asset.bulk`
+- **Wraps:** `GET /api/projects/:projectId/assets`, `GET /api/assets/:id`, `GET /api/assets/:id/similar`, `PUT /api/assets/:id/marks`, `POST /api/projects/:projectId/assets/bulk`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "search",
+        "get",
+        "similar",
+        "mark",
+        "bulk"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "assetId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "q": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "tag": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "collection": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "favourite": {
+          "type": "boolean"
+        },
+        "characterId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "locationId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "propId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "generated",
+            "uploaded",
+            "derived"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "from": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "to": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "view": {
+          "type": "string",
+          "enum": [
+            "unused",
+            "duplicates"
+          ]
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      }
+    },
+    "marks": {
+      "type": "object",
+      "properties": {
+        "tags": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "collections": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "favourite": {
+          "type": "boolean"
+        }
+      }
+    },
+    "bulk": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "minItems": 1,
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "tag",
+            "untag",
+            "collect",
+            "uncollect",
+            "favourite",
+            "unfavourite",
+            "trash",
+            "restore"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "ids",
+        "action"
+      ]
     }
   },
   "required": [

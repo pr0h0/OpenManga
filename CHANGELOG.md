@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Asset library (project → *Assets*): tags, collections and favourites; search by name, type or tag; filters by
+  character, place or prop (their reference images and the panels they are drawn in), source (generated, uploaded,
+  edited), model and date; *Unused* (old versions and images nothing uses) and *Duplicates* (the same file stored
+  twice) views; *Find images like this* (no AI, the near-duplicate finder's features); bulk tag, collect,
+  favourite, trash and restore; and per file, where it came from (job, model, template, upload or tool) and what uses
+  it. Tags and collections follow a duplicated project. Migration `0049_asset_marks`; MCP `asset_library`.
 - Public series reader (series → *Reader page*): an optional unlisted or public page at `/s/<address>` with the
   series' cover and description and, per episode, the chapters you publish — now or on a date (a scheduled chapter
   is listed as coming). Readers need no account: page by page or as one scroll, right to left where the series

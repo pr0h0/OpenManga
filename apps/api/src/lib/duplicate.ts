@@ -1,5 +1,6 @@
 import {
   and,
+  assetMarks,
   assets,
   bibleFacts,
   chapters,
@@ -466,6 +467,11 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
     const style = map(src.currentStyleId);
     const cover = await copyAsset(src.coverAssetId);
     await tx.update(projects).set({ currentStyleId: style, coverAssetId: cover }).where(eq(projects.id, np));
+    // The asset library's tags, collections and favourites follow the files that were copied.
+    for (const m of await tx.select().from(assetMarks).where(eq(assetMarks.projectId, projectId))) {
+      const copy = ids.get(m.assetId);
+      if (copy) await tx.insert(assetMarks).values({ ...m, assetId: copy, projectId: np, updatedAt: undefined });
+    }
     // Chapter title cards follow their chapters to the copy.
     if (src.settings.video?.chapterCards?.length) {
       const [cur] = await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, np));

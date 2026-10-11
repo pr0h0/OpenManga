@@ -211,6 +211,21 @@ An administrator can add a server-wide policy on top of the table above (**Admin
   even after every expendable file (the rest is in use) keeps the warning too, in either mode.
 - **Dry run.** The Storage tab shows what is stored, what is expendable by kind, and what the policy would delete now.
 
+## Asset library
+
+`GET /api/projects/:projectId/assets` lists the project's files, newest first, each with its `tags`, `collections`,
+`favourite` and the `model` that drew it, plus the tags, collections and models in use. It filters by `type`, `q`
+(file name, type or tag), `tag`, `collection`, `favourite=1`, `characterId` / `locationId` / `propId` (that entry's
+reference images and the active artwork of panels it appears in), `source` (`generated` by a job — a redraw too —,
+`uploaded` from a file, `derived`: an edit or a tool result), `model`, `from` / `to` (dates), and two views:
+`view=unused` (images that are not a panel's artwork, a reference, on the board, the cover or the thumbnail: old
+versions to clean up) and `view=duplicates` (the same bytes stored more than once, side by side). `PUT
+/api/assets/:id/marks` files one asset; `POST /api/projects/:projectId/assets/bulk` tags, collects, favourites,
+trashes or restores many (an asset that cannot be trashed is skipped with the reason). `GET /api/assets/:id` adds
+where it came from (`source`: the job, provider, model and template, an upload's file name, the tool) and what uses
+it (`usedBy`). `GET /api/assets/:id/similar` scores the project's newest 600 images against it with the
+near-duplicate finder's features (`asset_features`, made on demand), no AI. MCP `asset_library`.
+
 ## Deletion
 
 Projects and important assets go to trash first (`deleted_at`); permanent deletion requires that trashing step and
