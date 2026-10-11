@@ -2,6 +2,7 @@ import { projects } from "@openmanga/db";
 import { z } from "zod";
 import { CreateProject, UpdateProject } from "../../routes/projects.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
+import { toolError } from "../runtime.ts";
 import { cls, grantProject, links, Paging, page, requireCreate, stamp, Uuid } from "./common.ts";
 
 const ProjectSummary = z
@@ -290,5 +291,55 @@ export const projectTools = [
         linkId ? `/api/projects/${projectId}/youtube/links/${linkId}/history` : `/api/projects/${projectId}/youtube`,
       ),
     }),
+  }),
+  defineMcpTool({
+    name: "prompt_lab",
+    title: "Prompt lab",
+    description:
+      "A project's own rules for its built-in prompts (chapter planning, panel prompts, narration; extra rules appended to panel image prompts). list: the prompts for this project's format, each with its built-in rules, the active version and all versions. preview: the compiled prompt with rules (unsaved, a version, or the active one) and its diff from the built-in; panel images need panelIds (up to 3). save: rules (and a note) as the next version, made active. activate: a version, or 0 for the built-in. The template header, the data rule and the answer format can never be changed.",
+    input: z.object({
+      action: z.enum(["list", "preview", "save", "activate"]),
+      projectId: Uuid,
+      template: z.string().max(40).optional().describe("For preview, save and activate: a name from list."),
+      rules: z.string().max(30_000).optional(),
+      note: z.string().max(200).optional(),
+      version: z.number().int().min(0).optional(),
+      panelIds: z.array(Uuid).max(3).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["projects:read"],
+    scopesFor: (a) => (a.action === "save" || a.action === "activate" ? ["projects:write"] : ["projects:read"]),
+    sensitivity: "sensitive-write",
+    idempotent: false,
+    routes: [
+      "GET /api/projects/:projectId/prompt-lab",
+      "POST /api/projects/:projectId/prompt-lab/:name",
+      "POST /api/projects/:projectId/prompt-lab/:name/activate",
+      "POST /api/projects/:projectId/prompt-lab/:name/preview",
+    ],
+    actionKeys: ["prompt.override"],
+    classify: async (a) =>
+      a.action === "save" || a.action === "activate"
+        ? cls(
+            "sensitive-write",
+            "prompt.override",
+            a.projectId,
+            `Change the project's ${a.template ?? ""} prompt rules`,
+          )
+        : cls("read", "prompt.read", a.projectId, "Read the prompt lab"),
+    handler: async (a, ctx) => {
+      if (a.action === "list") return { data: await ctx.invoke("GET", `/api/projects/${a.projectId}/prompt-lab`) };
+      if (!a.template) throw toolError(400, "bad_request", "template is required");
+      const base = `/api/projects/${a.projectId}/prompt-lab/${encodeURIComponent(a.template)}`;
+      if (a.action === "save")
+        return { data: await ctx.invoke("POST", base, { body: { rules: a.rules ?? "", note: a.note } }) };
+      if (a.action === "activate")
+        return { data: await ctx.invoke("POST", `${base}/activate`, { body: { version: a.version ?? 0 } }) };
+      return {
+        data: await ctx.invoke("POST", `${base}/preview`, {
+          body: { rules: a.rules, version: a.version || undefined, panelIds: a.panelIds ?? [] },
+        }),
+      };
+    },
   }),
 ];

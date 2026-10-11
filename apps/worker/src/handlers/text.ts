@@ -50,6 +50,7 @@ import {
   letteringTranslateV1,
   narrationRetimeV1,
   narrationV6,
+  overrideSystem,
   panelPromptsV5,
   scenePagesV3,
   sceneShotsV3,
@@ -83,6 +84,7 @@ import {
   YoutubePackage,
 } from "@openmanga/schemas";
 import {
+  activeOverride,
   applyChapterPlan,
   applyNarrationPauses,
   bibleFor,
@@ -120,6 +122,22 @@ export async function structured<T>(
   // In a batch run this wrapper either collects the request and parks the job, or replays the answer the batch
   // returned — either way the handler around it is unchanged. A manual run is the same shape with a person in
   // the provider's place, and resolves no credential because it has none to resolve.
+  // The project's prompt-lab rules for this template, in place of the built-in ones (header, data rule and answer
+  // format stay), recorded on the job.
+  const header = /^\[template:([a-z-]+)-v\d+\]/.exec(messages[0]?.role === "system" ? messages[0].content : "")?.[1];
+  const override = header && job.projectId ? await activeOverride(deps.db, job.projectId, header) : null;
+  if (override) {
+    messages = [
+      { ...messages[0]!, content: overrideSystem(messages[0]!.content, override.rules) },
+      ...messages.slice(1),
+    ];
+    await deps.db
+      .update(generationJobs)
+      .set({
+        parameters: sql`${generationJobs.parameters} || jsonb_build_object('promptOverrides', coalesce(${generationJobs.parameters}->'promptOverrides', '{}'::jsonb) || jsonb_build_object(${header}::text, ${override.version}::int))`,
+      })
+      .where(eq(generationJobs.id, job.id));
+  }
   const provider = isManual(job)
     ? manualProvider(job)
     : batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);

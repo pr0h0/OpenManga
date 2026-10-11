@@ -230,6 +230,10 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 ## Jobs, usage, exports (`jobs.ts`)
 
+- `prompt_overrides` — a project's own rules for a built-in prompt (the prompt lab, migration `0047_prompt_overrides`):
+  project, `template_name`, `version`, `rules`, `note`, `active` (at most one per template; none = the built-in),
+  author. Text templates keep their header, the data rule and the answer format; panel images get the rules
+  appended. Jobs record the versions they used in `parameters.promptOverrides`.
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
   `panel_check`, `cover`, `coverage_sheet`, `duplicate_scan`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,

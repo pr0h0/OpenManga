@@ -165,6 +165,29 @@ export const promptTemplates = pgTable("prompt_templates", {
   createdAt: createdAt(),
 });
 
+/**
+ * A project's own rules for one built-in prompt (the prompt lab): a text template's rewritable rules, or extra rules
+ * appended to the panel image prompt. Every save is a version; at most one is active per template, and none active
+ * means the built-in prompt. Jobs record the version they ran with.
+ */
+export const promptOverrides = pgTable(
+  "prompt_overrides",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    templateName: text("template_name").notNull(),
+    version: integer("version").notNull(),
+    rules: text("rules").notNull(),
+    note: text("note").notNull().default(""),
+    active: boolean("active").notNull().default(false),
+    createdByUserId: uuid("created_by_user_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("prompt_overrides_uq").on(t.projectId, t.templateName, t.version)],
+);
+
 export const promptVersions = pgTable(
   "prompt_versions",
   {

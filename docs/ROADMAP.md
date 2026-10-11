@@ -29,8 +29,6 @@ Grouped by area, roughly most useful first within each.
   captions and a quality report), or register LoRAs you already have; version them, combine a character with a style at
   set weights, and record which models and weights drew each image. Used where the backend supports it, plain
   references elsewhere.
-- **Prompt lab.** Override a built-in template per project (panel prompts, narration instructions, planning rules,
-  exclusions) as text, preview the compiled prompt and the diff, try it on a few panels, keep versions and revert.
 
 ### Video
 
