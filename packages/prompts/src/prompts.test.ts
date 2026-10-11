@@ -142,6 +142,22 @@ describe("panel prompt compilation", () => {
     expect(pano).toContain("Reference image 2 is a panorama across the whole location");
   });
 
+  test("a place in one of its states: the panel says how it is now, and the state's reference is drawn from the design", () => {
+    const room = { name: "Mina's room", description: LocationDescription.parse({ summary: "a small bedroom" }) };
+    const state = { name: "after the fire", description: "walls blackened, window smashed", hasReference: true };
+    const p = panelGenerationV1.compile({ ...base, location: { ...room, referenceImageIndex: 2, state } });
+    expect(p).toContain("The location, as it is now (after the fire), matches reference image 2.");
+    expect(p).toContain("As it is now (after the fire): walls blackened, window smashed");
+    const noRef = panelGenerationV1.compile({
+      ...base,
+      location: { ...room, state: { ...state, hasReference: false } },
+    });
+    expect(noRef).toContain("As it is now (after the fire)");
+    const ref = locationReferenceV1.compile({ style, ...room, state, fromBaseline: true });
+    expect(ref).toContain('of "Mina\'s room" as it is when after the fire');
+    expect(ref).toContain("Reference image 1 is this place's approved design");
+  });
+
   test("location and prop references come as one image in the kind asked for", () => {
     const room = { style, name: "Mina's room", description: LocationDescription.parse({ summary: "a small bedroom" }) };
     expect(locationReferenceV1.compile(room)).toContain("Create a wide establishing environment reference");
@@ -196,7 +212,7 @@ describe("panel prompt compilation", () => {
 
   test("film frames are cinematic 16:9 with no text space or panel language", () => {
     const p = panelGenerationV1.compile({ ...base, panel: { ...base.panel, aspectRatio: 16 / 9 }, film: true });
-    expect(panelGenerationV1.version).toBe(12);
+    expect(panelGenerationV1.version).toBe(13);
     expect(p.startsWith("Create one cinematic 16:9 film frame")).toBe(true);
     expect(p).not.toContain("DIALOGUE NEGATIVE SPACE");
     expect(p).not.toContain("panel,");

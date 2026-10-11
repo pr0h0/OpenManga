@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Location states: a place's states over story time ("after the fire", "snowed in", "at night"), on the location's
+  page (World → location → *States over story time*): what differs from the design, words matched against a scene's
+  time and weather, and/or a chapter range; each can get its own reference image, drawn from the place's approved
+  design. A scene shows the state it picks by hand (scene editor → *Location state*), else the one its time or weather
+  matches, else the one its chapter falls in; its panels are drawn as the place is then (`panel-generation` v13,
+  `location-reference` v6) with the state's reference in place of the design's. Migration `0042_location_states`.
+  Copied when a project is duplicated. MCP `manage_location_states`; `manage_references` and `manage_scene` take
+  `locationStateId`.
 - Why is this stale: on the project overview, each out-of-date stage of the production card (story → plan → prompts
   → art → narration → audio → render) opens the chapters, pages and panels behind its count, each with what changed
   under it and what an update would redo: a story revision's new and removed paragraphs, the panels a chapter's text

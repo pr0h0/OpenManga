@@ -162,10 +162,15 @@ slot).
   `character_aliases` + `character_outfits`. `outfit_assignments` (in `media.ts`) sets an outfit on a panel,
   `onward` (until the next change, in reading order) or for that `panel` only; see `docs/IMAGE_REFERENCES.md`.
 - `locations` → `location_versions`, `props` → `prop_versions` — same versioning shape.
+- `location_states` — a place's state over story time (migration `0042_location_states`): project, location
+  (cascade), `name`, `description` (what differs from the design), `keywords` (matched against a scene's time and
+  weather), `from_chapter_id` / `until_chapter_id` (inclusive, null = open). Scenes pick one by hand with
+  `scenes.location_state_id`; a state's own reference is a `reference_assets` row with `location_state_id`.
 - `style_presets` (built-in and custom) and `project_styles` (the versioned project style).
 - `reference_assets` — links one canonical asset to exactly one subject version (character, location, prop or style),
   with `kind` (`portrait`, `full_body`, `multi_angle`, `expression_sheet`, `outfit`, `location`,
-  `location_panorama`, `location_sheet`, `prop`, `prop_multi_angle`, `style`, `uploaded`), an optional outfit,
+  `location_panorama`, `location_sheet`, `prop`, `prop_multi_angle`, `style`, `uploaded`), an optional outfit, an
+  optional location state,
   approval status, `is_primary`, and `source_fingerprint` — a hash of the subject version's
   prompt-visible description when the reference was made, which is how staleness is detected
   (`docs/AI_PIPELINE.md`).

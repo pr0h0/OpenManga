@@ -214,6 +214,10 @@ export type LocationReferenceInput = {
   description: LocationDescription;
   /** One image either way: a single establishing view, a panorama across the space, or a sheet of its sides. */
   kind?: "location" | "location_panorama" | "location_sheet";
+  /** One of the place's states over story time ("destroyed", "at night"): drawn as it is then. */
+  state?: { name: string; description: string } | null;
+  /** Reference image 1 is the approved design of the place, which a state reference changes as little as it must. */
+  fromBaseline?: boolean;
   extraInstruction?: string;
 };
 
@@ -244,15 +248,17 @@ const locationKind = {
 
 export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
   name: "location-reference",
-  version: 5,
+  version: 6,
   kind: "image",
-  description: "Full-resolution canonical location/environment reference.",
-  body: "ROLE / GOAL, PROJECT ART DIRECTION, LOCATION, LIGHTING, STRICT EXCLUSIONS",
+  description: "Full-resolution canonical location/environment reference, or of one of its states over story time.",
+  body: "ROLE / GOAL, PROJECT ART DIRECTION, LOCATION, STATE (one of the place's states, from its approved design), LIGHTING, STRICT EXCLUSIONS",
   compile(i) {
     const d = i.description;
     const k = locationKind[i.kind ?? "location"];
     return join([
-      `Create ${k.what} of "${i.name}" for a ${kindLabel(i.style)} production. It is the canonical design reference for this recurring location.`,
+      i.state
+        ? `Create ${k.what} of "${i.name}" as it is when ${clean(i.state.name)}, for a ${kindLabel(i.style)} production. It is the canonical reference for this state of the recurring location.`
+        : `Create ${k.what} of "${i.name}" for a ${kindLabel(i.style)} production. It is the canonical design reference for this recurring location.`,
       styleSection(i.style),
       section("LOCATION", [
         clean(d.summary),
@@ -264,6 +270,14 @@ export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
         d.keyFeatures.length ? line("Key features that must be visible", d.keyFeatures.join("; ")) : "",
         d.immutableTraits.length ? line("Never change", d.immutableTraits.join("; ")) : "",
       ]),
+      i.state
+        ? section("STATE", [
+            `${clean(i.state.name)}: ${clean(i.state.description)}`,
+            i.fromBaseline
+              ? "Reference image 1 is this place's approved design. Keep its layout, architecture and every key feature recognisable, and change only what this state changes."
+              : "Keep the layout and every key feature recognisable; change only what this state changes.",
+          ])
+        : "",
       section("LIGHTING", [clean(d.lighting) || "Clear readable lighting."]),
       section("PRESENTATION", ["Empty of people.", ...k.presentation, FINISH, clean(i.extraInstruction)]),
       section("STRICT EXCLUSIONS", [...STRICT_BASE, "No people or characters."]),
@@ -365,6 +379,8 @@ export type PanelPromptInput = {
     description: LocationDescription;
     referenceImageIndex?: number;
     referenceKind?: string;
+    /** The state of the place this scene shows; `referenceImageIndex` is then the state's own reference when it has one. */
+    state?: { name: string; description: string; hasReference: boolean } | null;
   } | null;
   props: { name: string; description: PropDescription; referenceImageIndex?: number; referenceKind?: string }[];
   /** The panel's layout sketch, sent after the subject references and before the previous panel. */
@@ -417,10 +433,10 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 12,
+  version: 13,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
-  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
+  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION (with the state it is in now), LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
   compile(i) {
     const s = i.panel.spec;
     const d = i.draft ?? {};
@@ -443,7 +459,9 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
           ? `Reference image ${li} is a sheet showing several sides of the location: use it for where everything in the space is and what it looks like, and draw only the one view this panel's camera sees, as a single continuous picture, never the sheet's divided layout.`
           : i.location?.referenceKind === "location_panorama"
             ? `Reference image ${li} is a panorama across the whole location: use it for where everything in the space is, and frame only the part this panel's camera sees, without panoramic curvature.`
-            : `The location matches reference image ${li}.`,
+            : i.location?.state?.hasReference
+              ? `The location, as it is now (${clean(i.location.state.name)}), matches reference image ${li}.`
+              : `The location matches reference image ${li}.`,
       );
     for (const p of i.props)
       if (p.referenceImageIndex)
@@ -559,6 +577,12 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
             `${i.location.name}: ${clean(i.location.description.summary)}`,
             i.location.description.keyFeatures.length
               ? line("Recognizable features", i.location.description.keyFeatures.join("; "))
+              : "",
+            i.location.state
+              ? line(
+                  `As it is now (${clean(i.location.state.name)})`,
+                  i.location.state.description || i.location.state.name,
+                )
               : "",
           ])
         : "",

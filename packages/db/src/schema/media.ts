@@ -29,6 +29,7 @@ import {
   characterOutfits,
   characters,
   characterVersions,
+  locationStates,
   locationVersions,
   projectStyles,
   projects,
@@ -119,6 +120,8 @@ export const referenceAssets = pgTable(
     characterVersionId: uuid("character_version_id").references(() => characterVersions.id, { onDelete: "cascade" }),
     outfitId: uuid("outfit_id").references(() => characterOutfits.id, { onDelete: "set null" }),
     locationVersionId: uuid("location_version_id").references(() => locationVersions.id, { onDelete: "cascade" }),
+    /** A reference of the place in one of its states; null for the location's own design. */
+    locationStateId: uuid("location_state_id").references(() => locationStates.id, { onDelete: "cascade" }),
     propVersionId: uuid("prop_version_id").references(() => propVersions.id, { onDelete: "cascade" }),
     projectStyleId: uuid("project_style_id").references(() => projectStyles.id, { onDelete: "cascade" }),
     kind: text("kind").$type<ReferenceKind>().notNull(),

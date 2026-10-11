@@ -3,6 +3,7 @@ import {
   characters,
   characterVersions,
   eq,
+  locationStates,
   locations,
   locationVersions,
   props,
@@ -12,6 +13,7 @@ import {
 import { asPatch } from "@openmanga/schemas";
 import { z } from "zod";
 import { CreateCharacter, Migrate, OutfitInput } from "../../routes/characters.ts";
+import { StatePatch } from "../../routes/location-states.ts";
 import { GenerateRef } from "../../routes/references.ts";
 import { SetStyle } from "../../routes/world.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough, type ToolContext } from "../registry.ts";
@@ -394,7 +396,7 @@ export const libraryTools = [
     name: "manage_references",
     title: "Reference images",
     description:
-      "generate: queue a reference image for a character/location/prop version or a project style (kind: portrait, full_body, multi-angle and the other reference kinds; optional outfit for characters). Spends image-provider credits (may need approval); asynchronous, returns a job. set_status: approve / lock / unapprove a reference (approval makes it the identity reference sent with panel generation; sensitive). make_primary: make it the version's primary reference (sensitive). trash: move it to trash (delete class). Uploading your own reference needs the OpenManga UI.",
+      "generate: queue a reference image for a character/location/prop version or a project style (kind: portrait, full_body, multi-angle and the other reference kinds; optional outfit for characters; optional locationStateId for a location in one of its states, drawn from its approved design). Spends image-provider credits (may need approval); asynchronous, returns a job. set_status: approve / lock / unapprove a reference (approval makes it the identity reference sent with panel generation; sensitive). make_primary: make it the version's primary reference (sensitive). trash: move it to trash (delete class). Uploading your own reference needs the OpenManga UI.",
     input: z.object({
       action: z.enum(["generate", "set_status", "make_primary", "trash"]),
       subject: z.enum(["character", "location", "prop", "style"]).optional().describe("For generate."),
@@ -514,6 +516,84 @@ export const libraryTools = [
       if (a.action === "set")
         return { data: await ctx.invoke("POST", `/api/projects/${a.projectId}/style`, { body: a.style ?? {} }) };
       return { data: await ctx.invoke("POST", `/api/project-styles/${a.styleId}/make-current`) };
+    },
+  }),
+
+  defineMcpTool({
+    name: "manage_location_states",
+    title: "Manage location states",
+    description:
+      'States of a place over story time ("destroyed", "snowed in", "at night"): list, add, edit or delete. A state has a name, what differs from the place\'s design, keywords matched against a scene\'s time and weather, and/or a chapter range. A scene shows the state it picks by hand (manage_scene locationStateId), else one whose keywords match its time or weather, else one whose chapters hold it; its panels are drawn from the state\'s description and its own reference (manage_references generate with generate.locationStateId). Not asynchronous.',
+    input: z.object({
+      action: z.enum(["list", "add", "edit", "delete"]),
+      locationId: Uuid.optional().describe("For list and add."),
+      id: Uuid.optional().describe("The state, for edit and delete."),
+      state: StatePatch.optional().describe("For add (name required) and edit."),
+    }),
+    output: Passthrough,
+    scopes: ["library:write"],
+    scopesFor: (a) => (a.action === "list" ? ["library:read"] : ["library:write"]),
+    sensitivity: "delete",
+    idempotent: false,
+    routes: [
+      "GET /api/locations/:id/states",
+      "POST /api/locations/:id/states",
+      "PATCH /api/location-states/:id",
+      "DELETE /api/location-states/:id",
+    ],
+    actionKeys: ["location.state.create", "location.state.update", "location.state.delete"],
+    classify: async (a, ctx) => {
+      const need = (v: string | undefined) => {
+        if (!v)
+          throw toolError(
+            400,
+            "bad_request",
+            `${a.action === "list" || a.action === "add" ? "locationId" : "id"} is required for ${a.action}`,
+          );
+        return v;
+      };
+      const projectOfState = async (id: string) => {
+        const [s] = await ctx.deps.db
+          .select({ p: locationStates.projectId })
+          .from(locationStates)
+          .where(eq(locationStates.id, id));
+        if (!s) throw toolError(404, "not_found", "Location state not found");
+        return s.p;
+      };
+      const projectOfLocation = async (id: string) => {
+        const [l] = await ctx.deps.db.select({ p: locations.projectId }).from(locations).where(eq(locations.id, id));
+        if (!l) throw toolError(404, "not_found", "Location not found");
+        return l.p;
+      };
+      if (a.action === "list")
+        return cls("read", "location.state.list", await projectOfLocation(need(a.locationId)), "List location states");
+      if (a.action === "add")
+        return cls(
+          "write",
+          "location.state.create",
+          await projectOfLocation(need(a.locationId)),
+          "Add a location state",
+        );
+      const project = await projectOfState(need(a.id));
+      return a.action === "edit"
+        ? cls("write", "location.state.update", project, "Edit a location state")
+        : cls("delete", "location.state.delete", project, "Delete a location state and its reference images");
+    },
+    handler: async (a, ctx) => {
+      switch (a.action) {
+        case "list":
+          return { data: await ctx.invoke("GET", `/api/locations/${a.locationId}/states`) };
+        case "add":
+          return {
+            data: await ctx.invoke("POST", `/api/locations/${a.locationId}/states`, {
+              body: a.state ?? {},
+            }),
+          };
+        case "edit":
+          return { data: await ctx.invoke("PATCH", `/api/location-states/${a.id}`, { body: a.state ?? {} }) };
+        default:
+          return { data: await ctx.invoke("DELETE", `/api/location-states/${a.id}`) };
+      }
     },
   }),
 ];

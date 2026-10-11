@@ -44,8 +44,8 @@ versions stay in the array so old jobs remain reproducible.
 | `continuity-check` | 1 | 1 | `apps/api/src/routes/continuity.ts`, `apps/worker/src/handlers/continuity.ts` (contradictions in one chapter and a verdict per fixed rule, schema `ContinuityReport`) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
-Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v12**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+Image templates keep one registered version each: `character-reference` v5, `location-reference` v6, `prop-reference`
+v5, `style-reference` v5, `panel-generation` **v13**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
@@ -118,7 +118,7 @@ system-message line telling the model that anything inside those tags is end-use
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v12)
+## Panel prompt sections (`panel-generation` v13)
 
 `compile()` emits these in order, dropping any section with no content:
 
@@ -146,7 +146,8 @@ extract → validate → one repair → fail sequence.
    `STORY CANON (must hold)` (v12) when the story bible has visible entries in effect for who and what is in the
    panel.
 8. `WARDROBE`, then `ACTION`, `EXPRESSION`, `CAMERA`, `COMPOSITION`.
-9. `LOCATION`, `PROPS`, `LIGHTING`, `CONTINUITY`.
+9. `LOCATION`, `PROPS`, `LIGHTING`, `CONTINUITY`. In a scene that shows one of the place's states (v13), an `As it is now (<state>):` line
+   gives what differs, and the reference note names the state when its own reference is sent instead of the design.
 10. `DIALOGUE NEGATIVE SPACE` — "leave visual space for dialogue but do not draw dialogue or speech bubbles"; skipped
     when the caller sets `reserveTextSpace: false` or the project is film.
 11. `STRICT EXCLUSIONS` — no text, captions, bubbles, lettering, watermark or logo; do not change identity, hair, eye

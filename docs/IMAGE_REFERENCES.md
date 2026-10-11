@@ -90,8 +90,17 @@ Each is one image, in the kind picked on the location or prop page:
 | Prop | `prop_multi_angle` | Front, side, back and top views of the object in a row. |
 
 Panels send the primary (starred) approved reference, whatever its kind. When it is a panorama, a sheet or a
-multi-angle turnaround, the panel prompt (`panel-generation` v12) says so: use it for where things are and what they
+multi-angle turnaround, the panel prompt (`panel-generation` v13) says so: use it for where things are and what they
 look like, and draw only the one view the panel needs, never the sheet's split layout or the panorama's curvature.
+
+**Location states.** A place can have states over story time ("after the fire", "snowed in", "at night"), each with
+what differs from its design, words matched against a scene's time and weather, and/or a chapter range (World →
+location → *States over story time*; `location_states`). A scene shows the state it picks by hand
+(`scenes.location_state_id`), else one whose words match its time or weather, else one whose chapters hold it (the
+latest-starting wins; `pickLocationState`). A state can have its own reference (`reference_assets.location_state_id`),
+generated from the location version with `locationStateId` and drawn from the place's approved design so it stays
+recognisable (`location-reference` v6); panels in such a scene send it in place of the design's, and the prompt says
+how the place is now. The design's own reference never includes a state's.
 
 **Generate all locations / props**, and **Generate all character references** on the Cast page, draw one reference
 for every location, prop or character in the project, in the kind you pick (`scope.references` of `location`, `prop`

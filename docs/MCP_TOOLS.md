@@ -19,7 +19,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `get_timeline`, `run_continuity_check`, `get_continuity_report` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
-| `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
+| `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style`, `manage_location_states` |
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
@@ -89,6 +89,7 @@ requests) need no scope.
 | [`migrate_character_panels`](#migrate_character_panels) | sensitive-write | `library:write` `panels:write` |
 | [`manage_references`](#manage_references) | spend | `library:write` `generations:run` |
 | [`project_style`](#project_style) | sensitive-write | `library:read` `library:write` |
+| [`manage_location_states`](#manage_location_states) | delete | `library:write` |
 | [`list_chapters`](#list_chapters) | read | `chapters:read` |
 | [`get_chapter_source`](#get_chapter_source) | read | `chapters:read` |
 | [`get_chapter`](#get_chapter) | read | `chapters:read` |
@@ -5114,7 +5115,7 @@ Explicitly move panels (all of them, or panelIds) from one version of a characte
 
 ### manage_references
 
-generate: queue a reference image for a character/location/prop version or a project style (kind: portrait, full_body, multi-angle and the other reference kinds; optional outfit for characters). Spends image-provider credits (may need approval); asynchronous, returns a job. set_status: approve / lock / unapprove a reference (approval makes it the identity reference sent with panel generation; sensitive). make_primary: make it the version's primary reference (sensitive). trash: move it to trash (delete class). Uploading your own reference needs the OpenManga UI.
+generate: queue a reference image for a character/location/prop version or a project style (kind: portrait, full_body, multi-angle and the other reference kinds; optional outfit for characters; optional locationStateId for a location in one of its states, drawn from its approved design). Spends image-provider credits (may need approval); asynchronous, returns a job. set_status: approve / lock / unapprove a reference (approval makes it the identity reference sent with panel generation; sensitive). make_primary: make it the version's primary reference (sensitive). trash: move it to trash (delete class). Uploading your own reference needs the OpenManga UI.
 
 - **Scopes:** `library:write`, `generations:run` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
@@ -5186,6 +5187,11 @@ generate: queue a reference image for a character/location/prop version or a pro
           "maxLength": 2000
         },
         "outfitId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "locationStateId": {
           "type": "string",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
@@ -5370,6 +5376,115 @@ get: the project's style history with references. set: a new style version from 
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### manage_location_states
+
+States of a place over story time ("destroyed", "snowed in", "at night"): list, add, edit or delete. A state has a name, what differs from the place's design, keywords matched against a scene's time and weather, and/or a chapter range. A scene shows the state it picks by hand (manage_scene locationStateId), else one whose keywords match its time or weather, else one whose chapters hold it; its panels are drawn from the state's description and its own reference (manage_references generate with generate.locationStateId). Not asynchronous.
+
+- **Scopes:** `library:write` — per action, see description
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `location.state.create`, `location.state.update`, `location.state.delete`
+- **Wraps:** `GET /api/locations/:id/states`, `POST /api/locations/:id/states`, `PATCH /api/location-states/:id`, `DELETE /api/location-states/:id`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "add",
+        "edit",
+        "delete"
+      ]
+    },
+    "locationId": {
+      "description": "For list and add.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "id": {
+      "description": "The state, for edit and delete.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "state": {
+      "description": "For add (name required) and edit.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          }
+        },
+        "fromChapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "untilChapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     }
   },
   "required": [
@@ -5872,6 +5987,18 @@ create: add a scene to a chapter. update: edit a scene's fields, location, cast 
           "maxLength": 10000
         },
         "locationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "locationStateId": {
           "anyOf": [
             {
               "type": "string",

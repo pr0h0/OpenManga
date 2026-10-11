@@ -1,4 +1,18 @@
-import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes, sql, storyBeats } from "@openmanga/db";
+import {
+  and,
+  asc,
+  chapters,
+  type DbOrTx,
+  eq,
+  generationJobs,
+  inArray,
+  locationStates,
+  pages,
+  panels,
+  scenes,
+  sql,
+  storyBeats,
+} from "@openmanga/db";
 import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
 import { chapterPlanningV7, shotPlanningV4, stripPlanningV3 } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
@@ -454,10 +468,22 @@ chapterRoutes.post("/chapters/:id/keep", async (c) => {
   return c.json({ ok: true });
 });
 
+/** A scene's state pick must be a state of this project's places. */
+async function checkLocationState(db: DbOrTx, projectId: string, stateId: string | null | undefined) {
+  if (!stateId) return;
+  const [s] = await db
+    .select({ id: locationStates.id })
+    .from(locationStates)
+    .where(and(eq(locationStates.id, stateId), eq(locationStates.projectId, projectId)));
+  if (!s) throw badRequest("That location state is not in this project");
+}
+
 export const SceneInput = z.object({
   title: z.string().trim().min(1).max(200),
   summary: z.string().max(10_000).default(""),
   locationId: z.string().uuid().nullable().default(null),
+  /** The place's state this scene shows; null picks it by time, weather and chapter (see location states). */
+  locationStateId: z.string().uuid().nullable().default(null),
   time: z.string().max(200).default(""),
   weather: z.string().max(200).default(""),
   characterIds: z.array(z.string().uuid()).max(50).default([]),
@@ -477,6 +503,7 @@ chapterRoutes.post("/chapters/:id/scenes", async (c) => {
   const p = await entityAccess(c, "chapter", id, "write");
   const input = await body(c, SceneInput);
   const { db } = c.get("deps");
+  await checkLocationState(db, p.id, input.locationStateId);
   const [max] = await db
     .select({ n: sql<number>`coalesce(max(${scenes.order}),0)::int` })
     .from(scenes)
@@ -496,8 +523,9 @@ doc({
 });
 chapterRoutes.patch("/scenes/:id", async (c) => {
   const id = uuidParam(c, "id");
-  await entityAccess(c, "scene", id, "write");
+  const p = await entityAccess(c, "scene", id, "write");
   const input = await body(c, asPatch(SceneInput));
+  await checkLocationState(c.get("deps").db, p.id, input.locationStateId);
   const [row] = await c.get("deps").db.update(scenes).set(input).where(eq(scenes.id, id)).returning();
   return c.json({ scene: row });
 });

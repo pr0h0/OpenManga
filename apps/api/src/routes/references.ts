@@ -7,6 +7,8 @@ import {
   eq,
   inArray,
   isNull,
+  locationStates,
+  locationVersions,
   or,
   REFERENCE_KINDS,
   type ReferenceKind,
@@ -144,6 +146,8 @@ export const GenerateRef = z.object({
   kind: z.enum(REFERENCE_KINDS).exclude(["uploaded"]).default("full_body"),
   extraInstruction: z.string().max(2000).optional(),
   outfitId: z.string().uuid().optional(),
+  /** Location references only: draw the place in this state of it, from its approved design. */
+  locationStateId: z.string().uuid().optional(),
   ai: AiChoiceInput,
 });
 
@@ -176,6 +180,7 @@ export function mountReferenceEndpoints(
     const job = await deps.planner.enqueueReference(subject, id, input.kind as ReferenceKind, user(c).id, {
       extraInstruction: input.extraInstruction,
       outfitId: input.outfitId,
+      locationStateId: subject === "location" ? input.locationStateId : undefined,
       ai: input.ai,
     });
     await deps.jobs.kick();
@@ -185,7 +190,7 @@ export function mountReferenceEndpoints(
   doc({
     method: "POST",
     path: `/api/${versionPath}/:id/references/upload`,
-    summary: `Upload your own ${subject} reference (multipart: file, kind)`,
+    summary: `Upload your own ${subject} reference (multipart: file, kind${subject === "location" ? ", and locationStateId for a reference of one of the place's states" : ""})`,
     tag: "references",
   });
   app.post(`/${versionPath}/:id/references/upload`, async (c) => {
@@ -195,6 +200,15 @@ export function mountReferenceEndpoints(
     const up = await readImageUpload(c);
     const kind = String(up.form.get("kind") ?? "uploaded") as ReferenceKind;
     const deps = c.get("deps");
+    const stateId = subject === "location" ? String(up.form.get("locationStateId") ?? "") || null : null;
+    if (stateId) {
+      const [s] = await deps.db
+        .select({ id: locationStates.id })
+        .from(locationStates)
+        .innerJoin(locationVersions, eq(locationVersions.locationId, locationStates.locationId))
+        .where(and(eq(locationStates.id, stateId), eq(locationVersions.id, id)));
+      if (!s) throw badRequest("That state belongs to another location");
+    }
     const u = user(c);
     const asset = await deps.assets.store({
       projectId: v.projectId,
@@ -217,6 +231,7 @@ export function mountReferenceEndpoints(
         subjectType: subject,
         characterVersionId: subject === "character" ? id : null,
         locationVersionId: subject === "location" ? id : null,
+        locationStateId: stateId,
         propVersionId: subject === "prop" ? id : null,
         projectStyleId: subject === "style" ? id : null,
         kind: REFERENCE_KINDS.find((k) => k === kind) ?? "uploaded",

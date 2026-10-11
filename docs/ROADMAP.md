@@ -14,8 +14,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Canon and continuity
 
-- **Location states.** Versions of a place by story time (normal, destroyed, snowed in, at night), picked by when the
-  scene happens.
 - **Rules checked in the artwork.** The continuity check tests fixed rules against what the plan, dialogue and
   narration say; checking them in the finished panels by vision ("system windows are blue") is still to do.
 

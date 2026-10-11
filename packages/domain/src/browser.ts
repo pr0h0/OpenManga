@@ -9,6 +9,7 @@ export * from "./edge.ts";
 export * from "./languages.ts";
 export * from "./layout.ts";
 export * from "./lettering.ts";
+export * from "./location-state.ts";
 export * from "./narration.ts";
 export * from "./narration-lint.ts";
 export * from "./permissions.ts";

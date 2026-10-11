@@ -11,6 +11,7 @@ import {
   eq,
   inArray,
   isNull,
+  locationStates,
   locations,
   locationVersions,
   pages,
@@ -45,6 +46,7 @@ import { CharacterBible, type PanelSpec, type ProjectSettings } from "@openmanga
 import type { AssetRecord, AssetService } from "./assets.ts";
 import { bibleFor, loadBible } from "./bible.ts";
 import type { JobService, NewGenerationInput } from "./jobs.ts";
+import { sceneLocationState, stateReference } from "./location-states.ts";
 import { outfitReferenceAssets, resolveOutfits, wardrobeText } from "./outfits.ts";
 import { type AiChoice, MISSING_CREDENTIAL, type ProviderResolver } from "./providers.ts";
 import { versionFingerprint } from "./staleness.ts";
@@ -187,7 +189,15 @@ export class GenerationPlanner {
       .select({ ref: referenceAssets, asset: assets })
       .from(referenceAssets)
       .innerJoin(assets, eq(assets.id, referenceAssets.assetId))
-      .where(and(eq(col, versionId), inArray(referenceAssets.status, ["approved", "locked"]), isNull(assets.deletedAt)))
+      .where(
+        and(
+          eq(col, versionId),
+          inArray(referenceAssets.status, ["approved", "locked"]),
+          isNull(assets.deletedAt),
+          // A state's reference shows the place changed; the place's own design is the one without a state.
+          subject === "location" ? isNull(referenceAssets.locationStateId) : undefined,
+        ),
+      )
       .orderBy(desc(referenceAssets.isPrimary), desc(referenceAssets.createdAt));
     rows.sort(
       (a, b) =>
@@ -353,13 +363,16 @@ export class GenerationPlanner {
         .innerJoin(locations, eq(locations.id, locationVersions.locationId))
         .where(eq(locationVersions.id, panel.locationVersionId));
       if (l) {
-        const ref = await this.approvedReference("location", l.v.id);
+        // The place as this scene shows it: a state's own reference stands in for the design's when it has one.
+        const state = await sceneLocationState(this.db, l.l.id, panel.sceneId);
+        const stateRef = state ? await stateReference(this.db, state.id, l.v.id) : null;
+        const ref = stateRef ?? (await this.approvedReference("location", l.v.id));
         let referenceImageIndex: number | undefined;
         if (ref && refs.length < cap) {
           refs.push({
             asset: ref,
             role: "location_ref",
-            label: `${l.l.name} v${l.v.versionNumber}`,
+            label: `${l.l.name} v${l.v.versionNumber}${stateRef ? ` (${state!.name})` : ""}`,
             subjectVersionId: l.v.id,
           });
           referenceImageIndex = refs.length;
@@ -369,6 +382,13 @@ export class GenerationPlanner {
           description: l.v.description,
           referenceImageIndex,
           referenceKind: referenceImageIndex ? ref?.referenceKind : undefined,
+          state: state
+            ? {
+                name: state.name,
+                description: state.description,
+                hasReference: Boolean(stateRef && referenceImageIndex),
+              }
+            : null,
         };
       }
     }
@@ -669,6 +689,8 @@ export class GenerationPlanner {
     opts: {
       extraInstruction?: string;
       outfitId?: string | null;
+      /** A location reference of the place in one of its states, drawn from its approved design when there is one. */
+      locationStateId?: string | null;
       ai?: AiChoice | null;
       /** A bulk run: the jobs share a batch id, so they are tracked, paused and cancelled together. */
       batchId?: string | null;
@@ -687,7 +709,13 @@ export class GenerationPlanner {
     let templateVersion: number;
     /** The approved identity reference an outfit reference is drawn from. */
     let baseline: AssetRecord | null = null;
-    const input: Record<string, unknown> = { subject, versionId, kind, outfitId: opts.outfitId ?? null };
+    const input: Record<string, unknown> = {
+      subject,
+      versionId,
+      kind,
+      outfitId: opts.outfitId ?? null,
+      locationStateId: subject === "location" ? (opts.locationStateId ?? null) : null,
+    };
     if (subject === "character") {
       const [r] = await this.db
         .select({ v: characterVersions, c: characters })
@@ -745,14 +773,25 @@ export class GenerationPlanner {
       projectId = r.l.projectId;
       const { style } = await this.styleContext(projectId);
       kind = kind === "location_panorama" || kind === "location_sheet" ? kind : "location";
+      let state: { name: string; description: string } | null = null;
+      if (opts.locationStateId) {
+        const [s] = await this.db.select().from(locationStates).where(eq(locationStates.id, opts.locationStateId));
+        if (!s) throw new PlanningError(404, "Location state not found");
+        if (s.locationId !== r.l.id) throw new PlanningError(400, "That state belongs to another location");
+        state = { name: s.name, description: s.description };
+        // Drawn from the approved design when there is one, so the place stays recognisable in every state.
+        baseline = await this.approvedReference("location", versionId);
+      }
       prompt = locationReferenceV1.compile({
         style,
         name: r.l.name,
         description: r.v.description,
         kind,
+        state,
+        fromBaseline: Boolean(baseline),
         extraInstruction: opts.extraInstruction,
       });
-      label = `${r.l.name} v${r.v.versionNumber}${kind === "location" ? "" : ` ${kind.replace("location_", "")}`}`;
+      label = `${r.l.name} v${r.v.versionNumber}${kind === "location" ? "" : ` ${kind.replace("location_", "")}`}${state ? ` (${state.name})` : ""}`;
       templateName = locationReferenceV1.name;
       templateVersion = locationReferenceV1.version;
     } else if (subject === "prop") {
@@ -793,8 +832,8 @@ export class GenerationPlanner {
       ? [
           await this.derivativeInput(
             baseline,
-            "character_ref",
-            "approved character design",
+            subject === "location" ? "location_ref" : "character_ref",
+            subject === "location" ? "approved location design" : "approved character design",
             versionId,
             project.settings,
             run.provider,
