@@ -35,6 +35,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
+import { assertStorageRoom } from "../lib/ai.ts";
 import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { chapterTiming, shortsCandidates } from "./video.ts";
@@ -289,6 +290,8 @@ exportRoutes.post("/projects/:projectId/exports", async (c) => {
     .from(exportJobs)
     .where(and(eq(exportJobs.projectId, p.id), inArray(exportJobs.status, ["queued", "processing"])));
   if ((active[0]?.n ?? 0) >= 5) throw conflict("Too many exports in progress for this project");
+  // Exports are files too: none while the project is over its storage cap.
+  await assertStorageRoom(c, p.id);
   const readiness = await projectReadiness(deps.db, p.id, { chapterId: input.chapterId, language: input.language });
   const issues = issuesForExport(readiness, input.kind);
   if (issues.some((i) => i.severity === "block") && !input.acknowledgeIssues)

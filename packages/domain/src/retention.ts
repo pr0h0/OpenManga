@@ -10,6 +10,11 @@ export type RetentionPolicy = {
   /** Keep all stored files (in use or not) under this many gigabytes; null: no size limit. */
   maxTotalGb: number | null;
   mode: "auto" | "approve";
+  /**
+   * An age of a kind's own in place of `maxAgeDays` (e.g. keep exports 90 days, the render cache 7); null: that kind
+   * is never deleted for its age (only, if needed, to get under the size limit).
+   */
+  kindAges?: Partial<Record<RetentionKind, number | null>>;
 };
 
 /**
@@ -51,12 +56,16 @@ export function selectForRetention(
   now: Date = new Date(),
 ) {
   const sorted = [...candidates].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
-  const cutoff = policy.maxAgeDays === null ? null : now.getTime() - policy.maxAgeDays * 86_400_000;
+  const cutoffFor = (kind: RetentionKind) => {
+    const days = policy.kindAges && kind in policy.kindAges ? policy.kindAges[kind]! : policy.maxAgeDays;
+    return days === null || days === undefined ? null : now.getTime() - days * 86_400_000;
+  };
   const selected: RetentionCandidate[] = [];
   const reasons = { age: 0, size: 0 };
   let total = totalBytes;
   const rest: RetentionCandidate[] = [];
   for (const c of sorted) {
+    const cutoff = cutoffFor(c.kind);
     if (cutoff !== null && +new Date(c.createdAt) < cutoff) {
       selected.push(c);
       reasons.age++;

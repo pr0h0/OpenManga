@@ -53,6 +53,7 @@ slot).
   | --- | --- |
   | `filmFrame` | Film projects: `16:9` (default) or `9:16`, the shape every shot is planned (`planningTemplates`), drawn (`panel-generation` composes a vertical frame for a phone) and rendered at. Fixed, like `format`, once pages exist. |
   | `format` | `comic`, `film` or `vertical`. A film project is one full-frame shot per page; creating one also applies `FILM_PAGE` (1920×1080, no margin or gutter), or `FILM_VERTICAL_PAGE` (1080×1920) and a 9:16 video output for `filmFrame: "9:16"`. A vertical project is one scrolling strip and starts from `VERTICAL_PAGE` (800×1200, no margin or gutter). |
+  | `storage` | `{enabled, maxAgeDays, kindAges, capGb}` — the project's own storage policy and cap, owner only (`docs/STORAGE.md`). |
   | `budgetUsd` | Hard USD ceiling on AI spend. New projects are created with **$5**, written at creation rather than as a schema default so older projects stay uncapped. `null` = no cap. |
   | `pageWidth/Height`, `pageGutter`, `pageMargin`, `webtoon*` | Page and webtoon geometry used by the compositor. |
   | `imageQuality`, `referenceMaxWidth/Height` | Per-project overrides of the image quality and reference derivative box. |

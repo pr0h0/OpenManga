@@ -388,7 +388,7 @@ projectRoutes.patch("/:projectId", async (c) =>
   c.json({ project: await updateProject(c, uuidParam(c, "projectId"), await body(c, UpdateProject)) }),
 );
 
-const OWNER_SETTINGS = ["budgetUsd", "consistencyCheck", "contentPolicyFallback"] as const;
+const OWNER_SETTINGS = ["budgetUsd", "consistencyCheck", "contentPolicyFallback", "storage"] as const;
 
 /** Updates a project's fields and settings: the PATCH route, and an expert's premise or YouTube text once applied. */
 export async function updateProject(c: Context<AppEnv>, projectId: string, input: z.infer<typeof UpdateProject>) {

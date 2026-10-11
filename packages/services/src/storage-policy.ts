@@ -1,10 +1,12 @@
 import { assets, assetVariants, type Database, eq, inArray, instanceSettings, sql } from "@openmanga/db";
 import {
+  GB,
   type RetentionCandidate,
   type RetentionKind,
   type RetentionPolicy,
   selectForRetention,
 } from "@openmanga/domain";
+import type { ProjectStorage } from "@openmanga/schemas";
 import type { AssetService } from "./assets.ts";
 
 export const STORAGE_POLICY_KEY = "storagePolicy";
@@ -21,15 +23,18 @@ export async function getStoragePolicy(db: Database): Promise<RetentionPolicy | 
  * Each file appears once, under the first kind it matches. Panel versions are only AI-drawn art no panel shows, not
  * locked and not used as a reference; uploads are never candidates, since they cannot be made again.
  */
-export async function storageCandidates(db: Database) {
+export async function storageCandidates(db: Database, projectId: string | null = null) {
+  // One project's files (its own policy and cap), or the whole server's.
+  const own = projectId ? sql`project_id = ${projectId}` : sql`true`;
+  const ownVariant = projectId ? sql`asset_id in (select id from assets where project_id = ${projectId})` : sql`true`;
   const [total] = await db.execute<{ bytes: number }>(sql`
-    select (select coalesce(sum(byte_size), 0) from assets)::float8
-      + (select coalesce(sum(byte_size), 0) from asset_variants)::float8 as bytes`);
+    select (select coalesce(sum(byte_size), 0) from assets where ${own})::float8
+      + (select coalesce(sum(byte_size), 0) from asset_variants where ${ownVariant})::float8 as bytes`);
   const rows = await db.execute<{ id: string; kind: RetentionKind; bytes: number; created_at: string }>(sql`
     with sized as (
       select a.*, a.byte_size + coalesce((select sum(v.byte_size) from asset_variants v where v.asset_id = a.id), 0)
         as total_bytes
-      from assets a
+      from assets a where ${projectId ? sql`a.project_id = ${projectId}` : sql`true`}
     ), tagged as (
       select id, total_bytes, created_at, case
           when metadata ? 'renderSection' then 'render_cache'
@@ -47,7 +52,7 @@ export async function storageCandidates(db: Database) {
     select id, kind, total_bytes::float8 as bytes, created_at from tagged where kind is not null
     union all
     select v.id, 'prompt_reference', v.byte_size::float8, coalesce(v.last_used_at, v.created_at)
-    from asset_variants v where v.variant = 'prompt_ref'`);
+    from asset_variants v where v.variant = 'prompt_ref' and ${ownVariant}`);
   const candidates: RetentionCandidate[] = rows.map((r) => ({
     id: r.id,
     kind: r.kind,
@@ -58,9 +63,15 @@ export async function storageCandidates(db: Database) {
 }
 
 /** What the policy would delete right now (a dry run); null when there is no policy or it is off. */
-export async function planStorage(db: Database, policy: RetentionPolicy | null, now = new Date()) {
-  if (!policy?.enabled || (policy.maxAgeDays === null && policy.maxTotalGb === null)) return null;
-  const { totalBytes, candidates } = await storageCandidates(db);
+export async function planStorage(
+  db: Database,
+  policy: RetentionPolicy | null,
+  now = new Date(),
+  projectId: string | null = null,
+) {
+  const kindAge = Object.values(policy?.kindAges ?? {}).some((d) => d !== null && d !== undefined);
+  if (!policy?.enabled || (policy.maxAgeDays === null && policy.maxTotalGb === null && !kindAge)) return null;
+  const { totalBytes, candidates } = await storageCandidates(db, projectId);
   return { totalBytes, ...selectForRetention(candidates, totalBytes, policy, now) };
 }
 export type StoragePlan = NonNullable<Awaited<ReturnType<typeof planStorage>>>;
@@ -124,4 +135,21 @@ export async function setStoragePending(db: Database, pending: StoragePending | 
 export async function getStoragePending(db: Database): Promise<StoragePending | null> {
   const [row] = await db.select().from(instanceSettings).where(eq(instanceSettings.key, STORAGE_PENDING_KEY));
   return (row?.value as StoragePending | undefined) ?? null;
+}
+
+/** A project's own policy (project settings → Storage) as a retention policy: always applied by itself (auto). */
+export const projectRetention = (s: ProjectStorage | undefined): RetentionPolicy | null =>
+  s?.enabled
+    ? { enabled: true, mode: "auto", maxAgeDays: s.maxAgeDays, maxTotalGb: s.capGb, kindAges: s.kindAges }
+    : null;
+
+/** Bytes a project stores (files and derivatives) and whether that is over its cap. */
+export async function projectStorageUse(db: Database, projectId: string, s: ProjectStorage | undefined) {
+  const [row] = await db.execute<{ bytes: number }>(sql`
+    select (select coalesce(sum(byte_size), 0) from assets where project_id = ${projectId})::float8
+      + (select coalesce(sum(v.byte_size), 0) from asset_variants v join assets a on a.id = v.asset_id
+          where a.project_id = ${projectId})::float8 as bytes`);
+  const bytes = row?.bytes ?? 0;
+  const capBytes = s?.enabled && s.capGb ? s.capGb * GB : null;
+  return { bytes, capBytes, overCap: capBytes !== null && bytes > capBytes };
 }

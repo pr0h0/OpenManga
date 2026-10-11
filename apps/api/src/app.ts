@@ -33,6 +33,7 @@ import { memberRoutes, publicInviteRoutes } from "./routes/members.ts";
 import { narrationQaRoutes } from "./routes/narration-qa.ts";
 import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
+import { projectStorageRoutes } from "./routes/project-storage.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { promptLabRoutes } from "./routes/prompt-lab.ts";
 import { publicSeriesRoutes, seriesPreviewRoutes } from "./routes/public-series.ts";
@@ -99,6 +100,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     compareRoutes,
     letteringTranslationRoutes,
     promptLabRoutes,
+    projectStorageRoutes,
     videoEditRoutes,
     locationStateRoutes,
   ])
