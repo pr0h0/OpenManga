@@ -108,7 +108,8 @@ slot).
   its shared cast, world, style and bible) and `channel_profile_id`. `projects.series_id`, `series_role`
   (`episode` | `library`) and `episode_number` place a project in it; `characters`, `locations` and `props` carry
   `source_id` (the library entry they follow) and `synced_version_id`, and `project_styles` and `bible_facts` carry
-  `source_id`. See `docs/SERIES.md`.
+  `source_id`. `visibility` (`off` | `unlisted` | `public`) and `public_slug` (unique) turn on its reader page
+  (`0048_public_series`). See `docs/SERIES.md`.
 
 ## Structure (`projects.ts`, `media.ts`)
 
@@ -116,7 +117,8 @@ slot).
   location state changes, revealed facts, beats, `last_plan` (the `ChapterPlan`) and `plan_status`, and
   `plan_fingerprint` / `narration_fingerprint` (migration `0033_chapter_source_fingerprints`, backfilled for chapters
   already planned or narrated): md5 of what the plan and the narration were made from, which staleness compares with
-  the current ones (`docs/ARCHITECTURE.md`).
+  the current ones (`docs/ARCHITECTURE.md`). `publish_at` (`0048_public_series`): from when the chapter is on its
+  series' reader page; a future time lists it as coming, null keeps it off.
 - `scenes` (location, time, weather, characters, purpose/opening/progression/climax/ending, continuity notes,
   initial/final state, continuity deltas) and `story_beats` (ordered within a scene).
 - `pages` — order, purpose, pacing, visual emphasis, page-turn hook, layout template key (a built-in template, or

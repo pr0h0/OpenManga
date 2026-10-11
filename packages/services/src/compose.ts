@@ -164,7 +164,7 @@ async function withArt(
 const PAGE_RENDER_VERSION = 1;
 
 /** `cutout`: the copy with what lies outside a decorative page edge left transparent (for video previews). */
-type PageRenderMeta = { pageId: string; fingerprint: string; width: number; cutout?: boolean };
+type PageRenderMeta = { pageId: string; fingerprint: string; width: number; cutout?: boolean; language?: string };
 
 const renderFingerprint = (render: RenderPage, art: ({ sha256: string } | null)[]) =>
   sha256Hex(JSON.stringify({ v: PAGE_RENDER_VERSION, render, art: art.map((a) => a?.sha256 ?? null) }));
@@ -193,8 +193,10 @@ export async function cachedPageRender(
   readingDirection: "ltr" | "rtl" | "vertical",
   width: number,
   cutout = false,
+  /** A translated edition's lettering (see loadRenderPage); each language keeps its own copies. */
+  language: string | null = null,
 ) {
-  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection, language);
   const fingerprint = renderFingerprint(render, art);
   const cached = await db
     .select()
@@ -207,7 +209,9 @@ export async function cachedPageRender(
       ),
     );
   const meta = (a: (typeof cached)[number]) => a.metadata.pageRender as PageRenderMeta;
-  const same = (a: (typeof cached)[number]) => meta(a).width === width && Boolean(meta(a).cutout) === cutout;
+  const sameLanguage = (a: (typeof cached)[number]) => (meta(a).language ?? null) === language;
+  const same = (a: (typeof cached)[number]) =>
+    meta(a).width === width && Boolean(meta(a).cutout) === cutout && sameLanguage(a);
   const hit = cached.find((a) => meta(a).fingerprint === fingerprint && same(a));
   if (hit && (await assetSvc.storage.exists(hit.storageKey))) return { asset: hit, rendered: false };
   const img = await renderPageImage(await withArt(render, art, assetSvc.storage), "png", {
@@ -222,10 +226,19 @@ export async function cachedPageRender(
     width: img.width,
     height: img.height,
     data: img.data,
-    metadata: { pageRender: { pageId, fingerprint, width, ...(cutout ? { cutout } : {}) } satisfies PageRenderMeta },
+    metadata: {
+      pageRender: {
+        pageId,
+        fingerprint,
+        width,
+        ...(cutout ? { cutout } : {}),
+        ...(language ? { language } : {}),
+      } satisfies PageRenderMeta,
+    },
   });
-  // Older content goes; the same content at other widths stays for other screens.
-  for (const old of cached) if (meta(old).fingerprint !== fingerprint || same(old)) await assetSvc.hardDelete(old);
+  // Older content goes; the same content at other widths, and other languages' copies, stay.
+  for (const old of cached)
+    if (sameLanguage(old) && (meta(old).fingerprint !== fingerprint || same(old))) await assetSvc.hardDelete(old);
   return { asset, rendered: true };
 }
 

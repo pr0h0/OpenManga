@@ -35,6 +35,7 @@ import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { promptLabRoutes } from "./routes/prompt-lab.ts";
+import { publicSeriesRoutes, seriesPreviewRoutes } from "./routes/public-series.ts";
 import { referenceRoutes } from "./routes/references.ts";
 import { repurposeRoutes } from "./routes/repurpose.ts";
 import { seriesRoutes } from "./routes/series.ts";
@@ -115,6 +116,8 @@ export function createApp(deps: Deps) {
   // authorization server and discovery documents sit beside it.
   app.route("/", oauthRoutes);
   app.route("/", mcpRoutes);
+  // A series' reader page as crawlers see it (title, description, cover), sending people on to the app.
+  app.route("/", seriesPreviewRoutes);
 
   const cdn = new Hono<AppEnv>();
   cdn.use("*", loadSession);
@@ -145,6 +148,7 @@ export function createApp(deps: Deps) {
   mountApiRoutes(api);
   api.route("/public", publicShareRoutes);
   api.route("/public", publicInviteRoutes);
+  api.route("/public", publicSeriesRoutes);
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
   api.route("/", agentRunRoutes);

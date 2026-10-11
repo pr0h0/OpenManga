@@ -113,6 +113,15 @@ const reader = createRoute({
   component: lazyRouteComponent(() => import("./features/reader/ReaderPage.tsx"), "ReaderPage"),
 });
 
+// Public: a series' reader page (turned on by its owner, unlisted or public).
+const seriesReader = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$slug",
+  staticData: { title: "Series" },
+  validateSearch: z.object({ chapter: z.string().uuid().optional(), language: z.string().max(16).optional() }),
+  component: lazyRouteComponent(() => import("./features/reader/SeriesReaderPage.tsx"), "SeriesReaderPage"),
+});
+
 const shell = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
@@ -422,6 +431,7 @@ const routeTree = rootRoute.addChildren([
   invite,
   mailbox,
   reader,
+  seriesReader,
   shell.addChildren([
     dashboard,
     newProject,

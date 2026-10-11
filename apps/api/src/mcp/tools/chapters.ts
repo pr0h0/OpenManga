@@ -175,7 +175,7 @@ export const chapterTools = [
     name: "manage_chapter",
     title: "Create / edit / delete chapter",
     description:
-      "create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.",
+      "create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan), or publishAt (ISO time, null to unpublish: when the chapter appears on its series' reader page). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.",
     input: z.object({
       action: z.enum(["create", "update", "delete"]),
       projectId: Uuid.optional().describe("For create."),
