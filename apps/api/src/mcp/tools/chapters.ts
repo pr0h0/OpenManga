@@ -49,6 +49,26 @@ export const chapterTools = [
   }),
 
   defineMcpTool({
+    name: "get_chapter_source",
+    title: "Get chapter source trace",
+    description:
+      "Where a chapter's panels, scenes and narration lines come from in its text: the text the plan reads, each panel's character span (start/end), each scene's, the narration lines by panel, and where the chapter sits in the newest story revision. Panels whose text was revised after planning are `changed`, with `was` the text they were planned from: those are what a story revision affects. Traced without AI. Read-only.",
+    input: z.object({ chapterId: Uuid }),
+    output: z.object({ text: z.string(), panels: z.array(Passthrough), changed: z.number() }).passthrough(),
+    scopes: ["chapters:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/chapters/:id/source"],
+    actionKeys: [],
+    handler: async ({ chapterId }, ctx) => ({
+      data: await ctx.invoke<{ text: string; panels: unknown[]; changed: number }>(
+        "GET",
+        `/api/chapters/${chapterId}/source`,
+      ),
+    }),
+  }),
+
+  defineMcpTool({
     name: "get_chapter",
     title: "Get chapter",
     description: `One chapter: memory (summary, opening/closing state, continuity), scenes with their beats, and pages with panel counts. The source excerpt is cut to ${EXCERPT} characters unless includeSource=true. Panels are listed by list_chapter_panels (paginated) and in detail by get_page / get_panel. Read-only.`,

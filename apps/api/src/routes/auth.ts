@@ -25,7 +25,11 @@ const authLimit = rateLimit({ key: "auth", limit: () => 30, windowSec: 60 });
 /** Change-password verifies the current one, so it is a guessing oracle for whoever holds the session. */
 const passwordLimit = rateLimit({ key: "password", limit: () => 10, windowSec: 60, by: "user" });
 /** Creating accounts and sending reset mail are rare for a real person; per address, per hour. */
-const registerLimit = rateLimit({ key: "register", limit: () => 10, windowSec: 3600 });
+const registerLimit = rateLimit({
+  key: "register",
+  limit: (deps) => deps.config.REGISTER_LIMIT_PER_HOUR,
+  windowSec: 3600,
+});
 const resetMailLimit = rateLimit({ key: "reset-mail", limit: () => 5, windowSec: 900 });
 
 doc({ method: "GET", path: "/api/auth/config", summary: "Public auth configuration", tag: "auth", auth: false });

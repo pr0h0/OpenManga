@@ -2,7 +2,14 @@ import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes,
 import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
 import { chapterPlanningV7, shotPlanningV4, stripPlanningV3 } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
-import { recordAudit, recordNarrationFingerprint, recordPlanFingerprint, shotVariety } from "@openmanga/services";
+import {
+  chapterTrace,
+  recordAudit,
+  recordNarrationFingerprint,
+  recordPlanFingerprint,
+  shotVariety,
+  traceChapter,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -387,12 +394,42 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
   return c.json({ job }, 202);
 });
 
+doc({
+  method: "GET",
+  path: "/api/chapters/:id/source",
+  summary:
+    "Where the chapter's panels, scenes and narration lines come from in its text: the text the plan reads, each panel's character span (start/end) in it, each scene's (from its panels), the narration lines by panel, and where the chapter sits in the newest story revision. A panel whose text was revised after planning is `changed`, with `was` the text it was planned from. Traced without AI.",
+  tag: "chapters",
+});
+chapterRoutes.get("/chapters/:id/source", async (c) => {
+  const id = uuidParam(c, "id");
+  const p = await entityAccess(c, "chapter", id, "read");
+  const trace = await chapterTrace(c.get("deps").db, id, p.language);
+  if (!trace) throw notFound("Chapter");
+  return c.json(trace);
+});
+
+doc({
+  method: "POST",
+  path: "/api/chapters/:id/source/trace",
+  summary:
+    "Trace the chapter's panels to its current text again (after editing panels' beats or dialogue by hand). Clears `changed`: to keep a plan made from older text, this is what POST /api/chapters/:id/keep { stage: plan } does too.",
+  tag: "chapters",
+});
+chapterRoutes.post("/chapters/:id/source/trace", async (c) => {
+  const id = uuidParam(c, "id");
+  const p = await entityAccess(c, "chapter", id, "write");
+  const { db } = c.get("deps");
+  await traceChapter(db, id);
+  return c.json((await chapterTrace(db, id, p.language))!);
+});
+
 const KeepInput = z.object({ stage: z.enum(["plan", "narration"]) });
 doc({
   method: "POST",
   path: "/api/chapters/:id/keep",
   summary:
-    "Keep a chapter's plan (stage=plan) or narration (stage=narration) as it is although what it was made from changed: records the current source fingerprint, so it is no longer out of date. Re-planning instead is POST /api/chapters/:id/plan { replace: true }, and rewriting narration POST /api/chapters/:id/narration/generate { replace: true }.",
+    "Keep a chapter's plan (stage=plan) or narration (stage=narration) as it is although what it was made from changed: records the current source fingerprint, so it is no longer out of date (keeping a plan also traces its panels to the current text). Re-planning instead is POST /api/chapters/:id/plan { replace: true }, and rewriting narration POST /api/chapters/:id/narration/generate { replace: true }.",
   tag: "chapters",
   body: KeepInput,
 });
@@ -401,7 +438,10 @@ chapterRoutes.post("/chapters/:id/keep", async (c) => {
   const p = await entityAccess(c, "chapter", id, "write");
   const { stage } = await body(c, KeepInput);
   const { db } = c.get("deps");
-  await (stage === "plan" ? recordPlanFingerprint(db, id) : recordNarrationFingerprint(db, id));
+  if (stage === "plan") {
+    await recordPlanFingerprint(db, id);
+    await traceChapter(db, id);
+  } else await recordNarrationFingerprint(db, id);
   await recordAudit(db, {
     userId: user(c).id,
     projectId: p.id,

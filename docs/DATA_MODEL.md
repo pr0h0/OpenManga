@@ -126,7 +126,9 @@ slot).
 - `panels` — normalized `frame` (box in page fractions; optional `points`, a polygon outline of 3–24 points relative to
   the box, for shaped panels: the art is cut to it and the border follows it, while crops, bubbles and video shots
   keep using the box; optional `edge`, the panel's own border style over the project's `settings.edges.panels`), `image_transform` (focal point + scale, the crop shown on the page), `shot_type` and
-  `camera_angle` (free text), `story_beat`, `location_version_id`, `character_version_ids`, `prop_version_ids`,
+  `camera_angle` (free text), `story_beat`, `source_span` (JSON `{start, end, text}`, the part of the chapter text
+  the panel tells, traced without AI when planned; a panel whose `text` is no longer in the chapter was revised under),
+  `location_version_id`, `character_version_ids`, `prop_version_ids`,
   `active_artwork_asset_id`, `status`, approval status, plus four prompt and QA fields:
   `prompt_override` (text, a user-edited prompt), `prompt_draft` (JSON, the sections written by the `page_prompts`
   job), `qa` (JSON, the latest consistency check of the active artwork: verdict, problems, the visual checks

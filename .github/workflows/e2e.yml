@@ -33,6 +33,8 @@ jobs:
       AI_MOCK_ALLOW_IN_PRODUCTION: "true"
       TTS_PROVIDER: fake
       REGISTRATION_ENABLED: "true"
+      # Every spec file signs up its own users, all from the one runner address.
+      REGISTER_LIMIT_PER_HOUR: "200"
       # An administrator for the admin-only screens (the storage policy).
       INITIAL_ADMIN_USERNAME: e2eadmin
       INITIAL_ADMIN_EMAIL: e2eadmin@example.com

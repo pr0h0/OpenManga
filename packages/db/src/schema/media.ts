@@ -208,6 +208,8 @@ export const panels = pgTable(
     video: jsonb("video").$type<ShotVideo>(),
     /** A layout sketch sent with the panel's generation as a reference image (composition and poses only). */
     guide: jsonb("guide").$type<PanelGuide>(),
+    /** The part of the chapter text this panel tells, as traced when it was planned (or traced again). */
+    sourceSpan: jsonb("source_span").$type<{ start: number; end: number; text: string }>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

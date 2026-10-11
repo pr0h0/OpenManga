@@ -1,5 +1,6 @@
 import { CameraAngle, type EdgeStyle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowUp,
@@ -373,6 +374,21 @@ export function PanelTab({
           )}
         </div>
       </div>
+
+      {panel.sourceSpan && (
+        <details className="rounded-lg border border-[var(--border)] p-2">
+          <summary className="cursor-pointer text-xs font-medium">From the story</summary>
+          <p className="muted mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs">{panel.sourceSpan.text}</p>
+          <Link
+            to="/projects/$projectId/chapters/$chapterId"
+            params={{ projectId, chapterId: data.page.chapterId }}
+            hash="source"
+            className="text-xs underline"
+          >
+            See it in the chapter
+          </Link>
+        </details>
+      )}
 
       <div className="flex gap-1">
         {panel.approvalStatus !== "approved" && !locked && (

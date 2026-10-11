@@ -26,6 +26,7 @@ export * from "./strip.ts";
 export * from "./styles.ts";
 export * from "./text.ts";
 export * from "./timing.ts";
+export * from "./trace.ts";
 export * from "./video.ts";
 export * from "./visual-checks.ts";
 export * from "./youtube.ts";
