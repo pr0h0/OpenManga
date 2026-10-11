@@ -1,0 +1,1 @@
+ALTER TABLE "asset_marks" ADD COLUMN "licence" jsonb;

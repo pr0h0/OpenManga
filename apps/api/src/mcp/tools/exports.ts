@@ -1,5 +1,6 @@
 import { and, eq, exportJobs, ne, notInArray } from "@openmanga/db";
 import { VideoEditOp } from "@openmanga/schemas";
+import { type Provenance, provenanceMarkdown } from "@openmanga/services";
 import { z } from "zod";
 import { ExportOptions } from "../../routes/exports.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
@@ -112,6 +113,30 @@ export const exportTools = [
           query,
         }),
       };
+    },
+  }),
+
+  defineMcpTool({
+    name: "get_provenance",
+    title: "Provenance record",
+    description:
+      "Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.",
+    input: z.object({
+      projectId: Uuid,
+      chapterId: Uuid.optional(),
+      format: z.enum(["json", "md"]).default("json"),
+    }),
+    output: Passthrough,
+    scopes: ["exports:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/provenance"],
+    actionKeys: [],
+    handler: async ({ projectId, chapterId, format }, ctx) => {
+      const record = await ctx.invoke<Provenance>("GET", `/api/projects/${projectId}/provenance`, {
+        query: { chapterId },
+      });
+      return { data: format === "md" ? { markdown: provenanceMarkdown(record) } : record };
     },
   }),
 

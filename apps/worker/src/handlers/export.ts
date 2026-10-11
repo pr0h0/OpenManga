@@ -64,10 +64,13 @@ import { extForMime, inkCoverage, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
 import {
+  appBuild,
+  buildProvenance,
   loadRenderPage,
   planVideoShots,
   printChapters,
   printCoverCheck,
+  provenanceMarkdown,
   type RenderPage,
   renderCover,
   renderPageImage,
@@ -100,6 +103,8 @@ type Opts = {
   label?: string;
   /** A platform target (export-targets) whose limits are checked against the files made. */
   target?: string;
+  /** Ship a provenance record (json and md) with the files. */
+  provenance?: boolean;
   social?: { title: string; caption: string };
   still?: { aspect: "1:1" | "4:5"; text: string };
   scale: number;
@@ -176,13 +181,31 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
     // Files built on disk (video, PDF, archives) are stored from the temp dir, so everything happens before it is removed.
     const files = await withTempDir(deps.config.TEMP_ROOT, async (dir) => {
       const files = await buildExport(deps, job, opts, project, progress, dir);
+      // A provenance record of this output, next to it.
+      if (opts.provenance && files.length) {
+        const record = await buildProvenance(
+          deps.db,
+          project.id,
+          { chapterId: opts.chapterId, pageIds: opts.pageIds },
+          appBuild(),
+        );
+        const stem = `${files[0]!.name.replace(/\.[^.]+$/, "")}_provenance`;
+        files.push(
+          {
+            name: `${stem}.json`,
+            data: new TextEncoder().encode(JSON.stringify(record, null, 2)),
+            mime: "application/json",
+          },
+          { name: `${stem}.md`, data: new TextEncoder().encode(provenanceMarkdown(record)), mime: "text/markdown" },
+        );
+      }
       // A platform target's limits against what was actually made (sizes, image heights, length).
       const target = opts.target ? exportTarget(opts.target) : undefined;
       if (target) {
         const sized = await Promise.all(
           files.map(async (f) => ({ ...f, bytes: "data" in f ? f.data.byteLength : Bun.file(f.path).size })),
         );
-        const media = sized.filter((f) => !f.name.endsWith(".txt") && !f.name.endsWith(".srt"));
+        const media = sized.filter((f) => !/\.(txt|srt)$|_provenance\.(json|md)$/.test(f.name));
         const issues = checkExportTarget(target, {
           durationMs: media.find((f) => f.durationMs)?.durationMs,
           files: media.map((f) => ({ name: f.name, bytes: f.bytes })),

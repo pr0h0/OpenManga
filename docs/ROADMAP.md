@@ -79,8 +79,8 @@ Grouped by area, roughly most useful first within each.
 
 - **Cold archives.** Move a finished project's files to cheaper storage (or one package) and bring them back on
   demand; the server-wide and per-project storage policies, per-kind ages and project caps shipped.
-- **Provenance package.** Per output: the app version, story revision, prompt versions, models, references and jobs
-  that made it, plus licence notes for uploaded music, images, fonts and models; Content Credentials (C2PA) later.
+- **Content Credentials.** Sign exports with C2PA manifests built from the provenance record that already ships with
+  them.
 - **Accessibility.** Alt text for panels and pages, accessible EPUB metadata, a full narration transcript, reading
   order checks and lettering contrast and size warnings.
 

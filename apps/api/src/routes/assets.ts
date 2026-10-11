@@ -253,7 +253,12 @@ assetRoutes.get("/assets/:id", requireUser, async (c) => {
       tool: (a.metadata?.tool as string | undefined) ?? null,
     },
     usedBy: [...usedBy].map((u) => ({ kind: u.kind, label: u.label, panelId: u.panel_id })),
-    marks: { tags: marks?.tags ?? [], collections: marks?.collections ?? [], favourite: marks?.favourite ?? false },
+    marks: {
+      tags: marks?.tags ?? [],
+      collections: marks?.collections ?? [],
+      favourite: marks?.favourite ?? false,
+      licence: marks?.licence ?? null,
+    },
   });
 });
 
@@ -448,18 +453,38 @@ const Marks = z.object({
   tags: z.array(Name).max(50).optional(),
   collections: z.array(Name).max(50).optional(),
   favourite: z.boolean().optional(),
+  /** Where the file comes from and on what terms, for provenance records (an upload's licence); null clears it. */
+  licence: z
+    .object({ text: z.string().trim().min(1).max(500), url: z.string().url().max(500).optional() })
+    .nullable()
+    .optional(),
 });
 /** Writes an asset's marks, keeping what is not given. */
 async function setMarks(
   db: AppEnv["Variables"]["deps"]["db"],
   a: { id: string; projectId: string },
-  change: (m: { tags: string[]; collections: string[]; favourite: boolean }) => Partial<z.infer<typeof Marks>>,
+  change: (m: {
+    tags: string[];
+    collections: string[];
+    favourite: boolean;
+    licence: { text: string; url?: string } | null;
+  }) => Partial<z.infer<typeof Marks>>,
 ) {
   const [cur] = await db.select().from(assetMarks).where(eq(assetMarks.assetId, a.id));
-  const base = { tags: cur?.tags ?? [], collections: cur?.collections ?? [], favourite: cur?.favourite ?? false };
+  const base = {
+    tags: cur?.tags ?? [],
+    collections: cur?.collections ?? [],
+    favourite: cur?.favourite ?? false,
+    licence: cur?.licence ?? null,
+  };
   const next = { ...base, ...change(base) };
   const uniq = (x: string[]) => [...new Set(x)];
-  const values = { tags: uniq(next.tags), collections: uniq(next.collections), favourite: next.favourite };
+  const values = {
+    tags: uniq(next.tags ?? []),
+    collections: uniq(next.collections ?? []),
+    favourite: next.favourite ?? false,
+    licence: next.licence ?? null,
+  };
   await db
     .insert(assetMarks)
     .values({ assetId: a.id, projectId: a.projectId, ...values })
@@ -470,7 +495,8 @@ async function setMarks(
 doc({
   method: "PUT",
   path: "/api/assets/:id/marks",
-  summary: "Set an asset's tags, collections or favourite mark (each left out stays as it is).",
+  summary:
+    "Set an asset's tags, collections, favourite mark or licence note (where it comes from and on what terms, shown in provenance records); each left out stays as it is.",
   tag: "assets",
   body: Marks,
 });

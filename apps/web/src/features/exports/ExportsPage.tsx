@@ -151,6 +151,8 @@ export function ExportsPage() {
   const [webtoon, setWebtoon] = useState({ width: 800, gap: 40, split: true, maxChunkHeight: 12000, format: "jpg" });
   const [audio, setAudio] = useState({ format: "mp3", normalize: true });
   const [includeAssets, setIncludeAssets] = useState(true);
+  // A provenance record next to the files: what made them, with which models, references and licences.
+  const [provenance, setProvenance] = useState(false);
   const [language, setLanguage] = useState("");
   const [editionLanguage, setEditionLanguage] = useState("");
   const [video, setVideo] = useState({
@@ -254,6 +256,7 @@ export function ExportsPage() {
         ...(USES_LANGUAGE.has(kind) ? { language: lang } : {}),
         ...(LETTERED.has(kind) && editionLanguage ? { language: editionLanguage } : {}),
         ...(targetKey && exportTarget(targetKey)?.kind === kind ? { target: targetKey } : {}),
+        provenance,
         acknowledgeIssues,
       }),
     {
@@ -938,6 +941,21 @@ export function ExportsPage() {
             <p className="mb-2">The readiness check found problems. The export will include a list of them.</p>
             <ReadinessList issues={notReady ?? []} loading={false} />
           </ConfirmDialog>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={provenance}
+              onChange={(e) => setProvenance(e.target.checked)}
+            />
+            <span>
+              Include a provenance record
+              <span className="muted block text-xs">
+                What made this output: the app version, story revision, each panel's model and prompt version, the
+                references, voices, fonts and licence notes (JSON and a readable page).
+              </span>
+            </span>
+          </label>
           <button
             type="submit"
             className="btn-primary w-full"

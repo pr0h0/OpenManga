@@ -24,9 +24,12 @@ import {
 } from "@openmanga/domain";
 import { ShortsCaptions } from "@openmanga/schemas";
 import {
+  appBuild,
+  buildProvenance,
   issuesForExport,
   printCoverCheck,
   projectReadiness,
+  provenanceMarkdown,
   recordAudit,
   sweepRenderSections,
 } from "@openmanga/services";
@@ -209,6 +212,11 @@ export const ExportOptions = z.object({
    * as `targetCheck`. Check before exporting with GET /api/projects/:projectId/export-targets/:key/check.
    */
   target: z.string().max(40).optional(),
+  /**
+   * Ship a provenance record with the files (`_provenance.json` and `.md`): the app build, story revision, each
+   * panel's job, model and template version, the references, voices, fonts and licence notes behind this output.
+   */
+  provenance: z.boolean().default(false),
   /** Export even though the readiness check found problems (the issues are recorded in the package). */
   acknowledgeIssues: z.boolean().default(false),
 });
@@ -628,4 +636,25 @@ exportRoutes.get("/projects/:projectId/export-targets/:key/check", async (c) => 
     }));
   }
   return c.json({ target: t, facts, issues: checkExportTarget(t, facts) });
+});
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/provenance",
+  summary:
+    "Where an output comes from, for a chapter (?chapterId=) or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences. ?format=md for a page a person reads.",
+  tag: "exports",
+  query: z.object({ chapterId: z.string().uuid().optional(), format: z.enum(["json", "md"]).default("json") }),
+});
+exportRoutes.get("/projects/:projectId/provenance", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const q = query(
+    c,
+    z.object({ chapterId: z.string().uuid().optional(), format: z.enum(["json", "md"]).default("json") }),
+  );
+  if (q.chapterId && (await entityAccess(c, "chapter", q.chapterId, "read")).id !== p.id) throw notFound("Chapter");
+  const record = await buildProvenance(c.get("deps").db, p.id, { chapterId: q.chapterId }, appBuild());
+  if (q.format === "md")
+    return c.body(provenanceMarkdown(record), 200, { "content-type": "text/markdown; charset=utf-8" });
+  return c.json(record);
 });
