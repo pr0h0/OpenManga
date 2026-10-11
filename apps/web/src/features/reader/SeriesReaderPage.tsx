@@ -20,7 +20,7 @@ type Series = {
 type ChapterView = {
   episode: { number: number | null; title: string; readingDirection: string };
   chapter: Chapter;
-  pages: { id: string; order: number; width: number; height: number }[];
+  pages: { id: string; order: number; width: number; height: number; alt?: string }[];
   previous: string | null;
   next: string | null;
 };
@@ -231,7 +231,7 @@ function ChapterReader({
             <img
               key={pg.id}
               src={src(pg.id)}
-              alt={`Page ${pg.order}`}
+              alt={pg.alt || `Page ${pg.order}`}
               loading="lazy"
               width={pg.width}
               height={pg.height}
@@ -246,7 +246,7 @@ function ChapterReader({
             <img
               key={page.id}
               src={src(page.id)}
-              alt={`Page ${page.order}`}
+              alt={page.alt || `Page ${page.order}`}
               className="max-h-full max-w-full object-contain"
             />
             <button

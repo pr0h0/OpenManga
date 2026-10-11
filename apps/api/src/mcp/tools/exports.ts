@@ -1,6 +1,6 @@
 import { and, eq, exportJobs, ne, notInArray } from "@openmanga/db";
 import { VideoEditOp } from "@openmanga/schemas";
-import { type Provenance, provenanceMarkdown } from "@openmanga/services";
+import { narrationTranscript, type Provenance, provenanceMarkdown } from "@openmanga/services";
 import { z } from "zod";
 import { ExportOptions } from "../../routes/exports.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
@@ -113,6 +113,36 @@ export const exportTools = [
           query,
         }),
       };
+    },
+  }),
+
+  defineMcpTool({
+    name: "get_accessibility",
+    title: "Accessibility checks and transcript",
+    description:
+      "check: for a chapter or the project, without AI — how many panels have alt text written by hand (the rest are described from their beat, words and sounds; set one with update_panel altText), panels with nothing to describe them by, comic pages whose panel order differs from where the panels sit (with the order a reader takes), and lettering too faint (WCAG contrast under 4.5) or too small for the format. transcript: the narration as one Markdown text, chapter by chapter, in a language. Read-only.",
+    input: z.object({
+      action: z.enum(["check", "transcript"]),
+      projectId: Uuid,
+      chapterId: Uuid.optional(),
+      language: z.string().min(2).max(16).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["chapters:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/accessibility", "GET /api/projects/:projectId/transcript"],
+    actionKeys: [],
+    handler: async ({ action, projectId, chapterId, language }, ctx) => {
+      if (action === "check")
+        return { data: await ctx.invoke("GET", `/api/projects/${projectId}/accessibility`, { query: { chapterId } }) };
+      // Read through the API first: it checks this connection's access to the project.
+      const { project } = await ctx.invoke<{ project: { language: string } }>("GET", `/api/projects/${projectId}`);
+      const transcript = await narrationTranscript(ctx.deps.db, projectId, {
+        chapterId,
+        language: language ?? project.language,
+      });
+      return { data: { transcript } };
     },
   }),
 

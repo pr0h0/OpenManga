@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Accessibility: every panel has alt text — written by hand on the Panel tab (even when the panel is locked) or made
+  from its story beat, dialogue and sound effects — which EPUBs, reader links and the series reader give each page
+  image; EPUBs declare accessibility metadata. Health → *Accessibility* counts hand-written alt text, flags comic
+  pages whose panel numbers differ from where the panels sit and lettering too faint (WCAG 4.5:1) or too small for
+  the format, and links a full narration transcript. MCP `get_accessibility`; `update_panel` takes `altText`.
+  Migration `0051_panel_alt_text`.
 - Provenance records (Exports → *Include a provenance record*): an export can ship a record of what made it — the app
   version, story revision, each panel's job, provider, model, template version, prompt hash and prompt-lab rules (or
   the upload or tool), the references its cast, places and props draw on, narration voices, lettering fonts with

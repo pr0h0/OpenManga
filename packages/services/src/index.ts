@@ -1,3 +1,4 @@
+export * from "./accessibility.ts";
 export * from "./apply.ts";
 export * from "./assets.ts";
 export * from "./audit.ts";

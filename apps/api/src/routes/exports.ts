@@ -24,9 +24,11 @@ import {
 } from "@openmanga/domain";
 import { ShortsCaptions } from "@openmanga/schemas";
 import {
+  accessibilityReport,
   appBuild,
   buildProvenance,
   issuesForExport,
+  narrationTranscript,
   printCoverCheck,
   projectReadiness,
   provenanceMarkdown,
@@ -657,4 +659,50 @@ exportRoutes.get("/projects/:projectId/provenance", async (c) => {
   if (q.format === "md")
     return c.body(provenanceMarkdown(record), 200, { "content-type": "text/markdown; charset=utf-8" });
   return c.json(record);
+});
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/accessibility",
+  summary:
+    "Accessibility checks for a chapter (?chapterId=) or the project, without AI: how many panels have alt text written by hand (the rest are described from their beat, words and sounds) and which have nothing to describe them by; pages whose panel order differs from where the panels sit (comic pages, with the order a reader would take); and lettering too faint against its bubble (WCAG contrast under 4.5) or too small for the format.",
+  tag: "exports",
+  query: z.object({ chapterId: z.string().uuid().optional() }),
+});
+exportRoutes.get("/projects/:projectId/accessibility", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const q = query(c, z.object({ chapterId: z.string().uuid().optional() }));
+  if (q.chapterId && (await entityAccess(c, "chapter", q.chapterId, "read")).id !== p.id) throw notFound("Chapter");
+  return c.json(await accessibilityReport(c.get("deps").db, p.id, q.chapterId));
+});
+
+const TranscriptQuery = z.object({
+  chapterId: z.string().uuid().optional(),
+  language: z.string().trim().min(2).max(16).optional(),
+  download: z.enum(["0", "1"]).default("0"),
+});
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/transcript",
+  summary:
+    "The narration as one text (Markdown), chapter by chapter, for a chapter or the whole project, in ?language= (default the project's). ?download=1 saves it as a file.",
+  tag: "exports",
+  query: TranscriptQuery,
+});
+exportRoutes.get("/projects/:projectId/transcript", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  const q = query(c, TranscriptQuery);
+  if (q.chapterId && (await entityAccess(c, "chapter", q.chapterId, "read")).id !== p.id) throw notFound("Chapter");
+  const text = await narrationTranscript(c.get("deps").db, p.id, {
+    chapterId: q.chapterId,
+    language: q.language ?? p.language,
+  });
+  return c.body(text, 200, {
+    "content-type": "text/markdown; charset=utf-8",
+    ...(q.download === "1"
+      ? {
+          "content-disposition": `attachment; filename="${p.title.replace(/[^\w.\- ]/g, "_").slice(0, 80)}_transcript.md"`,
+        }
+      : {}),
+  });
 });

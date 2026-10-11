@@ -17,7 +17,7 @@ import {
   shareLinks,
   sql,
 } from "@openmanga/db";
-import { cachedPageRender, recordAudit } from "@openmanga/services";
+import { altTextFor, cachedPageRender, recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -199,6 +199,10 @@ publicShareRoutes.get("/shares/:token", async (c) => {
           )
           .orderBy(asc(panels.order))
       : [];
+  const alts = await altTextFor(
+    db,
+    pgs.map((pg) => pg.id),
+  );
   return c.json({
     allowComments: s.allowComments,
     project: {
@@ -216,6 +220,8 @@ publicShareRoutes.get("/shares/:token", async (c) => {
         .filter((pg) => pg.chapterId === ch.id)
         .map((pg) => ({
           ...pg,
+          /** What the page shows, for screen readers: its panels' alt text in reading order. */
+          alt: alts.get(pg.id)?.alt ?? "",
           panels: pns.filter((pn) => pn.pageId === pg.id).map(({ id, order }) => ({ id, order })),
         })),
     })),

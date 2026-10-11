@@ -13,7 +13,7 @@ import {
   projects,
   series,
 } from "@openmanga/db";
-import { cachedPageRender } from "@openmanga/services";
+import { altTextFor, cachedPageRender } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -194,12 +194,16 @@ publicSeriesRoutes.get("/series/:slug/chapters/:chapterId", async (c) => {
     .from(pages)
     .where(eq(pages.chapterId, chapter.id))
     .orderBy(asc(pages.order));
+  const alts = await altTextFor(
+    c.get("deps").db,
+    pgs.map((pg) => pg.id),
+  );
   const readable = episodes.flatMap((e) => e.chapters.filter((ch) => ch.available).map((ch) => ch.id));
   const at = readable.indexOf(chapter.id);
   return c.json({
     episode: { number: episode.number, title: episode.title, readingDirection: episode.readingDirection },
     chapter,
-    pages: pgs,
+    pages: pgs.map((pg) => ({ ...pg, alt: alts.get(pg.id)?.alt ?? "" })),
     previous: readable[at - 1] ?? null,
     next: readable[at + 1] ?? null,
   });

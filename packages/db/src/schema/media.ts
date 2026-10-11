@@ -268,6 +268,8 @@ export const panels = pgTable(
     guide: jsonb("guide").$type<PanelGuide>(),
     /** Comic effects drawn over the art in every render (speed lines, screentone, a flashback tint…). */
     effects: jsonb("effects").$type<PanelEffect[]>(),
+    /** What the panel shows, for readers who cannot see it; null: made from its story beat, dialogue and sounds. */
+    altText: text("alt_text"),
     /** The part of the chapter text this panel tells, as traced when it was planned (or traced again). */
     sourceSpan: jsonb("source_span").$type<{ start: number; end: number; text: string }>(),
     createdAt: createdAt(),
