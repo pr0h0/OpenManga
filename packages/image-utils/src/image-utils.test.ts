@@ -3,17 +3,23 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import {
   chooseImageDimensions,
+  cleanSketch,
   computeCrop,
   createPromptReference,
   cropRegion,
+  extendCanvas,
   fitInside,
+  fullMask,
   gridCell,
+  lineArt,
+  paletteTransfer,
   probeImage,
   type ReferenceParams,
   referenceCacheKey,
   sanitizeUpload,
   sniffImageMime,
   toEditMask,
+  upscale,
 } from "./index.ts";
 
 const png = async (w: number, h: number) =>
@@ -168,5 +174,71 @@ describe("coverage grid", () => {
       .toBuffer();
     const cell = await cropRegion(new Uint8Array(img), gridCell(900, 600, 5));
     expect([cell.width, cell.height, cell.mime]).toEqual([282, 188, "image/png"]);
+  });
+});
+
+describe("image tools", () => {
+  const solid = (w: number, h: number, c: string) =>
+    sharp({ create: { width: w, height: h, channels: 3, background: c } })
+      .png()
+      .toBuffer()
+      .then((b) => new Uint8Array(b));
+  const buf = (u: Uint8Array) => Buffer.from(u);
+  const pixel = async (d: Uint8Array, x: number, y: number) => {
+    const { data, info } = await sharp(d)
+      .toColourspace("srgb")
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const i = (y * info.width + x) * info.channels;
+    return [data[i]!, data[i + 1]!, data[i + 2]!];
+  };
+
+  test("upscale doubles, capped, and refuses when there is no room", async () => {
+    const up = await upscale(await solid(300, 200, "#336699"));
+    expect([up.width, up.height]).toEqual([600, 400]);
+    expect((await upscale(await solid(3000, 1000, "#000"), 2, 4096)).width).toBe(4096);
+    await expect(upscale(await solid(4096, 10, "#000"))).rejects.toThrow("largest");
+  });
+
+  test("line art and a cleaned sketch are black on white", async () => {
+    const sq = await sharp({ create: { width: 200, height: 200, channels: 3, background: "#d0d0d0" } })
+      .composite([{ input: buf(await solid(80, 80, "#202020")), left: 60, top: 60 }])
+      .png()
+      .toBuffer();
+    const lines = await lineArt(new Uint8Array(sq));
+    expect(await pixel(lines.data, 10, 10)).toEqual([255, 255, 255]);
+    // A line along the square's edge (on the light side of it).
+    const across = await Promise.all([58, 59, 60, 61].map((x) => pixel(lines.data, x, 100)));
+    expect(Math.min(...across.map((p) => p[0]!))).toBe(0);
+    expect(await pixel(lines.data, 100, 100)).toEqual([255, 255, 255]);
+    const clean = await cleanSketch(new Uint8Array(sq));
+    expect(await pixel(clean.data, 10, 10)).toEqual([255, 255, 255]);
+    expect(await pixel(clean.data, 100, 100)).toEqual([0, 0, 0]);
+  });
+
+  test("palette transfer moves the colours towards the other image's", async () => {
+    const grey = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#808080" } })
+      .composite([{ input: buf(await solid(32, 64, "#c0c0c0")), left: 32, top: 0 }])
+      .png()
+      .toBuffer();
+    const warm = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c04020" } })
+      .composite([{ input: buf(await solid(32, 64, "#f0a040")), left: 32, top: 0 }])
+      .png()
+      .toBuffer();
+    const out = await paletteTransfer(new Uint8Array(grey), new Uint8Array(warm));
+    const [r, , b] = await pixel(out.data, 48, 32);
+    expect(r!).toBeGreaterThan(b! + 40);
+    expect([out.width, out.height]).toEqual([64, 64]);
+  });
+
+  test("an extended canvas and its mask: the new area painted, the picture kept", async () => {
+    const { canvas, mask } = await extendCanvas(await solid(160, 90, "#ff0000"), 9 / 16);
+    expect([canvas.width, canvas.height]).toEqual([160, 284]);
+    expect(await pixel(mask.data, 80, 5)).toEqual([255, 255, 255]);
+    expect(await pixel(mask.data, 80, 142)).toEqual([0, 0, 0]);
+    expect(await pixel(canvas.data, 80, 142)).toEqual([255, 0, 0]);
+    const full = await fullMask(10, 10);
+    expect(await pixel(full.data, 5, 5)).toEqual([255, 255, 255]);
   });
 });

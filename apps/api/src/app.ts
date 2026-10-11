@@ -22,6 +22,7 @@ import { coverageRoutes } from "./routes/coverage.ts";
 import { expertRoutes } from "./routes/experts.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
+import { imageToolRoutes } from "./routes/image-tools.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { layoutRoutes } from "./routes/layouts.ts";
 import { locationStateRoutes } from "./routes/location-states.ts";
@@ -87,6 +88,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     timelineRoutes,
     coverageRoutes,
     boardRoutes,
+    imageToolRoutes,
     locationStateRoutes,
   ])
     api.route("/", r);

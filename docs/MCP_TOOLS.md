@@ -23,7 +23,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
-| `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
+| `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `panel_image_tools`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
 | `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
@@ -108,6 +108,7 @@ requests) need no scope.
 | [`prepare_page_prompts`](#prepare_page_prompts) | spend | `panels:write` `generations:run` |
 | [`generate_panel`](#generate_panel) | spend | `generations:run` |
 | [`coverage_sheet`](#coverage_sheet) | spend | `generations:run` |
+| [`panel_image_tools`](#panel_image_tools) | spend | `panels:write` |
 | [`manage_panel_artwork`](#manage_panel_artwork) | delete | `panels:read` `panels:write` |
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
@@ -8653,6 +8654,127 @@ A panel's moment from nine camera setups in one image (3x3: 1 wide, 2 full, 3 me
   },
   "required": [
     "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### panel_image_tools
+
+Image tools on a panel's active artwork; each makes a new artwork version, made active (the old one stays: manage_panel_artwork). Without AI, at once: upscale (2x), lineart (black lines on white), palette (paletteAssetId: take another project image's colours; strength 0.1-1). As masked edits (a panel_edit job: spends image credits, may need approval; poll get_job): repair (faces, hands, details), relight (light: e.g. "warm sunset from the left"), background (plain white), colorize, expression (character, expression), outpaint (aspect 9:16|16:9|1:1|4:5|2:3: widened instead of cropped). guide_clean / guide_lineart tidy the panel's layout guide instead (no AI).
+
+- **Scopes:** `panels:write` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `panel.tool`, `panel.tool.ai`
+- **Wraps:** `POST /api/panels/:id/tools`, `POST /api/panels/:id/guide/tools`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "panelId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "upscale",
+        "lineart",
+        "palette",
+        "repair",
+        "relight",
+        "background",
+        "colorize",
+        "expression",
+        "outpaint",
+        "guide_clean",
+        "guide_lineart"
+      ]
+    },
+    "paletteAssetId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "strength": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 1
+    },
+    "light": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "character": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "expression": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "aspect": {
+      "type": "string",
+      "enum": [
+        "9:16",
+        "16:9",
+        "1:1",
+        "4:5",
+        "2:3"
+      ]
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "panelId",
+    "tool"
   ]
 }
 ```

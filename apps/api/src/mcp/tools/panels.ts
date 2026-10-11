@@ -487,6 +487,71 @@ export const panelTools = [
   }),
 
   defineMcpTool({
+    name: "panel_image_tools",
+    title: "Panel image tools",
+    description:
+      "Image tools on a panel's active artwork; each makes a new artwork version, made active (the old one stays: manage_panel_artwork). Without AI, at once: upscale (2x), lineart (black lines on white), palette (paletteAssetId: take another project image's colours; strength 0.1-1). As masked edits (a panel_edit job: spends image credits, may need approval; poll get_job): repair (faces, hands, details), relight (light: e.g. \"warm sunset from the left\"), background (plain white), colorize, expression (character, expression), outpaint (aspect 9:16|16:9|1:1|4:5|2:3: widened instead of cropped). guide_clean / guide_lineart tidy the panel's layout guide instead (no AI).",
+    input: z.object({
+      panelId: Uuid,
+      tool: z.enum([
+        "upscale",
+        "lineart",
+        "palette",
+        "repair",
+        "relight",
+        "background",
+        "colorize",
+        "expression",
+        "outpaint",
+        "guide_clean",
+        "guide_lineart",
+      ]),
+      paletteAssetId: Uuid.optional(),
+      strength: z.number().min(0.1).max(1).optional(),
+      light: z.string().max(300).optional(),
+      character: z.string().max(120).optional(),
+      expression: z.string().max(200).optional(),
+      aspect: z.enum(["9:16", "16:9", "1:1", "4:5", "2:3"]).optional(),
+      ai: ImageAiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["panels:write"],
+    scopesFor: (a) =>
+      ["repair", "relight", "background", "colorize", "expression", "outpaint"].includes(a.tool)
+        ? ["panels:write", "generations:run"]
+        : ["panels:write"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/panels/:id/tools", "POST /api/panels/:id/guide/tools"],
+    actionKeys: ["panel.tool", "panel.tool.ai"],
+    classify: async (a, ctx) => {
+      const ai = ["repair", "relight", "background", "colorize", "expression", "outpaint"].includes(a.tool);
+      return cls(
+        ai ? "spend" : "write",
+        ai ? "panel.tool.ai" : "panel.tool",
+        await projectOf(ctx, "panel", a.panelId),
+        ai ? `Run ${a.tool} on a panel's artwork; spends image-provider credits` : `Run ${a.tool} on a panel`,
+        { target: await stamp(ctx, panels, a.panelId, ["approvalStatus", "updatedAt"]) },
+      );
+    },
+    handler: async ({ panelId, tool, ai, idempotencyKey: _k, ...rest }, ctx) => {
+      if (tool === "guide_clean" || tool === "guide_lineart")
+        return {
+          data: await ctx.invoke("POST", `/api/panels/${panelId}/guide/tools`, {
+            body: { tool: tool === "guide_clean" ? "clean" : "lineart" },
+          }),
+        };
+      const needsAi = ["repair", "relight", "background", "colorize", "expression", "outpaint"].includes(tool);
+      return {
+        data: await ctx.invoke("POST", `/api/panels/${panelId}/tools`, {
+          body: { tool, ...rest, ...(needsAi ? { ai: await restAi(ctx, ai) } : {}) },
+        }),
+      };
+    },
+  }),
+
+  defineMcpTool({
     name: "manage_panel_artwork",
     title: "Panel artwork versions",
     description:

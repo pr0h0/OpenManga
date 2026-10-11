@@ -39,6 +39,7 @@ import { CoverageSheet } from "./CoverageSheet.tsx";
 import { DescribePose } from "./DescribePose.tsx";
 import { Directing } from "./Directing.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
+import { ImageTools } from "./ImageTools.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
 import { useEditor } from "./store.ts";
 
@@ -731,6 +732,14 @@ export function PanelTab({
         </button>
       </fieldset>
 
+      <ImageTools
+        panelId={panel.id}
+        cast={data.cast.filter((c) => attached.some((a) => a.characterId === c.id)).map((c) => c.name)}
+        hasArt={Boolean(panel.activeArtworkAssetId)}
+        locked={locked}
+        invalidate={inv}
+      />
+
       <CoverageSheet panelId={panel.id} pageId={data.page.id} locked={locked} />
 
       <LayoutGuide
@@ -814,6 +823,10 @@ function LayoutGuide({
   const [uploading, setUploading] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const g = panel.guide;
+  const guideTool = useAction((tool: "clean" | "lineart") => post(`/panels/${panel.id}/guide/tools`, { tool }), {
+    invalidate,
+    success: "Layout guide tidied",
+  });
   const setGuide = useAction((guide: PanelGuide | null) => patch(`/panels/${panel.id}`, { guide }), {
     invalidate,
     success: "Layout guide saved",
@@ -879,6 +892,28 @@ function LayoutGuide({
           >
             <PencilLine className="size-3.5" /> {g ? "Edit drawing" : "Draw guide"}
           </button>
+          {g && (
+            <>
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                disabled={uploading || locked || guideTool.isPending}
+                title="Grey paper and smudges to white, strokes to solid black"
+                onClick={() => guideTool.mutate("clean")}
+              >
+                Clean up
+              </button>
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                disabled={uploading || locked || guideTool.isPending}
+                title="Keep only the lines of the picture"
+                onClick={() => guideTool.mutate("lineart")}
+              >
+                Line art
+              </button>
+            </>
+          )}
           <BoardGuidePicker
             panelId={panel.id}
             strength={g?.strength ?? "loose"}
