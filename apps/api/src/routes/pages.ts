@@ -56,6 +56,7 @@ import {
   EdgeStyle,
   Frame,
   ImageTransform,
+  PanelEffects,
   PanelGuide,
   PanelSeam,
   PanelSpec,
@@ -662,6 +663,8 @@ async function artworkVersions(db: Database, panelId: string, projectId: string)
 
 export const PatchPanel = z.object({
   frame: Frame.optional(),
+  /** Comic effects over the art; null or [] removes them. */
+  effects: PanelEffects.nullable().optional(),
   imageTransform: ImageTransform.optional(),
   shotType: ShotType.optional(),
   cameraAngle: CameraAngle.nullable().optional(),

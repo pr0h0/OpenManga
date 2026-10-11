@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { probeImage, sharp } from "@openmanga/image-utils";
+import { probeImage, renderPanelArt, sharp } from "@openmanga/image-utils";
 import { Bubble, SfxStyle } from "@openmanga/schemas";
 import {
   chunkBlocks,
@@ -7,6 +7,7 @@ import {
   renderCover,
   renderPageImage,
   renderPageSvg,
+  renderPanelWithEffects,
   renderWebtoonBlocks,
   stackVertical,
 } from "./compose.ts";
@@ -217,5 +218,41 @@ describe("decorative edges", () => {
     expect(await pixel(paper.data, 50, 1)).toEqual([255, 255, 255, 255]);
     // The middle of the page is untouched either way.
     expect((await pixel(cut.data, 200, 200))[3]).toBe(255);
+  });
+});
+
+describe("comic effects", () => {
+  test("drawn over the art: lines darken it, a flashback greys it, none leaves it untouched", async () => {
+    const blue = new Uint8Array(
+      await sharp({ create: { width: 400, height: 300, channels: 3, background: "#3070d0" } })
+        .png()
+        .toBuffer(),
+    );
+    const t = { focalX: 0.5, focalY: 0.5, scale: 1 };
+    const plain = await renderPanelArt(blue, 200, 150, t);
+    expect(await renderPanelWithEffects(blue, 200, 150, t, [], "p")).toEqual(plain);
+    const mean = async (png: Uint8Array) => (await sharp(png).stats()).channels.map((c) => c.mean);
+    const [r0, , b0] = await mean(plain);
+    const lines = await renderPanelWithEffects(
+      blue,
+      200,
+      150,
+      t,
+      [{ type: "speed", x: 0.5, y: 0.5, angle: 0, density: 1, strength: 1, size: 0.35, color: "#000000" }],
+      "p",
+    );
+    expect((await mean(lines))[2]!).toBeLessThan(b0! - 5);
+    const past = await renderPanelWithEffects(
+      blue,
+      200,
+      150,
+      t,
+      [{ type: "flashback", x: 0.5, y: 0.5, angle: 0, density: 0.5, strength: 0.8, size: 0.35, color: "#000000" }],
+      "p",
+    );
+    const [r1, , b1] = await mean(past);
+    // Blue no longer wins: the tint is warm.
+    expect(r1!).toBeGreaterThan(b1!);
+    expect(r0!).toBeLessThan(b0!);
   });
 });

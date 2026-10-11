@@ -7867,7 +7867,7 @@ One panel: fields (shot, camera, story beat, cast/location/prop versions, prompt
 
 ### update_panel
 
-Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
+Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), comic effects drawn over the art without AI (`effects`: up to 6 of speed, focus, impact, tone, rain, snow, dust, glow, flashback, each with optional x, y, angle, density, strength, size, color; null removes them), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
 
 - **Scopes:** `panels:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -7959,6 +7959,80 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
         "y",
         "width",
         "height"
+      ]
+    },
+    "effects": {
+      "anyOf": [
+        {
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "speed",
+                  "focus",
+                  "impact",
+                  "tone",
+                  "rain",
+                  "snow",
+                  "dust",
+                  "glow",
+                  "flashback"
+                ]
+              },
+              "x": {
+                "default": 0.5,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "default": 0.5,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "angle": {
+                "default": 0,
+                "type": "number",
+                "minimum": -360,
+                "maximum": 360
+              },
+              "density": {
+                "default": 0.5,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "strength": {
+                "default": 0.8,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "size": {
+                "default": 0.35,
+                "type": "number",
+                "minimum": 0.05,
+                "maximum": 1
+              },
+              "color": {
+                "default": "#000000",
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "imageTransform": {

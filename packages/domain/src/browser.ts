@@ -6,6 +6,7 @@ export * from "./cost.ts";
 export * from "./cost-plan.ts";
 export * from "./coverage.ts";
 export * from "./edge.ts";
+export * from "./effects.ts";
 export * from "./languages.ts";
 export * from "./layout.ts";
 export * from "./lettering.ts";

@@ -309,6 +309,13 @@
       "when": 1791732820794,
       "tag": "0043_board_items",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791734776714,
+      "tag": "0044_panel_effects",
+      "breakpoints": true
     }
   ]
 }

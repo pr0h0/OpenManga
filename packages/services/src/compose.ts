@@ -17,6 +17,7 @@ import {
   bubbleGeometry,
   edgeDepth,
   edgeOutline,
+  effectLayers,
   featherMask,
   framePolygon,
   layoutBubbleText,
@@ -26,7 +27,7 @@ import {
   stripLayout,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
-import type { Bubble, EdgeStyle, Frame, ImageTransform, PanelSeam, SfxStyle } from "@openmanga/schemas";
+import type { Bubble, EdgeStyle, Frame, ImageTransform, PanelEffect, PanelSeam, SfxStyle } from "@openmanga/schemas";
 import { type AssetStorage, sha256Hex } from "@openmanga/storage";
 import type { AssetService } from "./assets.ts";
 
@@ -38,6 +39,8 @@ export type RenderPanel = {
   art: Uint8Array | null;
   /** Vertical strips: how this panel meets the one before it. Ignored by paged rendering. */
   seam?: PanelSeam | null;
+  /** Comic effects over the art; absent when there are none (so older render fingerprints hold). */
+  effects?: PanelEffect[];
 };
 export type RenderText = { id: string; panelId: string | null; text: string; bubble: Bubble };
 export type RenderSfx = { id: string; panelId: string | null; text: string; style: SfxStyle };
@@ -111,6 +114,7 @@ async function loadRenderRows(db: Database, pageId: string, readingDirection: "l
       imageTransform: p.imageTransform,
       art: null,
       seam: p.seam,
+      ...(p.effects?.length ? { effects: p.effects } : {}),
     })),
     bubbles: [
       ...dialogue.map((d) => ({ id: d.id, panelId: d.panelId, text: d.text, bubble: d.bubble })),
@@ -244,6 +248,31 @@ function sfxSvg(s: RenderSfx, W: number, H: number, fontScale: number) {
 type ArtLayer = { input: Buffer; left: number; top: number };
 
 /** A panel's box in page pixels at a `W`×`H` render, before rounding (the art layer rounds it). */
+/**
+ * A panel's art cut to its box, with its comic effects drawn over it: each effect an SVG layer blended in, and a
+ * flashback greying and warming the art first. Without effects, exactly the plain cut art.
+ */
+export async function renderPanelWithEffects(
+  art: Uint8Array,
+  w: number,
+  h: number,
+  t: ImageTransform,
+  effects: PanelEffect[] | null | undefined,
+  panelId: string,
+) {
+  const png = await renderPanelArt(art, w, h, t);
+  if (!effects?.length) return png;
+  const [rw, rh] = [Math.max(1, Math.round(w)), Math.max(1, Math.round(h))];
+  const layers = effectLayers(effects, rw, rh, panelId);
+  let img = sharp(png);
+  if (layers.some((l) => l.tint)) img = sharp(await img.greyscale().toBuffer()).tint({ r: 196, g: 160, b: 112 });
+  const out = await img
+    .composite(layers.map((l) => ({ input: Buffer.from(l.svg), blend: l.blend, left: 0, top: 0 })))
+    .png()
+    .toBuffer();
+  return new Uint8Array(out);
+}
+
 export function panelBox(frame: Frame, W: number, H: number) {
   return {
     x: frame.x * W,
@@ -387,7 +416,7 @@ export async function renderPageSvg(
       // Same pixel box the SVG <image> would occupy (rounded size at the rounded origin).
       const [rw, rh] = [Math.round(w), Math.round(h)];
       const png = await maskToOutline(
-        await renderPanelArt(panel.art, rw, rh, panel.imageTransform),
+        await renderPanelWithEffects(panel.art, rw, rh, panel.imageTransform, panel.effects, panel.id),
         artOutline(panel, W, H, p.edges),
         Math.round(x),
         Math.round(y),
@@ -397,7 +426,7 @@ export async function renderPageSvg(
       layers.push({ input: Buffer.from(png), left: Math.round(x), top: Math.round(y) });
     } else if (panel.art) {
       const png = await maskToOutline(
-        await renderPanelArt(panel.art, w, h, panel.imageTransform),
+        await renderPanelWithEffects(panel.art, w, h, panel.imageTransform, panel.effects, panel.id),
         artOutline(panel, W, H, p.edges),
         x,
         y,

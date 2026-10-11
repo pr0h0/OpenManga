@@ -38,6 +38,7 @@ import { EdgePicker } from "../EdgePicker.tsx";
 import { CoverageSheet } from "./CoverageSheet.tsx";
 import { DescribePose } from "./DescribePose.tsx";
 import { Directing } from "./Directing.tsx";
+import { Effects } from "./Effects.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
 import { ImageTools } from "./ImageTools.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
@@ -731,6 +732,8 @@ export function PanelTab({
           Save panel spec
         </button>
       </fieldset>
+
+      <Effects key={panel.id} panelId={panel.id} value={panel.effects} locked={locked} invalidate={inv} />
 
       <ImageTools
         panelId={panel.id}

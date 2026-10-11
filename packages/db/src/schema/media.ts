@@ -4,6 +4,7 @@ import type {
   Frame,
   ImageTransform,
   NarrationLineVideo,
+  PanelEffect,
   PanelGuide,
   PanelSeam,
   PlannedLettering,
@@ -234,6 +235,8 @@ export const panels = pgTable(
     video: jsonb("video").$type<ShotVideo>(),
     /** A layout sketch sent with the panel's generation as a reference image (composition and poses only). */
     guide: jsonb("guide").$type<PanelGuide>(),
+    /** Comic effects drawn over the art in every render (speed lines, screentone, a flashback tint…). */
+    effects: jsonb("effects").$type<PanelEffect[]>(),
     /** The part of the chapter text this panel tells, as traced when it was planned (or traced again). */
     sourceSpan: jsonb("source_span").$type<{ start: number; end: number; text: string }>(),
     createdAt: createdAt(),
