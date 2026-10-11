@@ -38,8 +38,6 @@ Grouped by area, roughly most useful first within each.
 - **Timeline editor.** Video and audio tracks (shots, titles and overlays; narration, music and ambience, effects)
   with waveforms, zoom, markers, shot lengths set by dragging, reorder, split and duplicate, pan and zoom keyframes,
   title tracks, alternative takes per shot, locked tracks, and rendering a selected range from the cached sections.
-- **Edit the video in words.** "Make chapter 4 faster", "cut every silence over 900 ms", "add a title card before
-  chapter 8": a proposed timeline diff to apply, change or reject, through the same approvals as agents.
 - **Native vertical projects.** Plan and draw a project at 9:16 from the start for Shorts-first stories. Today 9:16 and
   1:1 reframe existing art, which is right for cutting Shorts from a long video but can crop out a second character
   or a prop.

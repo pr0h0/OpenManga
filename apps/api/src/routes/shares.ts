@@ -280,14 +280,22 @@ publicShareRoutes.get("/shares/:token/video-preview", async (c) => {
 doc({
   method: "GET",
   path: "/api/public/shares/:token/video-card/:which.png",
-  summary: "The project's intro or outro video card for a reader link's video preview, at ?height=. No sign-in.",
+  summary:
+    "The project's intro, outro or chapter card (inside the link's scope) for a reader link's video preview, at ?height=. No sign-in.",
   tag: "shares",
   auth: false,
 });
 publicShareRoutes.get("/shares/:token/video-card/:file", async (c) => {
-  const { p } = await openShare(c, c.req.param("token"));
+  const { p, s } = await openShare(c, c.req.param("token"));
   const q = query(c, CardQuery);
-  return videoCardResponse(c.get("deps"), p, c.req.param("file").replace(/\.png$/, ""), q, "public, max-age=300");
+  return videoCardResponse(
+    c.get("deps"),
+    p,
+    c.req.param("file").replace(/\.png$/, ""),
+    q,
+    "public, max-age=300",
+    (id) => !s.chapterId || s.chapterId === id,
+  );
 });
 
 doc({

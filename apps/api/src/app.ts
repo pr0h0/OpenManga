@@ -44,6 +44,7 @@ import { healthRoutes, miscRoutes } from "./routes/system.ts";
 import { timelineRoutes } from "./routes/timeline.ts";
 import { usageRoutes } from "./routes/usage.ts";
 import { videoRoutes } from "./routes/video.ts";
+import { videoEditRoutes } from "./routes/video-edits.ts";
 import { visionRoutes } from "./routes/vision.ts";
 import { worldRoutes } from "./routes/world.ts";
 import { youtubeAccountRoutes, youtubeRoutes } from "./routes/youtube.ts";
@@ -97,6 +98,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     compareRoutes,
     letteringTranslationRoutes,
     promptLabRoutes,
+    videoEditRoutes,
     locationStateRoutes,
   ])
     api.route("/", r);

@@ -48,6 +48,8 @@ export type GenerationKind =
   | "timeline_extract"
   /** Translates a chapter's bubbles and captions into another language, for a translated edition. */
   | "lettering_translate"
+  /** "Edit the video in words": an instruction turned into timeline edits, kept on the job until the user applies them. */
+  | "video_edit"
   /** Compares one chapter with the story bible and its neighbours; findings go to continuity_findings. */
   | "continuity_check"
   /** The timing pass: chosen narration lines rewritten to a word budget, kept on the job until the user applies them. */

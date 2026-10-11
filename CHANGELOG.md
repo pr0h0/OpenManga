@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Edit the video in words (project → *Timing* → *Edit in words*): say what to change — “make chapter 4 faster”,
+  “cut every silence over 900 ms”, “add a title card before chapter 8” — and a text job (`video-edit` v1, paste
+  mode included) proposes timeline edits, each listed with what it would change now: pauses capped or scaled in a
+  chapter or the whole video, each shot's own minimum hold, one shot's motion, fade or whether it plays, intro,
+  outro and chapter title cards, scene-break fades. Tick, change or reject them; applying recomputes each against
+  the project as it is then and writes them together. Nothing is drawn or voiced. MCP `edit_video` (applying waits
+  for the user's approval).
+- Chapter title cards (project settings → Video → *Chapter cards*): a card before a chapter's first shot, drawn over
+  that chapter's first artwork, in the preview and every video render; chapter timestamps point at the card. They
+  follow their chapters into a duplicate and stay out of channel profiles.
 - Prompt lab (project → *Prompt lab*): rewrite the rules of a built-in prompt for one project — chapter planning
   (outline and pages, per format), panel prompts and narration — or add rules and exclusions to every panel image
   prompt. Preview the compiled prompt (or up to three panels' prompts) and the diff against the built-in, save

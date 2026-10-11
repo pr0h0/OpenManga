@@ -24,6 +24,7 @@ import {
   storyAnalysis,
   storyRewrite,
   timelineExtract,
+  videoEdit,
   youtubePackage,
 } from "./handlers/text.ts";
 import { textBatchSubmit } from "./handlers/text-batch.ts";
@@ -57,6 +58,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   bible_extract: bibleExtract,
   timeline_extract: timelineExtract,
   lettering_translate: letteringTranslate,
+  video_edit: videoEdit,
   continuity_check: continuityCheck,
   narration_lint: narrationLint,
   narration_fix: narrationFix,

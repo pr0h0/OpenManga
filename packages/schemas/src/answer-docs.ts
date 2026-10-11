@@ -16,6 +16,7 @@ import {
   SocialCopy,
   StoryCoverageMap,
   StoryRewrite,
+  VideoEditPlan,
   YoutubePackage,
 } from "./planning.ts";
 import { StoryAnalysis } from "./story.ts";
@@ -46,6 +47,7 @@ export const ANSWER_SCHEMAS = {
   BibleExtraction,
   TimelineExtraction,
   LetteringTranslation,
+  VideoEditPlan,
   ContinuityReport,
   AgentPlan,
   AgentStep,
@@ -1034,6 +1036,32 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "The translated text, about as long as the original and within its maxChars.",
       "¡Ya basta, Tomás!",
     ],
+  },
+
+  VideoEditPlan: {
+    "": "Timeline edits for an editor's instruction about the video, shown for review before any is applied.",
+    summary: [
+      "One or two sentences on what the edits do, or why the instruction cannot be done.",
+      "Chapter 4 runs faster: its pauses are capped at 600 ms.",
+    ],
+    ops: "The smallest set of edits that does what the instruction asks. Empty when it cannot be done.",
+    "ops[].op": ["pauses, holds, shot, card or scene_fades.", "pauses"],
+    "ops[].chapter": ["pauses, holds, a chapter card: the chapter number. null = the whole video.", 4],
+    "ops[].maxPauseMs": ["pauses: the longest a pause may be, in ms.", 600],
+    "ops[].pauseScale": ["pauses: multiply every pause by this (0.7 = 30% shorter).", null],
+    "ops[].holdMs": ["holds: each shot's own minimum hold in ms; null puts them back to the export's.", null],
+    "ops[].panel": ["shot: the panel's ref, exactly as in the data.", null],
+    "ops[].disabled": ["shot: true leaves the panel out of the video, false plays it.", null],
+    "ops[].motion": [
+      "shot: the camera move (auto, static, pan-left, pan-right, pan-up, pan-down, push-in, pull-out).",
+      null,
+    ],
+    "ops[].fade": ["shot: auto, on or off.", null],
+    "ops[].card": ["card: intro, outro or chapter.", null],
+    "ops[].title": ["card: its title; null removes the card.", null],
+    "ops[].subtitle": ["card: a line under the title.", null],
+    "ops[].seconds": ["card: how long it holds, 1 to 15.", null],
+    "ops[].on": ["scene_fades: true fades to black at scene breaks.", null],
   },
 
   ContinuityReport: {

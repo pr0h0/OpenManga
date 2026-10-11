@@ -31,6 +31,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [BibleExtraction](#bibleextraction)
 - [TimelineExtraction](#timelineextraction)
 - [LetteringTranslation](#letteringtranslation)
+- [VideoEditPlan](#videoeditplan)
 - [ContinuityReport](#continuityreport)
 - [AgentPlan](#agentplan)
 - [AgentStep](#agentstep)
@@ -3206,6 +3207,140 @@ interface LetteringTranslation {
     {
       "ref": "d1",
       "text": "¡Ya basta, Tomás!"
+    }
+  ]
+}
+```
+
+</details>
+
+## VideoEditPlan
+
+Asked by **Timing → Edit in words** — your instruction about the video as timeline edits, shown as a list to tick, change or reject.
+
+```ts
+/** Timeline edits for an editor's instruction about the video, shown for review before any is applied. */
+interface VideoEditPlan {
+  /**
+   * One or two sentences on what the edits do, or why the instruction cannot be done.
+   * At most 500 characters.
+   * Optional — defaults to "" when left out.
+   * @example "Chapter 4 runs faster: its pauses are capped at 600 ms."
+   */
+  summary?: string;
+  /**
+   * The smallest set of edits that does what the instruction asks. Empty when it cannot be done.
+   * At most 60 items.
+   */
+  ops: {
+    /**
+     * pauses, holds, shot, card or scene_fades.
+     * @example "pauses"
+     */
+    op: "pauses" | "holds" | "shot" | "card" | "scene_fades";
+    /**
+     * pauses, holds, a chapter card: the chapter number. null = the whole video.
+     * Optional — defaults to null when left out.
+     * @example 4
+     */
+    chapter?: number | null;
+    /**
+     * pauses: the longest a pause may be, in ms.
+     * Optional — defaults to null when left out.
+     * @example 600
+     */
+    maxPauseMs?: number | null;
+    /**
+     * pauses: multiply every pause by this (0.7 = 30% shorter).
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    pauseScale?: number | null;
+    /**
+     * holds: each shot's own minimum hold in ms; null puts them back to the export's.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    holdMs?: number | null;
+    /**
+     * shot: the panel's ref, exactly as in the data.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    panel?: string | null;
+    /**
+     * shot: true leaves the panel out of the video, false plays it.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    disabled?: boolean | null;
+    /**
+     * shot: the camera move (auto, static, pan-left, pan-right, pan-up, pan-down, push-in, pull-out).
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    motion?: "auto" | "static" | "pan-left" | "pan-right" | "pan-up" | "pan-down" | "push-in" | "pull-out" | null;
+    /**
+     * shot: auto, on or off.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    fade?: "auto" | "on" | "off" | null;
+    /**
+     * card: intro, outro or chapter.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    card?: "intro" | "outro" | "chapter" | null;
+    /**
+     * card: its title; null removes the card.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    title?: string | null;
+    /**
+     * card: a line under the title.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    subtitle?: string | null;
+    /**
+     * card: how long it holds, 1 to 15.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    seconds?: number | null;
+    /**
+     * scene_fades: true fades to black at scene breaks.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    on?: boolean | null;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "summary": "Chapter 4 runs faster: its pauses are capped at 600 ms.",
+  "ops": [
+    {
+      "op": "pauses",
+      "chapter": 4,
+      "maxPauseMs": 600,
+      "pauseScale": null,
+      "holdMs": null,
+      "panel": null,
+      "disabled": null,
+      "motion": null,
+      "fade": null,
+      "card": null,
+      "title": null,
+      "subtitle": null,
+      "seconds": null,
+      "on": null
     }
   ]
 }
