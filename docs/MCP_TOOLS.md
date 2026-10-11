@@ -4046,11 +4046,10 @@ Add, edit, delete or reorder story timeline events. add: event fields (title req
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
     },
     "event": {
-      "description": "For add (title required) and edit.",
+      "description": "For add (title required) and edit: only the fields given change.",
       "type": "object",
       "properties": {
         "kind": {
-          "default": "event",
           "type": "string",
           "enum": [
             "event",
@@ -4063,17 +4062,14 @@ Add, edit, delete or reorder story timeline events. add: event fields (title req
           "maxLength": 200
         },
         "description": {
-          "default": "",
           "type": "string",
           "maxLength": 1000
         },
         "when": {
-          "default": "",
           "type": "string",
           "maxLength": 120
         },
         "day": {
-          "default": null,
           "anyOf": [
             {
               "type": "number",
@@ -4086,7 +4082,6 @@ Add, edit, delete or reorder story timeline events. add: event fields (title req
           ]
         },
         "chapterId": {
-          "default": null,
           "anyOf": [
             {
               "type": "string",
@@ -4099,7 +4094,6 @@ Add, edit, delete or reorder story timeline events. add: event fields (title req
           ]
         },
         "sceneNumber": {
-          "default": null,
           "anyOf": [
             {
               "type": "integer",
@@ -4112,7 +4106,6 @@ Add, edit, delete or reorder story timeline events. add: event fields (title req
           ]
         },
         "characterIds": {
-          "default": [],
           "maxItems": 30,
           "type": "array",
           "items": {
