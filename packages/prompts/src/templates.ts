@@ -21,6 +21,7 @@ import {
   StoryAnalysis,
   StoryCoverageMap,
   StoryRewrite,
+  TimelineExtraction,
   YoutubePackage,
 } from "@openmanga/schemas";
 import { expertConceptV1, expertOutlineV1, expertPremiseV1, expertYoutubeV1 } from "./expert-actions.ts";
@@ -1142,6 +1143,30 @@ export const bibleExtractV1 = defineTextTemplate<{
   },
 });
 
+/** Proposes the story timeline from the chapters, for the user to review; nothing is saved by the job. */
+export const timelineExtractV1 = defineTextTemplate<{
+  projectData: Record<string, unknown>;
+  chapters: { number: number; title: string; text: string }[];
+}>({
+  name: "timeline-extract",
+  version: 1,
+  description: "Propose the story timeline: events in story-time order with dates, elapsed time and births.",
+  system: [
+    templateHeader("timeline-extract", 1),
+    "You are a continuity editor building the timeline of a story for its comic or narrated video adaptation. Read the chapters and list what happens in the order it happens in the story world.",
+    "ORDER: list events in STORY-TIME order, not in the order the chapters tell them: a flashback goes where it happened, a prologue set years later goes after everything before it. One event per moment that matters for continuity (a meeting, a journey, a fight, a death, a reveal, a time skip); skip small beats.",
+    'TIME: when is how the story names the moment, in its own words ("Spring 1203", "the night of the storm", "three years later"); leave it empty when the story gives nothing. day is a story-day number on one scale for the whole story, so later events have larger numbers and the difference is the days between them: pick any origin (day 0 = the first event is fine), use fractions for hours (0.5 = half a day later), and set it only when the text lets you work it out (stated dates, "two days later", ages); otherwise null. Never guess a day from nothing.',
+    'PEOPLE: characters lists who takes part, by name exactly as in project_data. When the text gives a character\'s age or birth ("Mira, seventeen"), add one event of kind birth for them with the day it implies (day of that moment minus age × 365), title "<name> is born"; only one birth per character.',
+    "TELLING: chapter is the number of the chapter that tells the event, and scene the scene's number within it when the chapter is clearly split into scenes; null for events the story only mentions (a birth, something long before).",
+    "Leave out events already in project_data.existingTimeline. Record only what the text supports; do not invent. Write in the language of the chapters.",
+    DATA_RULE,
+    schemaInstructions("TimelineExtraction", TimelineExtraction),
+  ].join("\n\n"),
+  build(i) {
+    return bibleExtractV1.build.call(this, i);
+  },
+});
+
 /** Finds contradictions between one chapter's production and the story bible or its neighbours; changes nothing. */
 export const continuityCheckV1 = defineTextTemplate<{ projectData: Record<string, unknown> }>({
   name: "continuity-check",
@@ -1330,6 +1355,7 @@ export const TEXT_TEMPLATES = [
   panelPromptsV5,
   narrationV6,
   bibleExtractV1,
+  timelineExtractV1,
   continuityCheckV1,
   narrationLintV1,
   narrationFixV1,

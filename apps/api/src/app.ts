@@ -33,6 +33,7 @@ import { seriesRoutes } from "./routes/series.ts";
 import { publicShareRoutes, shareRoutes } from "./routes/shares.ts";
 import { storyRoutes } from "./routes/stories.ts";
 import { healthRoutes, miscRoutes } from "./routes/system.ts";
+import { timelineRoutes } from "./routes/timeline.ts";
 import { usageRoutes } from "./routes/usage.ts";
 import { videoRoutes } from "./routes/video.ts";
 import { visionRoutes } from "./routes/vision.ts";
@@ -80,6 +81,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     seriesRoutes,
     youtubeRoutes,
     layoutRoutes,
+    timelineRoutes,
   ])
     api.route("/", r);
 }

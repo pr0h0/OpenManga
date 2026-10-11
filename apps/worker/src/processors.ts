@@ -21,6 +21,7 @@ import {
   socialCopy,
   storyAnalysis,
   storyRewrite,
+  timelineExtract,
   youtubePackage,
 } from "./handlers/text.ts";
 import { textBatchSubmit } from "./handlers/text-batch.ts";
@@ -52,6 +53,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
   bible_extract: bibleExtract,
+  timeline_extract: timelineExtract,
   continuity_check: continuityCheck,
   narration_lint: narrationLint,
   narration_fix: narrationFix,

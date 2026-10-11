@@ -184,6 +184,12 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
   `scene_number` (1-based within that chapter; null = its start), `until_chapter_id`, `outfit_id` (one of the
   character's outfits, for an outfit state), `source`, author. A later look, outfit, location or rank replaces the
   earlier one; the other kinds hold until `until_chapter_id`.
+- `timeline_events` — the story timeline (migration `0041_timeline_events`): project, `order` (story-time order,
+  which is not telling order: a flashback sits where it happened), `kind` (`event|birth`), `title`, `description`,
+  `when` (the story's own name for the moment), `day` (a story-day number on one scale, for elapsed time and, with
+  a character's `birth` event, ages), `chapter_id` and `scene_number` (where it is told; bible states find their
+  story time through them), `character_ids`, `source` (`user` or `extracted` from a reviewed `timeline_extract`
+  job), author.
 - `continuity_findings` — a contradiction a `continuity_check` job found (migration `0031_continuity_findings`):
   project, chapter (cascade), the job, `severity` (`high|medium|low`), `message`, `quote` (the offending line or
   beat), `evidence` (what it contradicts), `place` (JSON `{ref, panelId, pageId, narrationLineId, sceneNumber}`:
@@ -208,7 +214,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
   `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`, `bible_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `expert_extract`, `bible_extract`, `timeline_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry

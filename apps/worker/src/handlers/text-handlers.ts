@@ -17,6 +17,7 @@ import {
   pagePrompts,
   storyAnalysis,
   storyRewrite,
+  timelineExtract,
   youtubePackage,
 } from "./text.ts";
 
@@ -32,6 +33,7 @@ export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
   bible_extract: bibleExtract,
+  timeline_extract: timelineExtract,
   continuity_check: continuityCheck,
   narration_lint: narrationLint,
   narration_fix: narrationFix,

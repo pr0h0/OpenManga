@@ -25,6 +25,7 @@ export * from "./shot-variety.ts";
 export * from "./strip.ts";
 export * from "./styles.ts";
 export * from "./text.ts";
+export * from "./timeline.ts";
 export * from "./timing.ts";
 export * from "./trace.ts";
 export * from "./video.ts";

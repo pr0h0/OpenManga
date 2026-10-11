@@ -28,6 +28,7 @@ import {
   storyAnalyses,
   storyRevisions,
   stylePresets,
+  timelineEvents,
 } from "@openmanga/db";
 import {
   bibleIsEmpty,
@@ -59,6 +60,7 @@ import {
   storyRewriteV1,
   stripOutlineV3,
   stripPlanningV3,
+  timelineExtractV1,
   youtubePackageV2,
 } from "@openmanga/prompts";
 import {
@@ -75,6 +77,7 @@ import {
   SocialCopy,
   StoryAnalysis,
   StoryRewrite,
+  TimelineExtraction,
   YoutubePackage,
 } from "@openmanga/schemas";
 import {
@@ -1106,4 +1109,53 @@ export async function bibleExtract(deps: WorkerDeps, job: ProjectJob) {
     32_000,
   );
   return { chapterId, facts: r.data.facts.length, states: r.data.states.length, repaired: r.repaired, data: r.data };
+}
+
+/** Proposes the story timeline from the chapters (one, or all); the person reviews and applies it. */
+export async function timelineExtract(deps: WorkerDeps, job: ProjectJob) {
+  const chapterId = job.input.chapterId ? String(job.input.chapterId) : null;
+  const chs = await deps.db
+    .select()
+    .from(chapters)
+    .where(and(eq(chapters.projectId, job.projectId), chapterId ? eq(chapters.id, chapterId) : undefined))
+    .orderBy(asc(chapters.order));
+  if (!chs.length) throw new InputError(chapterId ? "Chapter no longer exists" : "The project has no chapters yet");
+  const cast = await deps.db
+    .select({ id: characters.id, name: characters.name, role: characters.role })
+    .from(characters)
+    .where(and(eq(characters.projectId, job.projectId), isNull(characters.deletedAt)));
+  const ids = cast.map((c) => c.id);
+  const aliases = ids.length
+    ? await deps.db.select().from(characterAliases).where(inArray(characterAliases.characterId, ids))
+    : [];
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  const existing = await deps.db
+    .select()
+    .from(timelineEvents)
+    .where(eq(timelineEvents.projectId, job.projectId))
+    .orderBy(asc(timelineEvents.order));
+  const texts = await chapterTextsForExtraction(deps, chs, project?.language ?? "en");
+  if (!texts.some((t) => t.trim()))
+    throw new InputError(
+      "These chapters have no text to read yet: no source text or summary, and no narration. Analyse the story or write the narration first.",
+    );
+  const r = await structured(
+    deps,
+    job,
+    timelineExtractV1.build({
+      projectData: {
+        characters: cast.map((c) => ({
+          name: c.name,
+          role: c.role,
+          aliases: aliases.filter((a) => a.characterId === c.id).map((a) => a.alias),
+        })),
+        existingTimeline: existing.map((e) => ({ title: e.title, when: e.when, day: e.day })),
+      },
+      chapters: chs.map((c, i) => ({ number: c.order, title: c.title, text: texts[i] ?? "" })),
+    }),
+    TimelineExtraction,
+    "TimelineExtraction",
+    32_000,
+  );
+  return { chapterId, events: r.data.events.length, repaired: r.repaired, data: r.data };
 }

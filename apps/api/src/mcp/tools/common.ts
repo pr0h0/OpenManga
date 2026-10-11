@@ -19,6 +19,7 @@ import {
   scenes,
   storyAnalyses,
   storyRevisions,
+  timelineEvents,
 } from "@openmanga/db";
 import { z } from "zod";
 import type { Classification, Sensitivity, ToolContext } from "../registry.ts";
@@ -148,6 +149,7 @@ type Kind =
   | "expert_chat"
   | "bible_fact"
   | "character_state"
+  | "timeline_event"
   | "comment";
 
 /**
@@ -162,8 +164,8 @@ export async function projectOf(ctx: ToolContext, kind: Kind, id: string): Promi
     if (!p) throw toolError(404, "not_found", "Comment not found");
     return p;
   }
-  if (kind === "bible_fact" || kind === "character_state") {
-    const t = kind === "bible_fact" ? bibleFacts : characterStates;
+  if (kind === "bible_fact" || kind === "character_state" || kind === "timeline_event") {
+    const t = kind === "bible_fact" ? bibleFacts : kind === "character_state" ? characterStates : timelineEvents;
     const p = await one(db.select({ p: t.projectId }).from(t).where(eq(t.id, id)));
     if (!p) throw toolError(404, "not_found", "Not found");
     return p;

@@ -1,6 +1,7 @@
-import { ProposedFact, ProposedState } from "@openmanga/schemas";
+import { ProposedEvent, ProposedFact, ProposedState } from "@openmanga/schemas";
 import { z } from "zod";
 import { FactPatch, StatePatch } from "../../routes/bible.ts";
+import { EventInput, EventPatch } from "../../routes/timeline.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
 import { toolError } from "../runtime.ts";
 import { AiInput, aiLabel, cls, jobView, links, projectOf, restAi, textSpend, Uuid } from "./common.ts";
@@ -220,6 +221,148 @@ export const bibleTools = [
       ),
     handler: async ({ jobId, facts, states, again }, ctx) => ({
       data: await ctx.invoke("POST", `/api/bible-extractions/${jobId}/apply`, { body: { facts, states, again } }),
+    }),
+  }),
+  defineMcpTool({
+    name: "get_timeline",
+    title: "Get story timeline",
+    description:
+      "The story timeline: events in story-time order (a flashback where it happened), each with when (the story's name for the moment), day (a story-day number), the time since the previous dated event, outOfOrder when its day runs backwards, its characters' ages (from their birth events), and the chapter and scene that tell it. Also the bible's character states placed at the event they start from, and the newest extraction job. Read-only.",
+    input: z.object({ projectId: Uuid }),
+    output: z.object({ events: z.array(Passthrough) }).passthrough(),
+    scopes: ["story:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/projects/:projectId/timeline"],
+    actionKeys: [],
+    handler: async ({ projectId }, ctx) => ({
+      data: await ctx.invoke<{ events: unknown[] }>("GET", `/api/projects/${projectId}/timeline`),
+      links: { timeline: ctx.deps.urls.appUrl(`projects/${projectId}/timeline`) },
+    }),
+  }),
+
+  defineMcpTool({
+    name: "manage_timeline",
+    title: "Edit story timeline",
+    description:
+      "Add, edit, delete or reorder story timeline events. add: event fields (title required; day a story-day number for elapsed time and ages; kind birth with one character gives their age; chapterId and sceneNumber for where it is told; after: the event to insert after, null for the start, omitted for the end). edit: id and the fields to change. delete: id. reorder: ids, every event once, in story-time order. Not asynchronous.",
+    input: z.object({
+      action: z.enum(["add", "edit", "delete", "reorder"]),
+      projectId: Uuid.optional().describe("For add and reorder."),
+      id: Uuid.optional().describe("The event, for edit and delete."),
+      event: EventInput.partial().optional().describe("For add (title required) and edit."),
+      ids: z.array(Uuid).max(2000).optional().describe("For reorder."),
+    }),
+    output: Passthrough,
+    scopes: ["story:write"],
+    sensitivity: "delete",
+    idempotent: false,
+    routes: [
+      "POST /api/projects/:projectId/timeline/events",
+      "PATCH /api/timeline-events/:id",
+      "DELETE /api/timeline-events/:id",
+      "POST /api/projects/:projectId/timeline/order",
+    ],
+    actionKeys: ["timeline.event.create", "timeline.event.update", "timeline.event.delete", "timeline.order"],
+    classify: async ({ action, projectId, id }, ctx) => {
+      const project =
+        action === "add" || action === "reorder" ? (projectId ?? "") : await projectOf(ctx, "timeline_event", id ?? "");
+      const key =
+        action === "add"
+          ? "timeline.event.create"
+          : action === "edit"
+            ? "timeline.event.update"
+            : action === "delete"
+              ? "timeline.event.delete"
+              : "timeline.order";
+      return cls(action === "delete" ? "delete" : "write", key, project, `${action} story timeline event(s)`);
+    },
+    handler: async ({ action, projectId, id, event, ids }, ctx) => {
+      const need = <T>(v: T | undefined, name: string) => {
+        if (v === undefined) throw toolError(400, "bad_request", `${name} is required for ${action}`);
+        return v;
+      };
+      switch (action) {
+        case "add":
+          return {
+            data: await ctx.invoke("POST", `/api/projects/${need(projectId, "projectId")}/timeline/events`, {
+              body: event ?? {},
+            }),
+          };
+        case "edit":
+          return {
+            data: await ctx.invoke("PATCH", `/api/timeline-events/${need(id, "id")}`, {
+              body: EventPatch.parse(event ?? {}),
+            }),
+          };
+        case "delete":
+          return { data: await ctx.invoke("DELETE", `/api/timeline-events/${need(id, "id")}`) };
+        default:
+          return {
+            data: await ctx.invoke("POST", `/api/projects/${need(projectId, "projectId")}/timeline/order`, {
+              body: { ids: need(ids, "ids") },
+            }),
+          };
+      }
+    },
+  }),
+
+  defineMcpTool({
+    name: "run_timeline_extraction",
+    title: "Extract timeline from story",
+    description:
+      "Queue a text job that proposes the story timeline from the project's chapters (or one chapter): events in story-time order with when, day, births and the chapters that tell them. Saves nothing: review the proposal in get_job's result.data (or get_timeline's extraction), then apply_timeline_extraction. Asynchronous: returns a job; poll get_job. ai.manual=true (no provider, no spending) parks it for a TimelineExtraction answer via get_manual_prompt / submit_manual_answer; a provider run spends the user's credits (may need approval).",
+    input: z.object({
+      projectId: Uuid,
+      chapterId: Uuid.optional().describe("Only this chapter; omitted for all chapters."),
+      ai: AiInput,
+      batch: z.boolean().optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: z.object({ job: Passthrough }).passthrough(),
+    scopes: ["story:write", "generations:run"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/projects/:projectId/timeline/extract"],
+    actionKeys: ["timeline.extract"],
+    classify: async ({ projectId, ai }) =>
+      cls(textSpend(ai, "write"), "timeline.extract", projectId, `Extract the story timeline ${aiLabel(ai)}`),
+    handler: async ({ projectId, chapterId, ai, batch }, ctx) => {
+      const r = await ctx.invoke<{ job: Record<string, unknown> & { id: string } }>(
+        "POST",
+        `/api/projects/${projectId}/timeline/extract`,
+        { body: { chapterId, ai: await restAi(ctx, ai), batch } },
+      );
+      return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(projectId, r.job.id) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "apply_timeline_extraction",
+    title: "Apply timeline extraction",
+    description:
+      "Save a completed timeline extraction's events into the timeline: all of them, or the reviewed list you pass (TimelineExtraction events: characters by name, chapters by number). Dated events are merged in by day. Characters or chapters that match nothing are listed in skipped. Applying twice is refused (409 already_applied) unless again=true. Not asynchronous.",
+    input: z.object({
+      jobId: Uuid,
+      events: z.array(ProposedEvent).max(300).optional(),
+      again: z.boolean().optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["story:write"],
+    sensitivity: "write",
+    idempotent: false,
+    routes: ["POST /api/timeline-extractions/:id/apply"],
+    actionKeys: ["timeline.extraction.apply"],
+    classify: async ({ jobId }, ctx) =>
+      cls(
+        "write",
+        "timeline.extraction.apply",
+        await projectOf(ctx, "generation", jobId),
+        "Save the extracted events to the story timeline",
+      ),
+    handler: async ({ jobId, events, again }, ctx) => ({
+      data: await ctx.invoke("POST", `/api/timeline-extractions/${jobId}/apply`, { body: { events, again } }),
     }),
   }),
   ...continuityTools,

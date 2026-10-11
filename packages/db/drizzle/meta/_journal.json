@@ -288,6 +288,13 @@
       "when": 1791727305086,
       "tag": "0040_panel_source_span",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791729485367,
+      "tag": "0041_timeline_events",
+      "breakpoints": true
     }
   ]
 }

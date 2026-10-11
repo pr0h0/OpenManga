@@ -21,6 +21,7 @@
 | Story coverage | `story_coverage` / text-ai | `story-coverage` v1 | one `StoryCoverageMap` per part of the source; the findings and shares are computed from them and kept in the job result |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v2 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
 | Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
+| Story timeline extraction | `timeline_extract` / text-ai | `timeline-extract` v1 | `TimelineExtraction` (proposed events in story-time order, with story days, births and the chapters that tell them) in the job result; saved only when the user applies the reviewed list (see Story timeline) |
 | Continuity check | `continuity_check` / text-ai | `continuity-check` v1 | `ContinuityReport` → `continuity_findings` (the chapter's open findings replaced) and each fixed rule's verdict on the job result |
 | Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
 
@@ -225,6 +226,20 @@ The page shows the proposal to tick through; `POST /api/bible-extractions/:id/ap
 the whole proposal), matching characters by name or alias (any case) and chapters by number, and skipping (and
 listing) entries that match neither. It is claimed on the job in the same transaction, so a second apply is
 refused with 409 `already_applied` unless `again: true`. **Discard** applies an empty list.
+
+## Story timeline
+
+The **Timeline** page (`GET /api/projects/:projectId/timeline`) lists the story's events in story-time order, not
+telling order: a flashback sits where it happened. Each event has `when` (the story's words for the moment) and an
+optional `day`, a story-day number on one scale, from which the page shows the time since the previous dated event,
+flags a day that runs backwards, and gives each character's age at the event from their `birth` event. An event is
+tied to the chapter (and scene number) that tells it, and the bible's character states, held from a chapter and
+scene, are shown at the event they start from (`placeOnTimeline` in `packages/domain`). Events are added, edited,
+deleted and reordered by hand, or **Extract from story** (`POST /api/projects/:projectId/timeline/extract`, one
+chapter or all, paste mode included) queues a `timeline_extract` job: `timeline-extract` v1 reads the chapters'
+text and the cast and returns `TimelineExtraction`. `POST /api/timeline-extractions/:id/apply` saves the reviewed
+list: characters by name or alias, chapters by number, a dated event placed before the first existing event with a
+later day; once only unless `again: true`. The timeline is not sent to planning or narration.
 
 ## Continuity check
 

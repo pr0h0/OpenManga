@@ -391,6 +391,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "narration-lint": "narration-lint-v1",
     "narration-fix": "narration-fix-v1",
     "bible-extract": "bible-extract-v1",
+    "timeline-extract": "timeline-extract-v1",
     "continuity-check": "continuity-check-v1",
     "youtube-package": "youtube-package-v1",
     "story-coverage": "story-coverage-v1",
@@ -591,6 +592,30 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
               { character: who, kind: "item", text: "Carries the brass key.", fromChapter: last },
             ]
           : [],
+      };
+    }
+    case "timeline-extract-v1": {
+      // The first character's birth, then one dated event per chapter two days apart, each told by its chapter:
+      // enough for a test to see order, elapsed time, an age and chapter numbers come back.
+      const d = (data[0] ?? {}) as { characters?: { name: string }[] };
+      const numbers = [...story.matchAll(/^=== Chapter (\d+): (.*) ===$/gm)].map((m) => ({
+        n: Number(m[1]),
+        t: m[2]!,
+      }));
+      const who = d.characters?.[0]?.name;
+      return {
+        events: [
+          ...(who ? [{ kind: "birth", title: `${who} is born`, when: "", day: -17 * 365.25, characters: [who] }] : []),
+          ...numbers.map((c, i) => ({
+            kind: "event",
+            title: c.t || `Chapter ${c.n}`,
+            description: "",
+            when: `Day ${i * 2 + 1}`,
+            day: i * 2,
+            chapter: c.n,
+            characters: who ? [who] : [],
+          })),
+        ],
       };
     }
     case "continuity-check-v1": {
