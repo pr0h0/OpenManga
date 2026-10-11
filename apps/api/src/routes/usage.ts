@@ -33,6 +33,7 @@ const OPERATION_LABELS: Record<string, string> = {
   expert_extract: "Expert actions",
   bible_extract: "Story bible",
   timeline_extract: "Story timeline",
+  lettering_translate: "Lettering translation",
   continuity_check: "Continuity checks",
 };
 

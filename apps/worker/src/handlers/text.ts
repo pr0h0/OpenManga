@@ -47,6 +47,7 @@ import {
   chapterPlanningV7,
   imageDescribeV1,
   jsonRepairV1,
+  letteringTranslateV1,
   narrationRetimeV1,
   narrationV6,
   panelPromptsV5,
@@ -68,6 +69,7 @@ import {
   ChapterOutline,
   ChapterPlan,
   ImageDescription,
+  LetteringTranslation,
   NarrationRetime,
   narrationDraftFor,
   PanelPromptDraft,
@@ -84,8 +86,10 @@ import {
   applyChapterPlan,
   applyNarrationPauses,
   bibleFor,
+  chapterLettering,
   loadBible,
   recordNarrationFingerprint,
+  saveTranslations,
   youtubeSourceFingerprint,
 } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -1158,4 +1162,52 @@ export async function timelineExtract(deps: WorkerDeps, job: ProjectJob) {
     32_000,
   );
   return { chapterId, events: r.data.events.length, repaired: r.repaired, data: r.data };
+}
+
+/** Translates a chapter's bubbles and captions into the job's language and saves them (hand edits are kept). */
+export async function letteringTranslate(deps: WorkerDeps, job: ProjectJob) {
+  const chapterId = String(job.input.chapterId);
+  const language = String(job.input.language);
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!project) throw new InputError("Project no longer exists");
+  if (language === project.language) throw new InputError("That is the project's own language");
+  const lines = await chapterLettering(deps.db, chapterId, project.language);
+  if (!lines.length) throw new InputError("This chapter has no bubbles or captions to translate");
+  const refs = lines.map((l, i) => ({ ...l, ref: `${l.sourceType === "dialogue" ? "d" : "c"}${i + 1}` }));
+  const cast = await deps.db
+    .select({ name: characters.name })
+    .from(characters)
+    .where(and(eq(characters.projectId, job.projectId), isNull(characters.deletedAt)));
+  const r = await structured(
+    deps,
+    job,
+    letteringTranslateV1.build({
+      language: { code: language, name: languageName(language) },
+      source: { code: project.language, name: languageName(project.language) },
+      cast,
+      lines: refs.map((l) => ({
+        ref: l.ref,
+        kind: l.kind,
+        speaker: l.speaker,
+        text: l.text,
+        maxChars: Math.max(12, Math.round(l.text.length * 1.3) + 8),
+      })),
+    }),
+    LetteringTranslation,
+    "LetteringTranslation",
+    16_000,
+  );
+  const byRef = new Map(refs.map((l) => [l.ref, l]));
+  const saved = await saveTranslations(
+    deps.db,
+    job.projectId,
+    language,
+    r.data.lines.flatMap((x) => {
+      const l = byRef.get(x.ref);
+      return l
+        ? [{ sourceType: l.sourceType, sourceId: l.sourceId, text: x.text, original: l.text, edited: false }]
+        : [];
+    }),
+  );
+  return { chapterId, language, lines: lines.length, saved, repaired: r.repaired };
 }

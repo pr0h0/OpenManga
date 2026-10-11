@@ -6,6 +6,7 @@ import {
   ChapterPlan,
   ContinuityReport,
   ImageDescription,
+  LetteringTranslation,
   type ModelAspect,
   NarrationDraft,
   NarrationDraftV2,
@@ -1143,6 +1144,45 @@ export const bibleExtractV1 = defineTextTemplate<{
   },
 });
 
+/** Translates a chapter's lettering (speech bubbles and on-page captions) for another edition of the same art. */
+export const letteringTranslateV1 = defineTextTemplate<{
+  language: { code: string; name: string };
+  source: { code: string; name: string };
+  cast: { name: string; personality?: string }[];
+  lines: {
+    ref: string;
+    kind: "dialogue" | "thought" | "shout" | "whisper" | "caption";
+    speaker: string | null;
+    text: string;
+    maxChars: number;
+  }[];
+}>({
+  name: "lettering-translate",
+  version: 1,
+  description: "Translate a chapter's speech bubbles and captions into another language, fitting the same bubbles.",
+  system: [
+    templateHeader("lettering-translate", 1),
+    "You are a comic letterer-translator. Translate each line of a chapter's lettering into the target language for a translated edition drawn from the same art: the text goes into the same speech bubble or caption box.",
+    "FIT: keep each translation about as long as the original and never longer than its maxChars, so it fits the bubble. Shorten rather than overflow: drop filler, keep the meaning and the punch.",
+    "VOICE: keep each speaker's voice and register (a shout stays a shout, a whisper stays quiet, a thought stays inner), the story's names untranslated, and onomatopoeia natural in the target language. Captions are narration: keep their tone.",
+    "Translate every line you are given, each with its ref unchanged, and nothing else. Never add notes, quotes around lines or explanations.",
+    DATA_RULE,
+    schemaInstructions("LetteringTranslation", LetteringTranslation),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          `Translate from ${i.source.name} (${i.source.code}) into ${i.language.name} (${i.language.code}).`,
+          untrusted("lettering", JSON.stringify({ cast: i.cast, lines: i.lines })),
+        ].join("\n\n"),
+      },
+    ];
+  },
+});
+
 /** Proposes the story timeline from the chapters, for the user to review; nothing is saved by the job. */
 export const timelineExtractV1 = defineTextTemplate<{
   projectData: Record<string, unknown>;
@@ -1356,6 +1396,7 @@ export const TEXT_TEMPLATES = [
   narrationV6,
   bibleExtractV1,
   timelineExtractV1,
+  letteringTranslateV1,
   continuityCheckV1,
   narrationLintV1,
   narrationFixV1,

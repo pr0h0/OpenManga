@@ -154,6 +154,10 @@ slot).
   `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
   text, `text_sha256` (of the spoken text: the text with the project's pronunciation dictionary applied), voice/speed
   overrides, `pause_after_ms`, active audio asset).
+- `lettering_translations` — a dialogue bubble's or on-page caption's text in another language, for a translated
+  edition of the same art (migration `0046_lettering_translations`): project, `source_type` (`dialogue|caption`),
+  `source_id`, `language`, `text`, `source_sha256` (the original's hash when translated: a changed original shows it
+  stale), `edited` (a hand edit, which a machine translation leaves alone).
 - `narration_findings` — narration QA findings per chapter track: `source` (`rule`, `ai` or `audio`), `kind`, `severity`,
   `line_ids`, `related_chapter_ids`, `message`, `status` (`open|ignored|fixed`) and a `fingerprint` unique per
   `(chapter, language, source)`, which is how a re-run keeps an ignored finding ignored.
@@ -229,7 +233,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
   `panel_check`, `cover`, `coverage_sheet`, `duplicate_scan`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`, `bible_extract`, `timeline_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `expert_extract`, `bible_extract`, `timeline_extract`, `lettering_translate`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry

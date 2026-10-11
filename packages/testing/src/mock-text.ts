@@ -392,6 +392,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "narration-fix": "narration-fix-v1",
     "bible-extract": "bible-extract-v1",
     "timeline-extract": "timeline-extract-v1",
+    "lettering-translate": "lettering-translate-v1",
     "continuity-check": "continuity-check-v1",
     "youtube-package": "youtube-package-v1",
     "story-coverage": "story-coverage-v1",
@@ -593,6 +594,13 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
             ]
           : [],
       };
+    }
+    case "lettering-translate-v1": {
+      // Each line marked with the target language, so a test can tell the edition apart.
+      const raw = extractTagged(user, "lettering")[0];
+      const d = (raw ? JSON.parse(raw) : {}) as { lines?: { ref: string; text: string }[] };
+      const code = /into .* \(([a-z-]+)\)/i.exec(user)?.[1] ?? "xx";
+      return { lines: (d.lines ?? []).map((l) => ({ ref: l.ref, text: `[${code}] ${l.text}` })) };
     }
     case "timeline-extract-v1": {
       // The first character's birth, then one dated event per chapter two days apart, each told by its chapter:

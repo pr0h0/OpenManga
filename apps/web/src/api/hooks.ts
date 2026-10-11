@@ -105,6 +105,7 @@ function invalidateFor(qc: QueryClient, projectId: string, e: ProjectEvent) {
       if (e.kind === "story_rewrite" || e.kind === "story_analysis") inv(qk.story(projectId));
       if (e.kind === "bible_extract") inv(["project", projectId, "bible"]);
       if (e.kind === "timeline_extract") inv(["project", projectId, "timeline"]);
+      if (e.kind === "lettering_translate" && e.targetId) inv(["chapter", String(e.targetId), "lettering"]);
       if (e.kind === "continuity_check") inv(["project", projectId, "continuity"]);
       if (e.kind === "page_prompts" && e.targetId) inv(qk.page(String(e.targetId)));
       if (e.targetType === "panel" && e.targetId) inv(qk.panel(String(e.targetId)));

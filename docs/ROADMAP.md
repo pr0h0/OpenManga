@@ -19,8 +19,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Panels and images
 
-- **Translated lettering.** Translate bubbles and captions per language and export each edition from the same art,
-  as narration already is per language.
 
 ### Custom models and local generation
 

@@ -5,6 +5,7 @@ import { BibleExtraction, ContinuityReport, TimelineExtraction } from "./bible.t
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
+  LetteringTranslation,
   NarrationDraftV2,
   NarrationFix,
   NarrationLintReport,
@@ -44,6 +45,7 @@ export const ANSWER_SCHEMAS = {
   StoryOutline,
   BibleExtraction,
   TimelineExtraction,
+  LetteringTranslation,
   ContinuityReport,
   AgentPlan,
   AgentStep,
@@ -1022,6 +1024,16 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
     "events[].chapter": ["Number of the chapter that tells it; null for events only mentioned.", 1],
     "events[].scene": ["Scene number within that chapter (from 1), when clearly split into scenes; else null.", null],
     "events[].characters": ["Who takes part, by name exactly as in the project.", ["Ines", "Tomas"]],
+  },
+
+  LetteringTranslation: {
+    "": "A chapter's lettering in another language, for a translated edition of the same art.",
+    lines: "Every line you were given, translated, each with its ref unchanged.",
+    "lines[].ref": ["The ref the line was given (d1, c2…).", "d1"],
+    "lines[].text": [
+      "The translated text, about as long as the original and within its maxChars.",
+      "¡Ya basta, Tomás!",
+    ],
   },
 
   ContinuityReport: {

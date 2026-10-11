@@ -28,6 +28,7 @@ export const KIND_LABELS: Record<string, string> = {
   expert_extract: "Expert action",
   bible_extract: "Bible extraction",
   timeline_extract: "Timeline extraction",
+  lettering_translate: "Lettering translation",
   continuity_check: "Continuity check",
 };
 

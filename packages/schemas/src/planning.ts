@@ -445,3 +445,12 @@ export const storyCoverageFor = (keys: string[]) =>
         message: `every paragraph needs an entry; missing: ${missing.slice(0, 80).join(", ")}`,
       });
   });
+
+/** Comic lettering translated into another language: each bubble's or caption's text by the ref it was given. */
+export const LetteringTranslation = z.object({
+  lines: z
+    .array(z.object({ ref: str.min(1).max(20), text: str.min(1).max(1000) }))
+    .min(1)
+    .max(1000),
+});
+export type LetteringTranslation = z.infer<typeof LetteringTranslation>;

@@ -323,6 +323,13 @@
       "when": 1791735389448,
       "tag": "0045_asset_features",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791736525446,
+      "tag": "0046_lettering_translations",
+      "breakpoints": true
     }
   ]
 }

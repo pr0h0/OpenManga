@@ -366,6 +366,31 @@ export const narrationLines = pgTable(
   (t) => [index("narration_lines_chapter_idx").on(t.chapterId, t.language, t.order)],
 );
 
+/**
+ * Lettering in another language: a dialogue bubble's or an on-page caption's text for one edition. The bubble keeps
+ * its place and style; renders and exports in that language swap the text. `source_sha256` is the original text's
+ * hash when this was written, so a changed original shows the translation as out of date; `edited` marks a hand edit,
+ * which a later machine translation leaves alone.
+ */
+export const letteringTranslations = pgTable(
+  "lettering_translations",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").$type<"dialogue" | "caption">().notNull(),
+    sourceId: uuid("source_id").notNull(),
+    language: text("language").notNull(),
+    text: text("text").notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    edited: boolean("edited").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("lettering_translations_uq").on(t.sourceType, t.sourceId, t.language)],
+);
+
 export const narrationSegments = pgTable(
   "narration_segments",
   {
