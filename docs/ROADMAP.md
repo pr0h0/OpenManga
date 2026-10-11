@@ -79,8 +79,6 @@ Grouped by area, roughly most useful first within each.
 
 - **Cold archives.** Move a finished project's files to cheaper storage (or one package) and bring them back on
   demand; the server-wide and per-project storage policies, per-kind ages and project caps shipped.
-- **Workers by capability.** Workers declare what they can do (ffmpeg, Kokoro, ComfyUI, a GPU) and jobs go to one
-  that can, so a single server can grow into an API host with separate GPU and render machines.
 - **Provenance package.** Per output: the app version, story revision, prompt versions, models, references and jobs
   that made it, plus licence notes for uploaded music, images, fonts and models; Content Credentials (C2PA) later.
 - **Accessibility.** Alt text for panels and pages, accessible EPUB metadata, a full narration transcript, reading

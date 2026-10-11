@@ -302,6 +302,12 @@ worker runs the outbox publisher and the Redis reconcile loop, which are safe to
 `WORKER_QUEUES` stops the worker at start, and the worker logs the queues it consumes. The Queues table in Admin shows the
 `render` queue's counts next to the others.
 
+**Workers by capability.** A worker takes only the queues it can serve: video renders need ffmpeg, narration needs
+the voice. So a machine added with `WORKER_CAPABILITIES=-ffmpeg` (or one without ffmpeg) never picks up a render,
+and declared capabilities (`gpu`, `comfyui`) mark the machines for work that needs them. Admin → Overview → *Workers*
+lists every worker alive (each checks in every 30 s), what it can do and takes, and warns when jobs wait on a queue no
+running worker takes, naming the workers that left it and what they lack.
+
 **Upgrading from a release without the `render` queue.** Renders and imports queued before the upgrade stay on the
 `export` queue and still run there: the `export` worker takes any export kind, and reconcile, cancel and the stalled
 sweep look on both queues. They need a worker that consumes `export`, which the main worker does in both setups above.

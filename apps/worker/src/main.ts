@@ -1,14 +1,21 @@
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { getConfig } from "@openmanga/config";
 import {
+  announceWorker,
+  type Capability,
   createWorker,
+  forgetWorker,
   OutboxDispatcher,
   parseWorkerQueues,
   QUEUE_PREFIX,
   Queue,
   type QueueName,
+  servableQueues,
+  type WorkerInfo,
+  workerCapabilities,
 } from "@openmanga/queue";
 import { buildWorkerDeps } from "./deps.ts";
 import {
@@ -20,9 +27,16 @@ import {
 } from "./processors.ts";
 
 const config = getConfig();
-const consumed = parseWorkerQueues(config.WORKER_QUEUES);
 const { deps, redis, close } = buildWorkerDeps(config);
 const log = deps.logger;
+// What this machine can do decides which of its queues it takes: a queue it cannot serve waits for a worker that can.
+const detected: Capability[] = [
+  ...(Bun.which("ffmpeg") && Bun.which("ffprobe") ? (["ffmpeg"] as const) : []),
+  ...(config.TTS_ENABLED ? (["tts"] as const) : []),
+];
+const capabilities = workerCapabilities(config.WORKER_CAPABILITIES, detected);
+const { consumed, refused } = servableQueues(parseWorkerQueues(config.WORKER_QUEUES), capabilities);
+for (const r of refused) log.warn("worker leaves a queue it cannot serve", { queue: r.queue, missing: r.missing });
 await mkdir(config.TEMP_ROOT, { recursive: true }).catch(() => {});
 
 // Separate queues + concurrency per provider so text planning never blocks image generation.
@@ -91,7 +105,27 @@ setTimeout(() => void reconcile(), 15_000);
 const reconcileTimer = setInterval(() => void reconcile(), 5 * 60_000);
 // Liveness file for the container health check. Container-local rather than in the shared TEMP_ROOT volume, so a
 // second worker container (a render-only one) cannot keep a dead one looking healthy.
-const heartbeat = () => void Bun.write(join(tmpdir(), "worker-heartbeat"), String(Date.now())).catch(() => {});
+const self: WorkerInfo = {
+  id: `${hostname()}-${process.pid}-${Math.random().toString(36).slice(2, 7)}`,
+  host: hostname(),
+  queues: consumed,
+  capabilities,
+  refused,
+  version: (() => {
+    try {
+      return (JSON.parse(readFileSync("build-info.json", "utf8")) as { version?: string }).version ?? null;
+    } catch {
+      return null;
+    }
+  })(),
+  startedAt: new Date().toISOString(),
+  lastSeen: new Date().toISOString(),
+};
+// Liveness for the container health check, and the worker's entry in the registry Admin reads.
+const heartbeat = () => {
+  void Bun.write(join(tmpdir(), "worker-heartbeat"), String(Date.now())).catch(() => {});
+  void announceWorker(redis, { ...self, lastSeen: new Date().toISOString() }).catch(() => {});
+};
 heartbeat();
 const heartbeatTimer = setInterval(heartbeat, 30_000);
 
@@ -120,6 +154,7 @@ log.info("worker started", {
   imageProvider: deps.image?.provider ?? "byok",
   tts: deps.tts?.provider ?? "disabled",
   queues: consumed,
+  capabilities,
   concurrency: {
     image: config.IMAGE_WORKER_CONCURRENCY,
     text: config.TEXT_WORKER_CONCURRENCY,
@@ -132,6 +167,7 @@ const shutdown = async (signal: string) => {
   stopOutbox();
   clearInterval(reconcileTimer);
   clearInterval(heartbeatTimer);
+  await forgetWorker(redis, self.id).catch(() => {});
   await Promise.allSettled(workers.map((w) => w.close()));
   await maintenance.close();
   await close();
