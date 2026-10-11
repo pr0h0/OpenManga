@@ -5,12 +5,17 @@ import {
   chooseImageDimensions,
   cleanSketch,
   computeCrop,
+  correlation,
   createPromptReference,
   cropRegion,
   extendCanvas,
   fitInside,
   fullMask,
   gridCell,
+  groupDuplicates,
+  hashDistance,
+  histogramOverlap,
+  imageFeatures,
   lineArt,
   paletteTransfer,
   probeImage,
@@ -240,5 +245,60 @@ describe("image tools", () => {
     expect(await pixel(canvas.data, 80, 142)).toEqual([255, 0, 0]);
     const full = await fullMask(10, 10);
     expect(await pixel(full.data, 5, 5)).toEqual([255, 255, 255]);
+  });
+});
+
+describe("near-duplicate features", () => {
+  const scene = async (bg: string, figure: "circle" | "square", fg: string, shift = 0) => {
+    const shape =
+      figure === "circle"
+        ? `<circle cx="${200 + shift}" cy="150" r="70" fill="${fg}"/>`
+        : `<rect x="${140 + shift}" y="70" width="40" height="160" fill="${fg}"/><rect x="${220 + shift}" y="70" width="40" height="160" fill="${fg}"/>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="${bg}"/>${shape}</svg>`;
+    return new Uint8Array(await sharp(Buffer.from(svg)).png().toBuffer());
+  };
+  test("identical, same background, same figure: each told apart", async () => {
+    const a = await imageFeatures(await scene("#2050a0", "circle", "#d03030"));
+    const nearA = await imageFeatures(await scene("#2252a2", "circle", "#d23232", 2));
+    const sameBg = await imageFeatures(await scene("#2050a0", "square", "#30a030"));
+    const samePose = await imageFeatures(await scene("#e09020", "circle", "#d03030"));
+    expect(hashDistance(a.dhash, nearA.dhash)).toBeLessThanOrEqual(6);
+    expect(hashDistance(a.dhash, sameBg.dhash)).toBeGreaterThan(6);
+    expect(histogramOverlap(a.border, sameBg.border)).toBeGreaterThan(0.95);
+    expect(histogramOverlap(a.border, samePose.border)).toBeLessThan(0.2);
+    expect(correlation(a.center, samePose.center)).toBeGreaterThan(0.85);
+    expect(correlation(a.center, sameBg.center)).toBeLessThan(0.6);
+  });
+});
+
+describe("grouping near-duplicates", () => {
+  const f = (dhash: string, center: number[], border: number[]) => ({ dhash, center, border });
+  const unit = (v: number[]) => {
+    const n = Math.hypot(...v);
+    return v.map((x) => x / n);
+  };
+  test("identical anywhere, poses apart from neighbours, backgrounds across scenes, thumbnails on their own", () => {
+    const poseA = unit([1, 0, 0, 1]);
+    const poseB = unit([0, 1, 1, 0]);
+    const bgA = [1, 0, 0, 0];
+    const bgB = [0, 0, 0, 1];
+    const groups = groupDuplicates([
+      { id: "p1", seq: 1, scene: "s1", ...f("0000000000000000", poseA, bgA) },
+      { id: "p2", seq: 2, scene: "s1", ...f("0000000000000001", poseB, bgB) },
+      // p3 repeats p1's pose far away; p4 repeats p1's background in another scene; p5 is p1 again.
+      { id: "p3", seq: 9, scene: "s2", ...f("ffff000000000000", poseA, bgB) },
+      { id: "p4", seq: 12, scene: "s3", ...f("00ffff0000000000", poseB, bgA) },
+      { id: "p5", seq: 20, scene: "s4", ...f("0000000000000003", poseB, bgB) },
+      // The neighbour of p4 with p4's look is not reported as a pose repeat.
+      { id: "p6", seq: 13, scene: "s3", ...f("ff00ff00ff00ff00", poseB, [0, 1, 0, 0]) },
+      { id: "t1", seq: 0, scene: null, thumbnail: true, ...f("1111111111111111", poseA, bgA) },
+      { id: "t2", seq: 0, scene: null, thumbnail: true, ...f("1111111111111113", poseA, bgA) },
+    ]);
+    const of = (kind: string) => groups.filter((g) => g.kind === kind).map((g) => [...g.ids].sort());
+    expect(of("identical")).toEqual([["p1", "p2", "p5"]]);
+    expect(of("thumbnail")).toEqual([["t1", "t2"]]);
+    expect(of("pose")).toContainEqual(["p1", "p3"]);
+    expect(of("background")).toContainEqual(["p1", "p4"]);
+    expect(of("pose").flat()).not.toContain("t1");
   });
 });

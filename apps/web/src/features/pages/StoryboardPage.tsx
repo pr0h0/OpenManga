@@ -9,6 +9,7 @@ import { AssetImage, ConfirmDialog, EmptyState, ErrorBox, PageHeader, Spinner, t
 import { useAiBody } from "../ai/AiPicker.tsx";
 import { CheckPanelsButton } from "../generation/CheckPanels.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
+import { DuplicatesButton } from "./Duplicates.tsx";
 
 type Panel = PanelRow & { pageOrder: number };
 type Qa = { verdict?: string; stale?: boolean; assetId?: string; problems?: string[] } | null;
@@ -149,6 +150,7 @@ export function StoryboardPage() {
               ))}
             </select>
             {chapterId && <CheckPanelsButton projectId={projectId} scope={{ chapterId }} />}
+            <DuplicatesButton projectId={projectId} />
           </>
         }
       />

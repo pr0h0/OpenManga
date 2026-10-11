@@ -15,6 +15,7 @@ const OPERATION_LABELS: Record<string, string> = {
   panel_edit: "Edits",
   cover: "Covers",
   coverage_sheet: "Coverage sheets",
+  duplicate_scan: "Duplicate scans",
   story_analysis: "Story analysis",
   story_rewrite: "Story rewrite",
   youtube_package: "YouTube package",

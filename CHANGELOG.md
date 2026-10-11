@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Near-duplicate finder (Storyboard → *Near-duplicates*): a scan without AI (a `duplicate_scan` job) groups
+  near-identical panels, the same figure staging in panels that are not neighbours, the same background reused in
+  another scene, and near-identical cover or thumbnail art, with a score and links to each panel. Uses small image
+  features computed once per image (a difference hash, an edge map of the middle, a colour histogram of the border;
+  `asset_features`, migration `0045_asset_features`) rather than a model. MCP `find_duplicates`.
 - Comic effects as layers (page editor → Panel tab → *Effects*): speed and focus lines, an impact flash, screentone,
   rain, snow, dust, a glow and a flashback tint, up to six per panel, each with its own centre, angle, density,
   strength, size and colour. Drawn by the app over the art, no AI and no cost, the same on the canvas and in every

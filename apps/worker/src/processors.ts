@@ -3,6 +3,7 @@ import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
 import { agentStep } from "./handlers/agent.ts";
 import { continuityCheck } from "./handlers/continuity.ts";
+import { duplicateScan } from "./handlers/duplicates.ts";
 import { expertExtract } from "./handlers/expert-extract.ts";
 import { processExport } from "./handlers/export.ts";
 import { coverageSheet, coverGeneration, panelEdit, panelGeneration, referenceGeneration } from "./handlers/image.ts";
@@ -58,6 +59,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   narration_lint: narrationLint,
   narration_fix: narrationFix,
   audio_check: audioCheck,
+  duplicate_scan: duplicateScan,
   story_coverage: storyCoverage,
   cover: coverGeneration,
   coverage_sheet: coverageSheet,

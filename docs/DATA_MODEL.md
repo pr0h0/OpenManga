@@ -171,6 +171,9 @@ slot).
   weather), `from_chapter_id` / `until_chapter_id` (inclusive, null = open). Scenes pick one by hand with
   `scenes.location_state_id`; a state's own reference is a `reference_assets` row with `location_state_id`.
 - `style_presets` (built-in and custom) and `project_styles` (the versioned project style).
+- `asset_features` — near-duplicate features of an image, computed once per asset (migration
+  `0045_asset_features`): a 64-bit difference hash, a 16x16 edge map of its middle and a colour histogram of its
+  outer ring.
 - `board_items` — the project's reference board (migration `0043_board_items`): project, `asset_id` (cascade), `note`,
   `order`, author. Using an item as a reference stores a copy of the image as that reference's own asset; as a layout
   guide the panel points at the board image itself.
@@ -225,7 +228,7 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `coverage_sheet`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
+  `panel_check`, `cover`, `coverage_sheet`, `duplicate_scan`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
   `expert_extract`, `bible_extract`, `timeline_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including

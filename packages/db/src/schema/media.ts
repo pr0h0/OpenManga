@@ -177,6 +177,17 @@ export const pages = pgTable(
  * a note. From the board an image becomes a draft reference of a character, outfit, location state, prop or the style,
  * or a panel's layout guide, or is described for one aspect.
  */
+/** Near-duplicate features of an image, computed once (assets never change): see `imageFeatures`. */
+export const assetFeatures = pgTable("asset_features", {
+  assetId: uuid("asset_id")
+    .primaryKey()
+    .references(() => assets.id, { onDelete: "cascade" }),
+  dhash: text("dhash").notNull(),
+  center: jsonb("center").$type<number[]>().notNull(),
+  border: jsonb("border").$type<number[]>().notNull(),
+  createdAt: createdAt(),
+});
+
 export const boardItems = pgTable(
   "board_items",
   {
