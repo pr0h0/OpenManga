@@ -348,6 +348,16 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   project costs no more memory than one chapter. Page images spanning chapters are named
   `<title>_project_ch02_p003.png`, since page numbers restart in every chapter. A whole-project webtoon without
   `split` is still one image, capped at 200 MP like any strip, so leave splitting on for a long project.
+  `webtoon.exactHeight` cuts any image taller than `maxChunkHeight` (a panel or blended run taller than the limit)
+  into pieces that stack back seamlessly (`…_06_a.jpg`, `…_06_b.jpg`), for platforms that refuse taller images.
+- **Export targets** (`GET /api/export-targets`, `packages/domain/src/export-targets.ts`): platform presets — YouTube,
+  YouTube Shorts, TikTok, Instagram Reels, Instagram carousel, WEBTOON Canvas, Tapas, Amazon KDP paperback and plain
+  PDF — each with the export kind and options it sets, its limits (video length, file size, image count, width,
+  height and size, episode total, page count) and notes for what a check cannot measure (safe areas, naming,
+  codecs). `GET /api/projects/:id/export-targets/:key/check` checks one before exporting (a panel cut's length from
+  the timing, a PDF's pages, the strip's images at the target's width, a Short's or carousel's pick); an export with
+  `target` is checked again against its files, recorded as `result.targetCheck`. Limits are the platforms' own as of
+  2026 and change: each message names the number it checked against.
   `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
   project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
   `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).

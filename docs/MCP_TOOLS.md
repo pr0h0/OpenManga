@@ -28,7 +28,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `edit_video`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
-| `exports:read` | Read export status and files. | `suggest_shorts`, `suggest_repurpose`, `list_exports` |
+| `exports:read` | Read export status and files. | `export_targets`, `suggest_shorts`, `suggest_repurpose`, `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
@@ -148,6 +148,7 @@ requests) need no scope.
 | [`retime_narration`](#retime_narration) | spend | `narration:write` `generations:run` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
 | [`edit_video`](#edit_video) | sensitive-write | `generations:run` |
+| [`export_targets`](#export_targets) | read | `exports:read` |
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
 | [`suggest_repurpose`](#suggest_repurpose) | read | `exports:read` |
 | [`write_social_copy`](#write_social_copy) | spend | `generations:run` `projects:write` |
@@ -12551,6 +12552,7 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
     "webtoon": {
       "default": {
         "split": true,
+        "exactHeight": false,
         "format": "jpg"
       },
       "type": "object",
@@ -12573,6 +12575,10 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "integer",
           "minimum": 1000,
           "maximum": 40000
+        },
+        "exactHeight": {
+          "default": false,
+          "type": "boolean"
         },
         "format": {
           "default": "jpg",
@@ -12730,6 +12736,10 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
       "type": "string",
       "minLength": 2,
       "maxLength": 16
+    },
+    "target": {
+      "type": "string",
+      "maxLength": 40
     },
     "acknowledgeIssues": {
       "default": false,
@@ -13076,6 +13086,82 @@ Change the video's timeline from an instruction, e.g. "make chapter 4 faster", "
   "required": [
     "action",
     "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### export_targets
+
+Platform presets for exports (YouTube, Shorts, TikTok, Reels, Instagram carousel, WEBTOON Canvas, Tapas, KDP, PDF). list: each target's export kind, the options it sets, its limits (length, file and image sizes, image count, strip image height, page count) and notes on safe areas, naming and codecs. check: a target against the project before exporting (chapterId, else the whole project; durationMs for a Shorts cut's length, images for a carousel's slides). Pass `target` to create_export to have the files checked once made (the job's result.targetCheck). Read-only.
+
+- **Scopes:** `exports:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/export-targets`, `GET /api/projects/:projectId/export-targets/:key/check`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "check"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "key": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "minHoldMs": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 30000
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "images": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    }
+  },
+  "required": [
+    "action"
   ]
 }
 ```

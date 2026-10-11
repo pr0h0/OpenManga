@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Export targets (Exports → *Export for*): presets for YouTube, YouTube Shorts, TikTok, Instagram Reels, Instagram
+  carousels, WEBTOON Canvas, Tapas, an Amazon KDP paperback and plain PDF. Picking one sets the export (kind, frame,
+  resolution, strip width and image height, page size), lists what a check cannot measure (safe areas, naming,
+  codecs) and checks the platform's limits first — a panel cut's length from the timing, a PDF's page count, the
+  strip's images, a Short's length; the files are checked again once made and the result shows on the export.
+  Carousels from Repurpose are checked against Instagram's. Webtoon exports can cut any image to the exact height
+  limit (`webtoon.exactHeight`). MCP `export_targets`; `create_export` takes `target`.
 - Hook variants (Exports → panel-cut video → *Hook variants*): alternative openings in front of the same film, each
   its own narration (about 15–30 s, voiced with the narrator voice) over 1–6 panels you pick, with an optional title
   and thumbnail headline for that version's upload (the thumbnail downloads with that headline). Pick one as the
