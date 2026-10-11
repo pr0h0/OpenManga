@@ -35,6 +35,7 @@ import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { EdgePicker } from "../EdgePicker.tsx";
+import { CompareModels } from "./CompareModels.tsx";
 import { CoverageSheet } from "./CoverageSheet.tsx";
 import { DescribePose } from "./DescribePose.tsx";
 import { Directing } from "./Directing.tsx";
@@ -742,6 +743,8 @@ export function PanelTab({
         locked={locked}
         invalidate={inv}
       />
+
+      <CompareModels panelId={panel.id} locked={locked} invalidate={inv} />
 
       <CoverageSheet panelId={panel.id} pageId={data.page.id} locked={locked} />
 

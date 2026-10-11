@@ -579,6 +579,52 @@ export const panelTools = [
   }),
 
   defineMcpTool({
+    name: "compare_models",
+    title: "Compare image models",
+    description:
+      "Draw one panel with 2-4 image models side by side. run: runs (each an ai choice: credentialId, model) — each spends that key's credits (may need approval); asynchronous, returns the jobs. get: the newest comparison — per run provider, model, status, artwork (assetId: see it with get_image), time taken, estimated cost and visual check. pick: jobId — that run's artwork becomes the panel's active version; draw more panels with the same credentialId and model (generate_panel / run_bulk_generation ai).",
+    input: z.object({
+      action: z.enum(["run", "get", "pick"]),
+      panelId: Uuid,
+      runs: z.array(ImageAiInput.unwrap()).min(2).max(4).optional(),
+      jobId: Uuid.optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["panels:read"],
+    scopesFor: (a) =>
+      a.action === "run" ? ["generations:run"] : a.action === "pick" ? ["panels:write"] : ["panels:read"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/panels/:id/compare", "GET /api/panels/:id/compare", "POST /api/panels/:id/compare/pick"],
+    actionKeys: ["panel.compare", "panel.compare_pick"],
+    classify: async (a, ctx) => {
+      const project = await projectOf(ctx, "panel", a.panelId);
+      if (a.action === "get") return cls("read", "panel.compare", project, "Read a model comparison");
+      if (a.action === "pick") return cls("write", "panel.compare_pick", project, "Use a comparison run's artwork");
+      return cls(
+        "spend",
+        "panel.compare",
+        project,
+        `Draw a panel with ${a.runs?.length ?? 0} image models; spends image-provider credits`,
+      );
+    },
+    handler: async (a, ctx) => {
+      if (a.action === "get") return { data: await ctx.invoke("GET", `/api/panels/${a.panelId}/compare`) };
+      if (a.action === "pick") {
+        if (!a.jobId) throw toolError(400, "bad_request", "jobId is required for pick");
+        return {
+          data: await ctx.invoke("POST", `/api/panels/${a.panelId}/compare/pick`, { body: { jobId: a.jobId } }),
+        };
+      }
+      if (!a.runs) throw toolError(400, "bad_request", "runs are required for run");
+      const runs = [];
+      for (const r of a.runs) runs.push(await restAi(ctx, r));
+      return { data: await ctx.invoke("POST", `/api/panels/${a.panelId}/compare`, { body: { runs } }) };
+    },
+  }),
+
+  defineMcpTool({
     name: "manage_panel_artwork",
     title: "Panel artwork versions",
     description:

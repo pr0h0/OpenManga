@@ -17,6 +17,7 @@ import { channelProfileRoutes } from "./routes/channel-profiles.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
 import { commentRoutes } from "./routes/comments.ts";
+import { compareRoutes } from "./routes/compare.ts";
 import { continuityRoutes } from "./routes/continuity.ts";
 import { coverageRoutes } from "./routes/coverage.ts";
 import { duplicateRoutes } from "./routes/duplicates.ts";
@@ -91,6 +92,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     boardRoutes,
     imageToolRoutes,
     duplicateRoutes,
+    compareRoutes,
     locationStateRoutes,
   ])
     api.route("/", r);

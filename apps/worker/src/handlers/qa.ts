@@ -32,7 +32,13 @@ import { InputError, type ProjectJob, recordTextCalls } from "../lib/runner.ts";
 import { batchAware } from "../lib/text-batch-provider.ts";
 
 /** Queue an automatic consistency check for a panel's new artwork when the project opted in. */
-export async function maybeQueuePanelCheck(deps: WorkerDeps, job: ProjectJob, panelId: string, assetId: string) {
+export async function maybeQueuePanelCheck(
+  deps: WorkerDeps,
+  job: ProjectJob,
+  panelId: string,
+  assetId: string,
+  opts: { compare?: boolean } = {},
+) {
   const [p] = await deps.db
     .select({ settings: projects.settings })
     .from(projects)
@@ -68,7 +74,7 @@ export async function maybeQueuePanelCheck(deps: WorkerDeps, job: ProjectJob, pa
           assetId,
           ...(batched ? { batchMode: true } : {}),
         },
-        input: { panelId, assetId, sourceJobId: job.id },
+        input: { panelId, assetId, sourceJobId: job.id, ...(opts.compare ? { compare: true } : {}) },
       },
       { enqueue: !batched },
     ),
@@ -288,18 +294,20 @@ export async function panelCheck(deps: WorkerDeps, job: ProjectJob) {
     checkedAt: new Date().toISOString(),
     model: r.calls.at(-1)?.model ?? provider.model,
   };
-  // A newer artwork may have replaced the checked one meanwhile: keep the result but mark it stale.
-  await deps.db
-    .update(panels)
-    .set({ qa: current?.active === assetId ? qa : { ...qa, stale: true } })
-    .where(eq(panels.id, panelId));
+  // A newer artwork may have replaced the checked one meanwhile: keep the result but mark it stale. A comparison
+  // run's check stays on its job: the panel's own check is of its active artwork.
+  if (!job.input.compare)
+    await deps.db
+      .update(panels)
+      .set({ qa: current?.active === assetId ? qa : { ...qa, stale: true } })
+      .where(eq(panels.id, panelId));
   await deps.events.publish(job.projectId, {
     type: "panel.updated",
     panelId,
     pageId: current?.pageId ?? pn.pageId,
     status: pn.status,
   });
-  return { verdict: qa.verdict, problems, ...(autoFix ? { autoFix } : {}) };
+  return { verdict: qa.verdict, problems, assetId, ...(autoFix ? { autoFix } : {}) };
 }
 
 /** Names of the faces in the checked artwork that the panel's bubbles or caption boxes hide. */
