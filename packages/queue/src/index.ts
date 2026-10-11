@@ -279,4 +279,5 @@ export class EventBus {
 }
 
 export { Queue, UnrecoverableError } from "bullmq";
+export * from "./workers.ts";
 export type { Job, QueueEvents, Redis };

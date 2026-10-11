@@ -15,6 +15,7 @@ import {
   sql,
   users,
 } from "@openmanga/db";
+import { listWorkers, uncoveredQueues } from "@openmanga/queue";
 import { ProjectStorage } from "@openmanga/schemas";
 import {
   credentialKeyStatus,
@@ -56,6 +57,9 @@ adminRoutes.get("/overview", async (c) => {
     (select coalesce(sum(byte_size),0)::float from asset_variants) as "variantBytes",
     (select count(*)::int from assets) as assets`);
   const queues = await deps.queue.counts().catch(() => null);
+  // The workers alive now (each checks in every 30 s), and queues none of them takes.
+  const workers = await listWorkers(deps.redis).catch(() => null);
+  const uncovered = workers && queues ? uncoveredQueues(workers, queues) : [];
   const tts = deps.tts ? await deps.tts.health() : { ok: false, state: "disabled" };
   let disk: { totalBytes: number; freeBytes: number } | null = null;
   // A bucket has no free space to report; ASSET_ROOT would describe an unused local volume.
@@ -68,6 +72,8 @@ adminRoutes.get("/overview", async (c) => {
   return c.json({
     counts,
     queues,
+    workers,
+    uncovered,
     tts,
     disk,
     recentErrors,

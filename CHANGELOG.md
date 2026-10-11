@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Workers by capability: each worker detects what it can do (ffmpeg, the narration voice) and is told the rest with
+  `WORKER_CAPABILITIES` (`gpu`, `comfyui`, or `-ffmpeg` to keep a small machine off renders); it takes only the
+  queues it can serve, so a job waits for a worker that can run it. Workers check in every 30 s, and Admin →
+  Overview lists them with what they can do and take, and warns when work waits on a queue no running worker takes.
 - Storage policies per project (project settings → *Storage*, owner only): how long each kind of expendable file is
   kept (cached video sections, exports, older panel versions, unused narration takes, trash, prompt reference
   copies) and a storage cap the project stays under, applied at each hourly maintenance pass or at once with *Apply

@@ -26,6 +26,18 @@ type Tab = "overview" | "users" | "jobs" | "usage" | "rates" | "storage";
 type Overview = {
   counts: Record<string, number>;
   queues: Record<string, Record<string, number>> | null;
+  workers:
+    | {
+        id: string;
+        host: string;
+        queues: string[];
+        capabilities: string[];
+        refused: { queue: string; missing: string[] }[];
+        version: string | null;
+        lastSeen: string;
+      }[]
+    | null;
+  uncovered: { queue: string; waiting: number; needs: string[]; refusedBy: { host: string }[] }[];
   tts: { ok: boolean; state: string; detail?: string };
   disk: { totalBytes: number; freeBytes: number } | null;
   recentErrors: { id: string; source: string; code: string | null; message: string; createdAt: string }[];
@@ -148,17 +160,22 @@ function OverviewTab() {
             <table className="w-full text-xs">
               <thead className="muted text-left">
                 <tr>
-                  {["Queue", "waiting", "prioritized", "active", "delayed", "failed", "completed"].map((h) => (
-                    <th key={h} className="p-1.5 font-normal">
-                      {h}
-                    </th>
-                  ))}
+                  {["Queue", "workers", "waiting", "prioritized", "active", "delayed", "failed", "completed"].map(
+                    (h) => (
+                      <th key={h} className="p-1.5 font-normal">
+                        {h}
+                      </th>
+                    ),
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {Object.entries(d.queues).map(([name, c]) => (
                   <tr key={name} className="border-t border-[var(--border)]">
                     <td className="p-1.5 font-medium">{name}</td>
+                    <td className="p-1.5">
+                      {d.workers ? d.workers.filter((w) => w.queues.includes(name)).length : "?"}
+                    </td>
                     {["waiting", "prioritized", "active", "delayed", "failed", "completed"].map((k) => (
                       <td key={k} className="p-1.5">
                         {c[k] ?? 0}
@@ -171,6 +188,58 @@ function OverviewTab() {
           )}
         </section>
       </div>
+      <section className="card space-y-2 p-4" aria-label="Workers">
+        <h2 className="font-medium">Workers</h2>
+        {d.uncovered
+          .filter((u) => u.waiting > 0)
+          .map((u) => (
+            <p key={u.queue} className="rounded-lg bg-amber-500/10 p-2 text-sm">
+              {u.waiting} job(s) wait on <strong>{u.queue}</strong>, and no running worker takes it
+              {u.needs.length ? ` (it needs ${u.needs.join(", ")}` : ""}
+              {u.needs.length && u.refusedBy.length
+                ? `; ${u.refusedBy.map((w) => w.host).join(", ")} lack${u.refusedBy.length === 1 ? "s" : ""} it)`
+                : u.needs.length
+                  ? ")"
+                  : ""}
+              .
+            </p>
+          ))}
+        {!d.workers ? (
+          <p className="muted text-sm">Redis unavailable</p>
+        ) : !d.workers.length ? (
+          <p className="muted text-sm">No worker has checked in.</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="muted text-left">
+              <tr>
+                {["Host", "Can", "Takes", "Version", "Seen"].map((h) => (
+                  <th key={h} className="p-1.5 font-normal">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {d.workers.map((w) => (
+                <tr key={w.id} className="border-t border-[var(--border)] align-top">
+                  <td className="p-1.5 font-medium">{w.host}</td>
+                  <td className="p-1.5">{w.capabilities.join(", ") || "—"}</td>
+                  <td className="p-1.5">
+                    {w.queues.join(", ")}
+                    {w.refused.length > 0 && (
+                      <span className="muted block">
+                        leaves {w.refused.map((r) => `${r.queue} (no ${r.missing.join(", ")})`).join(", ")}
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-1.5">{w.version ?? "—"}</td>
+                  <td className="p-1.5">{fmt.ago(w.lastSeen)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
       <CredentialEncryption />
       <section className="card p-4">
         <h2 className="mb-2 font-medium">Recent errors</h2>
