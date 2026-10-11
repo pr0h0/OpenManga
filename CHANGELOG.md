@@ -9,6 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Reference board (project → *Board*): images collected for mood and look, each with a note. Drop one onto a
+  character, an outfit, a location (or one of its states), a prop or the project style as a draft reference to
+  approve, use it as a panel's layout guide (page editor → Panel tab → *Layout guide* → *From board*), or have one
+  aspect of it described (lighting, costume, mood, pose…). Migration `0043_board_items`. MCP
+  `manage_reference_board`.
 - Coverage sheet (page editor → Panel tab → *Coverage sheet*): one image of the panel's moment from nine camera
   setups (wide, full, medium, close-up, extreme close-up, over the shoulder, insert, low and high angle), drawn with
   the panel's references (`coverage-sheet` v1, a `coverage_sheet` job). Pick cells: one reframes the panel, several

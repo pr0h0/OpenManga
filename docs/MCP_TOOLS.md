@@ -19,7 +19,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `get_timeline`, `run_continuity_check`, `get_continuity_report` |
 | `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
-| `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style`, `manage_location_states` |
+| `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style`, `manage_location_states`, `manage_reference_board` |
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
 | `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
@@ -90,6 +90,7 @@ requests) need no scope.
 | [`manage_references`](#manage_references) | spend | `library:write` `generations:run` |
 | [`project_style`](#project_style) | sensitive-write | `library:read` `library:write` |
 | [`manage_location_states`](#manage_location_states) | delete | `library:write` |
+| [`manage_reference_board`](#manage_reference_board) | write | `library:write` |
 | [`list_chapters`](#list_chapters) | read | `chapters:read` |
 | [`get_chapter_source`](#get_chapter_source) | read | `chapters:read` |
 | [`get_chapter`](#get_chapter) | read | `chapters:read` |
@@ -5486,6 +5487,210 @@ States of a place over story time ("destroyed", "snowed in", "at night"): list, 
           ]
         }
       }
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### manage_reference_board
+
+The project's reference board: collected images for mood and look. list: the images with their notes and newest description. add: put an image already in the project on the board (assetId; uploading a new one needs the OpenManga UI). note: edit an item's note. remove: take it off the board (the image stays in the project). use: drop it onto something — target character|outfit|location|prop (versionId; outfitId for an outfit; locationStateId for one of a location's states) or style (styleId) makes a draft reference to approve like any other; target guide (panelId, strength loose|strict) makes it the panel's layout guide. To describe one aspect of a board image, use the image's assetId with the describe tools.
+
+- **Scopes:** `library:write` — per action, see description
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `board.add`, `board.update`, `board.remove`, `board.use`
+- **Wraps:** `GET /api/projects/:projectId/board`, `POST /api/projects/:projectId/board`, `PATCH /api/board-items/:id`, `DELETE /api/board-items/:id`, `POST /api/board-items/:id/use`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "add",
+        "note",
+        "remove",
+        "use"
+      ]
+    },
+    "projectId": {
+      "description": "For list and add.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "id": {
+      "description": "The board item, for note, remove and use.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "assetId": {
+      "description": "For add: an image of the project.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "use": {
+      "description": "For use: where it goes.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "character"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "outfit"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "outfitId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId",
+            "outfitId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "location"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "locationStateId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "prop"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "style"
+            },
+            "styleId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "styleId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "guide"
+            },
+            "panelId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "strength": {
+              "default": "loose",
+              "type": "string",
+              "enum": [
+                "loose",
+                "strict"
+              ]
+            }
+          },
+          "required": [
+            "target",
+            "panelId"
+          ]
+        }
+      ]
     }
   },
   "required": [

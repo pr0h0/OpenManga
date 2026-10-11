@@ -19,8 +19,6 @@ Grouped by area, roughly most useful first within each.
 
 ### Panels and images
 
-- **Reference board.** A moodboard of images that can be dropped onto a character, location, prop, outfit, style or
-  panel guide, or described for one aspect only ("the lighting", "the costume silhouette").
 - **Image tools.** Upscaling, face and detail repair, relighting, background removal, sketch cleanup for guides,
   line-art extraction, colourising black-and-white pages, palette transfer, expression edits, and outpainting so
   16:9 art can be widened to 9:16 instead of cropped.

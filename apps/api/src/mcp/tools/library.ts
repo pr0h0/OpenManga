@@ -1,4 +1,5 @@
 import {
+  boardItems,
   characterAliases,
   characters,
   characterVersions,
@@ -12,6 +13,7 @@ import {
 } from "@openmanga/db";
 import { asPatch } from "@openmanga/schemas";
 import { z } from "zod";
+import { UseInput as BoardUse } from "../../routes/board.ts";
 import { CreateCharacter, Migrate, OutfitInput } from "../../routes/characters.ts";
 import { StatePatch } from "../../routes/location-states.ts";
 import { GenerateRef } from "../../routes/references.ts";
@@ -593,6 +595,78 @@ export const libraryTools = [
           return { data: await ctx.invoke("PATCH", `/api/location-states/${a.id}`, { body: a.state ?? {} }) };
         default:
           return { data: await ctx.invoke("DELETE", `/api/location-states/${a.id}`) };
+      }
+    },
+  }),
+
+  defineMcpTool({
+    name: "manage_reference_board",
+    title: "Reference board",
+    description:
+      "The project's reference board: collected images for mood and look. list: the images with their notes and newest description. add: put an image already in the project on the board (assetId; uploading a new one needs the OpenManga UI). note: edit an item's note. remove: take it off the board (the image stays in the project). use: drop it onto something — target character|outfit|location|prop (versionId; outfitId for an outfit; locationStateId for one of a location's states) or style (styleId) makes a draft reference to approve like any other; target guide (panelId, strength loose|strict) makes it the panel's layout guide. To describe one aspect of a board image, use the image's assetId with the describe tools.",
+    input: z.object({
+      action: z.enum(["list", "add", "note", "remove", "use"]),
+      projectId: Uuid.optional().describe("For list and add."),
+      id: Uuid.optional().describe("The board item, for note, remove and use."),
+      assetId: Uuid.optional().describe("For add: an image of the project."),
+      note: z.string().max(1000).optional(),
+      use: BoardUse.optional().describe("For use: where it goes."),
+    }),
+    output: Passthrough,
+    scopes: ["library:write"],
+    scopesFor: (a) => (a.action === "list" ? ["library:read"] : ["library:write"]),
+    sensitivity: "write",
+    idempotent: false,
+    routes: [
+      "GET /api/projects/:projectId/board",
+      "POST /api/projects/:projectId/board",
+      "PATCH /api/board-items/:id",
+      "DELETE /api/board-items/:id",
+      "POST /api/board-items/:id/use",
+    ],
+    actionKeys: ["board.add", "board.update", "board.remove", "board.use"],
+    classify: async (a, ctx) => {
+      const projectOfItem = async (id?: string) => {
+        const [r] = id
+          ? await ctx.deps.db.select({ p: boardItems.projectId }).from(boardItems).where(eq(boardItems.id, id))
+          : [];
+        if (!r) throw toolError(404, "not_found", "Board item not found");
+        return r.p;
+      };
+      if (a.action === "list") return cls("read", "board.list", a.projectId ?? "", "Read the reference board");
+      if (a.action === "add")
+        return cls("write", "board.add", a.projectId ?? "", "Add an image to the reference board");
+      const project = await projectOfItem(a.id);
+      if (a.action === "note") return cls("write", "board.update", project, "Edit a board note");
+      if (a.action === "remove") return cls("write", "board.remove", project, "Take an image off the reference board");
+      return cls("write", "board.use", project, `Use a board image as a ${a.use?.target ?? "reference"}`);
+    },
+    handler: async (a, ctx) => {
+      const need = <T>(v: T | undefined, name: string) => {
+        if (v === undefined) throw toolError(400, "bad_request", `${name} is required for ${a.action}`);
+        return v;
+      };
+      switch (a.action) {
+        case "list":
+          return { data: await ctx.invoke("GET", `/api/projects/${need(a.projectId, "projectId")}/board`) };
+        case "add":
+          return {
+            data: await ctx.invoke("POST", `/api/projects/${need(a.projectId, "projectId")}/board`, {
+              body: { assetId: need(a.assetId, "assetId"), note: a.note },
+            }),
+          };
+        case "note":
+          return {
+            data: await ctx.invoke("PATCH", `/api/board-items/${need(a.id, "id")}`, {
+              body: { note: need(a.note, "note") },
+            }),
+          };
+        case "remove":
+          return { data: await ctx.invoke("DELETE", `/api/board-items/${need(a.id, "id")}`) };
+        default:
+          return {
+            data: await ctx.invoke("POST", `/api/board-items/${need(a.id, "id")}/use`, { body: need(a.use, "use") }),
+          };
       }
     },
   }),
