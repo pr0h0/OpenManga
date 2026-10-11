@@ -198,7 +198,7 @@ export const imageTools = [
     name: "asset_library",
     title: "Search and file assets",
     description:
-      "The asset library. search: the project's files with their tags, collections and favourite mark, filtered by q (name, type or tag), type, tag, collection, favourite, characterId / locationId / propId (its reference images and the panels it is drawn in), source (generated, uploaded, derived), model, from / to (dates); view unused (images nothing uses) or duplicates (the same file stored twice). get: one asset with where it came from (job, model, template, upload name, tool) and what uses it. similar: images that look like it, scored 0–1 (no AI). mark: set an asset's tags, collections or favourite. bulk: tag, untag, collect, uncollect, favourite, unfavourite, trash or restore many (trash may need approval).",
+      "The asset library. search: the project's files with their tags, collections and favourite mark, filtered by q (name, type or tag), type, tag, collection, favourite, characterId / locationId / propId (its reference images and the panels it is drawn in), source (generated, uploaded, derived), model, from / to (dates); view unused (images nothing uses) or duplicates (the same file stored twice). get: one asset with where it came from (job, model, template, upload name, tool) and what uses it. similar: images that look like it, scored 0–1 (no AI). mark: set an asset's tags, collections, favourite or licence note (shown in provenance records). bulk: tag, untag, collect, uncollect, favourite, unfavourite, trash or restore many (trash may need approval).",
     input: z.object({
       action: z.enum(["search", "get", "similar", "mark", "bulk"]),
       projectId: Uuid.optional(),
@@ -226,6 +226,10 @@ export const imageTools = [
           tags: z.array(z.string().max(60)).max(50).optional(),
           collections: z.array(z.string().max(60)).max(50).optional(),
           favourite: z.boolean().optional(),
+          licence: z
+            .object({ text: z.string().max(500), url: z.string().url().optional() })
+            .nullable()
+            .optional(),
         })
         .optional(),
       bulk: z

@@ -28,7 +28,7 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `edit_video`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
-| `exports:read` | Read export status and files. | `export_targets`, `suggest_shorts`, `suggest_repurpose`, `list_exports` |
+| `exports:read` | Read export status and files. | `export_targets`, `get_provenance`, `suggest_shorts`, `suggest_repurpose`, `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
@@ -151,6 +151,7 @@ requests) need no scope.
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
 | [`edit_video`](#edit_video) | sensitive-write | `generations:run` |
 | [`export_targets`](#export_targets) | read | `exports:read` |
+| [`get_provenance`](#get_provenance) | read | `exports:read` |
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
 | [`suggest_repurpose`](#suggest_repurpose) | read | `exports:read` |
 | [`write_social_copy`](#write_social_copy) | spend | `generations:run` `projects:write` |
@@ -10263,7 +10264,7 @@ The project's stored images and files, as the app's Assets and Trash pages show 
 
 ### asset_library
 
-The asset library. search: the project's files with their tags, collections and favourite mark, filtered by q (name, type or tag), type, tag, collection, favourite, characterId / locationId / propId (its reference images and the panels it is drawn in), source (generated, uploaded, derived), model, from / to (dates); view unused (images nothing uses) or duplicates (the same file stored twice). get: one asset with where it came from (job, model, template, upload name, tool) and what uses it. similar: images that look like it, scored 0–1 (no AI). mark: set an asset's tags, collections or favourite. bulk: tag, untag, collect, uncollect, favourite, unfavourite, trash or restore many (trash may need approval).
+The asset library. search: the project's files with their tags, collections and favourite mark, filtered by q (name, type or tag), type, tag, collection, favourite, characterId / locationId / propId (its reference images and the panels it is drawn in), source (generated, uploaded, derived), model, from / to (dates); view unused (images nothing uses) or duplicates (the same file stored twice). get: one asset with where it came from (job, model, template, upload name, tool) and what uses it. similar: images that look like it, scored 0–1 (no AI). mark: set an asset's tags, collections, favourite or licence note (shown in provenance records). bulk: tag, untag, collect, uncollect, favourite, unfavourite, trash or restore many (trash may need approval).
 
 - **Scopes:** `projects:read` — per action, see description
 - **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
@@ -10392,6 +10393,29 @@ The asset library. search: the project's files with their tags, collections and 
         },
         "favourite": {
           "type": "boolean"
+        },
+        "licence": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -13135,6 +13159,10 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
       "type": "string",
       "maxLength": 40
     },
+    "provenance": {
+      "default": false,
+      "type": "boolean"
+    },
     "acknowledgeIssues": {
       "default": false,
       "type": "boolean"
@@ -13556,6 +13584,64 @@ Platform presets for exports (YouTube, Shorts, TikTok, Reels, Instagram carousel
   },
   "required": [
     "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_provenance
+
+Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.
+
+- **Scopes:** `exports:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/provenance`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "format": {
+      "default": "json",
+      "type": "string",
+      "enum": [
+        "json",
+        "md"
+      ]
+    }
+  },
+  "required": [
+    "projectId"
   ]
 }
 ```

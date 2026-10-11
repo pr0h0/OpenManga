@@ -53,7 +53,7 @@ type Detail = {
     tool: string | null;
   };
   usedBy: { kind: string; label: string; panelId: string | null }[];
-  marks: { tags: string[]; collections: string[]; favourite: boolean };
+  marks: { tags: string[]; collections: string[]; favourite: boolean; licence: { text: string; url?: string } | null };
 };
 const SOURCE: Record<Detail["source"]["kind"], string> = {
   generated: "Generated",
@@ -592,6 +592,11 @@ function AssetDetail({
                   placeholder="Add a tag"
                 />
               </Field>
+              <LicenceField
+                key={JSON.stringify(q.data.marks.licence)}
+                value={q.data.marks.licence}
+                onSave={(licence) => saveMarks.mutate({ licence })}
+              />
               <Field label="Collections">
                 <TagInput
                   value={q.data.marks.collections}
@@ -679,5 +684,46 @@ function AssetDetail({
         The file and all derivatives are removed from storage. This cannot be undone.
       </ConfirmDialog>
     </Modal>
+  );
+}
+
+/** Where a file comes from and on what terms (an upload's licence), shown in provenance records. */
+function LicenceField({
+  value,
+  onSave,
+}: {
+  value: { text: string; url?: string } | null;
+  onSave: (v: { text: string; url?: string } | null) => void;
+}) {
+  const [text, setText] = useState(value?.text ?? "");
+  const [url, setUrl] = useState(value?.url ?? "");
+  const changed = text !== (value?.text ?? "") || url !== (value?.url ?? "");
+  return (
+    <Field label="Licence and source" hint="Recorded in provenance records, e.g. “CC BY 4.0, photo by …”.">
+      <div className="flex flex-wrap gap-1">
+        <input
+          className="input min-w-0 flex-1"
+          aria-label="Licence"
+          maxLength={500}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <input
+          className="input min-w-0 flex-1"
+          aria-label="Licence link"
+          placeholder="https://…"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={!changed}
+          onClick={() => onSave(text.trim() ? { text: text.trim(), ...(url.trim() ? { url: url.trim() } : {}) } : null)}
+        >
+          Save
+        </button>
+      </div>
+    </Field>
   );
 }

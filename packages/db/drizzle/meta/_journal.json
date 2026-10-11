@@ -351,6 +351,13 @@
       "when": 1791744286024,
       "tag": "0049_asset_marks",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791746515039,
+      "tag": "0050_asset_licence",
+      "breakpoints": true
     }
   ]
 }

@@ -201,6 +201,8 @@ export const assetMarks = pgTable(
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
     collections: jsonb("collections").$type<string[]>().notNull().default([]),
     favourite: boolean("favourite").notNull().default(false),
+    /** Where the file comes from and on what terms (an upload's licence), for provenance records. */
+    licence: jsonb("licence").$type<{ text: string; url?: string }>(),
     updatedAt: updatedAt(),
   },
   (t) => [index("asset_marks_project_idx").on(t.projectId)],

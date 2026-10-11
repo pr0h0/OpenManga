@@ -184,6 +184,7 @@ slot).
   outer ring.
 - `asset_marks` — how the asset library files an asset (migration `0049_asset_marks`): `tags` and `collections`
   (string arrays) and `favourite`, per asset (cascade); copied with the files when a project is duplicated.
+  `licence` `{text, url}` (`0050_asset_licence`): where a file comes from and on what terms, for provenance records.
 - `board_items` — the project's reference board (migration `0043_board_items`): project, `asset_id` (cascade), `note`,
   `order`, author. Using an item as a reference stores a copy of the image as that reference's own asset; as a layout
   guide the panel points at the board image itself.

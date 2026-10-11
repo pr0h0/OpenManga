@@ -238,6 +238,18 @@ where it came from (`source`: the job, provider, model and template, an upload's
 it (`usedBy`). `GET /api/assets/:id/similar` scores the project's newest 600 images against it with the
 near-duplicate finder's features (`asset_features`, made on demand), no AI. MCP `asset_library`.
 
+## Provenance
+
+`buildProvenance` (`packages/services/src/provenance.ts`) records where an output comes from, for a chapter, some
+pages or the project: the app build, the newest story revision, every panel's active artwork with how it was made
+(the job, provider, model, template and version, the SHA-256 of the compiled prompt, the prompt-lab rules in force —
+or the upload, the edit or the tool), the references the panels' cast, places and props draw on (generated or
+uploaded, with the licence noted on the file in the asset library), the narration voices that play, the text work
+behind the plan and narration (templates, models, job counts), the lettering fonts and their licences, and notes.
+`GET /api/projects/:id/provenance?chapterId=&format=json|md` returns it, MCP `get_provenance` too, and an export with
+`provenance: true` ships it next to its files as `…_provenance.json` and `…_provenance.md`. Content Credentials
+(C2PA) are not embedded.
+
 ## Deletion
 
 Projects and important assets go to trash first (`deleted_at`); permanent deletion requires that trashing step and

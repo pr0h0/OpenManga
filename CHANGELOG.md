@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Provenance records (Exports → *Include a provenance record*): an export can ship a record of what made it — the app
+  version, story revision, each panel's job, provider, model, template version, prompt hash and prompt-lab rules (or
+  the upload or tool), the references its cast, places and props draw on, narration voices, lettering fonts with
+  their licences — as JSON and a readable page. Files in the asset library take a licence note (where the file comes
+  from and on what terms), which the record carries. Also `GET /api/projects/:id/provenance` and MCP
+  `get_provenance`. Migration `0050_asset_licence`.
 - Workers by capability: each worker detects what it can do (ffmpeg, the narration voice) and is told the rest with
   `WORKER_CAPABILITIES` (`gpu`, `comfyui`, or `-ffmpeg` to keep a small machine off renders); it takes only the
   queues it can serve, so a job waits for a worker that can run it. Workers check in every 30 s, and Admin →
