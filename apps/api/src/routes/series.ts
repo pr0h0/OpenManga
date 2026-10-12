@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   and,
   asc,
@@ -7,6 +8,7 @@ import {
   eq,
   isNull,
   locations,
+  ne,
   projects,
   props,
   series,
@@ -193,17 +195,41 @@ const PatchSeries = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(5000).optional(),
   channelProfileId: z.string().uuid().nullable().optional(),
+  /** The reader page at /s/:slug: off, unlisted (link only, not indexed) or public. */
+  visibility: z.enum(["off", "unlisted", "public"]).optional(),
+  /** The page's address; made up when the page is turned on without one. */
+  publicSlug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9-]{2,59}$/, "3–60 letters, digits and dashes")
+    .optional(),
 });
 doc({
   method: "PATCH",
   path: "/api/series/:id",
-  summary: "Rename a series or change its channel profile",
+  summary:
+    "Rename a series, change its channel profile, or turn its reader page (/s/:slug) off, unlisted or public. Only chapters given a publish date (PATCH /api/chapters/:id publishAt) that has come are readable there.",
   tag: "series",
   body: PatchSeries,
 });
 seriesRoutes.patch("/series/:id", async (c) => {
   const s = await ownSeries(c, uuidParam(c, "id"));
   const input = await body(c, PatchSeries);
+  // An unguessable address for a page turned on without one: an unlisted page is private by its link.
+  if (input.visibility && input.visibility !== "off" && !input.publicSlug && !s.publicSlug)
+    input.publicSlug = randomBytes(9)
+      .toString("base64url")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "x");
+  const [taken] = input.publicSlug
+    ? await c
+        .get("deps")
+        .db.select({ id: series.id })
+        .from(series)
+        .where(and(eq(series.publicSlug, input.publicSlug), ne(series.id, s.id)))
+    : [];
+  if (taken) throw conflict("That address is taken");
   const [row] = await c.get("deps").db.update(series).set(input).where(eq(series.id, s.id)).returning();
   return c.json({ series: row });
 });

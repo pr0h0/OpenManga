@@ -26,6 +26,7 @@ versions stay in the array so old jobs remain reproducible.
 | `story-analysis` | 1, 2, 3 | 3 | `apps/api/src/routes/stories.ts`, `apps/worker/src/handlers/text.ts` |
 | `page-planning` | 1–7 | 7 | `apps/api/src/routes/chapters.ts`, `apps/worker/src/handlers/text.ts` (the single call a batched plan makes) |
 | `shot-planning` | 1–4 | 4 | same two files, for `format: "film"` projects |
+| `vertical-shot-planning`, `vertical-shot-outline`, `vertical-scene-shots` | 1 | 1 | the same, for film projects with `filmFrame: "9:16"` (`shot-planning` v4 composing for a tall frame; `planningTemplates` picks the set for a project) |
 | `strip-planning` | 1–3 | 3 | same two files, for `format: "vertical"` projects |
 | `chapter-outline`, `shot-outline`, `strip-outline` | 1–3 | 3 | `apps/worker/src/handlers/text.ts` (split planning, pass 1) |
 | `scene-pages`, `scene-shots`, `scene-strip` | 1–3 | 3 | `apps/worker/src/handlers/text.ts` (split planning, pass 2) |
@@ -40,11 +41,14 @@ versions stay in the array so old jobs remain reproducible.
 | `expert-chat` | 1, 2 | 2 | `apps/api/src/lib/experts.ts` (expert chat replies) |
 | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` | 1 | 1 | `apps/api/src/routes/experts.ts`, `apps/worker/src/handlers/expert-extract.ts` (expert output actions, defined in `packages/prompts/src/expert-actions.ts`) |
 | `bible-extract` | 1 | 1 | `apps/api/src/routes/bible.ts`, `apps/worker/src/handlers/text.ts` (proposes story bible facts and character states, schema `BibleExtraction`) |
+| `video-edit` | 1 | 1 | `apps/api/src/routes/video-edits.ts`, `apps/worker/src/handlers/text.ts` (an instruction about the video as timeline edits for review, schema `VideoEditPlan`) |
+| `lettering-translate` | 1 | 1 | `apps/api/src/routes/lettering-translations.ts`, `apps/worker/src/handlers/text.ts` (a chapter's bubbles and captions in another language, schema `LetteringTranslation`) |
+| `timeline-extract` | 1 | 1 | `apps/api/src/routes/timeline.ts`, `apps/worker/src/handlers/text.ts` (proposes the story timeline in story-time order, schema `TimelineExtraction`) |
 | `continuity-check` | 1 | 1 | `apps/api/src/routes/continuity.ts`, `apps/worker/src/handlers/continuity.ts` (contradictions in one chapter and a verdict per fixed rule, schema `ContinuityReport`) |
 | `json-repair` | 1 | 1 | `apps/worker/src/handlers/text.ts` (the single repair attempt) |
 
-Image templates keep one registered version each: `character-reference` v5, `location-reference` v5, `prop-reference`
-v5, `style-reference` v5, `panel-generation` **v12**, `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
+Image templates keep one registered version each: `character-reference` v5, `location-reference` v6, `prop-reference`
+v5, `style-reference` v5, `panel-generation` **v15**, `coverage-sheet` v1 (the panel prompt's sections as a 3x3 grid of nine camera setups, without its own camera), `panel-edit` v4, `cover` v4, `thumbnail` v1 (16:9 video
 thumbnail art, no text, one side kept clear for the headline). (The exported constants are still
 named `characterReferenceV1`, `panelGenerationV1`, … — the constant name is not the version.) Location and prop
 references take a `kind` (panorama, sheet, multi-angle; see `docs/IMAGE_REFERENCES.md`), and every reference job
@@ -117,7 +121,7 @@ system-message line telling the model that anything inside those tags is end-use
 instruction. Output still has to satisfy the Zod schema whatever the story says — see `docs/AI_PIPELINE.md` for the
 extract → validate → one repair → fail sequence.
 
-## Panel prompt sections (`panel-generation` v12)
+## Panel prompt sections (`panel-generation` v15)
 
 `compile()` emits these in order, dropping any section with no content:
 
@@ -145,7 +149,8 @@ extract → validate → one repair → fail sequence.
    `STORY CANON (must hold)` (v12) when the story bible has visible entries in effect for who and what is in the
    panel.
 8. `WARDROBE`, then `ACTION`, `EXPRESSION`, `CAMERA`, `COMPOSITION`.
-9. `LOCATION`, `PROPS`, `LIGHTING`, `CONTINUITY`.
+9. `LOCATION`, `PROPS`, `LIGHTING`, `CONTINUITY`. In a scene that shows one of the place's states (v13), an `As it is now (<state>):` line
+   gives what differs, and the reference note names the state when its own reference is sent instead of the design.
 10. `DIALOGUE NEGATIVE SPACE` — "leave visual space for dialogue but do not draw dialogue or speech bubbles"; skipped
     when the caller sets `reserveTextSpace: false` or the project is film.
 11. `STRICT EXCLUSIONS` — no text, captions, bubbles, lettering, watermark or logo; do not change identity, hair, eye
@@ -156,6 +161,15 @@ extract → validate → one repair → fail sequence.
 
 Descriptive sections prefer the text draft written by the `page_prompts` job (`panels.prompt_draft`) and fall back to
 the structured `PanelSpec`, so a panel can always be generated without a text call first.
+
+v14: a panel spec's `direction` (directing controls set on the Panel tab) adds each figure's staging to its
+`CHARACTERS` line (side shown, facing, eye-line, depth, what they hold), the camera height, lens feel, depth of field
+and shot purpose to `CAMERA`, and the focus subject first in `COMPOSITION`. A figure whose character is not in the
+panel is left out. Empty fields add nothing.
+
+v15: a film frame taller than wide (a `filmFrame: "9:16"` project) opens as a vertical 9:16 film frame for a narrated
+video watched on a phone held upright, composed top to bottom with the focal subject in the middle third; a 16:9
+frame's opening line is unchanged.
 
 ## Regeneration and user overrides
 
@@ -180,3 +194,15 @@ job, not a registered template.
 `prompt_hash` (compiled prompt), `references_hash` (roles plus asset and variant ids) and `options_hash`
 (provider/model/parameters) are stored per job for debugging and for grouping experiments. Matching hashes never cause
 output to be reused automatically — every run produces a new asset.
+
+## Prompt lab (project overrides)
+
+A project can rewrite the rules of its built-in prompts (project → *Prompt lab*, `prompt_overrides`): chapter
+planning (outline and scene passes for its format), `panel-prompts` and `narration`, plus rules appended to every
+panel image prompt (`PROJECT RULES:` after the template's sections). For a text template only the rules between its
+header and the data rule change (`splitSystem` / `overrideSystem` in `packages/prompts/src/overrides.ts`): the
+`[template:name-vN]` header, the rule that story content is data and the answer format are always the built-in ones,
+so the answer contract and the injection guard hold. The worker applies the active version when it sends a text
+request (the header names the template) and records it in the job's `parameters.promptOverrides`; panel generation
+does the same. Each save is a version; any version, or the built-in, can be made active again. The preview shows the
+compiled system prompt (or up to 3 panels' prompts) and a line diff against the built-in.

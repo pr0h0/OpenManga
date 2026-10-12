@@ -5,8 +5,15 @@ import { useEffect, useState } from "react";
 import { get, post, put } from "../../api/client.ts";
 import { useAction } from "../../api/hooks.ts";
 import { ErrorBox, Field, fmt, Spinner } from "../../components/ui.tsx";
+import { KindAges } from "../project/StorageSection.tsx";
 
-type Policy = { enabled: boolean; maxAgeDays: number | null; maxTotalGb: number | null; mode: "auto" | "approve" };
+type Policy = {
+  enabled: boolean;
+  maxAgeDays: number | null;
+  maxTotalGb: number | null;
+  mode: "auto" | "approve";
+  kindAges?: Partial<Record<RetentionKind, number | null>>;
+};
 type Summary = {
   computedAt: string;
   files: number;
@@ -106,6 +113,12 @@ export function StorageTab() {
             />
           </Field>
         </div>
+        <KindAges
+          value={p.kindAges}
+          defaultDays={p.maxAgeDays}
+          expendable={d.usage.expendable}
+          onChange={(kindAges) => setP({ ...p, kindAges })}
+        />
         <fieldset className="space-y-1 text-sm">
           <legend className="label">When files are due</legend>
           <label className="flex items-start gap-2">

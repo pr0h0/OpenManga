@@ -1,8 +1,29 @@
-import { and, asc, chapters, eq, generationJobs, inArray, pages, panels, scenes, sql, storyBeats } from "@openmanga/db";
+import {
+  and,
+  asc,
+  chapters,
+  type DbOrTx,
+  eq,
+  generationJobs,
+  inArray,
+  locationStates,
+  pages,
+  panels,
+  scenes,
+  sql,
+  storyBeats,
+} from "@openmanga/db";
 import { chaptersForRuntime, PRIORITY, type RuntimeTarget, runtimeBudget } from "@openmanga/domain";
-import { chapterPlanningV7, shotPlanningV4, stripPlanningV3 } from "@openmanga/prompts";
+import { planningTemplates } from "@openmanga/prompts";
 import { asPatch } from "@openmanga/schemas";
-import { recordAudit, recordNarrationFingerprint, recordPlanFingerprint, shotVariety } from "@openmanga/services";
+import {
+  chapterTrace,
+  recordAudit,
+  recordNarrationFingerprint,
+  recordPlanFingerprint,
+  shotVariety,
+  traceChapter,
+} from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -166,6 +187,8 @@ export const PatchChapter = z.object({
   revealedFacts: z.array(z.string().max(1000)).max(100).optional(),
   order: z.number().int().min(1).optional(),
   planStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),
+  /** On the series' reader page from this moment (a future one shows as scheduled); null takes it off. */
+  publishAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 doc({
   method: "PATCH",
@@ -177,8 +200,13 @@ doc({
 chapterRoutes.patch("/chapters/:id", async (c) => {
   const id = uuidParam(c, "id");
   await entityAccess(c, "chapter", id, "write");
-  const input = await body(c, PatchChapter);
-  const [row] = await c.get("deps").db.update(chapters).set(input).where(eq(chapters.id, id)).returning();
+  const { publishAt, ...input } = await body(c, PatchChapter);
+  const [row] = await c
+    .get("deps")
+    .db.update(chapters)
+    .set({ ...input, ...(publishAt !== undefined ? { publishAt: publishAt ? new Date(publishAt) : null } : {}) })
+    .where(eq(chapters.id, id))
+    .returning();
   return c.json({ chapter: row });
 });
 
@@ -362,18 +390,8 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
         targetType: "chapter",
         targetId: id,
         batchId,
-        templateName:
-          p.settings.format === "film"
-            ? shotPlanningV4.name
-            : p.settings.format === "vertical"
-              ? stripPlanningV3.name
-              : chapterPlanningV7.name,
-        templateVersion:
-          p.settings.format === "film"
-            ? shotPlanningV4.version
-            : p.settings.format === "vertical"
-              ? stripPlanningV3.version
-              : chapterPlanningV7.version,
+        templateName: planningTemplates(p.settings).plan.name,
+        templateVersion: planningTemplates(p.settings).plan.version,
         provider: run.provider,
         model: run.model,
         parameters: { ...run.parameters, ...batchParameters(input.batch) },
@@ -387,12 +405,42 @@ chapterRoutes.post("/chapters/:id/plan", async (c) => {
   return c.json({ job }, 202);
 });
 
+doc({
+  method: "GET",
+  path: "/api/chapters/:id/source",
+  summary:
+    "Where the chapter's panels, scenes and narration lines come from in its text: the text the plan reads, each panel's character span (start/end) in it, each scene's (from its panels), the narration lines by panel, and where the chapter sits in the newest story revision. A panel whose text was revised after planning is `changed`, with `was` the text it was planned from. Traced without AI.",
+  tag: "chapters",
+});
+chapterRoutes.get("/chapters/:id/source", async (c) => {
+  const id = uuidParam(c, "id");
+  const p = await entityAccess(c, "chapter", id, "read");
+  const trace = await chapterTrace(c.get("deps").db, id, p.language);
+  if (!trace) throw notFound("Chapter");
+  return c.json(trace);
+});
+
+doc({
+  method: "POST",
+  path: "/api/chapters/:id/source/trace",
+  summary:
+    "Trace the chapter's panels to its current text again (after editing panels' beats or dialogue by hand). Clears `changed`: to keep a plan made from older text, this is what POST /api/chapters/:id/keep { stage: plan } does too.",
+  tag: "chapters",
+});
+chapterRoutes.post("/chapters/:id/source/trace", async (c) => {
+  const id = uuidParam(c, "id");
+  const p = await entityAccess(c, "chapter", id, "write");
+  const { db } = c.get("deps");
+  await traceChapter(db, id);
+  return c.json((await chapterTrace(db, id, p.language))!);
+});
+
 const KeepInput = z.object({ stage: z.enum(["plan", "narration"]) });
 doc({
   method: "POST",
   path: "/api/chapters/:id/keep",
   summary:
-    "Keep a chapter's plan (stage=plan) or narration (stage=narration) as it is although what it was made from changed: records the current source fingerprint, so it is no longer out of date. Re-planning instead is POST /api/chapters/:id/plan { replace: true }, and rewriting narration POST /api/chapters/:id/narration/generate { replace: true }.",
+    "Keep a chapter's plan (stage=plan) or narration (stage=narration) as it is although what it was made from changed: records the current source fingerprint, so it is no longer out of date (keeping a plan also traces its panels to the current text). Re-planning instead is POST /api/chapters/:id/plan { replace: true }, and rewriting narration POST /api/chapters/:id/narration/generate { replace: true }.",
   tag: "chapters",
   body: KeepInput,
 });
@@ -401,7 +449,10 @@ chapterRoutes.post("/chapters/:id/keep", async (c) => {
   const p = await entityAccess(c, "chapter", id, "write");
   const { stage } = await body(c, KeepInput);
   const { db } = c.get("deps");
-  await (stage === "plan" ? recordPlanFingerprint(db, id) : recordNarrationFingerprint(db, id));
+  if (stage === "plan") {
+    await recordPlanFingerprint(db, id);
+    await traceChapter(db, id);
+  } else await recordNarrationFingerprint(db, id);
   await recordAudit(db, {
     userId: user(c).id,
     projectId: p.id,
@@ -414,10 +465,22 @@ chapterRoutes.post("/chapters/:id/keep", async (c) => {
   return c.json({ ok: true });
 });
 
+/** A scene's state pick must be a state of this project's places. */
+async function checkLocationState(db: DbOrTx, projectId: string, stateId: string | null | undefined) {
+  if (!stateId) return;
+  const [s] = await db
+    .select({ id: locationStates.id })
+    .from(locationStates)
+    .where(and(eq(locationStates.id, stateId), eq(locationStates.projectId, projectId)));
+  if (!s) throw badRequest("That location state is not in this project");
+}
+
 export const SceneInput = z.object({
   title: z.string().trim().min(1).max(200),
   summary: z.string().max(10_000).default(""),
   locationId: z.string().uuid().nullable().default(null),
+  /** The place's state this scene shows; null picks it by time, weather and chapter (see location states). */
+  locationStateId: z.string().uuid().nullable().default(null),
   time: z.string().max(200).default(""),
   weather: z.string().max(200).default(""),
   characterIds: z.array(z.string().uuid()).max(50).default([]),
@@ -437,6 +500,7 @@ chapterRoutes.post("/chapters/:id/scenes", async (c) => {
   const p = await entityAccess(c, "chapter", id, "write");
   const input = await body(c, SceneInput);
   const { db } = c.get("deps");
+  await checkLocationState(db, p.id, input.locationStateId);
   const [max] = await db
     .select({ n: sql<number>`coalesce(max(${scenes.order}),0)::int` })
     .from(scenes)
@@ -456,8 +520,9 @@ doc({
 });
 chapterRoutes.patch("/scenes/:id", async (c) => {
   const id = uuidParam(c, "id");
-  await entityAccess(c, "scene", id, "write");
+  const p = await entityAccess(c, "scene", id, "write");
   const input = await body(c, asPatch(SceneInput));
+  await checkLocationState(c.get("deps").db, p.id, input.locationStateId);
   const [row] = await c.get("deps").db.update(scenes).set(input).where(eq(scenes.id, id)).returning();
   return c.json({ scene: row });
 });

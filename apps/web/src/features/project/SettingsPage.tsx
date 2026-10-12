@@ -19,13 +19,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { qk, useAction, useMeta } from "../../api/hooks.ts";
-import type { TtsStatus } from "../../api/types.ts";
+import type { ChapterListItem, TtsStatus } from "../../api/types.ts";
 import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { EdgePicker } from "../pages/EdgePicker.tsx";
 import { LayoutLibrary } from "../pages/LayoutLibrary.tsx";
 import { useProject, useProjectId } from "./ProjectLayout.tsx";
 import { PronunciationSection } from "./PronunciationSection.tsx";
+import { StorageSection } from "./StorageSection.tsx";
 import { PublishingSection, VideoSection } from "./VideoSettings.tsx";
 
 type Form = {
@@ -44,6 +45,11 @@ export function SettingsPage() {
   const qc = useQueryClient();
   const meta = useMeta();
   const navigate = useNavigate();
+  const chapters = useQuery({
+    queryKey: qk.chapters(projectId),
+    queryFn: () => get<{ chapters: ChapterListItem[] }>(`/projects/${projectId}/chapters`),
+    select: (r) => r.chapters,
+  });
   const tts = useQuery({ queryKey: ["tts-status"], queryFn: () => get<TtsStatus>("/tts/status"), staleTime: 60_000 });
   const [form, setForm] = useState<Form | null>(null);
   const [confirm, setConfirm] = useState<null | "archive" | "trash">(null);
@@ -65,7 +71,9 @@ export function SettingsPage() {
     form,
     async (v) => {
       if (!v) return;
-      await patch(`/projects/${projectId}`, v);
+      // The storage policy has its own save (and owner check); a stale copy here must not overwrite it.
+      const { storage: _storage, ...settings } = v.settings;
+      await patch(`/projects/${projectId}`, { ...v, settings });
       await qc.invalidateQueries({ queryKey: qk.project(projectId) });
     },
     { enabled: Boolean(form) },
@@ -151,10 +159,23 @@ export function SettingsPage() {
             {s.format === "film" ? "Shots & generation" : "Pages & generation"}
           </h2>
           {s.format === "film" ? (
-            <p className="muted text-sm sm:col-span-3">
-              Narrated video project: every page is one full-frame 16:9 shot (1920×1080, no margins), planned as a shot
-              list and exported as a Ken Burns video. The format can't change once pages exist.
-            </p>
+            <>
+              <p className="muted text-sm sm:col-span-2">
+                Narrated video project: every page is one full-frame shot (no margins), planned as a shot list and
+                exported as a Ken Burns video. A vertical project plans and draws every shot tall for Shorts and phones,
+                and renders vertical without cropping. Neither can change once pages exist.
+              </p>
+              <Field label="Shot frame">
+                <select
+                  className="input"
+                  value={s.filmFrame ?? "16:9"}
+                  onChange={(e) => setS("filmFrame", e.target.value as "16:9" | "9:16")}
+                >
+                  <option value="16:9">16:9 widescreen (1920×1080)</option>
+                  <option value="9:16">9:16 vertical (1080×1920)</option>
+                </select>
+              </Field>
+            </>
           ) : (
             <>
               <Field label="Default page width (px)">{num("pageWidth", 256, 8000)}</Field>
@@ -314,9 +335,12 @@ export function SettingsPage() {
         <VideoSection
           logoUpload={`/projects/${projectId}/video-logo`}
           projectTitle={form.title}
+          chapters={chapters.data}
           value={s.video}
           onChange={(v) => setS("video", v)}
         />
+
+        <StorageSection projectId={projectId} owner={owner} />
 
         <PublishingSection value={s} onChange={(v) => setForm({ ...form, settings: { ...form.settings, ...v } })} />
 

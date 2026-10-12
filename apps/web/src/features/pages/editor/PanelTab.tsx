@@ -1,5 +1,14 @@
-import { CameraAngle, type EdgeStyle, type PanelGuide, PanelSpec, ShotType, ShotVideo } from "@openmanga/schemas";
+import {
+  CameraAngle,
+  type EdgeStyle,
+  type PanelGuide,
+  PanelSpec,
+  ShotType,
+  ShotVideo,
+  type StoredPanelSpec,
+} from "@openmanga/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowUp,
@@ -21,12 +30,18 @@ import { qk, useAction } from "../../../api/hooks.ts";
 import type { EditorPanel, LocationCard, PageDocument, PropCard } from "../../../api/types.ts";
 import { AssetImage, clsx, Field, Spinner, StatusChip, TagInput, toast } from "../../../components/ui.tsx";
 import { useAiBody } from "../../ai/AiPicker.tsx";
+import { BoardGuidePicker } from "../../board/BoardPicker.tsx";
 import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { EdgePicker } from "../EdgePicker.tsx";
+import { CompareModels } from "./CompareModels.tsx";
+import { CoverageSheet } from "./CoverageSheet.tsx";
 import { DescribePose } from "./DescribePose.tsx";
+import { Directing } from "./Directing.tsx";
+import { Effects } from "./Effects.tsx";
 import { GuideDrawer } from "./GuideDrawer.tsx";
+import { ImageTools } from "./ImageTools.tsx";
 import { OutfitPicker, type PanelOutfits } from "./OutfitPicker.tsx";
 import { useEditor } from "./store.ts";
 
@@ -247,7 +262,7 @@ export function PanelTab({
 }) {
   const projectId = useProjectId();
   const locked = panel.approvalStatus === "locked";
-  const [spec, setSpec] = useState<PanelSpec>(
+  const [spec, setSpec] = useState<StoredPanelSpec>(
     () => panel.spec ?? PanelSpec.parse({ beat: panel.storyBeat || "New panel" }),
   );
   useEffect(
@@ -374,6 +389,21 @@ export function PanelTab({
         </div>
       </div>
 
+      {panel.sourceSpan && (
+        <details className="rounded-lg border border-[var(--border)] p-2">
+          <summary className="cursor-pointer text-xs font-medium">From the story</summary>
+          <p className="muted mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs">{panel.sourceSpan.text}</p>
+          <Link
+            to="/projects/$projectId/chapters/$chapterId"
+            params={{ projectId, chapterId: data.page.chapterId }}
+            hash="source"
+            className="text-xs underline"
+          >
+            See it in the chapter
+          </Link>
+        </details>
+      )}
+
       <div className="flex gap-1">
         {panel.approvalStatus !== "approved" && !locked && (
           <button
@@ -423,6 +453,8 @@ export function PanelTab({
           </button>
         </div>
       )}
+
+      <AltText panelId={panel.id} pageId={data.page.id} value={panel.altText ?? null} />
 
       <fieldset disabled={locked} className="space-y-3">
         <Field label="Story beat">
@@ -687,6 +719,13 @@ export function PanelTab({
             </select>
           </Field>
         </div>
+        <Directing
+          value={spec.direction}
+          figures={data.cast
+            .filter((c) => attached.some((a) => a.characterId === c.id))
+            .map((c) => ({ id: c.id, name: c.name }))}
+          onChange={(direction) => setSpec((s) => ({ ...s, direction }))}
+        />
         <button
           type="button"
           className="btn-primary w-full"
@@ -696,6 +735,20 @@ export function PanelTab({
           Save panel spec
         </button>
       </fieldset>
+
+      <Effects key={panel.id} panelId={panel.id} value={panel.effects} locked={locked} invalidate={inv} />
+
+      <ImageTools
+        panelId={panel.id}
+        cast={data.cast.filter((c) => attached.some((a) => a.characterId === c.id)).map((c) => c.name)}
+        hasArt={Boolean(panel.activeArtworkAssetId)}
+        locked={locked}
+        invalidate={inv}
+      />
+
+      <CompareModels panelId={panel.id} locked={locked} invalidate={inv} />
+
+      <CoverageSheet panelId={panel.id} pageId={data.page.id} locked={locked} />
 
       <LayoutGuide
         panel={panel}
@@ -778,6 +831,10 @@ function LayoutGuide({
   const [uploading, setUploading] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const g = panel.guide;
+  const guideTool = useAction((tool: "clean" | "lineart") => post(`/panels/${panel.id}/guide/tools`, { tool }), {
+    invalidate,
+    success: "Layout guide tidied",
+  });
   const setGuide = useAction((guide: PanelGuide | null) => patch(`/panels/${panel.id}`, { guide }), {
     invalidate,
     success: "Layout guide saved",
@@ -843,6 +900,34 @@ function LayoutGuide({
           >
             <PencilLine className="size-3.5" /> {g ? "Edit drawing" : "Draw guide"}
           </button>
+          {g && (
+            <>
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                disabled={uploading || locked || guideTool.isPending}
+                title="Grey paper and smudges to white, strokes to solid black"
+                onClick={() => guideTool.mutate("clean")}
+              >
+                Clean up
+              </button>
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                disabled={uploading || locked || guideTool.isPending}
+                title="Keep only the lines of the picture"
+                onClick={() => guideTool.mutate("lineart")}
+              >
+                Line art
+              </button>
+            </>
+          )}
+          <BoardGuidePicker
+            panelId={panel.id}
+            strength={g?.strength ?? "loose"}
+            disabled={uploading || locked}
+            invalidate={invalidate}
+          />
           {g && (
             <button
               type="button"
@@ -1084,5 +1169,54 @@ function QaBadge({ panelId, qa, hasArt }: { panelId: string; qa: Qa | null; hasA
         <RefreshCw className={check.isPending ? "size-3.5 animate-spin" : "size-3.5"} />
       </button>
     </span>
+  );
+}
+
+/**
+ * What the panel shows, for readers who cannot see it (EPUB, readers). Left empty, it is made from the story beat,
+ * the dialogue and the sound effects; editable even on a locked panel.
+ */
+function AltText({ panelId, pageId, value }: { panelId: string; pageId: string; value: string | null }) {
+  const [text, setText] = useState(value ?? "");
+  const suggested = useQuery({
+    queryKey: ["alt-text", pageId],
+    queryFn: () => get<{ panels: { panelId: string; suggested: string }[] }>(`/pages/${pageId}/alt-text`),
+    select: (r) => r.panels.find((p) => p.panelId === panelId)?.suggested ?? "",
+  });
+  const save = useAction((altText: string | null) => patch(`/panels/${panelId}`, { altText }), {
+    invalidate: [["alt-text", pageId]],
+    success: "Alt text saved",
+  });
+  const changed = text.trim() !== (value ?? "");
+  return (
+    <details className="text-sm">
+      <summary className="cursor-pointer">Alt text{value ? "" : " (made from the beat and words)"}</summary>
+      <div className="mt-1 space-y-1">
+        <textarea
+          className="input"
+          rows={3}
+          maxLength={2000}
+          aria-label="Alt text"
+          placeholder={suggested.data || "What the panel shows"}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            className="btn-secondary py-1 text-xs"
+            disabled={!changed || save.isPending}
+            onClick={() => save.mutate(text.trim() || null)}
+          >
+            Save alt text
+          </button>
+          {suggested.data && !text && (
+            <button type="button" className="btn-ghost py-1 text-xs" onClick={() => setText(suggested.data!)}>
+              Start from the suggestion
+            </button>
+          )}
+        </div>
+      </div>
+    </details>
   );
 }

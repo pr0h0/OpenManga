@@ -152,6 +152,14 @@ export type LetteringDefaults = z.infer<typeof LetteringDefaults>;
 export const ProjectFormat = z.enum(["comic", "film", "vertical"]);
 export type ProjectFormat = z.infer<typeof ProjectFormat>;
 export const FILM_PAGE = { pageWidth: 1920, pageHeight: 1080, pageMargin: 0, pageGutter: 0 } as const;
+/** A film project's shot shape: widescreen, or vertical 9:16 for Shorts-first stories planned and drawn tall. */
+export const FilmFrame = z.enum(["16:9", "9:16"]);
+export type FilmFrame = z.infer<typeof FilmFrame>;
+export const FILM_VERTICAL_PAGE = { pageWidth: 1080, pageHeight: 1920, pageMargin: 0, pageGutter: 0 } as const;
+export const filmPage = (frame: FilmFrame | undefined) => (frame === "9:16" ? FILM_VERTICAL_PAGE : FILM_PAGE);
+/** A film project of vertical 9:16 shots. */
+export const isVerticalFilm = (s: { format?: string; filmFrame?: FilmFrame }) =>
+  s.format === "film" && s.filmFrame === "9:16";
 /**
  * 2:3 per panel, which is the aspect every image provider offers exactly, so a strip panel is generated at its
  * real shape instead of being stretched into it. Panel height is varied per page (pages carry their own height),
@@ -206,6 +214,17 @@ export const VideoWatermark = z.object({
 export type VideoWatermark = z.infer<typeof VideoWatermark>;
 
 /** A title card before or after a video, composited from the project's art and lettering font. */
+/** One alternative opening for a video: its narration (about 15–30 s spoken) over 1–6 chosen panels. */
+export const VideoHook = z.object({
+  id: z.string().uuid(),
+  label: z.string().trim().min(1).max(60),
+  text: z.string().trim().min(1).max(600),
+  panelIds: z.array(z.string().uuid()).min(1).max(6),
+  title: z.string().trim().max(100).default(""),
+  thumbnailHeadline: z.string().trim().max(60).default(""),
+});
+export type VideoHook = z.infer<typeof VideoHook>;
+
 export const VideoCard = z.object({
   title: z.string().max(120).default(""),
   subtitle: z.string().max(200).default(""),
@@ -247,6 +266,28 @@ export type ShotVideo = z.infer<typeof ShotVideo>;
  * as a reference image for layout only: the prompt tells the model to take its composition, framing and poses and
  * to ignore its drawing style. `strict` follows it closely; `loose` lets the panel description win where they differ.
  */
+/**
+ * Comic effects drawn over a panel's art, deterministically (no AI, no cost): speed and focus lines, an impact flash,
+ * screentone, rain, snow, dust, a glow and a flashback tint. `x`/`y` place a centre (0..1 of the panel), `angle` is
+ * in degrees, `density` and `strength` are 0..1, `size` scales the effect.
+ */
+export const EFFECT_TYPES = ["speed", "focus", "impact", "tone", "rain", "snow", "dust", "glow", "flashback"] as const;
+export const PanelEffect = z.object({
+  type: z.enum(EFFECT_TYPES),
+  x: unit.default(0.5),
+  y: unit.default(0.5),
+  angle: z.number().min(-360).max(360).default(0),
+  density: unit.default(0.5),
+  strength: unit.default(0.8),
+  size: z.number().min(0.05).max(1).default(0.35),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .default("#000000"),
+});
+export type PanelEffect = z.infer<typeof PanelEffect>;
+export const PanelEffects = z.array(PanelEffect).max(6);
+
 export const PanelGuide = z.object({
   assetId: z.string().uuid(),
   strength: z.enum(["loose", "strict"]).default("loose"),
@@ -403,8 +444,30 @@ export const CustomLayout = z.object({
 });
 export type CustomLayout = z.infer<typeof CustomLayout>;
 
+/**
+ * A project's own storage policy, set by its owner: expendable files (cached video sections, exports, older panel
+ * versions, unused narration takes, trash, prompt reference copies) older than `maxAgeDays` — or a kind's own age in
+ * `kindAges` — are deleted at each maintenance pass, then the oldest until the project is under `capGb`. While it is
+ * still over the cap, new AI work and exports are refused.
+ */
+export const ProjectStorage = z.object({
+  enabled: z.boolean().default(false),
+  maxAgeDays: z.number().int().min(1).max(3650).nullable().default(null),
+  kindAges: z
+    .partialRecord(
+      z.enum(["render_cache", "export", "panel_version", "audio_take", "trash", "prompt_reference"]),
+      z.number().int().min(1).max(3650).nullable(),
+    )
+    .optional(),
+  capGb: z.number().positive().max(100_000).nullable().default(null),
+});
+export type ProjectStorage = z.infer<typeof ProjectStorage>;
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
+  storage: ProjectStorage.optional(),
+  /** Film projects: the shape every shot is planned, drawn and rendered at. Fixed once pages exist. */
+  filmFrame: FilmFrame.optional(),
   pageWidth: z.number().int().min(256).max(8000).default(1600),
   pageHeight: z.number().int().min(256).max(20000).default(2400),
   pageGutter: z.number().min(0).max(0.1).default(0.015),
@@ -525,6 +588,17 @@ export const ProjectSettings = z.object({
       watermark: VideoWatermark.nullable().optional(),
       intro: VideoCard.nullable().optional(),
       outro: VideoCard.nullable().optional(),
+      /**
+       * Hook variants: alternative openings in front of the same film (panel cut). Each plays its panels first with its
+       * own narration spread over them, then the intro card and the film; `title` and `thumbnailHeadline` go with it
+       * for that version's upload. A render picks one with `video.hookId`.
+       */
+      hooks: z.array(VideoHook).max(10).optional(),
+      /** A title card before a chapter's first shot in whole-project videos, drawn like the intro card. */
+      chapterCards: z
+        .array(VideoCard.extend({ chapterId: z.string().uuid() }))
+        .max(200)
+        .optional(),
       /** What a video export renders at when its request does not say: frame shape, and the short side in pixels. */
       output: z
         .object({

@@ -289,6 +289,8 @@ and show in the preview:
 | --- | --- | --- |
 | `watermark` | `{assetId, corner, opacity (0.8), size (0.12)}` or null | A logo over every frame, cards included |
 | `intro`, `outro` | `{title, subtitle, durationMs (3000)}` or null | A title card before or after the film |
+| `hooks` | `[{id, label, text, panelIds (1–6), title, thumbnailHeadline}]` | Hook variants: alternative openings. A `video_panels` export with `video.hookId` plays the hook's panels first (story order, one shared hold), its text voiced like a Shorts hook over them, then the intro card and the film; only those shots are encoded, the film's sections are reused |
+| `chapterCards` | `[{chapterId, title, subtitle, durationMs}]` | A title card before a chapter's first shot (at the start of its first run of shots), drawn over that chapter's first artwork; its chapter timestamp points at the card |
 
 **Watermark.** The logo is an image of the project: upload one with `POST /api/projects/:projectId/video-logo`
 (stored as a `source_image` asset with `metadata.role = "video_logo"`, so it counts toward the project's disk use),
@@ -311,7 +313,13 @@ loads the same PNG from `GET /api/projects/:projectId/video-card/:which.png` (an
 `/api/public/shares/:token/video-card/:which.png`). A card is `cardFrames(durationMs, fps)` whole frames of a still
 image with silence on the audio track, encoded as its own clip, so it adds nothing to the timing rules: everything
 after the intro — subtitles, chapter timestamps (the first stays pinned to `0:00`), the duration check — simply
-starts that much later. A partial render (`maxDurationMs`) ends without the outro.
+starts that much later. A partial render (`maxDurationMs`) ends without the outro. A chapter card is `which` =
+`chapter-<chapterId>` (a reader link only reaches its own chapter's); Shorts cuts have none.
+
+**Edits in words.** `POST /api/projects/:projectId/video-edits { instruction }` queues a `video_edit` text job whose
+result lists edits (`VideoEditOp`: pauses, holds, shot, card, scene_fades) with what each would change;
+`POST /api/projects/:projectId/video-edits/:jobId/apply { ops? }` applies them (or the ticked and changed ones) through
+`applyVideoEdits` in `@openmanga/services`, recomputed against the project as it is then.
 
 ## Incremental rendering
 

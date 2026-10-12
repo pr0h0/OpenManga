@@ -1,9 +1,11 @@
 import type {
   CharacterBible,
+  FigureDirection,
   LocationDescription,
   PanelCharacterSpec,
-  PanelSpec,
+  PanelDirection,
   PropDescription,
+  StoredPanelSpec,
   StyleDefinition,
 } from "@openmanga/schemas";
 
@@ -214,6 +216,10 @@ export type LocationReferenceInput = {
   description: LocationDescription;
   /** One image either way: a single establishing view, a panorama across the space, or a sheet of its sides. */
   kind?: "location" | "location_panorama" | "location_sheet";
+  /** One of the place's states over story time ("destroyed", "at night"): drawn as it is then. */
+  state?: { name: string; description: string } | null;
+  /** Reference image 1 is the approved design of the place, which a state reference changes as little as it must. */
+  fromBaseline?: boolean;
   extraInstruction?: string;
 };
 
@@ -244,15 +250,17 @@ const locationKind = {
 
 export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
   name: "location-reference",
-  version: 5,
+  version: 6,
   kind: "image",
-  description: "Full-resolution canonical location/environment reference.",
-  body: "ROLE / GOAL, PROJECT ART DIRECTION, LOCATION, LIGHTING, STRICT EXCLUSIONS",
+  description: "Full-resolution canonical location/environment reference, or of one of its states over story time.",
+  body: "ROLE / GOAL, PROJECT ART DIRECTION, LOCATION, STATE (one of the place's states, from its approved design), LIGHTING, STRICT EXCLUSIONS",
   compile(i) {
     const d = i.description;
     const k = locationKind[i.kind ?? "location"];
     return join([
-      `Create ${k.what} of "${i.name}" for a ${kindLabel(i.style)} production. It is the canonical design reference for this recurring location.`,
+      i.state
+        ? `Create ${k.what} of "${i.name}" as it is when ${clean(i.state.name)}, for a ${kindLabel(i.style)} production. It is the canonical reference for this state of the recurring location.`
+        : `Create ${k.what} of "${i.name}" for a ${kindLabel(i.style)} production. It is the canonical design reference for this recurring location.`,
       styleSection(i.style),
       section("LOCATION", [
         clean(d.summary),
@@ -264,6 +272,14 @@ export const locationReferenceV1: ImageTemplate<LocationReferenceInput> = {
         d.keyFeatures.length ? line("Key features that must be visible", d.keyFeatures.join("; ")) : "",
         d.immutableTraits.length ? line("Never change", d.immutableTraits.join("; ")) : "",
       ]),
+      i.state
+        ? section("STATE", [
+            `${clean(i.state.name)}: ${clean(i.state.description)}`,
+            i.fromBaseline
+              ? "Reference image 1 is this place's approved design. Keep its layout, architecture and every key feature recognisable, and change only what this state changes."
+              : "Keep the layout and every key feature recognisable; change only what this state changes.",
+          ])
+        : "",
       section("LIGHTING", [clean(d.lighting) || "Clear readable lighting."]),
       section("PRESENTATION", ["Empty of people.", ...k.presentation, FINISH, clean(i.extraInstruction)]),
       section("STRICT EXCLUSIONS", [...STRICT_BASE, "No people or characters."]),
@@ -356,7 +372,7 @@ export type PanelPromptInput = {
     shotType: string;
     cameraAngle: string | null;
     aspectRatio: number;
-    spec: PanelSpec | null;
+    spec: StoredPanelSpec | null;
   };
   characters: PanelCharacterContext[];
   /** `referenceKind` says how the reference presents the subject: a sheet or panorama is used, never copied. */
@@ -365,11 +381,17 @@ export type PanelPromptInput = {
     description: LocationDescription;
     referenceImageIndex?: number;
     referenceKind?: string;
+    /** The state of the place this scene shows; `referenceImageIndex` is then the state's own reference when it has one. */
+    state?: { name: string; description: string; hasReference: boolean } | null;
   } | null;
   props: { name: string; description: PropDescription; referenceImageIndex?: number; referenceKind?: string }[];
   /** The panel's layout sketch, sent after the subject references and before the previous panel. */
   guide?: { imageIndex: number; strength: "loose" | "strict"; pose?: string };
   previousPanelImageIndex?: number;
+  /** The panel's directing, its figures named (the planner resolves their ids). */
+  direction?:
+    | (Omit<PanelDirection, "figures"> & { figures: (Omit<FigureDirection, "characterId"> & { name: string })[] })
+    | null;
   continuity: string[];
   /** Visible canon from the story bible in effect here: fixed rules, facts and character states (injuries, looks, items). */
   canon?: string[];
@@ -409,6 +431,60 @@ const angleText: Record<string, string> = {
   pov: "First-person point of view",
 };
 
+const heightText: Record<string, string> = {
+  ground: "Camera at ground level",
+  knee: "Camera at knee height",
+  waist: "Camera at waist height",
+  eye: "Camera at eye height",
+  above: "Camera just above head height",
+  overhead: "Camera high overhead",
+};
+const lensText: Record<string, string> = {
+  "ultra-wide": "Ultra-wide lens feel: exaggerated perspective and deep space",
+  wide: "Wide lens feel: the setting reads around the subject",
+  normal: "Normal lens: natural perspective",
+  telephoto: "Telephoto lens feel: compressed depth, the background close behind the subject",
+  macro: "Macro: one small detail fills the frame",
+};
+const dofText: Record<string, string> = {
+  deep: "Deep focus: everything from foreground to background sharp",
+  shallow: "Shallow depth of field: the focus subject sharp, the rest softly blurred",
+};
+const purposeText: Record<string, string> = {
+  establish: "establish the place and who is in it",
+  reveal: "reveal something the reader has not seen yet",
+  reaction: "show a reaction",
+  insert: "a close insert of a detail that matters",
+  action: "show the action at its clearest moment",
+  dialogue: "carry a conversation",
+  transition: "bridge to the next moment or place",
+};
+const viewText: Record<string, string> = {
+  frontal: "seen from the front",
+  "three-quarter": "in three-quarter view",
+  profile: "in profile",
+  back: "seen from behind",
+  "over-the-shoulder": "seen over their shoulder",
+  pov: "the viewer sees through their eyes",
+};
+const facingText: Record<string, string> = {
+  camera: "facing the camera",
+  "screen-left": "facing screen left",
+  "screen-right": "facing screen right",
+  away: "facing away",
+};
+/** One figure's directing, as phrases for its CHARACTERS line. */
+const figureLine = (f?: Omit<FigureDirection, "characterId">) =>
+  f
+    ? [
+        f.view ? viewText[f.view] : "",
+        f.facing ? facingText[f.facing] : "",
+        f.eyeLine ? `looking ${clean(f.eyeLine)}` : "",
+        f.depth ? `in the ${f.depth}` : "",
+        f.holding ? `holding ${clean(f.holding)}` : "",
+      ]
+    : [];
+
 function orientation(ar: number) {
   if (ar > 1.3) return "landscape";
   if (ar < 0.77) return "portrait";
@@ -417,10 +493,10 @@ function orientation(ar: number) {
 
 export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
   name: "panel-generation",
-  version: 12,
+  version: 15,
   kind: "image",
   description: "Single comic panel artwork compiled from structured panel state.",
-  body: "ROLE / GOAL, POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA, COMPOSITION, LOCATION, LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
+  body: "ROLE / GOAL (vertical 9:16 film frames composed for a phone), POSE / LAYOUT (with a layout guide), PROJECT ART DIRECTION, SCENE CONTEXT, PANEL INTENT, CHARACTERS, CANONICAL APPEARANCE REQUIREMENTS, STORY CANON (visible story bible entries in effect: must hold), WARDROBE, ACTION, EXPRESSION, CAMERA (with the directing: height, lens, depth of field, purpose), COMPOSITION (with the focus subject), LOCATION (with the state it is in now), LIGHTING, CONTINUITY, DIALOGUE NEGATIVE SPACE, STRICT EXCLUSIONS",
   compile(i) {
     const s = i.panel.spec;
     const d = i.draft ?? {};
@@ -443,7 +519,9 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
           ? `Reference image ${li} is a sheet showing several sides of the location: use it for where everything in the space is and what it looks like, and draw only the one view this panel's camera sees, as a single continuous picture, never the sheet's divided layout.`
           : i.location?.referenceKind === "location_panorama"
             ? `Reference image ${li} is a panorama across the whole location: use it for where everything in the space is, and frame only the part this panel's camera sees, without panoramic curvature.`
-            : `The location matches reference image ${li}.`,
+            : i.location?.state?.hasReference
+              ? `The location, as it is now (${clean(i.location.state.name)}), matches reference image ${li}.`
+              : `The location matches reference image ${li}.`,
       );
     for (const p of i.props)
       if (p.referenceImageIndex)
@@ -466,6 +544,7 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
       );
 
     const nobody = chars.length === 0;
+    const dir = i.direction;
     const continuity = [
       ...new Set(
         [...(i.continuity ?? []), ...(s?.continuityRequirements ?? []), ...(d.continuity ?? [])]
@@ -476,9 +555,11 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
     const negative = s?.negativeSpace;
 
     return join([
-      i.film
-        ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
-        : `Create one clean ${i.style.definition?.photoreal ? "photorealistic live-action film still" : `${kindLabel(i.style)} panel`}, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
+      i.film && i.panel.aspectRatio < 1
+        ? `Create one cinematic vertical ${i.panel.aspectRatio > 0.54 && i.panel.aspectRatio < 0.59 ? "9:16" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video watched on a phone held upright. Full-bleed tall composition: subject and setting stacked top to bottom, the focal subject in the middle third and whole in the frame, with some room above and below for a slow camera move. Artwork only.`
+        : i.film
+          ? `Create one cinematic ${i.panel.aspectRatio > 1.7 && i.panel.aspectRatio < 1.85 ? "16:9" : `${i.panel.aspectRatio.toFixed(2)}:1`} film frame in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)} illustration`} style for a narrated video. Full-bleed composition that reads on a widescreen, with a clear focal subject and some headroom around it for a slow camera move. Artwork only.`
+          : `Create one clean ${i.style.definition?.photoreal ? "photorealistic live-action film still" : `${kindLabel(i.style)} panel`}, ${orientation(i.panel.aspectRatio)} framing (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Artwork only.`,
       // Up front, because the written composition further down otherwise out-votes a sketch the model only skims.
       i.guide
         ? section("POSE / LAYOUT", [
@@ -508,7 +589,10 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
         nobody
           ? ["No characters appear in this panel."]
           : chars
-              .map((c) => `${c.name}${c.panel?.position ? ` — ${clean(c.panel.position)}` : ""}`)
+              .map((c) => {
+                const staged = [clean(c.panel?.position), ...figureLine(dir?.figures.find((f) => f.name === c.name))];
+                return `${c.name}${staged.filter(Boolean).length ? ` — ${staged.filter(Boolean).join(", ")}` : ""}`;
+              })
               .concat([
                 `Exactly ${chars.length} character${chars.length > 1 ? "s" : ""} visible. Do not add other people.`,
               ]),
@@ -547,8 +631,13 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
       section("CAMERA", [
         shotText[i.panel.shotType] ?? i.panel.shotType,
         i.panel.cameraAngle ? (angleText[i.panel.cameraAngle] ?? i.panel.cameraAngle) : "",
+        dir?.cameraHeight ? heightText[dir.cameraHeight] : "",
+        dir?.lens ? lensText[dir.lens] : "",
+        dir?.depthOfField ? dofText[dir.depthOfField] : "",
+        dir?.purpose ? `Shot purpose: ${purposeText[dir.purpose]}.` : "",
       ]),
       section("COMPOSITION", [
+        dir?.focus ? `Focus subject: ${clean(dir.focus)}. It is where the eye lands first.` : "",
         clean(d.composition) || clean(s?.composition),
         line("Foreground", s?.foreground),
         line("Midground", s?.midground),
@@ -559,6 +648,12 @@ export const panelGenerationV1: ImageTemplate<PanelPromptInput> = {
             `${i.location.name}: ${clean(i.location.description.summary)}`,
             i.location.description.keyFeatures.length
               ? line("Recognizable features", i.location.description.keyFeatures.join("; "))
+              : "",
+            i.location.state
+              ? line(
+                  `As it is now (${clean(i.location.state.name)})`,
+                  i.location.state.description || i.location.state.name,
+                )
               : "",
           ])
         : "",
@@ -712,12 +807,80 @@ export const thumbnailV1: ImageTemplate<ThumbnailInput> = {
   },
 };
 
+/**
+ * The nine camera setups of a coverage sheet, in reading order of its 3x3 grid, with the shot type and angle a pick
+ * gives the panel it becomes.
+ */
+export const COVERAGE_CELLS = [
+  {
+    label: "Wide",
+    shotType: "wide",
+    cameraAngle: "eye-level",
+    text: "wide shot: the whole setting and everyone in it",
+  },
+  { label: "Full", shotType: "full", cameraAngle: "eye-level", text: "full shot: whole figures, head to toe" },
+  { label: "Medium", shotType: "medium", cameraAngle: "eye-level", text: "medium shot: waist up" },
+  { label: "Close-up", shotType: "close", cameraAngle: "eye-level", text: "close-up: the main face fills the cell" },
+  {
+    label: "Extreme close-up",
+    shotType: "extreme-close",
+    cameraAngle: "eye-level",
+    text: "extreme close-up: eyes, hands or one telling detail of a figure",
+  },
+  {
+    label: "Over the shoulder",
+    shotType: "medium-close",
+    cameraAngle: "over-shoulder",
+    text: "over-the-shoulder: past one figure's shoulder toward the other, or toward what they look at",
+  },
+  {
+    label: "Insert",
+    shotType: "insert",
+    cameraAngle: "eye-level",
+    text: "insert: the key object or detail of the moment",
+  },
+  { label: "Low angle", shotType: "medium", cameraAngle: "low", text: "low angle: the camera low, looking up" },
+  { label: "High angle", shotType: "medium", cameraAngle: "high", text: "high angle: the camera high, looking down" },
+] as const;
+
+/**
+ * A coverage sheet: one image of a 3x3 grid showing the panel's moment from nine camera setups, to pick framings
+ * from. It carries the panel prompt's direction (style, cast, references, place, light) without its own camera.
+ */
+export const coverageSheetV1: ImageTemplate<PanelPromptInput> = {
+  name: "coverage-sheet",
+  version: 1,
+  kind: "image",
+  description: "One image: a 3x3 grid of the same story moment from nine camera setups, to pick panel framings from.",
+  body: "ROLE / GOAL (3x3 grid, nine setups in order), the panel prompt's sections without CAMERA, POSE / LAYOUT or text space, GRID RULES",
+  compile(i) {
+    const panel = panelGenerationV1.compile({ ...i, guide: undefined, direction: null, reserveTextSpace: false });
+    const blocks = panel
+      .split("\n\n")
+      .slice(1)
+      .filter((b) => !/^(CAMERA|POSE \/ LAYOUT|DIALOGUE NEGATIVE SPACE):/.test(b));
+    return join([
+      `Create one coverage sheet in ${i.style.definition?.photoreal ? "photorealistic live-action" : `${kindLabel(i.style)}`} style: a single image divided into a 3x3 grid of nine equal cells with thin clean white gutters, each cell the same shape as the whole image (aspect ratio about ${i.panel.aspectRatio.toFixed(2)}:1). Every cell shows the SAME moment described below — the same people, clothes, place, light and action — from a different camera setup. Artwork only.`,
+      section(
+        "CELLS (left to right, top to bottom)",
+        COVERAGE_CELLS.map((c, n) => `${n + 1}. ${c.text}`),
+      ),
+      ...blocks,
+      section("GRID RULES", [
+        "Identity, outfits, the place and the lighting are identical in all nine cells; only the camera changes.",
+        "No numbers, captions, labels, borders inside the cells or text of any kind.",
+      ]),
+    ]);
+  },
+};
+
 export const IMAGE_TEMPLATES = [
   characterReferenceV1,
   locationReferenceV1,
   propReferenceV1,
   styleReferenceV1,
   panelGenerationV1,
+  coverageSheetV1,
   panelEditV1,
   coverV1,
   thumbnailV1,

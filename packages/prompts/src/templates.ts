@@ -6,6 +6,7 @@ import {
   ChapterPlan,
   ContinuityReport,
   ImageDescription,
+  LetteringTranslation,
   type ModelAspect,
   NarrationDraft,
   NarrationDraftV2,
@@ -21,6 +22,8 @@ import {
   StoryAnalysis,
   StoryCoverageMap,
   StoryRewrite,
+  TimelineExtraction,
+  VideoEditPlan,
   YoutubePackage,
 } from "@openmanga/schemas";
 import { expertConceptV1, expertOutlineV1, expertPremiseV1, expertYoutubeV1 } from "./expert-actions.ts";
@@ -271,21 +274,38 @@ export const chapterPlanningV5 = defineTextTemplate<Parameters<typeof chapterPla
   },
 });
 
-/** Film: the page planner's direction, turned into a shot list. */
-function shotPlanning(base: typeof chapterPlanningV5, version: number) {
-  return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+/** How a shot list is framed: widescreen, or vertical for Shorts-first projects watched on a phone. */
+const SHOT_FRAME = {
+  "16:9": {
     name: "shot-planning",
-    version,
     description: "Film projects: a shot list of drawable full-frame 16:9 shots for a narrated video.",
+    role: "You are a film storyboard director adapting a chapter into a sequence of cinematic 16:9 shots for a narrated video (a slow camera move over each still, with voice-over).",
+    compose:
+      "Compose for a wide 16:9 frame with the focal subject slightly off-centre and room for a slow push-in or pull-out.",
+  },
+  "9:16": {
+    name: "vertical-shot-planning",
+    description:
+      "Vertical film projects: a shot list of drawable full-frame 9:16 shots for a narrated video watched on a phone.",
+    role: "You are a film storyboard director adapting a chapter into a sequence of cinematic vertical 9:16 shots for a narrated Shorts-style video watched on a phone held upright (a slow camera move over each still, with voice-over).",
+    compose:
+      "Compose for a tall 9:16 frame: stack subject and setting top to bottom, keep the focal subject in the middle third and whole in the frame, prefer one or two figures per shot (show a group in depth, not side by side), and leave room for a slow push-in or a vertical pan.",
+  },
+} as const;
+
+/** Film: the page planner's direction, turned into a shot list. */
+function shotPlanning(base: typeof chapterPlanningV5, version: number, frame: keyof typeof SHOT_FRAME = "16:9") {
+  const f = SHOT_FRAME[frame];
+  return defineTextTemplate<Parameters<typeof chapterPlanningV1.build>[0]>({
+    name: f.name,
+    version,
+    description: f.description,
     system: base.system
-      .replace(templateHeader(base.name, base.version), templateHeader("shot-planning", version))
-      .replace(
-        PLAN_ROLE_V5,
-        "You are a film storyboard director adapting a chapter into a sequence of cinematic 16:9 shots for a narrated video (a slow camera move over each still, with voice-over).",
-      )
+      .replace(templateHeader(base.name, base.version), templateHeader(f.name, version))
+      .replace(PLAN_ROLE_V5, f.role)
       .replace(
         PLAN_PAGES_V5,
-        'SHOTS: plan the shot list per scene as pages. EVERY page is exactly ONE shot with exactly one panel and layoutTemplate "full-page". Use page purpose for the shot\'s story purpose and pacing for its rhythm. Plan roughly one shot per one to three sentences of the source, so each shot carries about six to ten seconds of narration. Compose for a wide 16:9 frame with the focal subject slightly off-centre and room for a slow push-in or pull-out.',
+        `SHOTS: plan the shot list per scene as pages. EVERY page is exactly ONE shot with exactly one panel and layoutTemplate "full-page". Use page purpose for the shot's story purpose and pacing for its rhythm. Plan roughly one shot per one to three sentences of the source, so each shot carries about six to ten seconds of narration. ${f.compose}`,
       )
       .replace(
         PLAN_TEXT_V5,
@@ -558,6 +578,35 @@ export const narrationRetimeV1 = defineTextTemplate<{
       {
         role: "user",
         content: untrusted("project_data", JSON.stringify({ language: i.language, style: i.style, lines: i.lines })),
+      },
+    ];
+  },
+});
+
+/** "Edit the video in words": a sentence turned into timeline edits, reviewed before any is applied. */
+export const videoEditV1 = defineTextTemplate<{
+  instruction: string;
+  video: Record<string, unknown>;
+}>({
+  name: "video-edit",
+  version: 1,
+  description: "Turn an editor's instruction about a narrated video into timeline edits for review.",
+  system: [
+    templateHeader("video-edit", 1),
+    "You edit the timeline of a narrated comic video. The editor gives an instruction in their own words; return the smallest set of edits that does what it asks, and nothing it does not ask. The video data lists the chapters (by number) with their shots and pauses, the title cards and settings, and, when the project is small enough, each panel by its ref.",
+    "The edits you can make: pauses (cap the silence after narration segments at maxPauseMs and/or multiply it by pauseScale, in one chapter or the whole video when chapter is null; making a chapter faster or slower is mostly this), holds (set each shot's own minimum hold to holdMs in a chapter or the whole video; holdMs null puts them back to the export's), shot (one panel by its ref: disabled true leaves it out of the video, motion, fade), card (card intro, outro or chapter: a title card with title, subtitle and seconds; for a chapter card give its chapter; title null removes the card), scene_fades (on: fade to black at scene breaks). Leave every field an edit does not use null.",
+    "Use only chapter numbers and panel refs that are in the data. When the instruction cannot be done with these edits, return no edits and say why in summary. summary is one or two sentences for the editor on what the edits do.",
+    DATA_RULE,
+    schemaInstructions("VideoEditPlan", VideoEditPlan),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [untrusted("instruction", i.instruction), untrusted("project_data", JSON.stringify(i.video))].join(
+          "\n\n",
+        ),
       },
     ];
   },
@@ -1068,6 +1117,19 @@ export const shotOutlineV3 = outlinePass(shotPlanningV4, "shot-outline", 3);
 export const scenePagesV3 = pagePass(chapterPlanningV7, "scene-pages", 3);
 export const sceneStripV3 = pagePass(stripPlanningV3, "scene-strip", 3);
 export const sceneShotsV3 = pagePass(shotPlanningV4, "scene-shots", 3);
+/** Vertical film (9:16 shots): the same planner, composing for a phone held upright. */
+export const verticalShotPlanningV1 = shotPlanning(chapterPlanningV7, 1, "9:16");
+export const verticalShotOutlineV1 = outlinePass(verticalShotPlanningV1, "vertical-shot-outline", 1);
+export const verticalSceneShotsV1 = pagePass(verticalShotPlanningV1, "vertical-scene-shots", 1);
+
+/** The chapter planner for a project's format and shot frame: the whole plan, and its outline and per-scene passes. */
+export function planningTemplates(s: { format?: string; filmFrame?: string }) {
+  if (s.format === "film" && s.filmFrame === "9:16")
+    return { plan: verticalShotPlanningV1, outline: verticalShotOutlineV1, pages: verticalSceneShotsV1 };
+  if (s.format === "film") return { plan: shotPlanningV4, outline: shotOutlineV3, pages: sceneShotsV3 };
+  if (s.format === "vertical") return { plan: stripPlanningV3, outline: stripOutlineV3, pages: sceneStripV3 };
+  return { plan: chapterPlanningV7, outline: chapterOutlineV3, pages: scenePagesV3 };
+}
 
 /** v5: panel prompt sections respect the story bible in effect for the page's scene. */
 export const panelPromptsV5 = defineTextTemplate<Parameters<typeof panelPromptsV1.build>[0]>({
@@ -1139,6 +1201,69 @@ export const bibleExtractV1 = defineTextTemplate<{
         ].join("\n\n"),
       },
     ];
+  },
+});
+
+/** Translates a chapter's lettering (speech bubbles and on-page captions) for another edition of the same art. */
+export const letteringTranslateV1 = defineTextTemplate<{
+  language: { code: string; name: string };
+  source: { code: string; name: string };
+  cast: { name: string; personality?: string }[];
+  lines: {
+    ref: string;
+    kind: "dialogue" | "thought" | "shout" | "whisper" | "caption";
+    speaker: string | null;
+    text: string;
+    maxChars: number;
+  }[];
+}>({
+  name: "lettering-translate",
+  version: 1,
+  description: "Translate a chapter's speech bubbles and captions into another language, fitting the same bubbles.",
+  system: [
+    templateHeader("lettering-translate", 1),
+    "You are a comic letterer-translator. Translate each line of a chapter's lettering into the target language for a translated edition drawn from the same art: the text goes into the same speech bubble or caption box.",
+    "FIT: keep each translation about as long as the original and never longer than its maxChars, so it fits the bubble. Shorten rather than overflow: drop filler, keep the meaning and the punch.",
+    "VOICE: keep each speaker's voice and register (a shout stays a shout, a whisper stays quiet, a thought stays inner), the story's names untranslated, and onomatopoeia natural in the target language. Captions are narration: keep their tone.",
+    "Translate every line you are given, each with its ref unchanged, and nothing else. Never add notes, quotes around lines or explanations.",
+    DATA_RULE,
+    schemaInstructions("LetteringTranslation", LetteringTranslation),
+  ].join("\n\n"),
+  build(i) {
+    return [
+      { role: "system", content: this.system },
+      {
+        role: "user",
+        content: [
+          `Translate from ${i.source.name} (${i.source.code}) into ${i.language.name} (${i.language.code}).`,
+          untrusted("lettering", JSON.stringify({ cast: i.cast, lines: i.lines })),
+        ].join("\n\n"),
+      },
+    ];
+  },
+});
+
+/** Proposes the story timeline from the chapters, for the user to review; nothing is saved by the job. */
+export const timelineExtractV1 = defineTextTemplate<{
+  projectData: Record<string, unknown>;
+  chapters: { number: number; title: string; text: string }[];
+}>({
+  name: "timeline-extract",
+  version: 1,
+  description: "Propose the story timeline: events in story-time order with dates, elapsed time and births.",
+  system: [
+    templateHeader("timeline-extract", 1),
+    "You are a continuity editor building the timeline of a story for its comic or narrated video adaptation. Read the chapters and list what happens in the order it happens in the story world.",
+    "ORDER: list events in STORY-TIME order, not in the order the chapters tell them: a flashback goes where it happened, a prologue set years later goes after everything before it. One event per moment that matters for continuity (a meeting, a journey, a fight, a death, a reveal, a time skip); skip small beats.",
+    'TIME: when is how the story names the moment, in its own words ("Spring 1203", "the night of the storm", "three years later"); leave it empty when the story gives nothing. day is a story-day number on one scale for the whole story, so later events have larger numbers and the difference is the days between them: pick any origin (day 0 = the first event is fine), use fractions for hours (0.5 = half a day later), and set it only when the text lets you work it out (stated dates, "two days later", ages); otherwise null. Never guess a day from nothing.',
+    'PEOPLE: characters lists who takes part, by name exactly as in project_data. When the text gives a character\'s age or birth ("Mira, seventeen"), add one event of kind birth for them with the day it implies (day of that moment minus age × 365), title "<name> is born"; only one birth per character.',
+    "TELLING: chapter is the number of the chapter that tells the event, and scene the scene's number within it when the chapter is clearly split into scenes; null for events the story only mentions (a birth, something long before).",
+    "Leave out events already in project_data.existingTimeline. Record only what the text supports; do not invent. Write in the language of the chapters.",
+    DATA_RULE,
+    schemaInstructions("TimelineExtraction", TimelineExtraction),
+  ].join("\n\n"),
+  build(i) {
+    return bibleExtractV1.build.call(this, i);
   },
 });
 
@@ -1296,6 +1421,7 @@ export const TEXT_TEMPLATES = [
   youtubePackageV1,
   youtubePackageV2,
   narrationRetimeV1,
+  videoEditV1,
   socialCopyV1,
   socialCopyV2,
   jsonRepairV1,
@@ -1324,12 +1450,17 @@ export const TEXT_TEMPLATES = [
   chapterOutlineV3,
   stripOutlineV3,
   shotOutlineV3,
+  verticalShotPlanningV1,
+  verticalShotOutlineV1,
+  verticalSceneShotsV1,
   scenePagesV3,
   sceneStripV3,
   sceneShotsV3,
   panelPromptsV5,
   narrationV6,
   bibleExtractV1,
+  timelineExtractV1,
+  letteringTranslateV1,
   continuityCheckV1,
   narrationLintV1,
   narrationFixV1,

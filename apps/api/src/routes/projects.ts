@@ -28,7 +28,8 @@ import {
 import { PRODUCTION_PRESETS } from "@openmanga/domain";
 import {
   asPatch,
-  FILM_PAGE,
+  FilmFrame,
+  filmPage,
   ProjectFormat,
   ProjectSettings,
   type ProjectTemplate,
@@ -70,6 +71,8 @@ export const CreateProject = z.object({
   customStyle: z.string().max(4000).optional(),
   /** "film": one full-frame 16:9 shot per page, planned as a shot list and exported as a Ken Burns video. */
   format: ProjectFormat.optional(),
+  /** Film only: "9:16" plans, draws and renders every shot vertical, for Shorts-first stories. */
+  filmFrame: FilmFrame.optional(),
   /** A production preset key, or "template:<id>" for one of the caller's saved templates: its settings seed the project. */
   preset: z.string().max(80).optional(),
   /**
@@ -205,6 +208,7 @@ export async function createProject(c: Context<AppEnv>, raw: z.infer<typeof Crea
     ...raw,
     projectType,
     format: raw.format ?? setup.format ?? "comic",
+    filmFrame: raw.filmFrame ?? (presetSettings as { filmFrame?: FilmFrame }).filmFrame,
     colorMode: raw.colorMode ?? (setup.colorMode as typeof raw.colorMode) ?? "full_color",
     language: raw.language ?? setup.language ?? "en",
     stylePresetKey: raw.stylePresetKey ?? setup.stylePresetKey ?? undefined,
@@ -226,7 +230,24 @@ export async function createProject(c: Context<AppEnv>, raw: z.infer<typeof Crea
       imageQuality: c.get("deps").config.IMAGE_QUALITY === "auto" ? "low" : c.get("deps").config.IMAGE_QUALITY,
       ...presetSettings,
       format: input.format,
-      ...(input.format === "film" ? FILM_PAGE : input.format === "vertical" ? VERTICAL_PAGE : {}),
+      ...(input.format === "film"
+        ? {
+            ...filmPage(input.filmFrame),
+            filmFrame: input.filmFrame ?? "16:9",
+            // Vertical shots render vertical by default: nothing to reframe.
+            ...(input.filmFrame === "9:16"
+              ? {
+                  video: {
+                    fadeAtSceneBreaks: false,
+                    ...(presetSettings as { video?: object }).video,
+                    output: { height: 1080, aspect: "9:16" },
+                  },
+                }
+              : {}),
+          }
+        : input.format === "vertical"
+          ? VERTICAL_PAGE
+          : {}),
       // A template's own lettering is kept; a strip only adds auto-placement where it says nothing.
       ...(input.format === "vertical"
         ? { lettering: { ...VERTICAL_LETTERING, ...(presetSettings.lettering as object | undefined) } }
@@ -367,7 +388,7 @@ projectRoutes.patch("/:projectId", async (c) =>
   c.json({ project: await updateProject(c, uuidParam(c, "projectId"), await body(c, UpdateProject)) }),
 );
 
-const OWNER_SETTINGS = ["budgetUsd", "consistencyCheck", "contentPolicyFallback"] as const;
+const OWNER_SETTINGS = ["budgetUsd", "consistencyCheck", "contentPolicyFallback", "storage"] as const;
 
 /** Updates a project's fields and settings: the PATCH route, and an expert's premise or YouTube text once applied. */
 export async function updateProject(c: Context<AppEnv>, projectId: string, input: z.infer<typeof UpdateProject>) {
@@ -384,7 +405,8 @@ export async function updateProject(c: Context<AppEnv>, projectId: string, input
   // A headline the person sets now is set for the title as it is now.
   if (input.settings?.thumbnail && input.settings.thumbnail.title !== p.settings.thumbnail?.title)
     settings.publishingSources = { ...settings.publishingSources, thumbnailTitle: input.title ?? p.title };
-  if (settings.format !== p.settings.format) {
+  const frameOf = (s: typeof settings) => (s.format === "film" ? (s.filmFrame ?? "16:9") : null);
+  if (settings.format !== p.settings.format || frameOf(settings) !== frameOf(p.settings)) {
     const [page] = await c
       .get("deps")
       .db.select({ id: pages.id })
@@ -393,9 +415,17 @@ export async function updateProject(c: Context<AppEnv>, projectId: string, input
       .limit(1);
     if (page)
       throw conflict(
-        "The project format can't change once pages exist: comic panels and 16:9 shots need different plans and artwork. Create a new project instead.",
+        "The project format and shot frame can't change once pages exist: comic panels, 16:9 and 9:16 shots need different plans and artwork. Create a new project instead.",
       );
-    if (settings.format === "film") Object.assign(settings, FILM_PAGE);
+    if (settings.format === "film") {
+      settings.filmFrame = settings.filmFrame ?? "16:9";
+      Object.assign(settings, filmPage(settings.filmFrame));
+      settings.video = {
+        fadeAtSceneBreaks: false,
+        ...settings.video,
+        output: { height: 1080, ...settings.video?.output, aspect: settings.filmFrame },
+      };
+    }
     if (settings.format === "vertical") {
       Object.assign(settings, VERTICAL_PAGE);
       // Only where the owner has not decided for themselves: becoming a strip should not silently undo a

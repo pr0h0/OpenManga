@@ -69,10 +69,16 @@ export const series = pgTable(
     libraryProjectId: uuid("library_project_id").notNull(),
     /** One of the owner's channel profiles (users.settings), applied to every new or adopted episode. */
     channelProfileId: text("channel_profile_id"),
+    /**
+     * The series' reader page (/s/:slug): `off`, `unlisted` (anyone with the link, kept out of search engines) or
+     * `public`. Only chapters with a publish date that has come are readable there.
+     */
+    visibility: text("visibility").$type<"off" | "unlisted" | "public">().notNull().default("off"),
+    publicSlug: text("public_slug"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("series_owner_idx").on(t.ownerUserId)],
+  (t) => [index("series_owner_idx").on(t.ownerUserId), uniqueIndex("series_public_slug_uq").on(t.publicSlug)],
 );
 
 export const projectMembers = pgTable(
@@ -193,6 +199,8 @@ export const chapters = pgTable(
      */
     planFingerprint: text("plan_fingerprint"),
     narrationFingerprint: text("narration_fingerprint"),
+    /** On a series' reader page from this moment (a future one shows as scheduled). Null: not published. */
+    publishAt: ts("publish_at"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -237,6 +245,35 @@ export const locationVersions = pgTable(
   (t) => [uniqueIndex("location_versions_uq").on(t.locationId, t.versionNumber)],
 );
 
+/**
+ * A state of a place over story time ("destroyed", "snowed in", "at night"): what differs from the location's design,
+ * and optionally its own reference image. A scene at that place picks one explicitly (`scenes.location_state_id`),
+ * or the one whose keywords match the scene's time or weather, or whose chapter range holds the scene: see
+ * `pickLocationState` in packages/domain.
+ */
+export const locationStates = pgTable(
+  "location_states",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => locations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** Matched (any case, whole words) against a scene's time and weather: "night", "snow". */
+    keywords: jsonb("keywords").$type<string[]>().notNull().default([]),
+    /** Holds from this chapter to that one (inclusive; null = open), by the chapters' current order. */
+    fromChapterId: uuid("from_chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+    untilChapterId: uuid("until_chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("location_states_location_idx").on(t.locationId)],
+);
+
 export const scenes = pgTable(
   "scenes",
   {
@@ -251,6 +288,8 @@ export const scenes = pgTable(
     title: text("title").notNull(),
     summary: text("summary").notNull().default(""),
     locationId: uuid("location_id").references(() => locations.id, { onDelete: "set null" }),
+    /** The location's state this scene shows, picked by hand; null lets it be picked by time, weather and chapter. */
+    locationStateId: uuid("location_state_id").references(() => locationStates.id, { onDelete: "set null" }),
     time: text("time").notNull().default(""),
     weather: text("weather").notNull().default(""),
     characterIds: jsonb("character_ids").$type<string[]>().notNull().default([]),

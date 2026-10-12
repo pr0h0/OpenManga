@@ -14,6 +14,8 @@ const OPERATION_LABELS: Record<string, string> = {
   panel_generation: "Panels",
   panel_edit: "Edits",
   cover: "Covers",
+  coverage_sheet: "Coverage sheets",
+  duplicate_scan: "Duplicate scans",
   story_analysis: "Story analysis",
   story_rewrite: "Story rewrite",
   youtube_package: "YouTube package",
@@ -30,6 +32,9 @@ const OPERATION_LABELS: Record<string, string> = {
   expert_image: "Expert chat image",
   expert_extract: "Expert actions",
   bible_extract: "Story bible",
+  timeline_extract: "Story timeline",
+  lettering_translate: "Lettering translation",
+  video_edit: "Video edits in words",
   continuity_check: "Continuity checks",
 };
 

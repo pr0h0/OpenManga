@@ -5,6 +5,7 @@ import {
   publishingStaleness,
   recordAudit,
   shotVariety,
+  whyStale,
   youtubeSourceFingerprint,
 } from "@openmanga/services";
 import { Hono } from "hono";
@@ -115,6 +116,18 @@ productionRoutes.get("/projects/:projectId/staleness", async (c) => {
     staleNarration: stale.narration,
     publishing: await publishingStaleness(db, p),
   });
+});
+
+doc({
+  method: "GET",
+  path: "/api/projects/:projectId/staleness/why",
+  summary:
+    "Why each stage of GET staleness is out of date, item by item: for every chapter, page or panel behind a count, what changed under it (a story revision's new and removed paragraphs, the panels whose text a revision hit, the spec fields edited after a panel's artwork, the panels changed after a chapter's narration, why each segment's audio is outdated, what changed after the newest video) and what bringing it up to date would redo. Up to 100 items per stage, `more` counts the rest.",
+  tag: "production",
+});
+productionRoutes.get("/projects/:projectId/staleness/why", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "read");
+  return c.json({ stages: await whyStale(c.get("deps").db, p) });
 });
 
 /** One line of the health report: what, how many, whether it stops the project being ready, and where it is fixed. */

@@ -21,7 +21,7 @@ import {
   videoDriftToleranceMs,
   watermarkBox,
 } from "@openmanga/domain";
-import { renderPanelArt, sharp } from "@openmanga/image-utils";
+import { sharp } from "@openmanga/image-utils";
 import type { ProjectSettings, ShortsCaptions } from "@openmanga/schemas";
 import {
   type BrandedProject,
@@ -32,6 +32,7 @@ import {
   panelAspect,
   planVideoShots,
   renderPageImage,
+  renderPanelWithEffects,
   renderProjectVideoCard,
   type VideoScope,
 } from "@openmanga/services";
@@ -70,6 +71,13 @@ export type VideoOptions = {
   captions?: ShortsCaptions;
   /** A Shorts cut's opening line, voiced before the first shot's own narration. */
   hook?: string;
+  /**
+   * A hook variant (panel cut): these panels play first with this narration spread over them, then the intro card and
+   * the film. Each variant re-encodes only its own shots; the film's sections are reused.
+   */
+  opening?: { text: string; panelIds: string[] };
+  /** The export's choice of hook variant (settings.video.hooks), resolved into `opening`. */
+  hookId?: string;
   /** Whose voice settings the hook uses (the export's user). */
   hookUserId?: string | null;
 };
@@ -82,6 +90,8 @@ type Project = Parameters<typeof planVideoShots>[1] &
 
 /** The narration line id a Shorts hook takes in the film's plan. */
 const HOOK_LINE = "shorts-hook";
+/** The narration line id a hook variant's opening takes. */
+const OPENING_LINE = "opening-hook";
 
 /**
  * A Shorts hook as a narration line: spoken with the project's narrator voice, speed and pronunciation dictionary on
@@ -162,7 +172,13 @@ export async function run(cmd: string[], label: string, timeoutMs = FFMPEG_TIMEO
 type Card = { path: string; frames: number; key: string };
 /** The logo prepared for the render: scaled to its box, placed at x/y over every clip; `key` is what it looks like. */
 type Watermark = { path: string; x: number; y: number; opacity: number; key: string };
-type Branding = { intro: Card | null; outro: Card | null; watermark: Watermark | null };
+type Branding = {
+  intro: Card | null;
+  outro: Card | null;
+  watermark: Watermark | null;
+  /** Title cards before chapters, by chapter id. */
+  chapters: Map<string, Card>;
+};
 
 /**
  * The project's video branding as files in the temp dir: intro and outro cards drawn by the same
@@ -179,15 +195,22 @@ async function prepareBranding(
   cards = true,
 ): Promise<Branding> {
   const video = project.settings.video;
-  const card = async (which: "intro" | "outro") => {
+  const card = async (which: "intro" | "outro" | { chapterId: string }) => {
     if (!cards) return null;
+    const def =
+      typeof which === "object" ? video?.chapterCards?.find((c) => c.chapterId === which.chapterId) : video?.[which];
     const png = await renderProjectVideoCard(deps.db, deps.assets, project, which, frameW, frameH);
-    if (!png || !video?.[which]) return null;
-    const path = join(dir, `${which}.png`);
+    if (!png || !def) return null;
+    const path = join(dir, `${typeof which === "object" ? `chapter-${which.chapterId}` : which}.png`);
     await Bun.write(path, png);
-    const frames = cardFrames(video[which].durationMs, fps);
+    const frames = cardFrames(def.durationMs, fps);
     return { path, frames, key: sha256Hex(JSON.stringify({ card: sha256Hex(png), frames })) };
   };
+  const chapters = new Map<string, Card>();
+  for (const c of video?.chapterCards ?? []) {
+    const k = await card({ chapterId: c.chapterId });
+    if (k) chapters.set(c.chapterId, k);
+  }
   const wm = video?.watermark;
   const logo = wm ? await deps.assets.get(wm.assetId) : null;
   let watermark: Watermark | null = null;
@@ -201,7 +224,7 @@ async function prepareBranding(
     await Bun.write(path, new Uint8Array(png));
     watermark = { path, ...box, opacity: wm.opacity, key: `${logo.sha256}:${JSON.stringify(box)}:${wm.opacity}` };
   }
-  return { intro: await card("intro"), outro: await card("outro"), watermark };
+  return { intro: await card("intro"), outro: await card("outro"), watermark, chapters };
 }
 
 /**
@@ -362,6 +385,8 @@ type FilmSetup<S extends Shot> = {
   describe: (shot: S, frames: number) => Promise<Record<string, unknown>>;
   /** Told every section key of the film before any clip is encoded, so the export can claim them. */
   onSections?: (keys: string[]) => Promise<void>;
+  /** Cards before the shot at this index: a chapter's title card before its first shot, the intro after an opening. */
+  cardsBefore?: Map<number, Card[]>;
 };
 
 /**
@@ -398,7 +423,7 @@ async function buildFilm<S extends Shot>(
   const sampleAt = (ms: number) => Math.round((ms / 1000) * SAMPLE_RATE);
   const cues: Cue[] = [];
   const holds: { frames: number; holdSec: number }[] = [];
-  /** Where each shot starts in the film, for chapter timestamps. */
+  /** Where each shot starts in the film (its chapter's card, for a chapter's first), for chapter timestamps. */
   const startsMs: number[] = [];
   let totalFrames = 0;
   // A card is silence on the audio track; everything after it (cues, chapter marks) starts that much later.
@@ -408,9 +433,14 @@ async function buildFilm<S extends Shot>(
   };
   let partial = false;
   const groups = shotGroups(shots.map((s) => s.joinNext));
+  // A chapter card plays at the start of a group: one inside a run of shots a line spans would split its narration.
+  const cardAt = new Map([...(film.cardsBefore ?? [])].filter(([i]) => groups.some((g) => g.first === i)));
   try {
     if (branding.intro) await holdCard(branding.intro);
     for (const [gi, g] of groups.entries()) {
+      const cardStartMs = (totalFrames * 1000) / opts.fps;
+      const chapterCard = cardAt.get(g.first);
+      for (const card of chapterCard ?? []) await holdCard(card);
       const members = shots.slice(g.first, g.last + 1);
       const lines: { wav: Uint8Array; text: string; pauseAfterMs: number; ms: number }[][] = [];
       const ownLines: number[] = [];
@@ -472,7 +502,8 @@ async function buildFilm<S extends Shot>(
       }
       for (const [m, shot] of members.entries()) {
         const frames = timing.frames[m]!;
-        startsMs.push((totalFrames * 1000) / opts.fps);
+        // A chapter mark points at the chapter's title card when it has one.
+        startsMs.push(m === 0 && chapterCard ? cardStartMs : (totalFrames * 1000) / opts.fps);
         totalFrames += frames;
         holds.push({ frames, holdSec: frames / opts.fps });
         Object.assign(shot.report, {
@@ -517,13 +548,23 @@ async function buildFilm<S extends Shot>(
   });
   const jobs = [
     ...(branding.intro ? [cardJob(branding.intro, 0)] : []),
-    ...(await Promise.all(
-      shots.map(async (shot, i) => ({
-        clip: clipPath(i + 1),
-        key: keyOf(await film.describe(shot, holds[i]!.frames)),
-        encode: (clip: string) => encodeShot(shot, i, holds[i]!.frames, holds[i]!.holdSec, clip),
-      })),
-    )),
+    ...(
+      await Promise.all(
+        shots.map(async (shot, i) => {
+          const job = {
+            clip: clipPath(i + 1),
+            key: keyOf(await film.describe(shot, holds[i]!.frames)),
+            encode: (clip: string) => encodeShot(shot, i, holds[i]!.frames, holds[i]!.holdSec, clip),
+          };
+          // A chapter's title card (or the intro after an opening) plays right before this shot.
+          const cards = (cardAt.get(i) ?? []).map((card, k) => ({
+            ...cardJob(card, 0),
+            clip: join(dir, `card-${String(i).padStart(5, "0")}-${k}.mp4`),
+          }));
+          return [...cards, job];
+        }),
+      )
+    ).flat(),
     ...(branding.outro && !partial ? [cardJob(branding.outro, shots.length + 1)] : []),
   ];
   const clips = jobs.map((j) => j.clip);
@@ -662,8 +703,14 @@ async function buildFilm<S extends Shot>(
       "-i",
       rawPath,
       ...videoOut,
-      "-af",
-      `loudnorm=${target}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`,
+      // A film with no narration is silence, which measures -inf: there is nothing to normalise, and the second
+      // pass given -inf breaks.
+      ...(Number.isFinite(Number(m.input_i))
+        ? [
+            "-af",
+            `loudnorm=${target}:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`,
+          ]
+        : []),
       ...aac,
       "-movflags",
       "+faststart",
@@ -712,6 +759,21 @@ type Scoped = VideoOptions & {
   onSections?: (keys: string[]) => Promise<void>;
 };
 
+/**
+ * Cards inside the film, by the shot they play before: each chapter's title card before the first shot of that
+ * chapter, and with an opening (its `openingShots` come first) the intro card after it, before the film itself.
+ */
+function cardsBefore(shots: { page: { chapterId: string } }[], branding: Branding, openingShots: number) {
+  const out = new Map<number, Card[]>();
+  if (openingShots && branding.intro) out.set(openingShots, [branding.intro]);
+  for (const [i, s] of shots.entries())
+    if (i >= openingShots && (i === openingShots || shots[i - 1]!.page.chapterId !== s.page.chapterId)) {
+      const card = branding.chapters.get(s.page.chapterId);
+      if (card) out.set(i, [...(out.get(i) ?? []), card]);
+    }
+  return out;
+}
+
 /** The first shot of each chapter and where it starts, in film order. */
 function chapterStarts(shots: { page: { chapterId: string } }[], startsMs: number[]) {
   const out: { chapterId: string; startMs: number }[] = [];
@@ -755,12 +817,36 @@ async function plan(deps: WorkerDeps, project: Project, chapterId: string | null
     shots[0] = { ...shots[0], lineIds: [HOOK_LINE, ...shots[0].lineIds] };
     shots[0].report.hook = hook;
   }
+  // A hook variant: its panels first, one shared hold over which its narration is spoken (a line spanning them).
+  let openingShots = 0;
+  const opening = opts.opening;
+  if (opening?.text.trim() && opening.panelIds.length && cut === "panel") {
+    const lead = await planVideoShots(deps.db, project, { panelIds: opening.panelIds }, cut, language, {
+      cropAspect: cropsToFrame(opts.aspect ?? "16:9") ? frameW / frameH : undefined,
+    });
+    if (!lead.shots.length) throw new Error("None of the hook's panels can be shown");
+    byLine.set(OPENING_LINE, await hookLine(deps, project, opening.text.trim(), opts.hookUserId ?? null));
+    offsets.set(OPENING_LINE, { startOffsetMs: 0, endOffsetMs: 0 });
+    shots.unshift(
+      ...lead.shots.map((s, i) => ({
+        ...s,
+        key: `opening-${s.key}`,
+        lineIds: i === 0 ? [OPENING_LINE] : [],
+        joinNext: i < lead.shots.length - 1,
+        fade: { in: false, out: false },
+        minHoldMs: null,
+        report: { opening: true, panel: s.panelIndex } as Record<string, unknown>,
+      })),
+    );
+    openingShots = lead.shots.length;
+  }
   return {
     language,
     shots,
     narration: { byLine, offsets },
     unplacedLines: planned.unplacedLines,
     disabledPanels: planned.disabledPanels,
+    openingShots,
   };
 }
 
@@ -777,7 +863,7 @@ export async function renderPageCutVideo(
   progress: (p: number) => Promise<void>,
 ) {
   const { frameW, frameH } = frameSizeFor(opts.height, opts.aspect);
-  const { language, shots, narration, unplacedLines, disabledPanels } = await plan(
+  const { language, shots, narration, unplacedLines, disabledPanels, openingShots } = await plan(
     deps,
     project,
     chapterId,
@@ -796,7 +882,9 @@ export async function renderPageCutVideo(
       projectId: project.id,
       frameW,
       frameH,
-      branding,
+      // After an opening, the intro plays between it and the film (see cardsBefore).
+      branding: openingShots ? { ...branding, intro: null } : branding,
+      cardsBefore: cardsBefore(shots, branding, openingShots),
       onSections: opts.onSections,
       // The lettered page (its render fingerprint), its framing and scroll, its length and its fades.
       describe: async (shot, frames) => ({
@@ -812,7 +900,7 @@ export async function renderPageCutVideo(
       const pg = shot.page;
       const { w: fgW, h: fgH } = pageShotBox(pg.width, pg.height, frameW, frameH, opts);
       const n = String(i + 1).padStart(5, "0");
-      const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+      const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection, opts.language);
       // A decorative page edge is cut out, so the blurred backdrop shows around it.
       const png = await renderPageImage(render, "png", {
         scale: Math.min(3, Math.max(0.25, (fgW / pg.width) * 1.25)),
@@ -839,7 +927,7 @@ export async function renderPageCutVideo(
     width: frameW,
     height: frameH,
     durationMs: film.durationMs,
-    chapterStarts: chapterStarts(shots, film.startsMs),
+    chapterStarts: chapterStarts(shots.slice(openingShots), film.startsMs.slice(openingShots)),
     report: { language, ...film.stats, pages: shots.map((s) => s.report), unplacedLines, disabledPanels },
   };
 }
@@ -861,7 +949,7 @@ export async function renderPanelCutVideo(
 ) {
   const { frameW, frameH } = frameSizeFor(opts.height, opts.aspect);
   const zoom = opts.zoom ?? 0.06;
-  const { language, shots, narration, unplacedLines, disabledPanels } = await plan(
+  const { language, shots, narration, unplacedLines, disabledPanels, openingShots } = await plan(
     deps,
     project,
     chapterId,
@@ -880,7 +968,9 @@ export async function renderPanelCutVideo(
       projectId: project.id,
       frameW,
       frameH,
-      branding,
+      // After an opening, the intro plays between it and the film (see cardsBefore).
+      branding: openingShots ? { ...branding, intro: null } : branding,
+      cardsBefore: cardsBefore(shots, branding, openingShots),
       onSections: opts.onSections,
       // The artwork (its hash) and how it is cropped, or the lettered page when there is none; the move, its length
       // and its fades.
@@ -915,10 +1005,23 @@ export async function renderPanelCutVideo(
       const superH = Math.max(2, Math.round(superW / aspect / 2) * 2);
       let fgPng: Uint8Array;
       if (art) {
-        fgPng = await renderPanelArt(await deps.assets.read(art), superW, superH, pn.imageTransform);
+        fgPng = await renderPanelWithEffects(
+          await deps.assets.read(art),
+          superW,
+          superH,
+          pn.imageTransform,
+          pn.effects,
+          pn.id,
+        );
         shot.report.source = "art";
       } else {
-        const render = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+        const render = await loadRenderPage(
+          deps.db,
+          deps.assets.storage,
+          pg.id,
+          project.readingDirection,
+          opts.language,
+        );
         const scale = Math.min(3, Math.max(0.5, superW / Math.max(1, pn.frame.width * pg.width)));
         const page = await renderPageImage(render, "png", { scale });
         const left = Math.max(0, Math.round(pn.frame.x * page.width));
@@ -953,7 +1056,7 @@ export async function renderPanelCutVideo(
     width: frameW,
     height: frameH,
     durationMs: film.durationMs,
-    chapterStarts: chapterStarts(shots, film.startsMs),
+    chapterStarts: chapterStarts(shots.slice(openingShots), film.startsMs.slice(openingShots)),
     report: { language, ...film.stats, panels: shots.map((s) => s.report), unplacedLines, disabledPanels },
   };
 }

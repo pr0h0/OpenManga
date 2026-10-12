@@ -10,12 +10,26 @@ import { GuestComments } from "./GuestComments.tsx";
 type Shared = {
   /** The link lets readers comment (each page then lists its panels). */
   allowComments: boolean;
-  project: { title: string; description: string; author: string; readingDirection: string; format: string };
+  project: {
+    title: string;
+    description: string;
+    author: string;
+    readingDirection: string;
+    format: string;
+    videoAspect?: "16:9" | "9:16" | "1:1";
+  };
   chapters: {
     id: string;
     title: string;
     order: number;
-    pages: { id: string; order: number; width: number; height: number; panels?: { id: string; order: number }[] }[];
+    pages: {
+      id: string;
+      order: number;
+      width: number;
+      height: number;
+      alt?: string;
+      panels?: { id: string; order: number }[];
+    }[];
   }[];
 };
 
@@ -156,6 +170,7 @@ export function ReaderPage() {
           projectId=""
           scope={{ chapterId: chapter.id }}
           defaultCut={data.project.format === "film" ? "panel" : "page"}
+          defaultAspect={data.project.videoAspect}
           title={chapter.title}
           shareToken={token}
         />
@@ -179,7 +194,7 @@ export function ReaderPage() {
             <img
               key={pg.id}
               src={src(pg.id)}
-              alt={`Page ${pg.order}`}
+              alt={pg.alt || `Page ${pg.order}`}
               loading="lazy"
               width={pg.width}
               height={pg.height}
@@ -205,7 +220,7 @@ export function ReaderPage() {
             <img
               key={page.id}
               src={src(page.id)}
-              alt={`Page ${page.order}`}
+              alt={page.alt || `Page ${page.order}`}
               className="max-h-full max-w-full object-contain"
             />
             {/* The two halves turn the page; which half is "forward" follows the reading direction. */}

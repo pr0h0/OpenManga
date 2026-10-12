@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PanelSeam, StripPanelHeight } from "./editor.ts";
+import { PanelSeam, ShotMotion, StripPanelHeight, VideoCard } from "./editor.ts";
 
 const str = z.string().trim();
 const optStr = z.string().trim().optional().default("");
@@ -76,6 +76,44 @@ export const PanelSpec = z.object({
   seam: PanelSeam.optional(),
 });
 export type PanelSpec = z.infer<typeof PanelSpec>;
+
+/**
+ * Directing controls: optional structured staging a person sets on a panel (camera height, lens feel, depth of field,
+ * what the shot is for and what it focuses on, and per figure the side shown, facing, eye-line, depth and what they
+ * hold). Kept beside the planner's spec rather than in it, so the planning answer format is unchanged.
+ */
+export const CAMERA_HEIGHTS = ["ground", "knee", "waist", "eye", "above", "overhead"] as const;
+export const LENS_FEELS = ["ultra-wide", "wide", "normal", "telephoto", "macro"] as const;
+export const SHOT_PURPOSES = ["establish", "reveal", "reaction", "insert", "action", "dialogue", "transition"] as const;
+export const FIGURE_VIEWS = ["frontal", "three-quarter", "profile", "back", "over-the-shoulder", "pov"] as const;
+export const FIGURE_FACINGS = ["camera", "screen-left", "screen-right", "away"] as const;
+export const FIGURE_DEPTHS = ["foreground", "midground", "background"] as const;
+const short = z.string().trim().max(200);
+export const FigureDirection = z.object({
+  characterId: z.string(),
+  view: z.enum(FIGURE_VIEWS).optional(),
+  facing: z.enum(FIGURE_FACINGS).optional(),
+  /** Where they look: "at Hana", "down at the letter". */
+  eyeLine: short.optional(),
+  depth: z.enum(FIGURE_DEPTHS).optional(),
+  /** "sword in right hand". */
+  holding: short.optional(),
+});
+export type FigureDirection = z.infer<typeof FigureDirection>;
+export const PanelDirection = z.object({
+  cameraHeight: z.enum(CAMERA_HEIGHTS).optional(),
+  lens: z.enum(LENS_FEELS).optional(),
+  depthOfField: z.enum(["deep", "shallow"]).optional(),
+  purpose: z.enum(SHOT_PURPOSES).optional(),
+  /** The focus subject: what the eye lands on first. */
+  focus: short.optional(),
+  figures: z.array(FigureDirection).max(12).default([]),
+});
+export type PanelDirection = z.infer<typeof PanelDirection>;
+
+/** A panel's stored spec: the planner's fields plus the directing a person added. */
+export const StoredPanelSpec = PanelSpec.extend({ direction: PanelDirection.optional() });
+export type StoredPanelSpec = z.infer<typeof StoredPanelSpec>;
 
 export const PlannedDialogue = z.object({
   speaker: optStr.describe("character key/id or empty for off-panel"),
@@ -407,3 +445,75 @@ export const storyCoverageFor = (keys: string[]) =>
         message: `every paragraph needs an entry; missing: ${missing.slice(0, 80).join(", ")}`,
       });
   });
+
+/** Comic lettering translated into another language: each bubble's or caption's text by the ref it was given. */
+export const LetteringTranslation = z.object({
+  lines: z
+    .array(z.object({ ref: str.min(1).max(20), text: str.min(1).max(1000) }))
+    .min(1)
+    .max(1000),
+});
+export type LetteringTranslation = z.infer<typeof LetteringTranslation>;
+
+/**
+ * "Edit the video in words": the changes a sentence asks for, as timeline edits the user reviews before any is
+ * applied. One flat shape for every kind (the model fills the fields its `op` uses and leaves the rest null).
+ * pauses: cap and/or scale the pauses after narration segments and the lines' start/end offsets. holds: each shot's
+ * own minimum hold (null = back to the export's). shot: one panel's motion, fade or whether it plays. card: an intro,
+ * outro or chapter title card (title null removes it). scene_fades: fade to black at scene breaks.
+ */
+export const VIDEO_EDIT_KINDS = ["pauses", "holds", "shot", "card", "scene_fades"] as const;
+export const VideoEditPlan = z.object({
+  summary: str.max(500).default(""),
+  ops: z
+    .array(
+      z.object({
+        op: z.enum(VIDEO_EDIT_KINDS),
+        chapter: z.number().int().min(1).nullable().default(null),
+        maxPauseMs: z.number().int().min(0).max(10_000).nullable().default(null),
+        pauseScale: z.number().min(0).max(4).nullable().default(null),
+        holdMs: z.number().int().min(500).max(60_000).nullable().default(null),
+        panel: str.max(40).nullable().default(null),
+        disabled: z.boolean().nullable().default(null),
+        motion: ShotMotion.nullable().default(null),
+        fade: z.enum(["auto", "on", "off"]).nullable().default(null),
+        card: z.enum(["intro", "outro", "chapter"]).nullable().default(null),
+        title: str.max(120).nullable().default(null),
+        subtitle: str.max(200).nullable().default(null),
+        seconds: z.number().min(1).max(15).nullable().default(null),
+        on: z.boolean().nullable().default(null),
+      }),
+    )
+    .max(60),
+});
+export type VideoEditPlan = z.infer<typeof VideoEditPlan>;
+
+/** One reviewed timeline edit, by ids: what a proposal holds and what applying it takes (edited or not). */
+export const VideoEditOp = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("pauses"),
+    chapterId: z.string().uuid().nullable(),
+    maxPauseMs: z.number().int().min(0).max(10_000).nullable(),
+    pauseScale: z.number().min(0).max(4).nullable(),
+  }),
+  z.object({
+    op: z.literal("holds"),
+    chapterId: z.string().uuid().nullable(),
+    holdMs: z.number().int().min(500).max(60_000).nullable(),
+  }),
+  z.object({
+    op: z.literal("shot"),
+    panelId: z.string().uuid(),
+    disabled: z.boolean().optional(),
+    motion: ShotMotion.optional(),
+    fade: z.enum(["auto", "on", "off"]).optional(),
+  }),
+  z.object({
+    op: z.literal("card"),
+    which: z.enum(["intro", "outro", "chapter"]),
+    chapterId: z.string().uuid().nullable(),
+    card: VideoCard.nullable(),
+  }),
+  z.object({ op: z.literal("scene_fades"), on: z.boolean() }),
+]);
+export type VideoEditOp = z.infer<typeof VideoEditOp>;

@@ -86,7 +86,12 @@ Queues and what they carry:
 | `maintenance` | the hourly cleanup cycle, and the provider-batch poll every `BATCH_POLL_INTERVAL_SECONDS` (300) | fixed at 1 |
 
 A worker consumes every queue unless `WORKER_QUEUES` lists some (comma-separated), which is how a second worker
-container takes only `render` (see `docs/DEPLOYMENT.md`). Every worker also runs the outbox publisher and the
+container takes only `render` (see `docs/DEPLOYMENT.md`). It also takes only the queues it can serve
+(`QUEUE_NEEDS`, `packages/queue/src/workers.ts`): `render` needs `ffmpeg` (ffmpeg and ffprobe on the path) and `tts`
+needs `tts` (narration synthesis on); `WORKER_CAPABILITIES` declares more (`gpu`, `comfyui`) or takes one away
+(`-ffmpeg`). A queue it cannot serve is left, with a warning in its log, for a worker that can. Every 30 s each worker
+writes its entry — host, queues, capabilities, what it left and why, version — to Redis under `om:workers:` with a
+90 s expiry, and Admin → Overview lists the workers alive and warns when work waits on a queue none of them takes. Every worker also runs the outbox publisher and the
 reconcile loop below; both are safe to run more than once.
 
 BullMQ jobs default to 3 attempts with exponential backoff (5 s, jitter 0.5) under the Redis key prefix `om`. The

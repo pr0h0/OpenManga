@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, CheckCircle2, HeartPulse, Info } from "lucide-react";
+import { Accessibility as Accessibility2, AlertTriangle, CheckCircle2, HeartPulse, Info } from "lucide-react";
 import { get } from "../../api/client.ts";
 import { ErrorBox, fmt, PageHeader, Spinner } from "../../components/ui.tsx";
 import { useProjectId } from "./ProjectLayout.tsx";
@@ -94,7 +94,93 @@ export function HealthPage() {
           ),
       )}
       {!h.items.length && <p className="muted text-sm">Nothing to report: everything is current.</p>}
+      <Accessibility projectId={projectId} />
     </div>
+  );
+}
+
+type A11y = {
+  altText: { panels: number; written: number; empty: string[] };
+  readingOrder: { pageId: string; chapter: number; page: number; panels: number; expected: number[] }[];
+  lettering: {
+    kind: "contrast" | "size";
+    pageId: string;
+    chapter: number;
+    page: number;
+    text: string;
+    value: number;
+    limit: number;
+  }[];
+};
+
+/**
+ * For readers who use a screen reader or read small: alt text, pages whose panel order differs from where the panels
+ * sit, and lettering too faint or too small. Each page links to its editor.
+ */
+function Accessibility({ projectId }: { projectId: string }) {
+  const q = useQuery({
+    queryKey: ["project", projectId, "accessibility"],
+    queryFn: () => get<A11y>(`/projects/${projectId}/accessibility`),
+  });
+  if (!q.data) return null;
+  const a = q.data;
+  const pageLink = (x: { pageId: string; chapter: number; page: number }) => (
+    <Link
+      to="/projects/$projectId/pages/$pageId"
+      params={{ projectId, pageId: x.pageId }}
+      className="text-accent-500 hover:underline"
+    >
+      ch. {x.chapter}, page {x.page}
+    </Link>
+  );
+  return (
+    <section className="card space-y-3 p-4" aria-label="Accessibility">
+      <h2 className="flex items-center gap-1.5 text-sm font-medium">
+        <Accessibility2 className="size-4" /> Accessibility
+      </h2>
+      <p className="text-sm">
+        Alt text: {a.altText.written} of {a.altText.panels} panels written by hand; the rest are described from their
+        story beat, dialogue and sound effects (EPUBs and readers use it).
+        {a.altText.empty.length > 0 && (
+          <span className="text-amber-600"> {a.altText.empty.length} panel(s) have nothing to describe them by.</span>
+        )}{" "}
+        <a className="text-accent-500 hover:underline" href={`/api/projects/${projectId}/transcript?download=1`}>
+          Narration transcript
+        </a>
+      </p>
+      {a.readingOrder.length > 0 && (
+        <div className="text-sm">
+          <h3 className="font-medium">Reading order</h3>
+          <ul className="space-y-0.5">
+            {a.readingOrder.map((r) => (
+              <li key={r.pageId}>
+                {pageLink(r)}: panels are numbered in another order than they sit; a reader goes{" "}
+                {r.expected.join(" → ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {a.lettering.length > 0 && (
+        <div className="text-sm">
+          <h3 className="font-medium">Lettering</h3>
+          <ul className="space-y-0.5">
+            {a.lettering.slice(0, 50).map((l, i) => (
+              <li key={`${l.pageId}-${i}`}>
+                {pageLink(l)}: “{l.text.slice(0, 40)}” —{" "}
+                {l.kind === "contrast"
+                  ? `contrast ${l.value}:1, under ${l.limit}:1`
+                  : `text ${(l.value * 100).toFixed(1)}% of the page width, under ${(l.limit * 100).toFixed(1)}%`}
+              </li>
+            ))}
+          </ul>
+          {a.lettering.length > 50 && <p className="muted text-xs">and {a.lettering.length - 50} more</p>}
+        </div>
+      )}
+      {!a.readingOrder.length && !a.lettering.length && (
+        <p className="muted text-sm">Reading order and lettering contrast and size: nothing to fix.</p>
+      )}
+    </section>
   );
 }
 

@@ -28,6 +28,7 @@ import {
   storyAnalyses,
   storyRevisions,
   stylePresets,
+  timelineEvents,
 } from "@openmanga/db";
 import {
   bibleIsEmpty,
@@ -42,23 +43,19 @@ import {
 } from "@openmanga/domain";
 import {
   bibleExtractV1,
-  chapterOutlineV3,
-  chapterPlanningV7,
   imageDescribeV1,
   jsonRepairV1,
+  letteringTranslateV1,
   narrationRetimeV1,
   narrationV6,
+  overrideSystem,
   panelPromptsV5,
-  scenePagesV3,
-  sceneShotsV3,
-  sceneStripV3,
-  shotOutlineV3,
-  shotPlanningV4,
+  planningTemplates,
   socialCopyV2,
   storyAnalysisV3,
   storyRewriteV1,
-  stripOutlineV3,
-  stripPlanningV3,
+  timelineExtractV1,
+  videoEditV1,
   youtubePackageV2,
 } from "@openmanga/prompts";
 import {
@@ -66,6 +63,7 @@ import {
   ChapterOutline,
   ChapterPlan,
   ImageDescription,
+  LetteringTranslation,
   NarrationRetime,
   narrationDraftFor,
   PanelPromptDraft,
@@ -75,14 +73,22 @@ import {
   SocialCopy,
   StoryAnalysis,
   StoryRewrite,
+  TimelineExtraction,
+  type VideoEditOp,
+  VideoEditPlan,
   YoutubePackage,
 } from "@openmanga/schemas";
 import {
+  activeOverride,
   applyChapterPlan,
   applyNarrationPauses,
   bibleFor,
+  cardOf,
+  chapterLettering,
   loadBible,
   recordNarrationFingerprint,
+  resolveVideoEdit,
+  saveTranslations,
   youtubeSourceFingerprint,
 } from "@openmanga/services";
 import { sha256Hex } from "@openmanga/storage";
@@ -113,6 +119,22 @@ export async function structured<T>(
   // In a batch run this wrapper either collects the request and parks the job, or replays the answer the batch
   // returned — either way the handler around it is unchanged. A manual run is the same shape with a person in
   // the provider's place, and resolves no credential because it has none to resolve.
+  // The project's prompt-lab rules for this template, in place of the built-in ones (header, data rule and answer
+  // format stay), recorded on the job.
+  const header = /^\[template:([a-z-]+)-v\d+\]/.exec(messages[0]?.role === "system" ? messages[0].content : "")?.[1];
+  const override = header && job.projectId ? await activeOverride(deps.db, job.projectId, header) : null;
+  if (override) {
+    messages = [
+      { ...messages[0]!, content: overrideSystem(messages[0]!.content, override.rules) },
+      ...messages.slice(1),
+    ];
+    await deps.db
+      .update(generationJobs)
+      .set({
+        parameters: sql`${generationJobs.parameters} || jsonb_build_object('promptOverrides', coalesce(${generationJobs.parameters}->'promptOverrides', '{}'::jsonb) || jsonb_build_object(${header}::text, ${override.version}::int))`,
+      })
+      .where(eq(generationJobs.id, job.id));
+  }
   const provider = isManual(job)
     ? manualProvider(job)
     : batchAware((await deps.resolver.forJob("text", job)) as TextAIProvider, job, deps.batchCollector);
@@ -534,7 +556,12 @@ async function projectArtDirection(deps: WorkerDeps, projectId: string) {
 async function planByScene(
   deps: WorkerDeps,
   job: ProjectJob,
-  i: { format: ProjectFormat; data: Record<string, unknown>; chapterText: string },
+  i: {
+    format: ProjectFormat;
+    templates: ReturnType<typeof planningTemplates>;
+    data: Record<string, unknown>;
+    chapterText: string;
+  },
 ): Promise<ChapterPlan> {
   // Film shots and vertical strip panels are one frame per page, so only the full-page template applies.
   const oneFrame = i.format === "film" || i.format === "vertical";
@@ -548,7 +575,7 @@ async function planByScene(
   const outline = await structured(
     deps,
     job,
-    (i.format === "film" ? shotOutlineV3 : i.format === "vertical" ? stripOutlineV3 : chapterOutlineV3).build({
+    i.templates.outline.build({
       ...base,
       targetPages: target,
     }),
@@ -556,7 +583,7 @@ async function planByScene(
     "ChapterOutline",
     16_000,
   );
-  const pagesTemplate = i.format === "film" ? sceneShotsV3 : i.format === "vertical" ? sceneStripV3 : scenePagesV3;
+  const pagesTemplate = i.templates.pages;
   const scenes: ChapterPlan["scenes"] = [];
   for (const [sceneIndex, scene] of outline.data.scenes.entries()) {
     if (await isCancelRequested(deps, job.id)) throw new JobCancelledError();
@@ -595,9 +622,8 @@ export async function chapterPlan(deps: WorkerDeps, job: ProjectJob) {
     .where(eq(projects.id, job.projectId));
   const format: ProjectFormat = proj?.settings.format ?? "comic";
   const oneFrame = format === "film" || format === "vertical";
-  const messages = (
-    format === "film" ? shotPlanningV4 : format === "vertical" ? stripPlanningV3 : chapterPlanningV7
-  ).build({
+  const templates = planningTemplates({ format, filmFrame: proj?.settings.filmFrame });
+  const messages = templates.plan.build({
     projectData: data,
     chapterText: chapter.sourceExcerpt || chapter.summary,
     layoutTemplates: LAYOUT_TEMPLATES.filter((t) => !oneFrame || t.key === "full-page").map((t) => ({
@@ -614,7 +640,7 @@ export async function chapterPlan(deps: WorkerDeps, job: ProjectJob) {
   // scene to finish a chapter.
   const plan = job.parameters.batchMode
     ? (await structured(deps, job, messages, ChapterPlan, "ChapterPlan", 64_000)).data
-    : await planByScene(deps, job, { format, data, chapterText: chapter.sourceExcerpt || chapter.summary });
+    : await planByScene(deps, job, { format, templates, data, chapterText: chapter.sourceExcerpt || chapter.summary });
   const applied = await applyChapterPlan(deps.db, chapterId, plan, { replace: Boolean(job.input.replace) });
   await deps.events.publish(job.projectId, { type: "chapter.updated", chapterId });
   // Planning the same script twice can return very different densities, so report what this plan achieved
@@ -1106,4 +1132,225 @@ export async function bibleExtract(deps: WorkerDeps, job: ProjectJob) {
     32_000,
   );
   return { chapterId, facts: r.data.facts.length, states: r.data.states.length, repaired: r.repaired, data: r.data };
+}
+
+/** Proposes the story timeline from the chapters (one, or all); the person reviews and applies it. */
+export async function timelineExtract(deps: WorkerDeps, job: ProjectJob) {
+  const chapterId = job.input.chapterId ? String(job.input.chapterId) : null;
+  const chs = await deps.db
+    .select()
+    .from(chapters)
+    .where(and(eq(chapters.projectId, job.projectId), chapterId ? eq(chapters.id, chapterId) : undefined))
+    .orderBy(asc(chapters.order));
+  if (!chs.length) throw new InputError(chapterId ? "Chapter no longer exists" : "The project has no chapters yet");
+  const cast = await deps.db
+    .select({ id: characters.id, name: characters.name, role: characters.role })
+    .from(characters)
+    .where(and(eq(characters.projectId, job.projectId), isNull(characters.deletedAt)));
+  const ids = cast.map((c) => c.id);
+  const aliases = ids.length
+    ? await deps.db.select().from(characterAliases).where(inArray(characterAliases.characterId, ids))
+    : [];
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  const existing = await deps.db
+    .select()
+    .from(timelineEvents)
+    .where(eq(timelineEvents.projectId, job.projectId))
+    .orderBy(asc(timelineEvents.order));
+  const texts = await chapterTextsForExtraction(deps, chs, project?.language ?? "en");
+  if (!texts.some((t) => t.trim()))
+    throw new InputError(
+      "These chapters have no text to read yet: no source text or summary, and no narration. Analyse the story or write the narration first.",
+    );
+  const r = await structured(
+    deps,
+    job,
+    timelineExtractV1.build({
+      projectData: {
+        characters: cast.map((c) => ({
+          name: c.name,
+          role: c.role,
+          aliases: aliases.filter((a) => a.characterId === c.id).map((a) => a.alias),
+        })),
+        existingTimeline: existing.map((e) => ({ title: e.title, when: e.when, day: e.day })),
+      },
+      chapters: chs.map((c, i) => ({ number: c.order, title: c.title, text: texts[i] ?? "" })),
+    }),
+    TimelineExtraction,
+    "TimelineExtraction",
+    32_000,
+  );
+  return { chapterId, events: r.data.events.length, repaired: r.repaired, data: r.data };
+}
+
+/** Translates a chapter's bubbles and captions into the job's language and saves them (hand edits are kept). */
+export async function letteringTranslate(deps: WorkerDeps, job: ProjectJob) {
+  const chapterId = String(job.input.chapterId);
+  const language = String(job.input.language);
+  const [project] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!project) throw new InputError("Project no longer exists");
+  if (language === project.language) throw new InputError("That is the project's own language");
+  const lines = await chapterLettering(deps.db, chapterId, project.language);
+  if (!lines.length) throw new InputError("This chapter has no bubbles or captions to translate");
+  const refs = lines.map((l, i) => ({ ...l, ref: `${l.sourceType === "dialogue" ? "d" : "c"}${i + 1}` }));
+  const cast = await deps.db
+    .select({ name: characters.name })
+    .from(characters)
+    .where(and(eq(characters.projectId, job.projectId), isNull(characters.deletedAt)));
+  const r = await structured(
+    deps,
+    job,
+    letteringTranslateV1.build({
+      language: { code: language, name: languageName(language) },
+      source: { code: project.language, name: languageName(project.language) },
+      cast,
+      lines: refs.map((l) => ({
+        ref: l.ref,
+        kind: l.kind,
+        speaker: l.speaker,
+        text: l.text,
+        maxChars: Math.max(12, Math.round(l.text.length * 1.3) + 8),
+      })),
+    }),
+    LetteringTranslation,
+    "LetteringTranslation",
+    16_000,
+  );
+  const byRef = new Map(refs.map((l) => [l.ref, l]));
+  const saved = await saveTranslations(
+    deps.db,
+    job.projectId,
+    language,
+    r.data.lines.flatMap((x) => {
+      const l = byRef.get(x.ref);
+      return l
+        ? [{ sourceType: l.sourceType, sourceId: l.sourceId, text: x.text, original: l.text, edited: false }]
+        : [];
+    }),
+  );
+  return { chapterId, language, lines: lines.length, saved, repaired: r.repaired };
+}
+
+/** Panels listed to the model one by one, by ref; a bigger project is edited by chapter only. */
+const VIDEO_EDIT_PANEL_LIMIT = 400; // ponytail: cap the prompt; list only the chapters an instruction names if needed
+
+/**
+ * "Edit the video in words": the project's timeline in brief (chapters with their shots and pauses, the cards and
+ * settings, the panels by ref when there are not too many), the instruction, and back a list of edits by id, each
+ * with what it would change now. Nothing is applied here: the user ticks, changes or rejects them.
+ */
+export async function videoEdit(deps: WorkerDeps, job: ProjectJob) {
+  const instruction = String(job.input.instruction ?? "");
+  const [p] = await deps.db.select().from(projects).where(eq(projects.id, job.projectId));
+  if (!p) throw new InputError("The project is gone");
+  const chs = await deps.db
+    .select({ id: chapters.id, order: chapters.order, title: chapters.title })
+    .from(chapters)
+    .where(eq(chapters.projectId, p.id))
+    .orderBy(asc(chapters.order));
+  if (!chs.length) throw new InputError("This project has no chapters yet");
+  const pns = await deps.db
+    .select({
+      id: panels.id,
+      order: panels.order,
+      pageOrder: pages.order,
+      chapterId: pages.chapterId,
+      beat: panels.storyBeat,
+      video: panels.video,
+    })
+    .from(panels)
+    .innerJoin(pages, eq(pages.id, panels.pageId))
+    .where(eq(panels.projectId, p.id))
+    .orderBy(asc(pages.order), asc(panels.order));
+  const pauses = await deps.db
+    .select({ chapterId: narrationLines.chapterId, ms: narrationSegments.pauseAfterMs })
+    .from(narrationSegments)
+    .innerJoin(narrationLines, eq(narrationLines.id, narrationSegments.narrationLineId))
+    .where(eq(narrationSegments.projectId, p.id));
+  const orderOf = new Map(chs.map((c) => [c.id, c.order]));
+  const refOf = (x: (typeof pns)[number]) => `c${orderOf.get(x.chapterId)}-p${x.pageOrder}-n${x.order}`;
+  const v = p.settings.video;
+  const video = {
+    chapters: chs.map((c) => {
+      const ms = pauses.filter((x) => x.chapterId === c.id).map((x) => x.ms);
+      return {
+        chapter: c.order,
+        title: c.title,
+        shots: pns.filter((x) => x.chapterId === c.id).length,
+        pauses: ms.length,
+        longestPauseMs: ms.length ? Math.max(...ms) : 0,
+        averagePauseMs: ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) : 0,
+        shotsWithOwnHold: pns.filter((x) => x.chapterId === c.id && x.video?.holdMs != null).length,
+      };
+    }),
+    intro: v?.intro ?? null,
+    outro: v?.outro ?? null,
+    chapterCards: (v?.chapterCards ?? []).flatMap((c) =>
+      orderOf.has(c.chapterId) ? [{ chapter: orderOf.get(c.chapterId), title: c.title }] : [],
+    ),
+    sceneFades: v?.fadeAtSceneBreaks ?? false,
+    panels:
+      pns.length <= VIDEO_EDIT_PANEL_LIMIT
+        ? pns.map((x) => ({
+            ref: refOf(x),
+            beat: x.beat.slice(0, 100),
+            ...(x.video?.disabled ? { disabled: true } : {}),
+            ...(x.video?.motion && x.video.motion !== "auto" ? { motion: x.video.motion } : {}),
+            ...(x.video?.holdMs != null ? { holdMs: x.video.holdMs } : {}),
+          }))
+        : `Too many panels to list (${pns.length}); edit by chapter.`,
+  };
+  const r = await structured(
+    deps,
+    job,
+    videoEditV1.build({ instruction, video }),
+    VideoEditPlan,
+    "VideoEditPlan",
+    8_000,
+  );
+  const idOfChapter = new Map(chs.map((c) => [c.order, c.id]));
+  const idOfRef = new Map(pns.map((x) => [refOf(x), x.id]));
+  const edits: { op: VideoEditOp; label: string; effect: string; changes: number }[] = [];
+  const dropped: string[] = [];
+  for (const o of r.data.ops) {
+    const chapterId = o.chapter == null ? null : (idOfChapter.get(o.chapter) ?? undefined);
+    if (chapterId === undefined) {
+      dropped.push(`${o.op}: there is no chapter ${o.chapter}`);
+      continue;
+    }
+    let op: VideoEditOp | null = null;
+    if (o.op === "pauses" && (o.maxPauseMs != null || o.pauseScale != null))
+      op = { op: "pauses", chapterId, maxPauseMs: o.maxPauseMs, pauseScale: o.pauseScale };
+    else if (o.op === "holds") op = { op: "holds", chapterId, holdMs: o.holdMs };
+    else if (o.op === "shot") {
+      const panelId = o.panel ? idOfRef.get(o.panel) : undefined;
+      if (panelId)
+        op = {
+          op: "shot",
+          panelId,
+          ...(o.disabled != null ? { disabled: o.disabled } : {}),
+          ...(o.motion ? { motion: o.motion } : {}),
+          ...(o.fade ? { fade: o.fade } : {}),
+        };
+      else dropped.push(`shot: there is no panel ${o.panel ?? "(none given)"}`);
+    } else if (o.op === "card" && o.card && (o.card !== "chapter" || chapterId))
+      op = {
+        op: "card",
+        which: o.card,
+        chapterId: o.card === "chapter" ? chapterId : null,
+        card: cardOf(o.title, o.subtitle, o.seconds),
+      };
+    else if (o.op === "scene_fades" && o.on != null) op = { op: "scene_fades", on: o.on };
+    if (!op) {
+      if (o.op !== "shot") dropped.push(`${o.op}: incomplete`);
+      continue;
+    }
+    try {
+      const res = await resolveVideoEdit(deps.db, p, op);
+      edits.push({ op, label: res.label, effect: res.effect, changes: res.changes });
+    } catch (e) {
+      dropped.push(`${o.op}: ${(e as Error).message}`);
+    }
+  }
+  return { instruction, summary: r.data.summary, edits, dropped, repaired: r.repaired };
 }

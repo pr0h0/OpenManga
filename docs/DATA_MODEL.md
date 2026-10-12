@@ -51,7 +51,9 @@ slot).
 
   | Field | Meaning |
   | --- | --- |
-  | `format` | `comic`, `film` or `vertical`. A film project is one full-frame 16:9 shot per page; creating one also applies `FILM_PAGE` (1920×1080, no margin or gutter). A vertical project is one scrolling strip and starts from `VERTICAL_PAGE` (800×1200, no margin or gutter). |
+  | `filmFrame` | Film projects: `16:9` (default) or `9:16`, the shape every shot is planned (`planningTemplates`), drawn (`panel-generation` composes a vertical frame for a phone) and rendered at. Fixed, like `format`, once pages exist. |
+  | `format` | `comic`, `film` or `vertical`. A film project is one full-frame shot per page; creating one also applies `FILM_PAGE` (1920×1080, no margin or gutter), or `FILM_VERTICAL_PAGE` (1080×1920) and a 9:16 video output for `filmFrame: "9:16"`. A vertical project is one scrolling strip and starts from `VERTICAL_PAGE` (800×1200, no margin or gutter). |
+  | `storage` | `{enabled, maxAgeDays, kindAges, capGb}` — the project's own storage policy and cap, owner only (`docs/STORAGE.md`). |
   | `budgetUsd` | Hard USD ceiling on AI spend. New projects are created with **$5**, written at creation rather than as a schema default so older projects stay uncapped. `null` = no cap. |
   | `pageWidth/Height`, `pageGutter`, `pageMargin`, `webtoon*` | Page and webtoon geometry used by the compositor. |
   | `imageQuality`, `referenceMaxWidth/Height` | Per-project overrides of the image quality and reference derivative box. |
@@ -66,7 +68,7 @@ slot).
   | `youtubePackage` | `{titles, description, tags, pinnedComment, thumbnailHeadlines}` — the video's publishing text, written by a `youtube_package` job and then edited freely. |
   | `repurpose` | `{items: [{id, kind, label, panelIds, lengthSeconds?, aspect?, text, title, caption}]}` — the repurposing plan: Shorts, trailer, teaser (`short`/`trailer`/`teaser`, rendered as `video_shorts`), a `carousel` and `quote` images, each with its social title and caption (written by a `social_copy` job or by hand). Not carried by templates. |
   | `publishingSources` | `{youtubeText, youtubeTextAt, thumbnailTitle}` — written by the app: a fingerprint of the title and chapters the YouTube text was written from, and the project title the thumbnail headline was set for; staleness compares them (`docs/AI_PIPELINE.md`). |
-  | `video` | `{fadeAtSceneBreaks, watermark, intro, outro}` — video export settings: fade to black where the scene changes (each shot can override it), a logo watermark `{assetId, corner, opacity, size}` (an image of the project) and intro/outro cards `{title, subtitle, durationMs}`. |
+  | `video` | `{fadeAtSceneBreaks, watermark, intro, outro, chapterCards}` — video export settings: fade to black where the scene changes (each shot can override it), a logo watermark `{assetId, corner, opacity, size}` (an image of the project), intro/outro cards `{title, subtitle, durationMs}` and title cards before chapters `[{chapterId, title, subtitle, durationMs}]`, and hook variants `hooks` `[{id, label, text, panelIds, title, thumbnailHeadline}]` (alternative openings an export picks with `video.hookId`). |
 
 - `production_runs` — one run of the whole pipeline for a project (migration `0020_production_runs`): project, the
   `user_id` it acts as, `status` (`running|waiting|paused|completed|completed_with_warnings|failed|cancelled`;
@@ -107,7 +109,8 @@ slot).
   its shared cast, world, style and bible) and `channel_profile_id`. `projects.series_id`, `series_role`
   (`episode` | `library`) and `episode_number` place a project in it; `characters`, `locations` and `props` carry
   `source_id` (the library entry they follow) and `synced_version_id`, and `project_styles` and `bible_facts` carry
-  `source_id`. See `docs/SERIES.md`.
+  `source_id`. `visibility` (`off` | `unlisted` | `public`) and `public_slug` (unique) turn on its reader page
+  (`0048_public_series`). See `docs/SERIES.md`.
 
 ## Structure (`projects.ts`, `media.ts`)
 
@@ -115,7 +118,8 @@ slot).
   location state changes, revealed facts, beats, `last_plan` (the `ChapterPlan`) and `plan_status`, and
   `plan_fingerprint` / `narration_fingerprint` (migration `0033_chapter_source_fingerprints`, backfilled for chapters
   already planned or narrated): md5 of what the plan and the narration were made from, which staleness compares with
-  the current ones (`docs/ARCHITECTURE.md`).
+  the current ones (`docs/ARCHITECTURE.md`). `publish_at` (`0048_public_series`): from when the chapter is on its
+  series' reader page; a future time lists it as coming, null keeps it off.
 - `scenes` (location, time, weather, characters, purpose/opening/progression/climax/ending, continuity notes,
   initial/final state, continuity deltas) and `story_beats` (ordered within a scene).
 - `pages` — order, purpose, pacing, visual emphasis, page-turn hook, layout template key (a built-in template, or
@@ -126,7 +130,11 @@ slot).
 - `panels` — normalized `frame` (box in page fractions; optional `points`, a polygon outline of 3–24 points relative to
   the box, for shaped panels: the art is cut to it and the border follows it, while crops, bubbles and video shots
   keep using the box; optional `edge`, the panel's own border style over the project's `settings.edges.panels`), `image_transform` (focal point + scale, the crop shown on the page), `shot_type` and
-  `camera_angle` (free text), `story_beat`, `location_version_id`, `character_version_ids`, `prop_version_ids`,
+  `camera_angle` (free text), `story_beat`, `alt_text` (`0051_panel_alt_text`: what the panel shows for screen
+  readers, written by hand; null: made from its beat, dialogue and sound effects), `effects` (JSON, up to 6 comic effects drawn over the art in every render,
+  migration `0044_panel_effects`), `source_span` (JSON `{start, end, text}`, the part of the chapter text
+  the panel tells, traced without AI when planned; a panel whose `text` is no longer in the chapter was revised under),
+  `location_version_id`, `character_version_ids`, `prop_version_ids`,
   `active_artwork_asset_id`, `status`, approval status, plus four prompt and QA fields:
   `prompt_override` (text, a user-edited prompt), `prompt_draft` (JSON, the sections written by the `page_prompts`
   job), `qa` (JSON, the latest consistency check of the active artwork: verdict, problems, the visual checks
@@ -142,12 +150,19 @@ slot).
 - `experts` (a user's own experts), `expert_chats` (a chat, its own copy of the system prompt, an optional
   project) and `expert_messages` (role, text, status `done|pending|awaiting_input|failed`, attached and generated
   image asset ids, options such as `generateImage` and the reply's `imagePrompt`); see `docs/AI_PIPELINE.md`.
-- `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user.
+- `panel_specs` — versioned `PanelSpec` documents, unique per `(panel, version_number)`, authored by AI or user. A
+  user's spec may add `direction` (directing controls: camera height, lens feel, depth of field, shot purpose, focus
+  subject, and per figure the side shown, facing, eye-line, depth and what they hold); it is not part of the
+  planner's answer format.
 - `dialogue_lines` (vector `Bubble`), `sound_effects` (`SfxStyle`), `narration_lines` (per `language`, so one chapter
   can carry several narration tracks over the same artwork; optional on-page box; `video` JSON
   `{untilPanelId, startOffsetMs, endOffsetMs}` stretches the line over several video shots) → `narration_segments` (TTS units:
   text, `text_sha256` (of the spoken text: the text with the project's pronunciation dictionary applied), voice/speed
   overrides, `pause_after_ms`, active audio asset).
+- `lettering_translations` — a dialogue bubble's or on-page caption's text in another language, for a translated
+  edition of the same art (migration `0046_lettering_translations`): project, `source_type` (`dialogue|caption`),
+  `source_id`, `language`, `text`, `source_sha256` (the original's hash when translated: a changed original shows it
+  stale), `edited` (a hand edit, which a machine translation leaves alone).
 - `narration_findings` — narration QA findings per chapter track: `source` (`rule`, `ai` or `audio`), `kind`, `severity`,
   `line_ids`, `related_chapter_ids`, `message`, `status` (`open|ignored|fixed`) and a `fingerprint` unique per
   `(chapter, language, source)`, which is how a re-run keeps an ignored finding ignored.
@@ -160,10 +175,24 @@ slot).
   `character_aliases` + `character_outfits`. `outfit_assignments` (in `media.ts`) sets an outfit on a panel,
   `onward` (until the next change, in reading order) or for that `panel` only; see `docs/IMAGE_REFERENCES.md`.
 - `locations` → `location_versions`, `props` → `prop_versions` — same versioning shape.
+- `location_states` — a place's state over story time (migration `0042_location_states`): project, location
+  (cascade), `name`, `description` (what differs from the design), `keywords` (matched against a scene's time and
+  weather), `from_chapter_id` / `until_chapter_id` (inclusive, null = open). Scenes pick one by hand with
+  `scenes.location_state_id`; a state's own reference is a `reference_assets` row with `location_state_id`.
 - `style_presets` (built-in and custom) and `project_styles` (the versioned project style).
+- `asset_features` — near-duplicate features of an image, computed once per asset (migration
+  `0045_asset_features`): a 64-bit difference hash, a 16x16 edge map of its middle and a colour histogram of its
+  outer ring.
+- `asset_marks` — how the asset library files an asset (migration `0049_asset_marks`): `tags` and `collections`
+  (string arrays) and `favourite`, per asset (cascade); copied with the files when a project is duplicated.
+  `licence` `{text, url}` (`0050_asset_licence`): where a file comes from and on what terms, for provenance records.
+- `board_items` — the project's reference board (migration `0043_board_items`): project, `asset_id` (cascade), `note`,
+  `order`, author. Using an item as a reference stores a copy of the image as that reference's own asset; as a layout
+  guide the panel points at the board image itself.
 - `reference_assets` — links one canonical asset to exactly one subject version (character, location, prop or style),
   with `kind` (`portrait`, `full_body`, `multi_angle`, `expression_sheet`, `outfit`, `location`,
-  `location_panorama`, `location_sheet`, `prop`, `prop_multi_angle`, `style`, `uploaded`), an optional outfit,
+  `location_panorama`, `location_sheet`, `prop`, `prop_multi_angle`, `style`, `uploaded`), an optional outfit, an
+  optional location state,
   approval status, `is_primary`, and `source_fingerprint` — a hash of the subject version's
   prompt-visible description when the reference was made, which is how staleness is detected
   (`docs/AI_PIPELINE.md`).
@@ -182,6 +211,12 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
   `scene_number` (1-based within that chapter; null = its start), `until_chapter_id`, `outfit_id` (one of the
   character's outfits, for an outfit state), `source`, author. A later look, outfit, location or rank replaces the
   earlier one; the other kinds hold until `until_chapter_id`.
+- `timeline_events` — the story timeline (migration `0041_timeline_events`): project, `order` (story-time order,
+  which is not telling order: a flashback sits where it happened), `kind` (`event|birth`), `title`, `description`,
+  `when` (the story's own name for the moment), `day` (a story-day number on one scale, for elapsed time and, with
+  a character's `birth` event, ages), `chapter_id` and `scene_number` (where it is told; bible states find their
+  story time through them), `character_ids`, `source` (`user` or `extracted` from a reviewed `timeline_extract`
+  job), author.
 - `continuity_findings` — a contradiction a `continuity_check` job found (migration `0031_continuity_findings`):
   project, chapter (cascade), the job, `severity` (`high|medium|low`), `message`, `quote` (the offending line or
   beat), `evidence` (what it contradicts), `place` (JSON `{ref, panelId, pageId, narrationLineId, sceneNumber}`:
@@ -203,10 +238,14 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
 
 ## Jobs, usage, exports (`jobs.ts`)
 
+- `prompt_overrides` — a project's own rules for a built-in prompt (the prompt lab, migration `0047_prompt_overrides`):
+  project, `template_name`, `version`, `rules`, `note`, `active` (at most one per template; none = the built-in),
+  author. Text templates keep their header, the data rule and the answer format; panel images get the rules
+  appended. Jobs record the versions they used in `parameters.promptOverrides`.
 - `generation_jobs` — `kind` (`story_analysis`, `story_rewrite`, `chapter_plan`, `page_prompts`, `narration_text`,
   `character_reference`, `location_reference`, `prop_reference`, `style_reference`, `panel_generation`, `panel_edit`,
-  `panel_check`, `cover`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
-  `expert_extract`, `bible_extract`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
+  `panel_check`, `cover`, `coverage_sheet`, `duplicate_scan`, `thumbnail`, `youtube_package`, `image_describe`, `narration_lint`, `narration_fix`, `audio_check`, `story_coverage`, `image_batch_submit`, `text_batch_submit`,
+  `expert_extract`, `bible_extract`, `timeline_extract`, `lettering_translate`, `continuity_check`, `narration_retime`, `social_copy`), its project (null only for an `expert_extract` from a chat about no project, which only its
   owner can read), queue, priority, status, batch, target type/id, attempts and `max_attempts`, failure code/reason, provider/model,
   provider request id, template name/version, compiled prompt, prompt/reference/options hashes, parameters (including
   the run's `ai` choice), input, result, timings, `cancel_requested_at`, and `retried_by_job_id` — set when a retry

@@ -1,7 +1,9 @@
 import { projects } from "@openmanga/db";
+import { ProjectStorage } from "@openmanga/schemas";
 import { z } from "zod";
 import { CreateProject, UpdateProject } from "../../routes/projects.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
+import { toolError } from "../runtime.ts";
 import { cls, grantProject, links, Paging, page, requireCreate, stamp, Uuid } from "./common.ts";
 
 const ProjectSummary = z
@@ -92,7 +94,7 @@ export const projectTools = [
     name: "create_project",
     title: "Create project",
     description:
-      "Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.",
+      "Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots; `filmFrame` 9:16 plans and draws every shot vertical for Shorts and renders vertical without cropping). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.",
     input: CreateProject.extend({ idempotencyKey: IdempotencyKey }),
     output: z.object({ project: Passthrough }),
     scopes: ["projects:create"],
@@ -113,7 +115,7 @@ export const projectTools = [
     name: "update_project",
     title: "Update project",
     description:
-      "Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.",
+      "Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project), intro/outro cards and `hooks` (up to 10 alternative openings for a panel-cut video, the whole list: [{ id (a new UUID), label, text (what the narrator says, up to 600 characters), panelIds (1-6 panels shown under it), title?, thumbnailHeadline? }]; render one with create_export video_panels `video.hookId`), ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.",
     input: UpdateProject.extend({ projectId: Uuid }),
     output: z.object({ project: Passthrough }),
     scopes: ["projects:write"],
@@ -290,5 +292,91 @@ export const projectTools = [
         linkId ? `/api/projects/${projectId}/youtube/links/${linkId}/history` : `/api/projects/${projectId}/youtube`,
       ),
     }),
+  }),
+  defineMcpTool({
+    name: "project_storage",
+    title: "Project storage policy",
+    description:
+      "A project's own storage policy and cap. get: the policy, the bytes stored (and whether over the cap), what may be deleted by kind (render_cache, export, panel_version, audio_take, trash, prompt_reference) and a dry run of what the policy would delete now. set (owner): { enabled, maxAgeDays, kindAges (a kind's own age in days, null for no age limit), capGb } — applied at each hourly maintenance pass; while the project is over its cap, AI work and exports are refused (storage_cap_exceeded). apply (owner): delete what the dry run lists now — delete class, may need approval. Artwork a panel shows, approved art, references, uploads and narration in use are never deleted.",
+    input: z.object({
+      action: z.enum(["get", "set", "apply"]),
+      projectId: Uuid,
+      policy: ProjectStorage.optional(),
+    }),
+    output: Passthrough,
+    scopes: ["projects:read"],
+    scopesFor: (a) => (a.action === "get" ? ["projects:read"] : ["projects:write"]),
+    sensitivity: "delete",
+    idempotent: false,
+    routes: [
+      "GET /api/projects/:projectId/storage",
+      "PUT /api/projects/:projectId/storage",
+      "POST /api/projects/:projectId/storage/apply",
+    ],
+    actionKeys: ["project.storage_policy", "project.storage_apply"],
+    classify: async (a) =>
+      a.action === "get"
+        ? cls("read", "project.storage_read", a.projectId, "Read the storage policy")
+        : a.action === "set"
+          ? cls("sensitive-write", "project.storage_policy", a.projectId, "Set the project's storage policy")
+          : cls("delete", "project.storage_apply", a.projectId, "Delete expendable files under the storage policy now"),
+    handler: async (a, ctx) => {
+      const path = `/api/projects/${a.projectId}/storage`;
+      if (a.action === "get") return { data: await ctx.invoke("GET", path) };
+      if (a.action === "apply") return { data: await ctx.invoke("POST", `${path}/apply`) };
+      if (!a.policy) throw toolError(400, "bad_request", "policy is required for set");
+      return { data: await ctx.invoke("PUT", path, { body: a.policy }) };
+    },
+  }),
+
+  defineMcpTool({
+    name: "prompt_lab",
+    title: "Prompt lab",
+    description:
+      "A project's own rules for its built-in prompts (chapter planning, panel prompts, narration; extra rules appended to panel image prompts). list: the prompts for this project's format, each with its built-in rules, the active version and all versions. preview: the compiled prompt with rules (unsaved, a version, or the active one) and its diff from the built-in; panel images need panelIds (up to 3). save: rules (and a note) as the next version, made active. activate: a version, or 0 for the built-in. The template header, the data rule and the answer format can never be changed.",
+    input: z.object({
+      action: z.enum(["list", "preview", "save", "activate"]),
+      projectId: Uuid,
+      template: z.string().max(40).optional().describe("For preview, save and activate: a name from list."),
+      rules: z.string().max(30_000).optional(),
+      note: z.string().max(200).optional(),
+      version: z.number().int().min(0).optional(),
+      panelIds: z.array(Uuid).max(3).optional(),
+    }),
+    output: Passthrough,
+    scopes: ["projects:read"],
+    scopesFor: (a) => (a.action === "save" || a.action === "activate" ? ["projects:write"] : ["projects:read"]),
+    sensitivity: "sensitive-write",
+    idempotent: false,
+    routes: [
+      "GET /api/projects/:projectId/prompt-lab",
+      "POST /api/projects/:projectId/prompt-lab/:name",
+      "POST /api/projects/:projectId/prompt-lab/:name/activate",
+      "POST /api/projects/:projectId/prompt-lab/:name/preview",
+    ],
+    actionKeys: ["prompt.override"],
+    classify: async (a) =>
+      a.action === "save" || a.action === "activate"
+        ? cls(
+            "sensitive-write",
+            "prompt.override",
+            a.projectId,
+            `Change the project's ${a.template ?? ""} prompt rules`,
+          )
+        : cls("read", "prompt.read", a.projectId, "Read the prompt lab"),
+    handler: async (a, ctx) => {
+      if (a.action === "list") return { data: await ctx.invoke("GET", `/api/projects/${a.projectId}/prompt-lab`) };
+      if (!a.template) throw toolError(400, "bad_request", "template is required");
+      const base = `/api/projects/${a.projectId}/prompt-lab/${encodeURIComponent(a.template)}`;
+      if (a.action === "save")
+        return { data: await ctx.invoke("POST", base, { body: { rules: a.rules ?? "", note: a.note } }) };
+      if (a.action === "activate")
+        return { data: await ctx.invoke("POST", `${base}/activate`, { body: { version: a.version ?? 0 } }) };
+      return {
+        data: await ctx.invoke("POST", `${base}/preview`, {
+          body: { rules: a.rules, version: a.version || undefined, panelIds: a.panelIds ?? [] },
+        }),
+      };
+    },
   }),
 ];

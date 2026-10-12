@@ -13,22 +13,22 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 
 | Scope | Consent description | Tools |
 | --- | --- | --- |
-| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `list_series`, `get_series`, `get_image`, `manage_assets`, `estimate_production_run`, `get_staleness`, `get_project_health` |
+| `projects:read` | View projects and project metadata. | `list_projects`, `get_project`, `list_channel_profiles`, `duplicate_project`, `search_project`, `get_project_checks`, `project_storage`, `prompt_lab`, `list_series`, `get_series`, `get_image`, `manage_assets`, `asset_library`, `estimate_production_run`, `get_staleness`, `get_project_health` |
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_series`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
-| `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `run_continuity_check`, `get_continuity_report` |
-| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `use_expert_reply` |
+| `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `get_timeline`, `run_continuity_check`, `get_continuity_report` |
+| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
-| `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style` |
-| `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `get_chapter`, `get_page`, `manage_layouts` |
+| `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style`, `manage_location_states`, `manage_reference_board` |
+| `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `translate_lettering`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts`, `get_accessibility` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
-| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `manage_panel_artwork`, `list_comments`, `get_image` |
-| `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
+| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `find_duplicates`, `compare_models`, `manage_panel_artwork`, `list_comments`, `get_image` |
+| `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `panel_image_tools`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `edit_video`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
-| `exports:read` | Read export status and files. | `suggest_shorts`, `suggest_repurpose`, `list_exports` |
+| `exports:read` | Read export status and files. | `export_targets`, `get_provenance`, `suggest_shorts`, `suggest_repurpose`, `list_exports` |
 | `exports:create` | Queue and delete project exports. | `create_export`, `delete_exports` |
 | `experts:use` | Read and use your expert chats. | `list_experts`, `manage_expert_chat`, `send_expert_message`, `answer_expert_reply`, `retry_expert_reply`, `use_expert_reply` |
 | `usage:read` | Read usage and cost information. | `get_project_usage` |
@@ -57,6 +57,8 @@ requests) need no scope.
 | [`get_project_checks`](#get_project_checks) | read | `projects:read` |
 | [`get_project_usage`](#get_project_usage) | read | `usage:read` |
 | [`get_youtube_stats`](#get_youtube_stats) | read | `stats:read` |
+| [`project_storage`](#project_storage) | delete | `projects:read` |
+| [`prompt_lab`](#prompt_lab) | sensitive-write | `projects:read` |
 | [`list_series`](#list_series) | read | `projects:read` |
 | [`get_series`](#get_series) | read | `projects:read` |
 | [`manage_series`](#manage_series) | sensitive-write | `projects:write` |
@@ -74,6 +76,10 @@ requests) need no scope.
 | [`manage_story_bible`](#manage_story_bible) | delete | `story:write` |
 | [`run_bible_extraction`](#run_bible_extraction) | spend | `story:write` `generations:run` |
 | [`apply_bible_extraction`](#apply_bible_extraction) | write | `story:write` |
+| [`get_timeline`](#get_timeline) | read | `story:read` |
+| [`manage_timeline`](#manage_timeline) | delete | `story:write` |
+| [`run_timeline_extraction`](#run_timeline_extraction) | spend | `story:write` `generations:run` |
+| [`apply_timeline_extraction`](#apply_timeline_extraction) | write | `story:write` |
 | [`run_continuity_check`](#run_continuity_check) | spend | `story:read` `generations:run` |
 | [`get_continuity_report`](#get_continuity_report) | read | `story:read` |
 | [`list_library`](#list_library) | read | `library:read` |
@@ -85,7 +91,11 @@ requests) need no scope.
 | [`migrate_character_panels`](#migrate_character_panels) | sensitive-write | `library:write` `panels:write` |
 | [`manage_references`](#manage_references) | spend | `library:write` `generations:run` |
 | [`project_style`](#project_style) | sensitive-write | `library:read` `library:write` |
+| [`manage_location_states`](#manage_location_states) | delete | `library:write` |
+| [`manage_reference_board`](#manage_reference_board) | write | `library:write` |
 | [`list_chapters`](#list_chapters) | read | `chapters:read` |
+| [`translate_lettering`](#translate_lettering) | spend | `chapters:read` |
+| [`get_chapter_source`](#get_chapter_source) | read | `chapters:read` |
 | [`get_chapter`](#get_chapter) | read | `chapters:read` |
 | [`manage_chapter`](#manage_chapter) | delete | `chapters:write` |
 | [`run_chapter_plan`](#run_chapter_plan) | spend | `chapters:write` `generations:run` |
@@ -100,6 +110,10 @@ requests) need no scope.
 | [`get_panel_prompt`](#get_panel_prompt) | read | `panels:read` |
 | [`prepare_page_prompts`](#prepare_page_prompts) | spend | `panels:write` `generations:run` |
 | [`generate_panel`](#generate_panel) | spend | `generations:run` |
+| [`coverage_sheet`](#coverage_sheet) | spend | `generations:run` |
+| [`panel_image_tools`](#panel_image_tools) | spend | `panels:write` |
+| [`find_duplicates`](#find_duplicates) | write | `panels:read` |
+| [`compare_models`](#compare_models) | spend | `panels:read` |
 | [`manage_panel_artwork`](#manage_panel_artwork) | delete | `panels:read` `panels:write` |
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
@@ -110,6 +124,7 @@ requests) need no scope.
 | [`assign_comment`](#assign_comment) | write | `panels:write` |
 | [`get_image`](#get_image) | read | `panels:read` `library:read` `projects:read` |
 | [`manage_assets`](#manage_assets) | delete | `projects:read` `projects:write` |
+| [`asset_library`](#asset_library) | delete | `projects:read` |
 | [`list_jobs`](#list_jobs) | read | `generations:read` |
 | [`get_job`](#get_job) | read | `generations:read` |
 | [`get_manual_prompt`](#get_manual_prompt) | read | `generations:read` |
@@ -134,6 +149,10 @@ requests) need no scope.
 | [`apply_timing_fix`](#apply_timing_fix) | write | `narration:write` `panels:write` |
 | [`retime_narration`](#retime_narration) | spend | `narration:write` `generations:run` |
 | [`create_export`](#create_export) | sensitive-write | `exports:create` |
+| [`edit_video`](#edit_video) | sensitive-write | `generations:run` |
+| [`export_targets`](#export_targets) | read | `exports:read` |
+| [`get_accessibility`](#get_accessibility) | read | `chapters:read` |
+| [`get_provenance`](#get_provenance) | read | `exports:read` |
 | [`suggest_shorts`](#suggest_shorts) | read | `exports:read` |
 | [`suggest_repurpose`](#suggest_repurpose) | read | `exports:read` |
 | [`write_social_copy`](#write_social_copy) | spend | `generations:run` `projects:write` |
@@ -229,6 +248,9 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
         "ProjectPremise",
         "StoryOutline",
         "BibleExtraction",
+        "TimelineExtraction",
+        "LetteringTranslation",
+        "VideoEditPlan",
         "ContinuityReport",
         "AgentPlan",
         "AgentStep"
@@ -616,7 +638,7 @@ The user's channel profiles: publication identities (default preset, target runt
 
 ### create_project
 
-Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
+Create a new project (optionally with its first story revision in `story`). Needs the connection's permission to create projects; a connection limited to selected projects is granted the new one automatically. `format`: comic pages, vertical strip, or film (16:9 shots; `filmFrame` 9:16 plans and draws every shot vertical for Shorts and renders vertical without cropping). `profileId` (from list_channel_profiles) starts it from one of the user's channel profiles: its preset, voice, quality, branding and logo, thumbnail style, YouTube rules and video output are copied in; values given here still win for type, format and style. New projects start with a $5 budget cap. Not asynchronous. Next: save_story_revision / run_story_analysis.
 
 - **Scopes:** `projects:create`
 - **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
@@ -687,6 +709,13 @@ Create a new project (optionally with its first story revision in `story`). Need
         "comic",
         "film",
         "vertical"
+      ]
+    },
+    "filmFrame": {
+      "type": "string",
+      "enum": [
+        "16:9",
+        "9:16"
       ]
     },
     "preset": {
@@ -766,7 +795,7 @@ Create a new project (optionally with its first story revision in `story`). Need
 
 ### update_project
 
-Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
+Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project), intro/outro cards and `hooks` (up to 10 alternative openings for a panel-cut video, the whole list: [{ id (a new UUID), label, text (what the narrator says, up to 600 characters), panelIds (1-6 panels shown under it), title?, thumbnailHeadline? }]; render one with create_export video_panels `video.hookId`), ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
 
 - **Scopes:** `projects:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -831,6 +860,74 @@ Change a project's title, description, type, language, reading direction, colour
             "comic",
             "film",
             "vertical"
+          ]
+        },
+        "storage": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "maxAgeDays": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3650
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kindAges": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "enum": [
+                  "render_cache",
+                  "export",
+                  "panel_version",
+                  "audio_take",
+                  "trash",
+                  "prompt_reference"
+                ]
+              },
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3650
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "capGb": {
+              "default": null,
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 100000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "filmFrame": {
+          "type": "string",
+          "enum": [
+            "16:9",
+            "9:16"
           ]
         },
         "pageWidth": {
@@ -1668,6 +1765,89 @@ Change a project's title, description, type, language, reading direction, colour
                 }
               ]
             },
+            "hooks": {
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 600
+                  },
+                  "panelIds": {
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "title": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "thumbnailHeadline": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 60
+                  }
+                },
+                "required": [
+                  "id",
+                  "label",
+                  "text",
+                  "panelIds"
+                ]
+              }
+            },
+            "chapterCards": {
+              "maxItems": 200,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 120
+                  },
+                  "subtitle": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "durationMs": {
+                    "default": 3000,
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 15000
+                  },
+                  "chapterId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "chapterId"
+                ]
+              }
+            },
             "output": {
               "type": "object",
               "properties": {
@@ -2448,6 +2628,203 @@ How the project's published videos do on YouTube. Without linkId: every linked v
 
 </details>
 
+### project_storage
+
+A project's own storage policy and cap. get: the policy, the bytes stored (and whether over the cap), what may be deleted by kind (render_cache, export, panel_version, audio_take, trash, prompt_reference) and a dry run of what the policy would delete now. set (owner): { enabled, maxAgeDays, kindAges (a kind's own age in days, null for no age limit), capGb } — applied at each hourly maintenance pass; while the project is over its cap, AI work and exports are refused (storage_cap_exceeded). apply (owner): delete what the dry run lists now — delete class, may need approval. Artwork a panel shows, approved art, references, uploads and narration in use are never deleted.
+
+- **Scopes:** `projects:read` — per action, see description
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `project.storage_policy`, `project.storage_apply`
+- **Wraps:** `GET /api/projects/:projectId/storage`, `PUT /api/projects/:projectId/storage`, `POST /api/projects/:projectId/storage/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "get",
+        "set",
+        "apply"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "maxAgeDays": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kindAges": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "render_cache",
+              "export",
+              "panel_version",
+              "audio_take",
+              "trash",
+              "prompt_reference"
+            ]
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3650
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "capGb": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 100000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "action",
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### prompt_lab
+
+A project's own rules for its built-in prompts (chapter planning, panel prompts, narration; extra rules appended to panel image prompts). list: the prompts for this project's format, each with its built-in rules, the active version and all versions. preview: the compiled prompt with rules (unsaved, a version, or the active one) and its diff from the built-in; panel images need panelIds (up to 3). save: rules (and a note) as the next version, made active. activate: a version, or 0 for the built-in. The template header, the data rule and the answer format can never be changed.
+
+- **Scopes:** `projects:read` — per action, see description
+- **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `prompt.override`
+- **Wraps:** `GET /api/projects/:projectId/prompt-lab`, `POST /api/projects/:projectId/prompt-lab/:name`, `POST /api/projects/:projectId/prompt-lab/:name/activate`, `POST /api/projects/:projectId/prompt-lab/:name/preview`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "preview",
+        "save",
+        "activate"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "template": {
+      "description": "For preview, save and activate: a name from list.",
+      "type": "string",
+      "maxLength": 40
+    },
+    "rules": {
+      "type": "string",
+      "maxLength": 30000
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "panelIds": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    }
+  },
+  "required": [
+    "action",
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### list_series
 
 The user's series: projects that share one library (cast, places, props, style, story bible) and a channel profile. Each has a libraryProjectId, a project you read and edit with the usual project tools (list_library, manage_story_bible, project_style ...), and its episode count. Read-only; needs a connection with access to all projects.
@@ -2564,7 +2941,7 @@ A series dashboard: each episode's status, chapters, panels drawn, spend, export
 
 ### manage_series
 
-Create and run series. action=create { title, description?, channelProfileId?, projectType?, format? } makes a series and its library project. update { seriesId, title?, description?, channelProfileId? }. add_episode { seriesId, title, story? } makes a new episode project linked to the whole library. adopt { seriesId, projectId, applyProfile? } makes one of the user's projects the next episode (same-named cast becomes linked). detach { seriesId, projectId }. sync { seriesId, projectId? } brings episodes in step with the library (new versions pointing at the same reference images). split { seriesId, story, perEpisode?, confirm? } splits a long story into episodes at its chapter headings (without confirm: a preview). Creating projects needs the connection's permission to create projects; everything may need the user's approval.
+Create and run series. action=create { title, description?, channelProfileId?, projectType?, format? } makes a series and its library project. update { seriesId, title?, description?, channelProfileId?, visibility?, publicSlug? } (visibility off, unlisted or public turns the series' reader page at /s/<publicSlug> on, with an RSS feed; chapters appear there from their publishAt, set with manage_chapter). add_episode { seriesId, title, story? } makes a new episode project linked to the whole library. adopt { seriesId, projectId, applyProfile? } makes one of the user's projects the next episode (same-named cast becomes linked). detach { seriesId, projectId }. sync { seriesId, projectId? } brings episodes in step with the library (new versions pointing at the same reference images). split { seriesId, story, perEpisode?, confirm? } splits a long story into episodes at its chapter headings (without confirm: a preview). Creating projects needs the connection's permission to create projects; everything may need the user's approval.
 
 - **Scopes:** `projects:write` — per action, see description
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -2621,6 +2998,18 @@ Create and run series. action=create { title, description?, channelProfileId?, p
           "type": "null"
         }
       ]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "off",
+        "unlisted",
+        "public"
+      ]
+    },
+    "publicSlug": {
+      "type": "string",
+      "maxLength": 60
     },
     "projectType": {
       "type": "string",
@@ -3943,6 +4332,449 @@ Save a completed extraction's facts and states into the story bible: all of them
 
 </details>
 
+### get_timeline
+
+The story timeline: events in story-time order (a flashback where it happened), each with when (the story's name for the moment), day (a story-day number), the time since the previous dated event, outOfOrder when its day runs backwards, its characters' ages (from their birth events), and the chapter and scene that tell it. Also the bible's character states placed at the event they start from, and the newest extraction job. Read-only.
+
+- **Scopes:** `story:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/timeline`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    }
+  },
+  "required": [
+    "events"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### manage_timeline
+
+Add, edit, delete or reorder story timeline events. add: event fields (title required; day a story-day number for elapsed time and ages; kind birth with one character gives their age; chapterId and sceneNumber for where it is told; after: the event to insert after, null for the start, omitted for the end). edit: id and the fields to change. delete: id. reorder: ids, every event once, in story-time order. Not asynchronous.
+
+- **Scopes:** `story:write`
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `timeline.event.create`, `timeline.event.update`, `timeline.event.delete`, `timeline.order`
+- **Wraps:** `POST /api/projects/:projectId/timeline/events`, `PATCH /api/timeline-events/:id`, `DELETE /api/timeline-events/:id`, `POST /api/projects/:projectId/timeline/order`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "add",
+        "edit",
+        "delete",
+        "reorder"
+      ]
+    },
+    "projectId": {
+      "description": "For add and reorder.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "id": {
+      "description": "The event, for edit and delete.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "event": {
+      "description": "For add (title required) and edit: only the fields given change.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "event",
+            "birth"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "when": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "day": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": -10000000,
+              "maximum": 10000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "chapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sceneNumber": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "characterIds": {
+          "maxItems": 30,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ids": {
+      "description": "For reorder.",
+      "maxItems": 2000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### run_timeline_extraction
+
+Queue a text job that proposes the story timeline from the project's chapters (or one chapter): events in story-time order with when, day, births and the chapters that tell them. Saves nothing: review the proposal in get_job's result.data (or get_timeline's extraction), then apply_timeline_extraction. Asynchronous: returns a job; poll get_job. ai.manual=true (no provider, no spending) parks it for a TimelineExtraction answer via get_manual_prompt / submit_manual_answer; a provider run spends the user's credits (may need approval).
+
+- **Scopes:** `story:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `timeline.extract`
+- **Wraps:** `POST /api/projects/:projectId/timeline/extract`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "description": "Only this chapter; omitted for all chapters.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "batch": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### apply_timeline_extraction
+
+Save a completed timeline extraction's events into the timeline: all of them, or the reviewed list you pass (TimelineExtraction events: characters by name, chapters by number). Dated events are merged in by day. Characters or chapters that match nothing are listed in skipped. Applying twice is refused (409 already_applied) unless again=true. Not asynchronous.
+
+- **Scopes:** `story:write`
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `timeline.extraction.apply`
+- **Wraps:** `POST /api/timeline-extractions/:id/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "jobId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "events": {
+      "maxItems": 300,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "default": "event",
+            "type": "string",
+            "enum": [
+              "event",
+              "birth"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "default": "",
+            "type": "string",
+            "maxLength": 1000
+          },
+          "when": {
+            "default": "",
+            "type": "string",
+            "maxLength": 120
+          },
+          "day": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": -10000000,
+                "maximum": 10000000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chapter": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scene": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "characters": {
+            "default": [],
+            "maxItems": 30,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "title"
+        ]
+      }
+    },
+    "again": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "jobId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### run_continuity_check
 
 Compare one chapter (chapterId) or every chapter with panels or narration against the story bible (facts, character states, fixed rules) and the neighbouring chapters: one text job per chapter. Without confirm=true returns only the chapter count and estimated cost; with it, queues the jobs (asynchronous; poll get_job, then get_continuity_report). Findings replace the chapter's open ones; each fixed rule gets pass/warn/fail. ai.manual=true (no provider, no spending) asks you for a ContinuityReport per chapter via get_manual_prompt / submit_manual_answer; a provider run spends the user's credits (may need approval).
@@ -4665,7 +5497,7 @@ Explicitly move panels (all of them, or panelIds) from one version of a characte
 
 ### manage_references
 
-generate: queue a reference image for a character/location/prop version or a project style (kind: portrait, full_body, multi-angle and the other reference kinds; optional outfit for characters). Spends image-provider credits (may need approval); asynchronous, returns a job. set_status: approve / lock / unapprove a reference (approval makes it the identity reference sent with panel generation; sensitive). make_primary: make it the version's primary reference (sensitive). trash: move it to trash (delete class). Uploading your own reference needs the OpenManga UI.
+generate: queue a reference image for a character/location/prop version or a project style (kind: portrait, full_body, multi-angle and the other reference kinds; optional outfit for characters; optional locationStateId for a location in one of its states, drawn from its approved design). Spends image-provider credits (may need approval); asynchronous, returns a job. set_status: approve / lock / unapprove a reference (approval makes it the identity reference sent with panel generation; sensitive). make_primary: make it the version's primary reference (sensitive). trash: move it to trash (delete class). Uploading your own reference needs the OpenManga UI.
 
 - **Scopes:** `library:write`, `generations:run` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
@@ -4737,6 +5569,11 @@ generate: queue a reference image for a character/location/prop version or a pro
           "maxLength": 2000
         },
         "outfitId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "locationStateId": {
           "type": "string",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
@@ -4944,6 +5781,319 @@ get: the project's style history with references. set: a new style version from 
 
 </details>
 
+### manage_location_states
+
+States of a place over story time ("destroyed", "snowed in", "at night"): list, add, edit or delete. A state has a name, what differs from the place's design, keywords matched against a scene's time and weather, and/or a chapter range. A scene shows the state it picks by hand (manage_scene locationStateId), else one whose keywords match its time or weather, else one whose chapters hold it; its panels are drawn from the state's description and its own reference (manage_references generate with generate.locationStateId). Not asynchronous.
+
+- **Scopes:** `library:write` — per action, see description
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `location.state.create`, `location.state.update`, `location.state.delete`
+- **Wraps:** `GET /api/locations/:id/states`, `POST /api/locations/:id/states`, `PATCH /api/location-states/:id`, `DELETE /api/location-states/:id`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "add",
+        "edit",
+        "delete"
+      ]
+    },
+    "locationId": {
+      "description": "For list and add.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "id": {
+      "description": "The state, for edit and delete.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "state": {
+      "description": "For add (name required) and edit.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "keywords": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          }
+        },
+        "fromChapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "untilChapterId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### manage_reference_board
+
+The project's reference board: collected images for mood and look. list: the images with their notes and newest description. add: put an image already in the project on the board (assetId; uploading a new one needs the OpenManga UI). note: edit an item's note. remove: take it off the board (the image stays in the project). use: drop it onto something — target character|outfit|location|prop (versionId; outfitId for an outfit; locationStateId for one of a location's states) or style (styleId) makes a draft reference to approve like any other; target guide (panelId, strength loose|strict) makes it the panel's layout guide. To describe one aspect of a board image, use the image's assetId with the describe tools.
+
+- **Scopes:** `library:write` — per action, see description
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `board.add`, `board.update`, `board.remove`, `board.use`
+- **Wraps:** `GET /api/projects/:projectId/board`, `POST /api/projects/:projectId/board`, `PATCH /api/board-items/:id`, `DELETE /api/board-items/:id`, `POST /api/board-items/:id/use`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "add",
+        "note",
+        "remove",
+        "use"
+      ]
+    },
+    "projectId": {
+      "description": "For list and add.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "id": {
+      "description": "The board item, for note, remove and use.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "assetId": {
+      "description": "For add: an image of the project.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "use": {
+      "description": "For use: where it goes.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "character"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "outfit"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "outfitId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId",
+            "outfitId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "location"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "locationStateId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "prop"
+            },
+            "versionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "versionId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "style"
+            },
+            "styleId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "required": [
+            "target",
+            "styleId"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "const": "guide"
+            },
+            "panelId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "strength": {
+              "default": "loose",
+              "type": "string",
+              "enum": [
+                "loose",
+                "strict"
+              ]
+            }
+          },
+          "required": [
+            "target",
+            "panelId"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
 ### list_chapters
 
 A project's chapters in order, with scene/page/panel counts, how many panels have artwork, narration coverage and whether a plan exists. Read-only. Work chapter by chapter: get_chapter, then run_chapter_plan.
@@ -4995,6 +6145,197 @@ A project's chapters in order, with scene/page/panel counts, how many panels hav
   "required": [
     "chapters"
   ]
+}
+```
+
+</details>
+
+### translate_lettering
+
+A chapter's speech bubbles and on-page captions in another language, for a translated edition of the same art. get: every line with its original, its translation (or null), stale (the original changed since) and edited. translate: a text job translating them (asynchronous; poll get_job; ai.manual=true asks you for a LetteringTranslation answer; a provider run spends the user's credits). edit: lines [{sourceType, sourceId, text}] saved as hand edits (empty text removes one). Exports and page renders take `language` for the edition.
+
+- **Scopes:** `chapters:read` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `lettering.translate`, `lettering.edit`
+- **Wraps:** `GET /api/chapters/:id/lettering`, `PUT /api/chapters/:id/lettering`, `POST /api/chapters/:id/lettering/translate`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "get",
+        "translate",
+        "edit"
+      ]
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16,
+      "description": "The edition's language code, e.g. es, ja."
+    },
+    "lines": {
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "dialogue",
+              "caption"
+            ]
+          },
+          "sourceId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "sourceType",
+          "sourceId",
+          "text"
+        ]
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "batch": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action",
+    "chapterId",
+    "language"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_chapter_source
+
+Where a chapter's panels, scenes and narration lines come from in its text: the text the plan reads, each panel's character span (start/end), each scene's, the narration lines by panel, and where the chapter sits in the newest story revision. Panels whose text was revised after planning are `changed`, with `was` the text they were planned from: those are what a story revision affects. Traced without AI. Read-only.
+
+- **Scopes:** `chapters:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/chapters/:id/source`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": [
+    "chapterId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string"
+    },
+    "panels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    },
+    "changed": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "text",
+    "panels",
+    "changed"
+  ],
+  "additionalProperties": {}
 }
 ```
 
@@ -5078,7 +6419,7 @@ One chapter: memory (summary, opening/closing state, continuity), scenes with th
 
 ### manage_chapter
 
-create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.
+create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan), or publishAt (ISO time, null to unpublish: when the chapter appears on its series' reader page). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.
 
 - **Scopes:** `chapters:write`
 - **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
@@ -5175,6 +6516,18 @@ create: add a chapter to a project (title, summary, sourceExcerpt: the story tex
             "approved",
             "locked",
             "superseded"
+          ]
+        },
+        "publishAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }
@@ -5358,6 +6711,18 @@ create: add a scene to a chapter. update: edit a scene's fields, location, cast 
           "maxLength": 10000
         },
         "locationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "locationStateId": {
           "anyOf": [
             {
               "type": "string",
@@ -7019,7 +8384,7 @@ One panel: fields (shot, camera, story beat, cast/location/prop versions, prompt
 
 ### update_panel
 
-Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
+Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), comic effects drawn over the art without AI (`effects`: up to 6 of speed, focus, impact, tone, rain, snow, dust, glow, flashback, each with optional x, y, angle, density, strength, size, color; null removes them), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI), alt text (`altText`: what the panel shows, for readers who cannot see it, used in EPUBs and the series reader; null makes it from the beat, dialogue and sound effects; get_accessibility lists what is missing); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
 
 - **Scopes:** `panels:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -7111,6 +8476,80 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
         "y",
         "width",
         "height"
+      ]
+    },
+    "effects": {
+      "anyOf": [
+        {
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "speed",
+                  "focus",
+                  "impact",
+                  "tone",
+                  "rain",
+                  "snow",
+                  "dust",
+                  "glow",
+                  "flashback"
+                ]
+              },
+              "x": {
+                "default": 0.5,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "default": 0.5,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "angle": {
+                "default": 0,
+                "type": "number",
+                "minimum": -360,
+                "maximum": 360
+              },
+              "density": {
+                "default": 0.5,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "strength": {
+                "default": 0.8,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "size": {
+                "default": 0.35,
+                "type": "number",
+                "minimum": 0.05,
+                "maximum": 1
+              },
+              "color": {
+                "default": "#000000",
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          }
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "imageTransform": {
@@ -7349,6 +8788,17 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
           "type": "string",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "altText": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 2000
         },
         {
           "type": "null"
@@ -7716,6 +9166,371 @@ Queue artwork generation for one panel. Always creates a new artwork version (ol
   "required": [
     "job"
   ]
+}
+```
+
+</details>
+
+### coverage_sheet
+
+A panel's moment from nine camera setups in one image (3x3: 1 wide, 2 full, 3 medium, 4 close-up, 5 extreme close-up, 6 over the shoulder, 7 insert, 8 low angle, 9 high angle), to pick framings from. generate: queue one sheet (an image job; spends image-provider credits, may need approval; poll get_job, see it with get_image). list: the panel's sheets. use: turn picked cells (jobId, cells 1-9) into panels — mode this (one cell) reframes the panel itself, mode new adds them as new panels with the panel's cast, place and spec on a new page right after; each takes its cell as a strict layout guide and its setup's shot type and angle. Nothing is drawn by use.
+
+- **Scopes:** `generations:run` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `coverage.generate`, `coverage.use`
+- **Wraps:** `POST /api/panels/:id/coverage`, `GET /api/panels/:id/coverage`, `POST /api/coverage-sheets/:jobId/use`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "generate",
+        "list",
+        "use"
+      ]
+    },
+    "panelId": {
+      "description": "For generate and list.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "jobId": {
+      "description": "For use: the coverage sheet job.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "cells": {
+      "minItems": 1,
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9
+      }
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "this",
+        "new"
+      ]
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### panel_image_tools
+
+Image tools on a panel's active artwork; each makes a new artwork version, made active (the old one stays: manage_panel_artwork). Without AI, at once: upscale (2x), lineart (black lines on white), palette (paletteAssetId: take another project image's colours; strength 0.1-1). As masked edits (a panel_edit job: spends image credits, may need approval; poll get_job): repair (faces, hands, details), relight (light: e.g. "warm sunset from the left"), background (plain white), colorize, expression (character, expression), outpaint (aspect 9:16|16:9|1:1|4:5|2:3: widened instead of cropped). guide_clean / guide_lineart tidy the panel's layout guide instead (no AI).
+
+- **Scopes:** `panels:write` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `panel.tool`, `panel.tool.ai`
+- **Wraps:** `POST /api/panels/:id/tools`, `POST /api/panels/:id/guide/tools`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "panelId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "upscale",
+        "lineart",
+        "palette",
+        "repair",
+        "relight",
+        "background",
+        "colorize",
+        "expression",
+        "outpaint",
+        "guide_clean",
+        "guide_lineart"
+      ]
+    },
+    "paletteAssetId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "strength": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 1
+    },
+    "light": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "character": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "expression": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "aspect": {
+      "type": "string",
+      "enum": [
+        "9:16",
+        "16:9",
+        "1:1",
+        "4:5",
+        "2:3"
+      ]
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "panelId",
+    "tool"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### find_duplicates
+
+Near-duplicate finder, without AI: run=true queues a scan (a job; poll get_job), run=false reads the newest report: groups of near-identical panels, the same figure staging in panels that are not neighbours (pose), the same background across different scenes, and near-identical cover or thumbnail art, each with a score and its panels (page, chapter).
+
+- **Scopes:** `panels:read` — per action, see description
+- **Sensitivity:** write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `duplicates.scan`
+- **Wraps:** `POST /api/projects/:projectId/duplicates/scan`, `GET /api/projects/:projectId/duplicates`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "run": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### compare_models
+
+Draw one panel with 2-4 image models side by side. run: runs (each an ai choice: credentialId, model) — each spends that key's credits (may need approval); asynchronous, returns the jobs. get: the newest comparison — per run provider, model, status, artwork (assetId: see it with get_image), time taken, estimated cost and visual check. pick: jobId — that run's artwork becomes the panel's active version; draw more panels with the same credentialId and model (generate_panel / run_bulk_generation ai).
+
+- **Scopes:** `panels:read` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `panel.compare`, `panel.compare_pick`
+- **Wraps:** `POST /api/panels/:id/compare`, `GET /api/panels/:id/compare`, `POST /api/panels/:id/compare/pick`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "run",
+        "get",
+        "pick"
+      ]
+    },
+    "panelId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "runs": {
+      "minItems": 2,
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "credentialId": {
+            "description": "One of the user's saved provider keys (ids from get_server_info).",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "provider": {
+            "description": "Use the user's first saved key for this provider kind.",
+            "type": "string",
+            "maxLength": 40
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "jobId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action",
+    "panelId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
 }
 ```
 
@@ -8436,6 +10251,221 @@ The project's stored images and files, as the app's Assets and Trash pages show 
       "type": "integer",
       "minimum": 1,
       "maximum": 200
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### asset_library
+
+The asset library. search: the project's files with their tags, collections and favourite mark, filtered by q (name, type or tag), type, tag, collection, favourite, characterId / locationId / propId (its reference images and the panels it is drawn in), source (generated, uploaded, derived), model, from / to (dates); view unused (images nothing uses) or duplicates (the same file stored twice). get: one asset with where it came from (job, model, template, upload name, tool) and what uses it. similar: images that look like it, scored 0–1 (no AI). mark: set an asset's tags, collections, favourite or licence note (shown in provenance records). bulk: tag, untag, collect, uncollect, favourite, unfavourite, trash or restore many (trash may need approval).
+
+- **Scopes:** `projects:read` — per action, see description
+- **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `asset.mark`, `asset.bulk`
+- **Wraps:** `GET /api/projects/:projectId/assets`, `GET /api/assets/:id`, `GET /api/assets/:id/similar`, `PUT /api/assets/:id/marks`, `POST /api/projects/:projectId/assets/bulk`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "search",
+        "get",
+        "similar",
+        "mark",
+        "bulk"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "assetId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "q": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "tag": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "collection": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "favourite": {
+          "type": "boolean"
+        },
+        "characterId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "locationId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "propId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "generated",
+            "uploaded",
+            "derived"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "from": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "to": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "view": {
+          "type": "string",
+          "enum": [
+            "unused",
+            "duplicates"
+          ]
+        },
+        "limit": {
+          "default": 50,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      }
+    },
+    "marks": {
+      "type": "object",
+      "properties": {
+        "tags": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "collections": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "favourite": {
+          "type": "boolean"
+        },
+        "licence": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "bulk": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "minItems": 1,
+          "maxItems": 500,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "tag",
+            "untag",
+            "collect",
+            "uncollect",
+            "favourite",
+            "unfavourite",
+            "trash",
+            "restore"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 60
+        }
+      },
+      "required": [
+        "ids",
+        "action"
+      ]
     }
   },
   "required": [
@@ -10700,7 +12730,7 @@ The timing pass's trim or expand. start: a text job rewrites only the given line
 
 ### create_export
 
-Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed; `pdf.toc` adds a contents page, `pdf.rectoChapters` blank pages so chapters open on a right-hand page, `pdf.metadata` the title, author, subject, keywords and language), a print cover (`print_cover`: one PDF with back, spine and front plus bleed, the spine sized from the interior's page count and `print.paper`; needs the project cover art and a print `pdf.pageSize`), a print preflight (`print_preflight`: a JSON report of the PDF the same `pdf` options make: resolution, total ink, colour shift, fonts, lettering outside the safe area, page count), layered files for finishing in Photoshop or Clip Studio (`psd_pages`: one layered PSD per page with a group per panel of its art, frame and hidden layout guide, then effects, captions and dialogue as named layers; `layered_package`: per page the text-free page, the lettering as SVG and every layer as its own PNG, with manifest.json giving each file's placement, stacking order and text), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer; `video.captions` bottom, center or two_line draws the narration into the picture; `video.hook` is a line the narrator says before the first shot), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
+Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes with full bleed; `pdf.toc` adds a contents page, `pdf.rectoChapters` blank pages so chapters open on a right-hand page, `pdf.metadata` the title, author, subject, keywords and language), a print cover (`print_cover`: one PDF with back, spine and front plus bleed, the spine sized from the interior's page count and `print.paper`; needs the project cover art and a print `pdf.pageSize`), a print preflight (`print_preflight`: a JSON report of the PDF the same `pdf` options make: resolution, total ink, colour shift, fonts, lettering outside the safe area, page count), layered files for finishing in Photoshop or Clip Studio (`psd_pages`: one layered PSD per page with a group per panel of its art, frame and hidden layout guide, then effects, captions and dialogue as named layers; `layered_package`: per page the text-free page, the lettering as SVG and every layer as its own PNG, with manifest.json giving each file's placement, stacking order and text), CBZ comic archive, fixed-layout EPUB, webtoon strip, YouTube package (the newest full video of the scope with its thumbnail, subtitles, chapter timestamps and publishing text), ZIP package, project JSON, narration audio, timeline, agent package, or video (pages / panels; `video.aspect` 16:9, 9:16 or 1:1), or a Shorts cut (`video_shorts` with `panelIds` from suggest_shorts or suggest_repurpose; `label` names the file, e.g. Trailer; `video.captions` bottom, center or two_line draws the narration into the picture; `video.hook` is a line the narrator says before the first shot), a hook variant (`video.hookId`, one of the project's settings.video.hooks: alternative openings, each its own narration over chosen panels, then the intro card and the film; video_panels only), or repurposed images (`carousel`: the panelIds as 1:1 or 4:5 images, zipped; `quote_image`: the first panel with `still.text` set on it). `social` { title, caption } ships as a caption file. `language`: for pages, PDF, CBZ, EPUB and webtoon the translated lettering edition (translate_lettering), for narration and video the narration track. `target` (an export_targets key, e.g. webtoon_canvas, kdp_paperback) checks the files made against that platform's limits (the job's result.targetCheck). `provenance`=true ships a provenance record (`_provenance.json` and `.md`, as get_provenance) with the files. Deterministic composition, no AI calls and nothing spent; still treated as sensitive (may need approval). Run get_project_checks check=readiness first; acknowledgeIssues=true exports despite reported issues. Asynchronous: returns the job (not a file); poll get_job until completed, which then lists the files, or list_exports.
 
 - **Scopes:** `exports:create`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -10952,6 +12982,7 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
     "webtoon": {
       "default": {
         "split": true,
+        "exactHeight": false,
         "format": "jpg"
       },
       "type": "object",
@@ -10974,6 +13005,10 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
           "type": "integer",
           "minimum": 1000,
           "maximum": 40000
+        },
+        "exactHeight": {
+          "default": false,
+          "type": "boolean"
         },
         "format": {
           "default": "jpg",
@@ -11119,6 +13154,11 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
         "hook": {
           "type": "string",
           "maxLength": 200
+        },
+        "hookId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
         }
       }
     },
@@ -11126,6 +13166,14 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
       "type": "string",
       "minLength": 2,
       "maxLength": 16
+    },
+    "target": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "provenance": {
+      "default": false,
+      "type": "boolean"
     },
     "acknowledgeIssues": {
       "default": false,
@@ -11169,6 +13217,519 @@ Queue an export job: pages as PNG/JPG, PDF (including Amazon KDP print sizes wit
   "required": [
     "job"
   ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### edit_video
+
+Change the video's timeline from an instruction, e.g. "make chapter 4 faster", "cut every silence over 900 ms", "add a title card before chapter 8". propose: a text job turns the instruction into edits (asynchronous; poll get_job: result.edits lists each with its op, a label and what it would change now; result.dropped what could not be done; ai.manual=true asks you for a VideoEditPlan answer; a provider run spends the user's credits). apply: the job's edits, or `ops` (a subset, or changed: pauses {chapterId|null, maxPauseMs, pauseScale}, holds {chapterId|null, holdMs|null}, shot {panelId, disabled, motion, fade}, card {which intro|outro|chapter, chapterId, card {title, subtitle, durationMs}|null}, scene_fades {on}); waits for the user's approval. Existing art and audio only: nothing is drawn or voiced.
+
+- **Scopes:** `generations:run` — per action, see description
+- **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
+- **Approval action keys:** `video.edit_propose`, `video.edit_apply`
+- **Wraps:** `POST /api/projects/:projectId/video-edits`, `POST /api/projects/:projectId/video-edits/:jobId/apply`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "propose",
+        "apply"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "instruction": {
+      "description": "propose: what to change, in words.",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 2000
+    },
+    "jobId": {
+      "description": "apply: the propose job.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "ops": {
+      "description": "apply: the edits to apply; left out, all proposed.",
+      "maxItems": 60,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "pauses"
+              },
+              "chapterId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "maxPauseMs": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pauseScale": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "chapterId",
+              "maxPauseMs",
+              "pauseScale"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "holds"
+              },
+              "chapterId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "holdMs": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 500,
+                    "maximum": 60000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "chapterId",
+              "holdMs"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "shot"
+              },
+              "panelId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "motion": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "static",
+                  "pan-left",
+                  "pan-right",
+                  "pan-up",
+                  "pan-down",
+                  "push-in",
+                  "pull-out"
+                ]
+              },
+              "fade": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "on",
+                  "off"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "panelId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "card"
+              },
+              "which": {
+                "type": "string",
+                "enum": [
+                  "intro",
+                  "outro",
+                  "chapter"
+                ]
+              },
+              "chapterId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "card": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "default": "",
+                        "type": "string",
+                        "maxLength": 120
+                      },
+                      "subtitle": {
+                        "default": "",
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "durationMs": {
+                        "default": 3000,
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 15000
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "which",
+              "chapterId",
+              "card"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "op": {
+                "type": "string",
+                "const": "scene_fades"
+              },
+              "on": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "op",
+              "on"
+            ]
+          }
+        ]
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action",
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### export_targets
+
+Platform presets for exports (YouTube, Shorts, TikTok, Reels, Instagram carousel, WEBTOON Canvas, Tapas, KDP, PDF). list: each target's export kind, the options it sets, its limits (length, file and image sizes, image count, strip image height, page count) and notes on safe areas, naming and codecs. check: a target against the project before exporting (chapterId, else the whole project; durationMs for a Shorts cut's length, images for a carousel's slides). Pass `target` to create_export to have the files checked once made (the job's result.targetCheck). Read-only.
+
+- **Scopes:** `exports:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/export-targets`, `GET /api/projects/:projectId/export-targets/:key/check`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "check"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "key": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "minHoldMs": {
+      "type": "integer",
+      "minimum": 500,
+      "maximum": 30000
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "images": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_accessibility
+
+check: for a chapter or the project, without AI — how many panels have alt text written by hand (the rest are described from their beat, words and sounds; set one with update_panel altText), panels with nothing to describe them by, comic pages whose panel order differs from where the panels sit (with the order a reader takes), and lettering too faint (WCAG contrast under 4.5) or too small for the format. transcript: the narration as one Markdown text, chapter by chapter, in a language. Read-only.
+
+- **Scopes:** `chapters:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/accessibility`, `GET /api/projects/:projectId/transcript`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "check",
+        "transcript"
+      ]
+    },
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "language": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 16
+    }
+  },
+  "required": [
+    "action",
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### get_provenance
+
+Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.
+
+- **Scopes:** `exports:read`
+- **Sensitivity:** read
+- **Idempotent:** yes
+- **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
+
+- **Wraps:** `GET /api/projects/:projectId/provenance`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "format": {
+      "default": "json",
+      "type": "string",
+      "enum": [
+        "json",
+        "md"
+      ]
+    }
+  },
+  "required": [
+    "projectId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": {}
 }
 ```
@@ -11671,7 +14232,7 @@ What is out of date in a project along story → plan → prompts → art → na
 - **Idempotent:** yes
 - **Annotations:** readOnly=true, destructive=false, idempotent=true, openWorld=false
 
-- **Wraps:** `GET /api/projects/:projectId/staleness`
+- **Wraps:** `GET /api/projects/:projectId/staleness`, `GET /api/projects/:projectId/staleness/why`
 
 <details><summary>Input schema</summary>
 
@@ -11684,6 +14245,11 @@ What is out of date in a project along story → plan → prompts → art → na
       "type": "string",
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "why": {
+      "default": false,
+      "description": "Also explain each stage item by item (why: per stage, each chapter or panel behind the count, what changed under it and what an update would redo)",
+      "type": "boolean"
     }
   },
   "required": [
@@ -11726,6 +14292,14 @@ What is out of date in a project along story → plan → prompts → art → na
       }
     },
     "publishing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      }
+    },
+    "why": {
       "type": "array",
       "items": {
         "type": "object",

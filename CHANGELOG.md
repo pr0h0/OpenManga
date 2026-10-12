@@ -7,6 +7,163 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-12
+
+Upgrading: pull the new images and restart. Twelve migrations run on start through the migrate service
+(`0040_panel_source_span` to `0051_panel_alt_text`). New optional settings: `WORKER_CAPABILITIES` (what a worker can
+do beyond what it detects) and `REGISTER_LIMIT_PER_HOUR` (default 10). Source-to-panel tracing, story timeline,
+location states, directing controls, coverage sheets, a reference board, image tools, comic effects, near-duplicate
+checks, model comparison, translated lettering, a prompt lab, editing the video in words, native 9:16 projects, hook
+variants, export targets, a public series reader, a richer asset library, per-project storage policies, workers by
+capability, provenance records and accessibility.
+
+### Added
+
+- Accessibility: every panel has alt text — written by hand on the Panel tab (even when the panel is locked) or made
+  from its story beat, dialogue and sound effects — which EPUBs, reader links and the series reader give each page
+  image; EPUBs declare accessibility metadata. Health → *Accessibility* counts hand-written alt text, flags comic
+  pages whose panel numbers differ from where the panels sit and lettering too faint (WCAG 4.5:1) or too small for
+  the format, and links a full narration transcript. MCP `get_accessibility`; `update_panel` takes `altText`.
+  Migration `0051_panel_alt_text`.
+- Provenance records (Exports → *Include a provenance record*): an export can ship a record of what made it — the app
+  version, story revision, each panel's job, provider, model, template version, prompt hash and prompt-lab rules (or
+  the upload or tool), the references its cast, places and props draw on, narration voices, lettering fonts with
+  their licences — as JSON and a readable page. Files in the asset library take a licence note (where the file comes
+  from and on what terms), which the record carries. Also `GET /api/projects/:id/provenance` and MCP
+  `get_provenance`. Migration `0050_asset_licence`.
+- Workers by capability: each worker detects what it can do (ffmpeg, the narration voice) and is told the rest with
+  `WORKER_CAPABILITIES` (`gpu`, `comfyui`, or `-ffmpeg` to keep a small machine off renders); it takes only the
+  queues it can serve, so a job waits for a worker that can run it. Workers check in every 30 s, and Admin →
+  Overview lists them with what they can do and take, and warns when work waits on a queue no running worker takes.
+- Storage policies per project (project settings → *Storage*, owner only): how long each kind of expendable file is
+  kept (cached video sections, exports, older panel versions, unused narration takes, trash, prompt reference
+  copies) and a storage cap the project stays under, applied at each hourly maintenance pass or at once with *Apply
+  now*; while a project is still over its cap, new AI work and exports wait. The server-wide policy (Admin →
+  Storage) gains the same per-kind ages, e.g. exports kept longer than the render cache. MCP `project_storage`.
+- Asset library (project → *Assets*): tags, collections and favourites; search by name, type or tag; filters by
+  character, place or prop (their reference images and the panels they are drawn in), source (generated, uploaded,
+  edited), model and date; *Unused* (old versions and images nothing uses) and *Duplicates* (the same file stored
+  twice) views; *Find images like this* (no AI, the near-duplicate finder's features); bulk tag, collect,
+  favourite, trash and restore; and per file, where it came from (job, model, template, upload or tool) and what uses
+  it. Tags and collections follow a duplicated project. Migration `0049_asset_marks`; MCP `asset_library`.
+- Public series reader (series → *Reader page*): an optional unlisted or public page at `/s/<address>` with the
+  series' cover and description and, per episode, the chapters you publish — now or on a date (a scheduled chapter
+  is listed as coming). Readers need no account: page by page or as one scroll, right to left where the series
+  reads that way, in the original language or any its lettering was translated into, with an RSS feed of new
+  chapters and a social preview (title, description, cover). Migration `0048_public_series`; nginx routes `/s/`.
+  MCP `manage_series` and `manage_chapter` set the page and publish dates.
+- Export targets (Exports → *Export for*): presets for YouTube, YouTube Shorts, TikTok, Instagram Reels, Instagram
+  carousels, WEBTOON Canvas, Tapas, an Amazon KDP paperback and plain PDF. Picking one sets the export (kind, frame,
+  resolution, strip width and image height, page size), lists what a check cannot measure (safe areas, naming,
+  codecs) and checks the platform's limits first — a panel cut's length from the timing, a PDF's page count, the
+  strip's images, a Short's length; the files are checked again once made and the result shows on the export.
+  Carousels from Repurpose are checked against Instagram's. Webtoon exports can cut any image to the exact height
+  limit (`webtoon.exactHeight`). MCP `export_targets`; `create_export` takes `target`.
+- Hook variants (Exports → panel-cut video → *Hook variants*): alternative openings in front of the same film, each
+  its own narration (about 15–30 s, voiced with the narrator voice) over 1–6 panels you pick, with an optional title
+  and thumbnail headline for that version's upload (the thumbnail downloads with that headline). Pick one as the
+  export's *Opening*: it plays first, then the intro card and the film, in the preview and the render; the file is
+  named for the hook, and only the opening's shots are encoded — the film's sections are reused. Export option
+  `video.hookId`; hooks live in `settings.video.hooks`.
+- Native vertical projects (new project → *Narrated vertical video (9:16 shots)*, or a film project's *Shot frame*
+  before it has pages): every shot is planned for a tall frame (`vertical-shot-planning`, `vertical-shot-outline`,
+  `vertical-scene-shots` v1), drawn at 1080×1920 with a prompt composed for a phone held upright (`panel-generation`
+  v15) and rendered vertical by default, so nothing is cropped out to make a Short. MCP `create_project` takes
+  `filmFrame`.
+- Edit the video in words (project → *Timing* → *Edit in words*): say what to change — “make chapter 4 faster”,
+  “cut every silence over 900 ms”, “add a title card before chapter 8” — and a text job (`video-edit` v1, paste
+  mode included) proposes timeline edits, each listed with what it would change now: pauses capped or scaled in a
+  chapter or the whole video, each shot's own minimum hold, one shot's motion, fade or whether it plays, intro,
+  outro and chapter title cards, scene-break fades. Tick, change or reject them; applying recomputes each against
+  the project as it is then and writes them together. Nothing is drawn or voiced. MCP `edit_video` (applying waits
+  for the user's approval).
+- Chapter title cards (project settings → Video → *Chapter cards*): a card before a chapter's first shot, drawn over
+  that chapter's first artwork, in the preview and every video render; chapter timestamps point at the card. They
+  follow their chapters into a duplicate and stay out of channel profiles.
+- Prompt lab (project → *Prompt lab*): rewrite the rules of a built-in prompt for one project — chapter planning
+  (outline and pages, per format), panel prompts and narration — or add rules and exclusions to every panel image
+  prompt. Preview the compiled prompt (or up to three panels' prompts) and the diff against the built-in, save
+  versions, switch between them or back to the built-in. The template header, the rule that story content is data
+  and the answer format are never part of what changes; every job records the version it used (migration
+  `0047_prompt_overrides`). MCP `prompt_lab`.
+- Translated lettering (chapter → *Translated lettering*): a chapter's speech bubbles and on-page captions in
+  another language, translated by the text model (`lettering-translate` v1, paste mode included, fitted to each
+  bubble's length) and edited by hand, for a translated edition of the same art. Page exports (PNG, JPG, PDF, CBZ,
+  EPUB, webtoon) take a *Lettering language*, videos letter in their narration language, and page previews take
+  `?language=`; a line whose original changed shows as out of date, and hand edits survive a new translation
+  (migration `0046_lettering_translations`). MCP `translate_lettering`.
+- Model comparison (page editor → Panel tab → *Compare models*): draw one panel with 2-4 image keys and models at
+  once and see them side by side with the time each took, its estimated cost and its visual check (when the
+  project's checks are on). The panel keeps its artwork until you pick one; the pick becomes its artwork and your
+  image model, so the chapter's *Generate* draws with the winner. Runs stay in the panel's versions. MCP
+  `compare_models`.
+- Near-duplicate finder (Storyboard → *Near-duplicates*): a scan without AI (a `duplicate_scan` job) groups
+  near-identical panels, the same figure staging in panels that are not neighbours, the same background reused in
+  another scene, and near-identical cover or thumbnail art, with a score and links to each panel. Uses small image
+  features computed once per image (a difference hash, an edge map of the middle, a colour histogram of the border;
+  `asset_features`, migration `0045_asset_features`) rather than a model. MCP `find_duplicates`.
+- Comic effects as layers (page editor → Panel tab → *Effects*): speed and focus lines, an impact flash, screentone,
+  rain, snow, dust, a glow and a flashback tint, up to six per panel, each with its own centre, angle, density,
+  strength, size and colour. Drawn by the app over the art, no AI and no cost, the same on the canvas and in every
+  page, strip, video, carousel and quote render (`effectLayers` in packages/domain), clipped to the panel's shape; the
+  art itself is unchanged. Migration `0044_panel_effects`; MCP `update_panel` takes `effects`.
+- Image tools (page editor → Panel tab → *Image tools*), each making a new artwork version with the previous one kept:
+  without AI and free, *Upscale 2x*, *Line art* and a palette taken from a board image (a colour transfer in CIELAB);
+  as masked edits of the whole picture, *Repair faces & details*, *Relight*, *Remove background*, *Colourise* and a
+  character's expression; and *Outpaint* to 9:16, 16:9, 1:1, 4:5 or 2:3, painting the scene outwards on a wider
+  canvas so art is widened instead of cropped. A layout guide can be cleaned up (sketch to solid strokes) or turned to
+  line art. `POST /api/panels/:id/tools`, `POST /api/panels/:id/guide/tools`; MCP `panel_image_tools`.
+- Reference board (project → *Board*): images collected for mood and look, each with a note. Drop one onto a
+  character, an outfit, a location (or one of its states), a prop or the project style as a draft reference to
+  approve, use it as a panel's layout guide (page editor → Panel tab → *Layout guide* → *From board*), or have one
+  aspect of it described (lighting, costume, mood, pose…). Migration `0043_board_items`. MCP
+  `manage_reference_board`.
+- Coverage sheet (page editor → Panel tab → *Coverage sheet*): one image of the panel's moment from nine camera
+  setups (wide, full, medium, close-up, extreme close-up, over the shoulder, insert, low and high angle), drawn with
+  the panel's references (`coverage-sheet` v1, a `coverage_sheet` job). Pick cells: one reframes the panel, several
+  become new panels on a page right after it (one page per pick in film and strips); each takes its cell as a strict
+  layout guide and its setup's shot type and angle, ready to draw at full size. MCP `coverage_sheet`.
+- Directing controls (page editor → Panel tab → *Directing*): optional camera height, lens feel, depth of field, shot
+  purpose (establish, reveal, reaction, insert, action, dialogue, transition) and focus subject, and for each figure
+  the side shown (frontal, three-quarter, profile, back, over the shoulder, point of view), facing, eye-line, depth
+  and what they hold. Saved with the panel spec (`direction`), so drawn art goes out of date when they change; the
+  panel prompt states them (`panel-generation` v14). MCP `update_panel` takes them in `spec.direction`.
+- Location states: a place's states over story time ("after the fire", "snowed in", "at night"), on the location's
+  page (World → location → *States over story time*): what differs from the design, words matched against a scene's
+  time and weather, and/or a chapter range; each can get its own reference image, drawn from the place's approved
+  design. A scene shows the state it picks by hand (scene editor → *Location state*), else the one its time or weather
+  matches, else the one its chapter falls in; its panels are drawn as the place is then (`panel-generation` v13,
+  `location-reference` v6) with the state's reference in place of the design's. Migration `0042_location_states`.
+  Copied when a project is duplicated. MCP `manage_location_states`; `manage_references` and `manage_scene` take
+  `locationStateId`.
+- Why is this stale: on the project overview, each out-of-date stage of the production card (story → plan → prompts
+  → art → narration → audio → render) opens the chapters, pages and panels behind its count, each with what changed
+  under it and what an update would redo: a story revision's new and removed paragraphs, the panels a chapter's text
+  revision hit, the spec fields edited after a panel's artwork, the panels changed after a chapter's narration, why
+  each chapter's audio is outdated (missing, text, voice or speed), and what changed after the newest video.
+  `GET /api/projects/:projectId/staleness/why`; MCP `get_staleness` with `why: true`.
+- `REGISTER_LIMIT_PER_HOUR` (default 10): sign-ups per hour from one client address, until now fixed at 10.
+- Story source (chapter page → *Story source*): the chapter's text with the part each panel tells marked, its scene
+  and narration on hover and a marker that opens the panel; the page editor's Panel tab shows the panel's text
+  (*From the story*) and links back. Traced without AI when a chapter is planned (older chapters on first view), from
+  the panels' beats and dialogue in reading order (migration `0040_panel_source_span`). When the story is revised
+  under a panel, the chapter lists exactly the panels whose text changed, with what they were planned from; *Trace
+  again* or keeping the plan re-traces them. `GET /api/chapters/:id/source`, MCP `get_chapter_source`.
+- Story timeline (project → *Timeline*): the story's events in story-time order (a flashback where it happened), each
+  with the story's own words for when, an optional story day giving the time since the previous event and, from a
+  character's birth event, their age; the chapter and scene that tell it; and the bible's character states shown at
+  the event they start from. A day that runs backwards is flagged. Add, edit, reorder and delete by hand, or
+  *Extract from story* (a text job, paste mode included) and apply the reviewed events, merged in by day (migration
+  `0041_timeline_events`). The bible's state list tab is now called *States*. MCP `get_timeline`,
+  `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`.
+
+### Fixed
+
+- MCP: `update_project` explains video hook variants (`settings.video.hooks`), `update_panel` lists `altText`, and
+  `create_export` explains `language` (lettering edition or narration track), `target` and `provenance`.
+- A video with no narration (pages or shots not voiced yet) failed to render: its silent soundtrack measured
+  -inf loudness and the normalising pass broke. Silence is now left as it is.
+
 ## [0.17.0] — 2026-10-09
 
 Upgrading: pull the new images and restart. One migration runs on start through the migrate service

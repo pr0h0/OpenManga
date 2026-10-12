@@ -47,7 +47,7 @@ sub-app and only loads the session. `/mcp` and `/oauth/*` sit outside `/api` and
 | All of `/api`, signed in | user id | 60 s | `RATE_LIMIT_PER_MINUTE` (default 2000) |
 | All of `/api`, no session | client IP | 60 s | `RATE_LIMIT_ANON_PER_MINUTE` (default 300) |
 | `register`, `login`, both password-reset routes | client IP | 60 s | 30 |
-| `register` | client IP | 1 h | 10 |
+| `register` | client IP | 1 h | `REGISTER_LIMIT_PER_HOUR` (default 10) |
 | `password-reset/request` (sends mail) | client IP | 15 min | 5 |
 | `POST /api/auth/password` | user id | 60 s | 10 |
 | OAuth client registration | client IP | 1 h | 20 |

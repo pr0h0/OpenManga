@@ -1,10 +1,11 @@
 import type { z } from "zod";
 import { AgentPlan, AgentStep } from "./agent.ts";
 import type { FieldDocs } from "./answer-format.ts";
-import { BibleExtraction, ContinuityReport } from "./bible.ts";
+import { BibleExtraction, ContinuityReport, TimelineExtraction } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
   ChapterOutline,
+  LetteringTranslation,
   NarrationDraftV2,
   NarrationFix,
   NarrationLintReport,
@@ -15,6 +16,7 @@ import {
   SocialCopy,
   StoryCoverageMap,
   StoryRewrite,
+  VideoEditPlan,
   YoutubePackage,
 } from "./planning.ts";
 import { StoryAnalysis } from "./story.ts";
@@ -43,6 +45,9 @@ export const ANSWER_SCHEMAS = {
   ProjectPremise,
   StoryOutline,
   BibleExtraction,
+  TimelineExtraction,
+  LetteringTranslation,
+  VideoEditPlan,
   ContinuityReport,
   AgentPlan,
   AgentStep,
@@ -1004,6 +1009,59 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "For an outfit: the name of one of the character's outfits, when one matches. Null or left out otherwise.",
       null,
     ],
+  },
+
+  TimelineExtraction: {
+    "": "A proposed story timeline for the user to review, in story-time order. Nothing is saved until applied.",
+    events: "Events in the order they happen in the story world (a flashback where it happened), one per item.",
+    "events[].kind": ["event, or birth for the event that gives a character's age.", "event"],
+    "events[].title": ["What happens, short.", "Ines arrives at Vell"],
+    "events[].description": ["More detail, optional.", "The supply boat leaves her on the jetty in the storm."],
+    "events[].when": ["How the story names the moment, in its words; empty when it gives none.", "Autumn, year 3"],
+    "events[].day": [
+      "A story-day number on one scale for the whole story (later = larger; fractions for hours), or null when " +
+        "the text does not let you work it out.",
+      0,
+    ],
+    "events[].chapter": ["Number of the chapter that tells it; null for events only mentioned.", 1],
+    "events[].scene": ["Scene number within that chapter (from 1), when clearly split into scenes; else null.", null],
+    "events[].characters": ["Who takes part, by name exactly as in the project.", ["Ines", "Tomas"]],
+  },
+
+  LetteringTranslation: {
+    "": "A chapter's lettering in another language, for a translated edition of the same art.",
+    lines: "Every line you were given, translated, each with its ref unchanged.",
+    "lines[].ref": ["The ref the line was given (d1, c2…).", "d1"],
+    "lines[].text": [
+      "The translated text, about as long as the original and within its maxChars.",
+      "¡Ya basta, Tomás!",
+    ],
+  },
+
+  VideoEditPlan: {
+    "": "Timeline edits for an editor's instruction about the video, shown for review before any is applied.",
+    summary: [
+      "One or two sentences on what the edits do, or why the instruction cannot be done.",
+      "Chapter 4 runs faster: its pauses are capped at 600 ms.",
+    ],
+    ops: "The smallest set of edits that does what the instruction asks. Empty when it cannot be done.",
+    "ops[].op": ["pauses, holds, shot, card or scene_fades.", "pauses"],
+    "ops[].chapter": ["pauses, holds, a chapter card: the chapter number. null = the whole video.", 4],
+    "ops[].maxPauseMs": ["pauses: the longest a pause may be, in ms.", 600],
+    "ops[].pauseScale": ["pauses: multiply every pause by this (0.7 = 30% shorter).", null],
+    "ops[].holdMs": ["holds: each shot's own minimum hold in ms; null puts them back to the export's.", null],
+    "ops[].panel": ["shot: the panel's ref, exactly as in the data.", null],
+    "ops[].disabled": ["shot: true leaves the panel out of the video, false plays it.", null],
+    "ops[].motion": [
+      "shot: the camera move (auto, static, pan-left, pan-right, pan-up, pan-down, push-in, pull-out).",
+      null,
+    ],
+    "ops[].fade": ["shot: auto, on or off.", null],
+    "ops[].card": ["card: intro, outro or chapter.", null],
+    "ops[].title": ["card: its title; null removes the card.", null],
+    "ops[].subtitle": ["card: a line under the title.", null],
+    "ops[].seconds": ["card: how long it holds, 1 to 15.", null],
+    "ops[].on": ["scene_fades: true fades to black at scene breaks.", null],
   },
 
   ContinuityReport: {

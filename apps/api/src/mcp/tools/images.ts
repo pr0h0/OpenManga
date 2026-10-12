@@ -194,4 +194,106 @@ export const imageTools = [
       };
     },
   }),
+  defineMcpTool({
+    name: "asset_library",
+    title: "Search and file assets",
+    description:
+      "The asset library. search: the project's files with their tags, collections and favourite mark, filtered by q (name, type or tag), type, tag, collection, favourite, characterId / locationId / propId (its reference images and the panels it is drawn in), source (generated, uploaded, derived), model, from / to (dates); view unused (images nothing uses) or duplicates (the same file stored twice). get: one asset with where it came from (job, model, template, upload name, tool) and what uses it. similar: images that look like it, scored 0–1 (no AI). mark: set an asset's tags, collections, favourite or licence note (shown in provenance records). bulk: tag, untag, collect, uncollect, favourite, unfavourite, trash or restore many (trash may need approval).",
+    input: z.object({
+      action: z.enum(["search", "get", "similar", "mark", "bulk"]),
+      projectId: Uuid.optional(),
+      assetId: Uuid.optional(),
+      filters: z
+        .object({
+          q: z.string().max(200).optional(),
+          type: z.string().max(40).optional(),
+          tag: z.string().max(60).optional(),
+          collection: z.string().max(60).optional(),
+          favourite: z.boolean().optional(),
+          characterId: Uuid.optional(),
+          locationId: Uuid.optional(),
+          propId: Uuid.optional(),
+          source: z.enum(["generated", "uploaded", "derived"]).optional(),
+          model: z.string().max(120).optional(),
+          from: z.string().max(10).optional(),
+          to: z.string().max(10).optional(),
+          view: z.enum(["unused", "duplicates"]).optional(),
+          limit: z.number().int().min(1).max(200).default(50),
+        })
+        .optional(),
+      marks: z
+        .object({
+          tags: z.array(z.string().max(60)).max(50).optional(),
+          collections: z.array(z.string().max(60)).max(50).optional(),
+          favourite: z.boolean().optional(),
+          licence: z
+            .object({ text: z.string().max(500), url: z.string().url().optional() })
+            .nullable()
+            .optional(),
+        })
+        .optional(),
+      bulk: z
+        .object({
+          ids: z.array(Uuid).min(1).max(500),
+          action: z.enum(["tag", "untag", "collect", "uncollect", "favourite", "unfavourite", "trash", "restore"]),
+          value: z.string().max(60).optional(),
+        })
+        .optional(),
+    }),
+    output: Passthrough,
+    scopes: ["projects:read"],
+    scopesFor: (a) => (a.action === "mark" || a.action === "bulk" ? ["projects:write"] : ["projects:read"]),
+    sensitivity: "delete",
+    idempotent: false,
+    routes: [
+      "GET /api/projects/:projectId/assets",
+      "GET /api/assets/:id",
+      "GET /api/assets/:id/similar",
+      "PUT /api/assets/:id/marks",
+      "POST /api/projects/:projectId/assets/bulk",
+    ],
+    actionKeys: ["asset.mark", "asset.bulk"],
+    classify: async (a, ctx) => {
+      let projectId = a.projectId ?? null;
+      if (a.assetId) {
+        const [row] = await ctx.deps.db.select({ p: assets.projectId }).from(assets).where(eq(assets.id, a.assetId));
+        if (!row?.p) throw toolError(404, "not_found", "Asset not found");
+        projectId = row.p;
+      }
+      if (!projectId) throw toolError(400, "bad_request", "projectId or assetId is required");
+      if (a.action === "mark") return cls("write", "asset.mark", projectId, "File an asset");
+      if (a.action === "bulk")
+        return cls(
+          a.bulk?.action === "trash" ? "delete" : "write",
+          "asset.bulk",
+          projectId,
+          `${a.bulk?.action ?? "Change"} ${a.bulk?.ids.length ?? 0} assets`,
+        );
+      return cls("read", "asset.read", projectId, "Read the asset library");
+    },
+    handler: async (a, ctx) => {
+      const need = (v: unknown, what: string) => {
+        if (!v) throw toolError(400, "bad_request", `${what} is required for ${a.action}`);
+      };
+      if (a.action === "search") {
+        need(a.projectId, "projectId");
+        const { favourite, ...f } = a.filters ?? { limit: 50 };
+        return {
+          data: await ctx.invoke("GET", `/api/projects/${a.projectId}/assets`, {
+            query: { ...f, ...(favourite ? { favourite: "1" } : {}) },
+          }),
+        };
+      }
+      if (a.action === "bulk") {
+        need(a.projectId, "projectId");
+        need(a.bulk, "bulk");
+        return { data: await ctx.invoke("POST", `/api/projects/${a.projectId}/assets/bulk`, { body: a.bulk }) };
+      }
+      need(a.assetId, "assetId");
+      if (a.action === "get") return { data: await ctx.invoke("GET", `/api/assets/${a.assetId}`) };
+      if (a.action === "similar") return { data: await ctx.invoke("GET", `/api/assets/${a.assetId}/similar`) };
+      need(a.marks, "marks");
+      return { data: await ctx.invoke("PUT", `/api/assets/${a.assetId}/marks`, { body: a.marks }) };
+    },
+  }),
 ];

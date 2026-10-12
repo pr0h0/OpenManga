@@ -367,13 +367,16 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "page-planning": "page-planning-v1",
     "shot-planning": "page-planning-v1",
     "strip-planning": "page-planning-v1",
+    "vertical-shot-planning": "page-planning-v1",
     // Split planning: the outline drops the pages, the page pass returns one scene's worth.
     "chapter-outline": "chapter-outline-v1",
     "shot-outline": "chapter-outline-v1",
     "strip-outline": "chapter-outline-v1",
+    "vertical-shot-outline": "chapter-outline-v1",
     "scene-pages": "scene-pages-v1",
     "scene-shots": "scene-pages-v1",
     "scene-strip": "scene-pages-v1",
+    "vertical-scene-shots": "scene-pages-v1",
     "panel-prompts": "panel-prompts-v1",
     "story-rewrite": "story-rewrite-v1",
     "narration-retime": "narration-retime-v1",
@@ -391,6 +394,9 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "narration-lint": "narration-lint-v1",
     "narration-fix": "narration-fix-v1",
     "bible-extract": "bible-extract-v1",
+    "timeline-extract": "timeline-extract-v1",
+    "lettering-translate": "lettering-translate-v1",
+    "video-edit": "video-edit-v1",
     "continuity-check": "continuity-check-v1",
     "youtube-package": "youtube-package-v1",
     "story-coverage": "story-coverage-v1",
@@ -591,6 +597,52 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
               { character: who, kind: "item", text: "Carries the brass key.", fromChapter: last },
             ]
           : [],
+      };
+    }
+    case "video-edit-v1": {
+      // Keyword-driven, enough for a test: "faster" caps chapter N's pauses, "card" adds a chapter card, "fade" turns
+      // scene fades on, "skip" leaves the first listed panel out.
+      const ins = extractTagged(user, "instruction")[0] ?? "";
+      const raw = extractTagged(user, "project_data")[0];
+      const d = (raw ? JSON.parse(raw) : {}) as { panels?: { ref: string }[] };
+      const chapter = Number(/chapter (\d+)/i.exec(ins)?.[1] ?? 1);
+      const ops: Record<string, unknown>[] = [];
+      if (/faster|silence/i.test(ins)) ops.push({ op: "pauses", chapter, maxPauseMs: 200 });
+      if (/card/i.test(ins))
+        ops.push({ op: "card", card: "chapter", chapter, title: `Chapter ${chapter}`, seconds: 2 });
+      if (/fade/i.test(ins)) ops.push({ op: "scene_fades", on: true });
+      if (/skip/i.test(ins) && d.panels?.[0]) ops.push({ op: "shot", panel: d.panels[0].ref, disabled: true });
+      return { summary: ops.length ? "Done as asked." : "Nothing to change.", ops };
+    }
+    case "lettering-translate-v1": {
+      // Each line marked with the target language, so a test can tell the edition apart.
+      const raw = extractTagged(user, "lettering")[0];
+      const d = (raw ? JSON.parse(raw) : {}) as { lines?: { ref: string; text: string }[] };
+      const code = /into .* \(([a-z-]+)\)/i.exec(user)?.[1] ?? "xx";
+      return { lines: (d.lines ?? []).map((l) => ({ ref: l.ref, text: `[${code}] ${l.text}` })) };
+    }
+    case "timeline-extract-v1": {
+      // The first character's birth, then one dated event per chapter two days apart, each told by its chapter:
+      // enough for a test to see order, elapsed time, an age and chapter numbers come back.
+      const d = (data[0] ?? {}) as { characters?: { name: string }[] };
+      const numbers = [...story.matchAll(/^=== Chapter (\d+): (.*) ===$/gm)].map((m) => ({
+        n: Number(m[1]),
+        t: m[2]!,
+      }));
+      const who = d.characters?.[0]?.name;
+      return {
+        events: [
+          ...(who ? [{ kind: "birth", title: `${who} is born`, when: "", day: -17 * 365.25, characters: [who] }] : []),
+          ...numbers.map((c, i) => ({
+            kind: "event",
+            title: c.t || `Chapter ${c.n}`,
+            description: "",
+            when: `Day ${i * 2 + 1}`,
+            day: i * 2,
+            chapter: c.n,
+            characters: who ? [who] : [],
+          })),
+        ],
       };
     }
     case "continuity-check-v1": {

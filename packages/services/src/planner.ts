@@ -11,6 +11,7 @@ import {
   eq,
   inArray,
   isNull,
+  locationStates,
   locations,
   locationVersions,
   pages,
@@ -30,6 +31,7 @@ import { aspectRatioOf, bibleLines, COLOR_MODE_DIRECTIVES } from "@openmanga/dom
 import type { ReferenceParams } from "@openmanga/image-utils";
 import {
   characterReferenceV1,
+  coverageSheetV1,
   coverV1,
   locationReferenceV1,
   type PanelCharacterContext,
@@ -40,12 +42,15 @@ import {
   type StyleContext,
   styleReferenceV1,
   thumbnailV1,
+  withProjectRules,
 } from "@openmanga/prompts";
-import { CharacterBible, type PanelSpec, type ProjectSettings } from "@openmanga/schemas";
+import { CharacterBible, type ProjectSettings, type StoredPanelSpec } from "@openmanga/schemas";
 import type { AssetRecord, AssetService } from "./assets.ts";
 import { bibleFor, loadBible } from "./bible.ts";
 import type { JobService, NewGenerationInput } from "./jobs.ts";
+import { sceneLocationState, stateReference } from "./location-states.ts";
 import { outfitReferenceAssets, resolveOutfits, wardrobeText } from "./outfits.ts";
+import { activeOverride } from "./prompt-overrides.ts";
 import { type AiChoice, MISSING_CREDENTIAL, type ProviderResolver } from "./providers.ts";
 import { versionFingerprint } from "./staleness.ts";
 
@@ -187,7 +192,15 @@ export class GenerationPlanner {
       .select({ ref: referenceAssets, asset: assets })
       .from(referenceAssets)
       .innerJoin(assets, eq(assets.id, referenceAssets.assetId))
-      .where(and(eq(col, versionId), inArray(referenceAssets.status, ["approved", "locked"]), isNull(assets.deletedAt)))
+      .where(
+        and(
+          eq(col, versionId),
+          inArray(referenceAssets.status, ["approved", "locked"]),
+          isNull(assets.deletedAt),
+          // A state's reference shows the place changed; the place's own design is the one without a state.
+          subject === "location" ? isNull(referenceAssets.locationStateId) : undefined,
+        ),
+      )
       .orderBy(desc(referenceAssets.isPrimary), desc(referenceAssets.createdAt));
     rows.sort(
       (a, b) =>
@@ -255,7 +268,7 @@ export class GenerationPlanner {
       .where(eq(panelSpecs.panelId, panelId))
       .orderBy(desc(panelSpecs.versionNumber))
       .limit(1);
-    const spec: PanelSpec | null = specRow?.spec ?? null;
+    const spec: StoredPanelSpec | null = specRow?.spec ?? null;
     const { style, styleRef } = await this.styleContext(panel.projectId);
 
     const refs: {
@@ -353,13 +366,16 @@ export class GenerationPlanner {
         .innerJoin(locations, eq(locations.id, locationVersions.locationId))
         .where(eq(locationVersions.id, panel.locationVersionId));
       if (l) {
-        const ref = await this.approvedReference("location", l.v.id);
+        // The place as this scene shows it: a state's own reference stands in for the design's when it has one.
+        const state = await sceneLocationState(this.db, l.l.id, panel.sceneId);
+        const stateRef = state ? await stateReference(this.db, state.id, l.v.id) : null;
+        const ref = stateRef ?? (await this.approvedReference("location", l.v.id));
         let referenceImageIndex: number | undefined;
         if (ref && refs.length < cap) {
           refs.push({
             asset: ref,
             role: "location_ref",
-            label: `${l.l.name} v${l.v.versionNumber}`,
+            label: `${l.l.name} v${l.v.versionNumber}${stateRef ? ` (${state!.name})` : ""}`,
             subjectVersionId: l.v.id,
           });
           referenceImageIndex = refs.length;
@@ -369,6 +385,13 @@ export class GenerationPlanner {
           description: l.v.description,
           referenceImageIndex,
           referenceKind: referenceImageIndex ? ref?.referenceKind : undefined,
+          state: state
+            ? {
+                name: state.name,
+                description: state.description,
+                hasReference: Boolean(stateRef && referenceImageIndex),
+              }
+            : null,
         };
       }
     }
@@ -514,6 +537,16 @@ export class GenerationPlanner {
       characters: chars,
       location,
       props: propCtx,
+      // Figures are named for the prompt; one whose character is not in the panel is left out.
+      direction: spec?.direction
+        ? {
+            ...spec.direction,
+            figures: spec.direction.figures.flatMap(({ characterId, ...f }) => {
+              const c = charRows.find((r) => r.c.id === characterId || r.c.analysisKey === characterId)?.c;
+              return c ? [{ ...f, name: c.name }] : [];
+            }),
+          }
+        : null,
       guide: guideInput,
       previousPanelImageIndex,
       continuity: [...new Set(continuity)].slice(0, 12),
@@ -522,7 +555,18 @@ export class GenerationPlanner {
       film: settings.format === "film",
       draft,
     };
-    return { panel, page, project, settings, input, refs, compiledPrompt: panelGenerationV1.compile(input) };
+    // The project's own rules for panel images (the prompt lab), after everything the template writes.
+    const override = await activeOverride(this.db, panel.projectId, panelGenerationV1.name);
+    return {
+      panel,
+      page,
+      project,
+      settings,
+      input,
+      refs,
+      override: override ? { id: override.id, version: override.version } : null,
+      compiledPrompt: withProjectRules(panelGenerationV1.compile(input), override?.rules ?? ""),
+    };
   }
 
   private async panelHasLettering(panelId: string) {
@@ -600,6 +644,8 @@ export class GenerationPlanner {
       batchMode?: boolean;
       /** The how-many-th automatic re-roll by the panel's visual checks this is. */
       autoFix?: number;
+      /** One run of a model comparison: its artwork is kept as a version but not made active. */
+      compareId?: string;
     },
   ) {
     const run = await this.imageRun(opts.ai, userId);
@@ -638,6 +684,8 @@ export class GenerationPlanner {
             ...(opts.allowOverBudget ? { allowOverBudget: true } : {}),
             ...(opts.batchMode ? { batchMode: true } : {}),
             ...(opts.autoFix ? { autoFix: opts.autoFix } : {}),
+            ...(opts.compareId ? { compare: opts.compareId } : {}),
+            ...(ctx.override ? { promptOverrides: { [panelGenerationV1.name]: ctx.override.version } } : {}),
           },
           input: {
             pageId: ctx.page.id,
@@ -651,10 +699,51 @@ export class GenerationPlanner {
         },
         { enqueue: !opts.batchMode },
       );
-      await tx.update(panels).set({ status: "queued" }).where(eq(panels.id, panelId));
+      // A comparison run leaves the panel as it is: only a pick changes its artwork.
+      if (!opts.compareId) await tx.update(panels).set({ status: "queued" }).where(eq(panels.id, panelId));
       return j;
     });
     return job;
+  }
+
+  /**
+   * A coverage sheet for a panel: its moment from nine camera setups in one image, with the panel's references. The
+   * panel's own layout guide is left out (it would pin every cell to one pose), and nothing on the panel changes.
+   */
+  async enqueueCoverage(panelId: string, userId: string | null, opts: { ai?: AiChoice | null } = {}) {
+    const run = await this.imageRun(opts.ai, userId);
+    const ctx = await this.panelContext(panelId);
+    const refs = ctx.refs.filter((r) => r.role !== "layout_guide");
+    const input = { ...ctx.input, guide: undefined };
+    // Reference numbers in the prompt follow the images actually sent.
+    if (ctx.input.previousPanelImageIndex)
+      input.previousPanelImageIndex = refs.findIndex((r) => r.role === "previous_panel") + 1 || undefined;
+    const inputs: NewGenerationInput[] = [];
+    for (const r of refs)
+      inputs.push(await this.derivativeInput(r.asset, r.role, r.label, r.subjectVersionId, ctx.settings, run.provider));
+    return this.db.transaction((tx) =>
+      this.jobs.createGenerationJob(tx, {
+        projectId: ctx.panel.projectId,
+        userId,
+        kind: "coverage_sheet",
+        priority: 2,
+        targetType: "panel",
+        targetId: panelId,
+        templateName: coverageSheetV1.name,
+        templateVersion: coverageSheetV1.version,
+        compiledPrompt: coverageSheetV1.compile(input),
+        provider: run.provider,
+        model: run.model,
+        parameters: {
+          ai: run.ai,
+          quality: ctx.settings.imageQuality ?? this.image?.quality ?? "low",
+          aspectRatio: ctx.input.panel.aspectRatio,
+          referenceCount: inputs.length,
+        },
+        input: { pageId: ctx.page.id },
+        inputs,
+      }),
+    );
   }
 
   private sizeString(aspect: number) {
@@ -669,6 +758,8 @@ export class GenerationPlanner {
     opts: {
       extraInstruction?: string;
       outfitId?: string | null;
+      /** A location reference of the place in one of its states, drawn from its approved design when there is one. */
+      locationStateId?: string | null;
       ai?: AiChoice | null;
       /** A bulk run: the jobs share a batch id, so they are tracked, paused and cancelled together. */
       batchId?: string | null;
@@ -687,7 +778,13 @@ export class GenerationPlanner {
     let templateVersion: number;
     /** The approved identity reference an outfit reference is drawn from. */
     let baseline: AssetRecord | null = null;
-    const input: Record<string, unknown> = { subject, versionId, kind, outfitId: opts.outfitId ?? null };
+    const input: Record<string, unknown> = {
+      subject,
+      versionId,
+      kind,
+      outfitId: opts.outfitId ?? null,
+      locationStateId: subject === "location" ? (opts.locationStateId ?? null) : null,
+    };
     if (subject === "character") {
       const [r] = await this.db
         .select({ v: characterVersions, c: characters })
@@ -745,14 +842,25 @@ export class GenerationPlanner {
       projectId = r.l.projectId;
       const { style } = await this.styleContext(projectId);
       kind = kind === "location_panorama" || kind === "location_sheet" ? kind : "location";
+      let state: { name: string; description: string } | null = null;
+      if (opts.locationStateId) {
+        const [s] = await this.db.select().from(locationStates).where(eq(locationStates.id, opts.locationStateId));
+        if (!s) throw new PlanningError(404, "Location state not found");
+        if (s.locationId !== r.l.id) throw new PlanningError(400, "That state belongs to another location");
+        state = { name: s.name, description: s.description };
+        // Drawn from the approved design when there is one, so the place stays recognisable in every state.
+        baseline = await this.approvedReference("location", versionId);
+      }
       prompt = locationReferenceV1.compile({
         style,
         name: r.l.name,
         description: r.v.description,
         kind,
+        state,
+        fromBaseline: Boolean(baseline),
         extraInstruction: opts.extraInstruction,
       });
-      label = `${r.l.name} v${r.v.versionNumber}${kind === "location" ? "" : ` ${kind.replace("location_", "")}`}`;
+      label = `${r.l.name} v${r.v.versionNumber}${kind === "location" ? "" : ` ${kind.replace("location_", "")}`}${state ? ` (${state.name})` : ""}`;
       templateName = locationReferenceV1.name;
       templateVersion = locationReferenceV1.version;
     } else if (subject === "prop") {
@@ -793,8 +901,8 @@ export class GenerationPlanner {
       ? [
           await this.derivativeInput(
             baseline,
-            "character_ref",
-            "approved character design",
+            subject === "location" ? "location_ref" : "character_ref",
+            subject === "location" ? "approved location design" : "approved character design",
             versionId,
             project.settings,
             run.provider,

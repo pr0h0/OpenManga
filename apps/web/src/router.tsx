@@ -113,6 +113,15 @@ const reader = createRoute({
   component: lazyRouteComponent(() => import("./features/reader/ReaderPage.tsx"), "ReaderPage"),
 });
 
+// Public: a series' reader page (turned on by its owner, unlisted or public).
+const seriesReader = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/s/$slug",
+  staticData: { title: "Series" },
+  validateSearch: z.object({ chapter: z.string().uuid().optional(), language: z.string().max(16).optional() }),
+  component: lazyRouteComponent(() => import("./features/reader/SeriesReaderPage.tsx"), "SeriesReaderPage"),
+});
+
 const shell = createRoute({
   getParentRoute: () => rootRoute,
   id: "shell",
@@ -260,6 +269,24 @@ const projectChildren = [
   }),
   createRoute({
     getParentRoute: P,
+    path: "/prompts",
+    staticData: { title: "Prompt lab" },
+    component: lazyRouteComponent(() => import("./features/project/PromptLabPage.tsx"), "PromptLabPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
+    path: "/board",
+    staticData: { title: "Reference board" },
+    component: lazyRouteComponent(() => import("./features/board/BoardPage.tsx"), "BoardPage"),
+  }),
+  createRoute({
+    getParentRoute: P,
+    path: "/timeline",
+    staticData: { title: "Story timeline" },
+    component: lazyRouteComponent(() => import("./features/bible/TimelinePage.tsx"), "TimelinePage"),
+  }),
+  createRoute({
+    getParentRoute: P,
     path: "/chapters",
     staticData: { title: "Chapters" },
     component: lazyRouteComponent(() => import("./features/chapters/ChaptersPage.tsx"), "ChaptersPage"),
@@ -404,6 +431,7 @@ const routeTree = rootRoute.addChildren([
   invite,
   mailbox,
   reader,
+  seriesReader,
   shell.addChildren([
     dashboard,
     newProject,

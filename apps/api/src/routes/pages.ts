@@ -56,14 +56,17 @@ import {
   EdgeStyle,
   Frame,
   ImageTransform,
+  PanelEffects,
   PanelGuide,
   PanelSeam,
   PanelSpec,
   SfxStyle,
   ShotType,
   ShotVideo,
+  StoredPanelSpec,
 } from "@openmanga/schemas";
 import {
+  altTextFor,
   credentialOwnedBy,
   letterPanel,
   outfitReferenceAssets,
@@ -630,7 +633,7 @@ async function artworkVersions(db: Database, panelId: string, projectId: string)
       asset: assets,
       jobKind: generationJobs.kind,
       jobId: generationJobs.id,
-      operation: sql<string | null>`${generationJobs.parameters}->>'operation'`,
+      operation: sql<string | null>`coalesce(${generationJobs.parameters}->>'operation', ${assets.metadata}->>'tool')`,
       prompt: generationJobs.compiledPrompt,
     })
     .from(assets)
@@ -661,6 +664,8 @@ async function artworkVersions(db: Database, panelId: string, projectId: string)
 
 export const PatchPanel = z.object({
   frame: Frame.optional(),
+  /** Comic effects over the art; null or [] removes them. */
+  effects: PanelEffects.nullable().optional(),
   imageTransform: ImageTransform.optional(),
   shotType: ShotType.optional(),
   cameraAngle: CameraAngle.nullable().optional(),
@@ -682,7 +687,23 @@ export const PatchPanel = z.object({
   promptDraft: z.null().optional(),
   approvalStatus: z.enum(["draft", "approved", "locked", "superseded"]).optional(),
   sceneId: z.string().uuid().nullable().optional(),
+  /** What the panel shows, for readers who cannot see it (EPUB, readers). Null: made from its beat, words and sounds. */
+  altText: z.string().trim().max(2000).nullable().optional(),
 });
+doc({
+  method: "GET",
+  path: "/api/pages/:id/alt-text",
+  summary:
+    "A page's alt text for readers who cannot see it: each panel's (written by hand, or made from its story beat, dialogue and sound effects) and the page's, its panels' in reading order.",
+  tag: "pages",
+});
+pageRoutes.get("/pages/:id/alt-text", async (c) => {
+  const id = uuidParam(c, "id");
+  await entityAccess(c, "page", id, "read");
+  const alts = await altTextFor(c.get("deps").db, [id]);
+  return c.json(alts.get(id) ?? { alt: "", panels: [] });
+});
+
 doc({
   method: "PATCH",
   path: "/api/panels/:id",
@@ -693,7 +714,9 @@ doc({
 pageRoutes.patch("/panels/:id", async (c) => {
   const { panel, project } = await loadPanel(c, uuidParam(c, "id"), "write");
   const input = await body(c, PatchPanel);
-  if (panel.approvalStatus === "locked" && (input.approvalStatus === undefined || Object.keys(input).length > 1))
+  // Describing a finished panel is not changing it: alt text stays editable when the panel is locked.
+  const changes = Object.keys(input).filter((k) => k !== "altText");
+  if (panel.approvalStatus === "locked" && changes.length && (input.approvalStatus === undefined || changes.length > 1))
     throw conflict("Panel is locked");
   const { db } = c.get("deps");
   if (input.characterVersionIds?.length) {
@@ -747,7 +770,7 @@ pageRoutes.patch("/panels/:id", async (c) => {
   return c.json({ panel: row });
 });
 
-const PutSpec = z.object({ spec: PanelSpec });
+const PutSpec = z.object({ spec: StoredPanelSpec });
 doc({
   method: "PUT",
   path: "/api/panels/:id/spec",

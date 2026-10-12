@@ -18,6 +18,10 @@ export type GenerationKind =
   | "panel_edit"
   | "panel_check"
   | "cover"
+  /** One image of a panel's moment from nine camera setups, to pick framings from (not the panel's art). */
+  | "coverage_sheet"
+  /** Finds near-identical panels, repeated poses and backgrounds and duplicate thumbnails, without AI. */
+  | "duplicate_scan"
   /** A 16:9 YouTube thumbnail background; its headline is composited by the app. */
   | "thumbnail"
   /** Publishing text (titles, description, tags…) for the project's video. */
@@ -40,6 +44,12 @@ export type GenerationKind =
   | "expert_extract"
   /** Proposes story bible facts and character states from the chapters, for the user to review and apply. */
   | "bible_extract"
+  /** Proposes the story timeline (events in story-time order, dates, births) from the chapters, for review. */
+  | "timeline_extract"
+  /** Translates a chapter's bubbles and captions into another language, for a translated edition. */
+  | "lettering_translate"
+  /** "Edit the video in words": an instruction turned into timeline edits, kept on the job until the user applies them. */
+  | "video_edit"
   /** Compares one chapter with the story bible and its neighbours; findings go to continuity_findings. */
   | "continuity_check"
   /** The timing pass: chosen narration lines rewritten to a word budget, kept on the job until the user applies them. */
@@ -156,6 +166,29 @@ export const promptTemplates = pgTable("prompt_templates", {
   description: text("description").notNull().default(""),
   createdAt: createdAt(),
 });
+
+/**
+ * A project's own rules for one built-in prompt (the prompt lab): a text template's rewritable rules, or extra rules
+ * appended to the panel image prompt. Every save is a version; at most one is active per template, and none active
+ * means the built-in prompt. Jobs record the version they ran with.
+ */
+export const promptOverrides = pgTable(
+  "prompt_overrides",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    templateName: text("template_name").notNull(),
+    version: integer("version").notNull(),
+    rules: text("rules").notNull(),
+    note: text("note").notNull().default(""),
+    active: boolean("active").notNull().default(false),
+    createdByUserId: uuid("created_by_user_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("prompt_overrides_uq").on(t.projectId, t.templateName, t.version)],
+);
 
 export const promptVersions = pgTable(
   "prompt_versions",

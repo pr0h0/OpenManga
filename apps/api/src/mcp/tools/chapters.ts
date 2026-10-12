@@ -49,6 +49,95 @@ export const chapterTools = [
   }),
 
   defineMcpTool({
+    name: "translate_lettering",
+    title: "Translated lettering",
+    description:
+      "A chapter's speech bubbles and on-page captions in another language, for a translated edition of the same art. get: every line with its original, its translation (or null), stale (the original changed since) and edited. translate: a text job translating them (asynchronous; poll get_job; ai.manual=true asks you for a LetteringTranslation answer; a provider run spends the user's credits). edit: lines [{sourceType, sourceId, text}] saved as hand edits (empty text removes one). Exports and page renders take `language` for the edition.",
+    input: z.object({
+      action: z.enum(["get", "translate", "edit"]),
+      chapterId: Uuid,
+      language: z.string().min(2).max(16).describe("The edition's language code, e.g. es, ja."),
+      lines: z
+        .array(z.object({ sourceType: z.enum(["dialogue", "caption"]), sourceId: Uuid, text: z.string().max(1000) }))
+        .max(1000)
+        .optional(),
+      ai: AiInput,
+      batch: z.boolean().optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["chapters:read"],
+    scopesFor: (a) =>
+      a.action === "translate"
+        ? ["chapters:write", "generations:run"]
+        : a.action === "edit"
+          ? ["chapters:write"]
+          : ["chapters:read"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: [
+      "GET /api/chapters/:id/lettering",
+      "PUT /api/chapters/:id/lettering",
+      "POST /api/chapters/:id/lettering/translate",
+    ],
+    actionKeys: ["lettering.translate", "lettering.edit"],
+    classify: async (a, ctx) => {
+      const project = await projectOf(ctx, "chapter", a.chapterId);
+      if (a.action === "get") return cls("read", "lettering.read", project, "Read translated lettering");
+      if (a.action === "edit") return cls("write", "lettering.edit", project, "Edit translated lettering");
+      return cls(
+        textSpend(a.ai, "write"),
+        "lettering.translate",
+        project,
+        `Translate lettering into ${a.language} ${aiLabel(a.ai)}`,
+      );
+    },
+    handler: async (a, ctx) => {
+      if (a.action === "get")
+        return {
+          data: await ctx.invoke(
+            "GET",
+            `/api/chapters/${a.chapterId}/lettering?language=${encodeURIComponent(a.language)}`,
+          ),
+        };
+      if (a.action === "edit") {
+        if (!a.lines?.length) throw toolError(400, "bad_request", "lines are required for edit");
+        return {
+          data: await ctx.invoke("PUT", `/api/chapters/${a.chapterId}/lettering`, {
+            body: { language: a.language, lines: a.lines },
+          }),
+        };
+      }
+      const r = await ctx.invoke<{ job: Record<string, unknown> & { id: string; projectId: string } }>(
+        "POST",
+        `/api/chapters/${a.chapterId}/lettering/translate`,
+        { body: { language: a.language, ai: await restAi(ctx, a.ai), batch: a.batch } },
+      );
+      return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(r.job.projectId, r.job.id) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "get_chapter_source",
+    title: "Get chapter source trace",
+    description:
+      "Where a chapter's panels, scenes and narration lines come from in its text: the text the plan reads, each panel's character span (start/end), each scene's, the narration lines by panel, and where the chapter sits in the newest story revision. Panels whose text was revised after planning are `changed`, with `was` the text they were planned from: those are what a story revision affects. Traced without AI. Read-only.",
+    input: z.object({ chapterId: Uuid }),
+    output: z.object({ text: z.string(), panels: z.array(Passthrough), changed: z.number() }).passthrough(),
+    scopes: ["chapters:read"],
+    sensitivity: "read",
+    idempotent: true,
+    routes: ["GET /api/chapters/:id/source"],
+    actionKeys: [],
+    handler: async ({ chapterId }, ctx) => ({
+      data: await ctx.invoke<{ text: string; panels: unknown[]; changed: number }>(
+        "GET",
+        `/api/chapters/${chapterId}/source`,
+      ),
+    }),
+  }),
+
+  defineMcpTool({
     name: "get_chapter",
     title: "Get chapter",
     description: `One chapter: memory (summary, opening/closing state, continuity), scenes with their beats, and pages with panel counts. The source excerpt is cut to ${EXCERPT} characters unless includeSource=true. Panels are listed by list_chapter_panels (paginated) and in detail by get_page / get_panel. Read-only.`,
@@ -86,7 +175,7 @@ export const chapterTools = [
     name: "manage_chapter",
     title: "Create / edit / delete chapter",
     description:
-      "create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.",
+      "create: add a chapter to a project (title, summary, sourceExcerpt: the story text this chapter covers). update: edit its fields and chapter memory, reorder it, or set planStatus (approve/lock the plan), or publishAt (ISO time, null to unpublish: when the chapter appears on its series' reader page). delete: remove the chapter with its pages and panels (generated images stay in the asset library) — delete class, may need approval.",
     input: z.object({
       action: z.enum(["create", "update", "delete"]),
       projectId: Uuid.optional().describe("For create."),

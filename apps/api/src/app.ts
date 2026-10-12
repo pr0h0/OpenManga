@@ -12,29 +12,41 @@ import { assetRoutes, cdnRoutes } from "./routes/assets.ts";
 import { audioRoutes } from "./routes/audio.ts";
 import { authRoutes, devMailRoutes } from "./routes/auth.ts";
 import { bibleRoutes } from "./routes/bible.ts";
+import { boardRoutes } from "./routes/board.ts";
 import { channelProfileRoutes } from "./routes/channel-profiles.ts";
 import { chapterRoutes } from "./routes/chapters.ts";
 import { characterRoutes } from "./routes/characters.ts";
 import { commentRoutes } from "./routes/comments.ts";
+import { compareRoutes } from "./routes/compare.ts";
 import { continuityRoutes } from "./routes/continuity.ts";
+import { coverageRoutes } from "./routes/coverage.ts";
+import { duplicateRoutes } from "./routes/duplicates.ts";
 import { expertRoutes } from "./routes/experts.ts";
 import { exportRoutes } from "./routes/exports.ts";
 import { generationRoutes } from "./routes/generations.ts";
+import { imageToolRoutes } from "./routes/image-tools.ts";
 import { importRoutes } from "./routes/imports.ts";
 import { layoutRoutes } from "./routes/layouts.ts";
+import { letteringTranslationRoutes } from "./routes/lettering-translations.ts";
+import { locationStateRoutes } from "./routes/location-states.ts";
 import { memberRoutes, publicInviteRoutes } from "./routes/members.ts";
 import { narrationQaRoutes } from "./routes/narration-qa.ts";
 import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
+import { projectStorageRoutes } from "./routes/project-storage.ts";
 import { projectRoutes } from "./routes/projects.ts";
+import { promptLabRoutes } from "./routes/prompt-lab.ts";
+import { publicSeriesRoutes, seriesPreviewRoutes } from "./routes/public-series.ts";
 import { referenceRoutes } from "./routes/references.ts";
 import { repurposeRoutes } from "./routes/repurpose.ts";
 import { seriesRoutes } from "./routes/series.ts";
 import { publicShareRoutes, shareRoutes } from "./routes/shares.ts";
 import { storyRoutes } from "./routes/stories.ts";
 import { healthRoutes, miscRoutes } from "./routes/system.ts";
+import { timelineRoutes } from "./routes/timeline.ts";
 import { usageRoutes } from "./routes/usage.ts";
 import { videoRoutes } from "./routes/video.ts";
+import { videoEditRoutes } from "./routes/video-edits.ts";
 import { visionRoutes } from "./routes/vision.ts";
 import { worldRoutes } from "./routes/world.ts";
 import { youtubeAccountRoutes, youtubeRoutes } from "./routes/youtube.ts";
@@ -80,6 +92,17 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     seriesRoutes,
     youtubeRoutes,
     layoutRoutes,
+    timelineRoutes,
+    coverageRoutes,
+    boardRoutes,
+    imageToolRoutes,
+    duplicateRoutes,
+    compareRoutes,
+    letteringTranslationRoutes,
+    promptLabRoutes,
+    projectStorageRoutes,
+    videoEditRoutes,
+    locationStateRoutes,
   ])
     api.route("/", r);
 }
@@ -95,6 +118,8 @@ export function createApp(deps: Deps) {
   // authorization server and discovery documents sit beside it.
   app.route("/", oauthRoutes);
   app.route("/", mcpRoutes);
+  // A series' reader page as crawlers see it (title, description, cover), sending people on to the app.
+  app.route("/", seriesPreviewRoutes);
 
   const cdn = new Hono<AppEnv>();
   cdn.use("*", loadSession);
@@ -125,6 +150,7 @@ export function createApp(deps: Deps) {
   mountApiRoutes(api);
   api.route("/public", publicShareRoutes);
   api.route("/public", publicInviteRoutes);
+  api.route("/public", publicSeriesRoutes);
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
   api.route("/", agentRunRoutes);

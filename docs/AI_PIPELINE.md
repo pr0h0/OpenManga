@@ -4,11 +4,14 @@
 | --- | --- | --- | --- |
 | Story analysis | `story_analysis` / text-ai | `story-analysis` v3 | `StoryAnalysis` → review → apply creates characters/versions/aliases/outfits, locations, props, chapters; on a project that already has them it is additive (existing chapters keep their pages, new ones are inserted, nothing is removed; `GET /api/story-analyses/:id/diff` shows the changes first) |
 | AI rewrite | `story_rewrite` / text-ai | `story-rewrite` v1 | a new `story_revisions` row |
-| Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v3 then `scene-pages` v3 once per scene (`shot-outline`/`scene-shots` for a film project, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v7, `shot-planning` v4 or `strip-planning` v3 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
+| Chapter planning | `chapter_plan` / text-ai | `chapter-outline` v3 then `scene-pages` v3 once per scene (`shot-outline`/`scene-shots` for a film project, `vertical-shot-outline`/`vertical-scene-shots` for a 9:16 one, `strip-outline`/`scene-strip` for a vertical strip); a batched run makes one call with `page-planning` v7, `shot-planning` v4 or `strip-planning` v3 | `ChapterPlan` → scenes, beats, pages (layout template), panels, panel specs, bubbles and SFX (placed at once with auto-placement on, else kept on the panel for Editor → Lettering → Letter from plan, placed in the panel's planned negative space), narration captions, chapter memory |
 | Panel prompt prep | `page_prompts` / text-ai | `panel-prompts` v5 | per-panel prompt draft sections (`panels.prompt_draft`, status `prompt-ready`) |
 | Narration text | `narration_text` / text-ai | `narration` v6 | narration lines → TTS segments |
-| References | `character_reference` … `style_reference` / image-generation | `character-reference`, `location-reference`, `prop-reference` v5 (location and prop take a kind: panorama, sheet, multi-angle), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
-| Panels | `panel_generation` / image-generation | `panel-generation` v12 | a new `panel_art` asset, activated on the panel |
+| References | `character_reference` … `style_reference` / image-generation | `character-reference`, `prop-reference` v5, `location-reference` v6 (location and prop take a kind: panorama, sheet, multi-angle; a location one of its states, drawn from the approved design), `style-reference` v5 | full-resolution canonical asset + a draft `reference_assets` row |
+| Panels | `panel_generation` / image-generation | `panel-generation` v15 | a new `panel_art` asset, activated on the panel |
+| Model comparison | `panel_generation` / image-generation, one job per model with `parameters.compare` | `panel-generation` | each run's artwork kept as a version (not activated) and checked without touching the panel's own check; the pick becomes the active artwork (`/api/panels/:id/compare`) |
+| Coverage sheet | `coverage_sheet` / image-generation | `coverage-sheet` v1 | one image of a panel's moment from nine camera setups (a `source_image` asset, not the panel's art); picked cells become strict layout guides with their setup's shot type and angle (`POST /api/coverage-sheets/:jobId/use`) |
+| Image tools | `panel_edit` / image-edit for repair, relight, background, colorize, expression and outpaint; none for upscale, line art and palette | `panel-edit` v4 with the tool's instruction and a mask made for it (the whole picture, or the new area of a wider canvas for outpainting) | a new `panel_art` version, made active; `POST /api/panels/:id/tools` |
 | Masked edit | `panel_edit` / image-edit | `panel-edit` v4 | a new `panel_art` asset with `parent_asset_id` set |
 | Cover | `cover` / image-generation | `cover` v4 | cover artwork (the title is composited by the app) |
 | Video thumbnail | `thumbnail` / image-generation | `thumbnail` v1 | text-free 16:9 art saved as `settings.thumbnail`; the headline is composited by the app |
@@ -21,6 +24,9 @@
 | Story coverage | `story_coverage` / text-ai | `story-coverage` v1 | one `StoryCoverageMap` per part of the source; the findings and shares are computed from them and kept in the job result |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v2 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
 | Story bible extraction | `bible_extract` / text-ai | `bible-extract` v1 | `BibleExtraction` (proposed facts and character states) in the job result; saved only when the user applies the reviewed list (see Story bible) |
+| Video edit in words | `video_edit` / text-ai | `video-edit` v1 | `VideoEditPlan` turned into reviewed edits by id (`VideoEditOp`, each with what it would change) in the job result; applied only when the user applies the ticked or changed ones (`POST /api/projects/:projectId/video-edits/:jobId/apply`) |
+| Lettering translation | `lettering_translate` / text-ai | `lettering-translate` v1 | `LetteringTranslation` → `lettering_translations` for the chapter and language (hand edits kept); page renders and exports with `language` letter in it |
+| Story timeline extraction | `timeline_extract` / text-ai | `timeline-extract` v1 | `TimelineExtraction` (proposed events in story-time order, with story days, births and the chapters that tell them) in the job result; saved only when the user applies the reviewed list (see Story timeline) |
 | Continuity check | `continuity_check` / text-ai | `continuity-check` v1 | `ContinuityReport` → `continuity_findings` (the chapter's open findings replaced) and each fixed rule's verdict on the job result |
 | Expert output actions | `expert_extract` / text-ai | `expert-concept`, `expert-premise`, `expert-outline`, `expert-youtube` v1 | `ProjectConcept`, `ProjectPremise`, `StoryOutline` or `YoutubePackage` in the job result, applied only when the user confirms (see Experts) |
 
@@ -225,6 +231,20 @@ The page shows the proposal to tick through; `POST /api/bible-extractions/:id/ap
 the whole proposal), matching characters by name or alias (any case) and chapters by number, and skipping (and
 listing) entries that match neither. It is claimed on the job in the same transaction, so a second apply is
 refused with 409 `already_applied` unless `again: true`. **Discard** applies an empty list.
+
+## Story timeline
+
+The **Timeline** page (`GET /api/projects/:projectId/timeline`) lists the story's events in story-time order, not
+telling order: a flashback sits where it happened. Each event has `when` (the story's words for the moment) and an
+optional `day`, a story-day number on one scale, from which the page shows the time since the previous dated event,
+flags a day that runs backwards, and gives each character's age at the event from their `birth` event. An event is
+tied to the chapter (and scene number) that tells it, and the bible's character states, held from a chapter and
+scene, are shown at the event they start from (`placeOnTimeline` in `packages/domain`). Events are added, edited,
+deleted and reordered by hand, or **Extract from story** (`POST /api/projects/:projectId/timeline/extract`, one
+chapter or all, paste mode included) queues a `timeline_extract` job: `timeline-extract` v1 reads the chapters'
+text and the cast and returns `TimelineExtraction`. `POST /api/timeline-extractions/:id/apply` saves the reviewed
+list: characters by name or alias, chapters by number, a dated event placed before the first existing event with a
+later day; once only unless `again: true`. The timeline is not sent to planning or narration.
 
 ## Continuity check
 

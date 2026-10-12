@@ -197,7 +197,8 @@ An administrator can add a server-wide policy on top of the table above (**Admin
 - **Limits.** `maxAgeDays` and `maxTotalGb`, either or both. Every expendable file older than the age limit is due, and
   then, while everything stored (every file and derivative, in use or not) still totals more than the size limit, the
   oldest of the rest, until it is under — whichever limit is crossed first (`selectForRetention`,
-  `packages/domain/src/retention.ts`).
+  `packages/domain/src/retention.ts`). `kindAges` gives a kind its own age in place of `maxAgeDays` (keep exports 90
+  days and the render cache 7), or `null`: never deleted for its age, only to get under the size limit.
 - **Expendable files only** (`storageCandidates`, `packages/services/src/storage-policy.ts`), each counted once with its
   derivatives: cached video sections, export files (the job row stays), older AI-drawn panel versions that no panel
   shows and that are not approved, locked or used as a reference, narration takes no segment plays, trashed files, and
@@ -210,6 +211,55 @@ An administrator can add a server-wide policy on top of the table above (**Admin
   touched; audit `storage.policy_approved`) or changes the policy so nothing is due. A size limit that cannot be met
   even after every expendable file (the rest is in use) keeps the warning too, in either mode.
 - **Dry run.** The Storage tab shows what is stored, what is expendable by kind, and what the policy would delete now.
+
+### A project's own policy and cap
+
+A project's owner can give it a policy of its own (**Project settings → Storage**, `GET`/`PUT
+/api/projects/:id/storage`, `settings.storage`): `maxAgeDays`, `kindAges` and `capGb`, over the same expendable files
+of that project only. It is always applied by itself — at each hourly maintenance pass (`enforceProjectPolicies`,
+audit `project.storage_auto`) or now (`POST /api/projects/:id/storage/apply`) — deleting by age, then the oldest
+until the project is under its cap. While the project still stores more than its cap (what is in use cannot be
+deleted to make room), new AI work and exports are refused with `storage_cap_exceeded` (409) until space is freed or
+the cap is raised. The server-wide policy still applies on top. Editors cannot change it, through the form or
+`PATCH`; MCP `project_storage`.
+
+## Asset library
+
+`GET /api/projects/:projectId/assets` lists the project's files, newest first, each with its `tags`, `collections`,
+`favourite` and the `model` that drew it, plus the tags, collections and models in use. It filters by `type`, `q`
+(file name, type or tag), `tag`, `collection`, `favourite=1`, `characterId` / `locationId` / `propId` (that entry's
+reference images and the active artwork of panels it appears in), `source` (`generated` by a job — a redraw too —,
+`uploaded` from a file, `derived`: an edit or a tool result), `model`, `from` / `to` (dates), and two views:
+`view=unused` (images that are not a panel's artwork, a reference, on the board, the cover or the thumbnail: old
+versions to clean up) and `view=duplicates` (the same bytes stored more than once, side by side). `PUT
+/api/assets/:id/marks` files one asset; `POST /api/projects/:projectId/assets/bulk` tags, collects, favourites,
+trashes or restores many (an asset that cannot be trashed is skipped with the reason). `GET /api/assets/:id` adds
+where it came from (`source`: the job, provider, model and template, an upload's file name, the tool) and what uses
+it (`usedBy`). `GET /api/assets/:id/similar` scores the project's newest 600 images against it with the
+near-duplicate finder's features (`asset_features`, made on demand), no AI. MCP `asset_library`.
+
+## Provenance
+
+`buildProvenance` (`packages/services/src/provenance.ts`) records where an output comes from, for a chapter, some
+pages or the project: the app build, the newest story revision, every panel's active artwork with how it was made
+(the job, provider, model, template and version, the SHA-256 of the compiled prompt, the prompt-lab rules in force —
+or the upload, the edit or the tool), the references the panels' cast, places and props draw on (generated or
+uploaded, with the licence noted on the file in the asset library), the narration voices that play, the text work
+behind the plan and narration (templates, models, job counts), the lettering fonts and their licences, and notes.
+`GET /api/projects/:id/provenance?chapterId=&format=json|md` returns it, MCP `get_provenance` too, and an export with
+`provenance: true` ships it next to its files as `…_provenance.json` and `…_provenance.md`. Content Credentials
+(C2PA) are not embedded.
+
+## Accessibility
+
+`GET /api/projects/:id/accessibility?chapterId=` checks, without AI: how many panels have alt text written by hand
+(`PATCH /api/panels/:id { altText }`, allowed on a locked panel; the rest are described from their beat, words and
+sounds, `GET /api/pages/:id/alt-text`) and which have nothing to describe them by; comic pages whose panel numbers
+differ from where the panels sit (`expectedReadingOrder`: rows top to bottom, each left to right or right to left);
+and lettering under WCAG's 4.5:1 contrast against its bubble or smaller than the format reads (`MIN_TEXT_SHARE`: 1.6%
+of the page width on comic pages, about 7 pt on a 6-inch page; 2.8% on strips, about 11 px on a phone; 2% on film).
+`GET /api/projects/:id/transcript` is the narration as one Markdown text. Health shows all of it; reader links and
+the series reader give each page image its alt text; MCP `get_accessibility`.
 
 ## Deletion
 

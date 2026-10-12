@@ -143,6 +143,8 @@ export function NewProjectWizard() {
       if (!pid) {
         const r = await post<{ project: { id: string } }>("/projects", {
           ...details,
+          // "film-9:16" is a film project of vertical shots.
+          ...(details.format === "film-9:16" ? { format: "film", filmFrame: "9:16" } : {}),
           ...(preset ? { preset } : {}),
           ...(profileId ? { profileId } : {}),
           readingDirection: details.readingDirection || undefined,
@@ -282,15 +284,18 @@ export function NewProjectWizard() {
               hint={
                 details.format === "film"
                   ? "Every page is one full-frame 16:9 shot, planned as a shot list and exported as a narrated Ken Burns video. Can't be changed once pages exist."
-                  : details.format === "vertical"
-                    ? "One continuous scrolling column, one full-width panel at a time, with dialogue and captions. You author what happens between panels — a gap, no gap, an overlap or a fade. Can't be changed once pages exist."
-                    : "Comic pages with 1–5 panels, lettering and page/PDF/webtoon exports."
+                  : details.format === "film-9:16"
+                    ? "Every page is one full-frame vertical 9:16 shot, planned and drawn tall for Shorts and phones, and rendered vertical without cropping. Can't be changed once pages exist."
+                    : details.format === "vertical"
+                      ? "One continuous scrolling column, one full-width panel at a time, with dialogue and captions. You author what happens between panels — a gap, no gap, an overlap or a fade. Can't be changed once pages exist."
+                      : "Comic pages with 1–5 panels, lettering and page/PDF/webtoon exports."
               }
             >
               <select className="input" value={details.format} onChange={setD("format")}>
                 <option value="comic">Comic pages</option>
                 <option value="vertical">Vertical scroll (manhwa strip)</option>
                 <option value="film">Narrated video (16:9 shots)</option>
+                <option value="film-9:16">Narrated vertical video (9:16 shots)</option>
               </select>
             </Field>
             <Field label="Project type">

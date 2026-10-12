@@ -128,6 +128,12 @@ const EnvSchema = z.object({
    * (see docs/DEPLOYMENT.md). Every worker still runs the outbox publisher and the Redis reconcile loop.
    */
   WORKER_QUEUES: z.string().default(""),
+  /**
+   * What this worker can do beyond what it detects (ffmpeg on the path, narration synthesis on): `gpu`, `comfyui`;
+   * `-name` takes one away. A worker leaves queues it cannot serve (video renders need ffmpeg, narration needs a
+   * voice) to one that can, and Admin shows every worker with what it takes.
+   */
+  WORKER_CAPABILITIES: z.string().default(""),
   /** Page clips a video export renders/encodes in parallel (each ffmpeg is roughly one core at veryfast). */
   VIDEO_ENCODE_CONCURRENCY: int(4),
   /**
@@ -193,6 +199,8 @@ const EnvSchema = z.object({
   RATE_LIMIT_PER_MINUTE: int(2000),
   /** Requests to /api per minute from one client address with no session: reader links, sign-in, probes. */
   RATE_LIMIT_ANON_PER_MINUTE: int(300),
+  /** Sign-ups per hour from one client address (the invite-acceptance sign-up shares it). */
+  REGISTER_LIMIT_PER_HOUR: int(10),
   LOGIN_MAX_ATTEMPTS: int(10),
 
   API_PORT: int(3000),

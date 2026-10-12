@@ -15,6 +15,8 @@ import {
   sql,
   users,
 } from "@openmanga/db";
+import { listWorkers, uncoveredQueues } from "@openmanga/queue";
+import { ProjectStorage } from "@openmanga/schemas";
 import {
   credentialKeyStatus,
   getStoragePending,
@@ -55,6 +57,9 @@ adminRoutes.get("/overview", async (c) => {
     (select coalesce(sum(byte_size),0)::float from asset_variants) as "variantBytes",
     (select count(*)::int from assets) as assets`);
   const queues = await deps.queue.counts().catch(() => null);
+  // The workers alive now (each checks in every 30 s), and queues none of them takes.
+  const workers = await listWorkers(deps.redis).catch(() => null);
+  const uncovered = workers && queues ? uncoveredQueues(workers, queues) : [];
   const tts = deps.tts ? await deps.tts.health() : { ok: false, state: "disabled" };
   let disk: { totalBytes: number; freeBytes: number } | null = null;
   // A bucket has no free space to report; ASSET_ROOT would describe an unused local volume.
@@ -67,6 +72,8 @@ adminRoutes.get("/overview", async (c) => {
   return c.json({
     counts,
     queues,
+    workers,
+    uncovered,
     tts,
     disk,
     recentErrors,
@@ -380,10 +387,17 @@ const StoragePolicyInput = z
     maxAgeDays: z.number().int().min(1).max(3650).nullable(),
     maxTotalGb: z.number().positive().max(1_000_000).nullable(),
     mode: z.enum(["auto", "approve"]),
+    /** A kind's own age in place of maxAgeDays (null: never deleted for its age). */
+    kindAges: ProjectStorage.shape.kindAges,
   })
-  .refine((p) => !p.enabled || p.maxAgeDays !== null || p.maxTotalGb !== null, {
-    message: "Set a number of days, a size, or both",
-  });
+  .refine(
+    (p) =>
+      !p.enabled ||
+      p.maxAgeDays !== null ||
+      p.maxTotalGb !== null ||
+      Object.values(p.kindAges ?? {}).some((d) => d !== null),
+    { message: "Set a number of days, a size, or both" },
+  );
 
 /** The policy, what is stored, what the policy may delete, a dry run of what it would delete now, and what waits. */
 async function storageView(deps: AppEnv["Variables"]["deps"]) {
@@ -425,7 +439,7 @@ doc({
   method: "PUT",
   path: "/api/admin/storage/policy",
   summary:
-    "Set the storage policy: delete expendable files older than maxAgeDays, then the oldest until everything stored is under maxTotalGb, whichever is crossed first; mode auto deletes at the next maintenance pass (hourly), approve waits for an administrator and shows a warning on every page until then",
+    "Set the storage policy: delete expendable files older than maxAgeDays (or their kind's own age in kindAges, e.g. exports longer than the render cache), then the oldest until everything stored is under maxTotalGb, whichever is crossed first; mode auto deletes at the next maintenance pass (hourly), approve waits for an administrator and shows a warning on every page until then",
   tag: "admin",
   body: StoragePolicyInput,
 });

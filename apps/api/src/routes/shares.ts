@@ -17,7 +17,7 @@ import {
   shareLinks,
   sql,
 } from "@openmanga/db";
-import { cachedPageRender, recordAudit } from "@openmanga/services";
+import { altTextFor, cachedPageRender, recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
@@ -199,6 +199,10 @@ publicShareRoutes.get("/shares/:token", async (c) => {
           )
           .orderBy(asc(panels.order))
       : [];
+  const alts = await altTextFor(
+    db,
+    pgs.map((pg) => pg.id),
+  );
   return c.json({
     allowComments: s.allowComments,
     project: {
@@ -207,6 +211,8 @@ publicShareRoutes.get("/shares/:token", async (c) => {
       author: p.settings.author ?? "",
       readingDirection: p.readingDirection,
       format: p.settings.format,
+      /** The video shape a reader's preview opens at. */
+      videoAspect: p.settings.video?.output?.aspect ?? "16:9",
     },
     chapters: chs.map((ch) => ({
       ...ch,
@@ -214,6 +220,8 @@ publicShareRoutes.get("/shares/:token", async (c) => {
         .filter((pg) => pg.chapterId === ch.id)
         .map((pg) => ({
           ...pg,
+          /** What the page shows, for screen readers: its panels' alt text in reading order. */
+          alt: alts.get(pg.id)?.alt ?? "",
           panels: pns.filter((pn) => pn.pageId === pg.id).map(({ id, order }) => ({ id, order })),
         })),
     })),
@@ -280,14 +288,22 @@ publicShareRoutes.get("/shares/:token/video-preview", async (c) => {
 doc({
   method: "GET",
   path: "/api/public/shares/:token/video-card/:which.png",
-  summary: "The project's intro or outro video card for a reader link's video preview, at ?height=. No sign-in.",
+  summary:
+    "The project's intro, outro or chapter card (inside the link's scope) for a reader link's video preview, at ?height=. No sign-in.",
   tag: "shares",
   auth: false,
 });
 publicShareRoutes.get("/shares/:token/video-card/:file", async (c) => {
-  const { p } = await openShare(c, c.req.param("token"));
+  const { p, s } = await openShare(c, c.req.param("token"));
   const q = query(c, CardQuery);
-  return videoCardResponse(c.get("deps"), p, c.req.param("file").replace(/\.png$/, ""), q, "public, max-age=300");
+  return videoCardResponse(
+    c.get("deps"),
+    p,
+    c.req.param("file").replace(/\.png$/, ""),
+    q,
+    "public, max-age=300",
+    (id) => !s.chapterId || s.chapterId === id,
+  );
 });
 
 doc({

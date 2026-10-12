@@ -1,5 +1,6 @@
 import {
   and,
+  assetMarks,
   assets,
   bibleFacts,
   chapters,
@@ -13,6 +14,7 @@ import {
   eq,
   inArray,
   isNull,
+  locationStates,
   locations,
   locationVersions,
   narrationLines,
@@ -44,6 +46,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
     const ids = new Map<string, string>();
     const map = (id: string | null | undefined) => (id ? (ids.get(id) ?? null) : null);
     const mapArr = (arr: string[]) => arr.map((i) => ids.get(i)).filter((x): x is string => Boolean(x));
+    const stateRanges: { id: string; from: string | null; until: string | null }[] = [];
 
     const [p] = await tx
       .insert(projects)
@@ -204,6 +207,24 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         ids.set(v.id, nv!.id);
       }
       ids.set(l.id, nl!.id);
+      // Its states; their chapter range is mapped once the chapters are copied.
+      for (const s of await tx.select().from(locationStates).where(eq(locationStates.locationId, l.id))) {
+        const [ns] = await tx
+          .insert(locationStates)
+          .values({
+            ...s,
+            id: undefined,
+            projectId: np,
+            locationId: nl!.id,
+            fromChapterId: null,
+            untilChapterId: null,
+            createdAt: undefined,
+            updatedAt: undefined,
+          })
+          .returning();
+        ids.set(s.id, ns!.id);
+        stateRanges.push({ id: ns!.id, from: s.fromChapterId, until: s.untilChapterId });
+      }
       await tx
         .update(locations)
         .set({ currentVersionId: map(l.currentVersionId) })
@@ -259,6 +280,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         propVersionId: map(r.propVersionId),
         projectStyleId: map(r.projectStyleId),
         outfitId: map(r.outfitId),
+        locationStateId: map(r.locationStateId),
         createdAt: undefined,
       });
     }
@@ -285,6 +307,7 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
             projectId: np,
             chapterId: nch!.id,
             locationId: map(sc.locationId),
+            locationStateId: map(sc.locationStateId),
             characterIds: mapArr(sc.characterIds),
             createdAt: undefined,
             updatedAt: undefined,
@@ -344,6 +367,12 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         await copyPageChildren(tx, pg.id, npg!.id, np, ids);
       }
     }
+    for (const s of stateRanges)
+      if (s.from || s.until)
+        await tx
+          .update(locationStates)
+          .set({ fromChapterId: map(s.from), untilChapterId: map(s.until) })
+          .where(eq(locationStates.id, s.id));
     for (const nl of await tx.select().from(narrationLines).where(eq(narrationLines.projectId, projectId))) {
       const chapterId = ids.get(nl.chapterId);
       if (!chapterId) continue;
@@ -387,6 +416,15 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
       const spec = {
         ...s.spec,
         characters: s.spec.characters.map((c) => ({ ...c, characterId: ids.get(c.characterId) ?? c.characterId })),
+        ...(s.spec.direction && {
+          direction: {
+            ...s.spec.direction,
+            figures: s.spec.direction.figures.map((f) => ({
+              ...f,
+              characterId: ids.get(f.characterId) ?? f.characterId,
+            })),
+          },
+        }),
         locationId: s.spec.locationId ? (ids.get(s.spec.locationId) ?? s.spec.locationId) : undefined,
         dialogueIds: mapArr(s.spec.dialogueIds),
         narrationIds: mapArr(s.spec.narrationIds),
@@ -429,6 +467,23 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
     const style = map(src.currentStyleId);
     const cover = await copyAsset(src.coverAssetId);
     await tx.update(projects).set({ currentStyleId: style, coverAssetId: cover }).where(eq(projects.id, np));
+    // The asset library's tags, collections and favourites follow the files that were copied.
+    for (const m of await tx.select().from(assetMarks).where(eq(assetMarks.projectId, projectId))) {
+      const copy = ids.get(m.assetId);
+      if (copy) await tx.insert(assetMarks).values({ ...m, assetId: copy, projectId: np, updatedAt: undefined });
+    }
+    // Chapter title cards follow their chapters to the copy.
+    if (src.settings.video?.chapterCards?.length) {
+      const [cur] = await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, np));
+      const video = cur!.settings.video!;
+      const chapterCards = (video.chapterCards ?? []).flatMap((c) =>
+        ids.has(c.chapterId) ? [{ ...c, chapterId: ids.get(c.chapterId)! }] : [],
+      );
+      await tx
+        .update(projects)
+        .set({ settings: { ...cur!.settings, video: { ...video, chapterCards } } })
+        .where(eq(projects.id, np));
+    }
     return p!;
   });
 }

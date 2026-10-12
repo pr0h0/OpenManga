@@ -58,8 +58,26 @@ instead of being deleted.
 it is behind, with totals. `GET /api/series/:id/appearances?kind=character|location|prop&id=` finds every panel
 showing a library entry across the episodes, by chapter.
 
+## Reader page
+
+A series can have a page for readers, with no sign-in: `PATCH /api/series/:id { visibility, publicSlug }` turns it
+`unlisted` (anyone with the link; `noindex` for search engines) or `public` at `/s/<publicSlug>` (made up, and
+unguessable, when none is given). It shows the cover (the library's, else the first episode's), the description and
+each episode's chapters that have a `publishAt` (`PATCH /api/chapters/:id`): from that moment a chapter is readable,
+page by page or as one scroll, in the original language or any its lettering was translated into (pages render
+as in a reader link, `?language=` for an edition); before it, it is listed as coming, without pages. The series page's *Reader page* card sets all of this, chapter by chapter.
+
+- `GET /api/public/series/:slug` — the series, its languages and episodes with published and scheduled chapters.
+- `GET /api/public/series/:slug/chapters/:chapterId` — a published chapter's pages and its neighbours.
+- `GET /api/public/series/:slug/pages/:pageId.png?width=&language=` — a page, lettered.
+- `GET /api/public/series/:slug/cover` and `/feed.xml` — the cover and an RSS 2.0 feed of published chapters.
+- `GET /s/:slug` — the page as social crawlers see it (`og:title`, `og:description`, `og:image`, the feed), sending
+  people on to the app's reader at `/app/s/:slug`; nginx routes `/s/` to the API.
+
+Wrong addresses count against a per-client limit, as reader links' tokens do.
+
 ## MCP
 
-`list_series`, `get_series` (dashboard or appearances) and `manage_series` (create, update, add_episode, adopt,
-detach, sync, split). A series spans projects, so they need a connection with access to all projects, and the
+`list_series`, `get_series` (dashboard or appearances) and `manage_series` (create, update — including the reader
+page's `visibility` and `publicSlug` —, add_episode, adopt, detach, sync, split); `manage_chapter` sets `publishAt`. A series spans projects, so they need a connection with access to all projects, and the
 permission to create projects for anything that makes one.

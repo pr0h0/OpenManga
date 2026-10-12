@@ -1,8 +1,10 @@
 import {
   captionsSupported,
+  exportTarget,
   NARRATION_LANGUAGES,
   type PrintIssue,
   SHORTS_DEFAULT_MS,
+  type TargetIssue,
   type VideoAspect,
 } from "@openmanga/domain/browser";
 import type { ShortsCaptions } from "@openmanga/schemas";
@@ -25,6 +27,8 @@ import {
 import { ProgressBar } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { ExportTargetPicker } from "./ExportTargets.tsx";
+import { HookVariants } from "./HookVariants.tsx";
 import { CoverCheck, PRINT_SIZES, PreflightReport, type PreflightReportData, PrintIssues } from "./PrintPanels.tsx";
 import { CaptionsField, ShortsPicker } from "./ShortsPicker.tsx";
 import { YoutubePackageCard } from "./YoutubePackage.tsx";
@@ -82,6 +86,8 @@ const USES_LANGUAGE = new Set([
   "video_panels",
   "video_shorts",
 ]);
+/** Page exports that letter the pages: a translated edition swaps in its translated bubbles and captions. */
+const LETTERED = new Set(["png_pages", "jpg_pages", "pdf", "cbz", "epub", "webtoon"]);
 const isVideo = (k: string) => k === "video_pages" || k === "video_panels" || k === "video_shorts";
 /** Chapter kinds that can also cover the whole project: they stream to disk, so length costs no memory. */
 const WHOLE_PROJECT = new Set([
@@ -123,6 +129,8 @@ export function ExportsPage() {
   });
 
   const [chosenKind, setKind] = useState<Kind>();
+  // A platform target: its settings applied, its limits checked before and after the export.
+  const [targetKey, setTargetKey] = useState("");
   // A strip's natural export is the stitched webtoon image, not a PDF of pages that do not exist as pages.
   const format = overview?.project.settings.format;
   const kind: Kind = chosenKind ?? (format === "film" ? "video_panels" : format === "vertical" ? "webtoon" : "pdf");
@@ -143,7 +151,10 @@ export function ExportsPage() {
   const [webtoon, setWebtoon] = useState({ width: 800, gap: 40, split: true, maxChunkHeight: 12000, format: "jpg" });
   const [audio, setAudio] = useState({ format: "mp3", normalize: true });
   const [includeAssets, setIncludeAssets] = useState(true);
+  // A provenance record next to the files: what made them, with which models, references and licences.
+  const [provenance, setProvenance] = useState(false);
   const [language, setLanguage] = useState("");
+  const [editionLanguage, setEditionLanguage] = useState("");
   const [video, setVideo] = useState({
     height: 1080,
     fps: 30,
@@ -157,6 +168,9 @@ export function ExportsPage() {
   const [shortsPick, setShortsPick] = useState<string[]>([]);
   const [shortsSeconds, setShortsSeconds] = useState(SHORTS_DEFAULT_MS / 1000);
   const [captions, setCaptions] = useState<ShortsCaptions>("off");
+  // A hook variant to open a panel cut with ("" = the film as it starts).
+  const [hookId, setHookId] = useState("");
+  const hooks = overview?.project.settings.video?.hooks ?? [];
   // Partial renders: the first N minutes, and/or a range of pages within the chosen chapter.
   const [maxMinutes, setMaxMinutes] = useState("");
   const [pageRange, setPageRange] = useState({ from: "", to: "" });
@@ -232,6 +246,7 @@ export function ExportsPage() {
           pageWidthRatio: aspect === "16:9" ? video.pageWidthRatio : 1,
           aspect,
           ...(shorts ? { shortsSeconds, captions: captionsSupported(lang) ? captions : "off" } : {}),
+          ...(kind === "video_panels" && hooks.some((h) => h.id === hookId) ? { hookId } : {}),
           ...(isVideo(kind) && !shorts && Number(maxMinutes) > 0
             ? { maxDurationMs: Math.round(Number(maxMinutes) * 60_000) }
             : {}),
@@ -239,6 +254,9 @@ export function ExportsPage() {
         ...(rangePageIds?.length ? { pageIds: rangePageIds } : {}),
         ...(shorts ? { panelIds: shortsPick } : {}),
         ...(USES_LANGUAGE.has(kind) ? { language: lang } : {}),
+        ...(LETTERED.has(kind) && editionLanguage ? { language: editionLanguage } : {}),
+        ...(targetKey && exportTarget(targetKey)?.kind === kind ? { target: targetKey } : {}),
+        provenance,
         acknowledgeIssues,
       }),
     {
@@ -324,6 +342,27 @@ export function ExportsPage() {
             void submit(false);
           }}
         >
+          <ExportTargetPicker
+            projectId={projectId}
+            kinds={KINDS.map((k) => k.value)}
+            value={targetKey && exportTarget(targetKey)?.kind === kind ? targetKey : ""}
+            chapterId={needsChapter ? selectedChapter || null : agentChapter || null}
+            minHoldMs={video.minHoldMs}
+            durationMs={shorts ? shortsSeconds * 1000 : undefined}
+            onChange={(t) => {
+              setTargetKey(t?.key ?? "");
+              if (!t) return;
+              setKind(t.kind as Kind);
+              const o = t.options;
+              if (o.video) {
+                setAspect(o.video.aspect);
+                setVideo((v) => ({ ...v, height: o.video!.height }));
+              }
+              if (o.webtoon) setWebtoon((w) => ({ ...w, ...o.webtoon! }));
+              if (o.pdf) setPdf((p) => ({ ...p, ...o.pdf! }));
+              if (o.jpgQuality) setJpgQuality(o.jpgQuality);
+            }}
+          />
           <Field label="Format">
             <select className="input" value={kind} onChange={(e) => setKind(e.target.value as Kind)}>
               {KINDS.map((k) => (
@@ -699,8 +738,23 @@ export function ExportsPage() {
               </label>
             </div>
           )}
+          {LETTERED.has(kind) && (
+            <Field
+              label="Lettering language"
+              hint="A translated edition: its translated bubbles and captions on the same art (Chapter → Translated lettering)."
+            >
+              <select className="input" value={editionLanguage} onChange={(e) => setEditionLanguage(e.target.value)}>
+                <option value="">Original</option>
+                {NARRATION_LANGUAGES.filter((l) => l.code !== overview?.project.language).map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           {USES_LANGUAGE.has(kind) && (
-            <Field label="Narration language">
+            <Field label={isVideo(kind) ? "Narration and lettering language" : "Narration language"}>
               <select className="input" value={lang} onChange={(e) => setLanguage(e.target.value)}>
                 {NARRATION_LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code}>
@@ -734,6 +788,7 @@ export function ExportsPage() {
                     className="btn-secondary w-full"
                     defaultAspect={aspect}
                     defaultMinHoldMs={video.minHoldMs}
+                    hookId={kind === "video_panels" ? hookId || undefined : undefined}
                   />
                 ) : (
                   <p className="muted text-xs">Pick a chapter to preview it in the browser before rendering.</p>
@@ -758,6 +813,25 @@ export function ExportsPage() {
                 </select>
               </Field>
               {shorts && <CaptionsField value={captions} onChange={setCaptions} language={lang} />}
+              {kind === "video_panels" && (
+                <Field label="Opening" hint="A hook variant plays first, then the intro card and the film.">
+                  <select className="input" value={hookId} onChange={(e) => setHookId(e.target.value)}>
+                    <option value="">The film as it starts</option>
+                    {hooks.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        Hook: {h.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {kind === "video_panels" && overview && (
+                <HookVariants
+                  key={JSON.stringify(hooks)}
+                  projectId={projectId}
+                  video={overview.project.settings.video}
+                />
+              )}
               {!shorts && (
                 <Field label="Only the first … minutes (for a check)">
                   <input
@@ -867,6 +941,21 @@ export function ExportsPage() {
             <p className="mb-2">The readiness check found problems. The export will include a list of them.</p>
             <ReadinessList issues={notReady ?? []} loading={false} />
           </ConfirmDialog>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={provenance}
+              onChange={(e) => setProvenance(e.target.checked)}
+            />
+            <span>
+              Include a provenance record
+              <span className="muted block text-xs">
+                What made this output: the app version, story revision, each panel's model and prompt version, the
+                references, voices, fonts and licence notes (JSON and a readable page).
+              </span>
+            </span>
+          </label>
           <button
             type="submit"
             className="btn-primary w-full"
@@ -943,6 +1032,22 @@ export function ExportsPage() {
                       </ul>
                     </details>
                   ) : null}
+                  {j.status === "completed" && j.result?.targetCheck
+                    ? (() => {
+                        const tc = j.result.targetCheck as { label: string; issues: TargetIssue[] };
+                        return tc.issues.length ? (
+                          <ul className="mt-1 space-y-0.5 text-xs" aria-label={`${tc.label} check`}>
+                            {tc.issues.map((i) => (
+                              <li key={i.code} className={i.level === "block" ? "text-red-600" : "text-amber-600"}>
+                                {tc.label}: {i.message}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-1 text-xs text-emerald-600">Within {tc.label}'s limits.</p>
+                        );
+                      })()
+                    : null}
                   {j.status === "completed" && j.kind === "print_preflight" && j.result?.preflight ? (
                     <PreflightReport
                       report={j.result.preflight as PreflightReportData}

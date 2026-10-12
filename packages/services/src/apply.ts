@@ -59,6 +59,7 @@ import {
 } from "@openmanga/schemas";
 import { outfitNamedIn, outfitTimeline } from "./outfits.ts";
 import { recordNarrationFingerprint, recordPlanFingerprint } from "./staleness.ts";
+import { traceChapter } from "./trace.ts";
 
 const slug = (s: string) =>
   s
@@ -820,6 +821,7 @@ export async function applyChapterPlan(db: Database, chapterId: string, plan: Ch
     // the panels' narration with them, so that is current too.
     await recordPlanFingerprint(tx, chapterId);
     await recordNarrationFingerprint(tx, chapterId);
+    await traceChapter(tx, chapterId);
     return { applied: true, pages: pageOrder, panels: panelCount };
   });
 }

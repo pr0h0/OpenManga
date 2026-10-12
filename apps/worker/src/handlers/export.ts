@@ -42,7 +42,9 @@ import {
 } from "@openmanga/db";
 import {
   buildTimeline,
+  checkExportTarget,
   chunkStrip,
+  exportTarget,
   type InteriorEntry,
   interiorSequence,
   KDP_TRIM_IN,
@@ -58,17 +60,22 @@ import {
   trimSizeIn,
   youtubeChapters,
 } from "@openmanga/domain";
-import { extForMime, inkCoverage, renderPanelArt, sharp } from "@openmanga/image-utils";
+import { extForMime, inkCoverage, sharp } from "@openmanga/image-utils";
 import { type Job, UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange as InterchangeSchema, type ProjectInterchange } from "@openmanga/schemas";
 import {
+  altTextFor,
+  appBuild,
+  buildProvenance,
   loadRenderPage,
   planVideoShots,
   printChapters,
   printCoverCheck,
+  provenanceMarkdown,
   type RenderPage,
   renderCover,
   renderPageImage,
+  renderPanelWithEffects,
   renderQuoteImage,
   renderStrip,
   renderThumbnail,
@@ -95,6 +102,10 @@ type Opts = {
   /** video_shorts, carousel, quote_image: the picked panels. */
   panelIds?: string[];
   label?: string;
+  /** A platform target (export-targets) whose limits are checked against the files made. */
+  target?: string;
+  /** Ship a provenance record (json and md) with the files. */
+  provenance?: boolean;
   social?: { title: string; caption: string };
   still?: { aspect: "1:1" | "4:5"; text: string };
   scale: number;
@@ -110,7 +121,14 @@ type Opts = {
     metadata?: { title?: string; author?: string; subject?: string; keywords?: string[]; language?: string };
   };
   print?: { paper?: PaperType; pageCount?: number; paperThicknessMm?: number };
-  webtoon: { width?: number; gap?: number; split: boolean; maxChunkHeight?: number; format: "png" | "jpg" };
+  webtoon: {
+    width?: number;
+    gap?: number;
+    split: boolean;
+    maxChunkHeight?: number;
+    exactHeight?: boolean;
+    format: "png" | "jpg";
+  };
   audio: { format: "wav" | "mp3" | "ogg"; normalize: boolean };
   includeAssets: boolean;
   language?: string;
@@ -164,6 +182,49 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
     // Files built on disk (video, PDF, archives) are stored from the temp dir, so everything happens before it is removed.
     const files = await withTempDir(deps.config.TEMP_ROOT, async (dir) => {
       const files = await buildExport(deps, job, opts, project, progress, dir);
+      // A provenance record of this output, next to it.
+      if (opts.provenance && files.length) {
+        const record = await buildProvenance(
+          deps.db,
+          project.id,
+          { chapterId: opts.chapterId, pageIds: opts.pageIds },
+          appBuild(),
+        );
+        const stem = `${files[0]!.name.replace(/\.[^.]+$/, "")}_provenance`;
+        files.push(
+          {
+            name: `${stem}.json`,
+            data: new TextEncoder().encode(JSON.stringify(record, null, 2)),
+            mime: "application/json",
+          },
+          { name: `${stem}.md`, data: new TextEncoder().encode(provenanceMarkdown(record)), mime: "text/markdown" },
+        );
+      }
+      // A platform target's limits against what was actually made (sizes, image heights, length).
+      const target = opts.target ? exportTarget(opts.target) : undefined;
+      if (target) {
+        const sized = await Promise.all(
+          files.map(async (f) => ({ ...f, bytes: "data" in f ? f.data.byteLength : Bun.file(f.path).size })),
+        );
+        const media = sized.filter((f) => !/\.(txt|srt)$|_provenance\.(json|md)$/.test(f.name));
+        const issues = checkExportTarget(target, {
+          durationMs: media.find((f) => f.durationMs)?.durationMs,
+          files: media.map((f) => ({ name: f.name, bytes: f.bytes })),
+          images: media.flatMap(
+            (f) =>
+              f.parts ??
+              (f.mime.startsWith("image/") ? [{ name: f.name, width: f.width, height: f.height, bytes: f.bytes }] : []),
+          ),
+        });
+        await deps.db
+          .update(exportJobs)
+          .set({
+            result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({
+              targetCheck: { target: target.key, label: target.label, issues },
+            })}::jsonb`,
+          })
+          .where(eq(exportJobs.id, id));
+      }
       await deps.db.transaction(async (tx) => {
         for (const f of files) {
           const asset = await deps.assets.store(
@@ -231,10 +292,15 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
   }
 }
 
-type OutFile = { name: string; mime: string; width?: number; height?: number; durationMs?: number } & (
-  | { data: Uint8Array }
-  | { path: string }
-);
+type OutFile = {
+  name: string;
+  mime: string;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  /** An archive's images, for a platform target's per-image limits. */
+  parts?: { name: string; width: number; height: number; bytes: number }[];
+} & ({ data: Uint8Array } | { path: string });
 
 /**
  * The export's pages in reading order, each with its chapter's number: a chosen chapter, a page selection, or the
@@ -291,7 +357,7 @@ async function buildExport(
       if (!ids.length) throw new UnrecoverableError("No pages to export");
       const zip = ids.length > 1 ? new ZipWriter(join(dir, "pages.zip")) : null;
       for (const [i, { id: pid, chapter: chapterNo }] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
         const img = await renderPageImage(page, fmt, { scale: opts.scale, quality: opts.jpgQuality });
         // Page numbers restart in every chapter, so an export spanning chapters names each page by both.
         const pageNo = `p${String(page.order).padStart(3, "0")}`;
@@ -401,7 +467,7 @@ async function buildExport(
       // stitched is read back, so memory is bounded by the chunk height rather than by the length of the strip.
       const blocks: (SeamedBlock & { path: string })[] = [];
       for (const [i, { id: pid }] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
         for (const b of await renderWebtoonBlocks(page, width)) {
           const path = join(dir, `block-${blocks.length}.png`);
           await Bun.write(path, b.data);
@@ -413,6 +479,7 @@ async function buildExport(
       // and stacking has to honour them. With no seams this produces the same strip as the old uniform stack.
       const chunks = opts.webtoon.split ? chunkStrip(blocks, maxH, { gap }) : [blocks];
       const zip = chunks.length > 1 ? new ZipWriter(join(dir, "webtoon.zip")) : null;
+      const parts: NonNullable<OutFile["parts"]> = [];
       for (const [i, chunk] of chunks.entries()) {
         const loaded = await Promise.all(chunk.map(async (b) => ({ ...b, data: await Bun.file(b.path).bytes() })));
         const strip = await renderStrip(loaded, width, gap);
@@ -425,12 +492,41 @@ async function buildExport(
               )
             : strip.data;
         const name = `${prefix}_webtoon_${String(i + 1).padStart(2, "0")}.${opts.webtoon.format}`;
-        if (!zip) return [{ name, data, mime: opts.webtoon.format === "jpg" ? "image/jpeg" : "image/png", width }];
+        // A platform that refuses taller images gets this one cut into pieces that stack back seamlessly.
+        if (opts.webtoon.exactHeight && strip.height > maxH) {
+          const out = zip ?? new ZipWriter(join(dir, "webtoon.zip"));
+          for (let top = 0, k = 0; top < strip.height; top += maxH, k++) {
+            const h = Math.min(maxH, strip.height - top);
+            const img = sharp(data, { limitInputPixels: false }).extract({ left: 0, top, width, height: h });
+            const piece = new Uint8Array(
+              await (opts.webtoon.format === "jpg"
+                ? img.jpeg({ quality: opts.jpgQuality, mozjpeg: true })
+                : img.png()
+              ).toBuffer(),
+            );
+            const pieceName = name.replace(/\.(\w+)$/, `_${String.fromCharCode(97 + k)}.$1`);
+            parts.push({ name: pieceName, width, height: h, bytes: piece.byteLength });
+            await out.add(pieceName, piece);
+          }
+          if (!zip) return [{ name: `${prefix}_webtoon.zip`, path: await out.close(), mime: "application/zip", parts }];
+          continue;
+        }
+        if (!zip)
+          return [
+            {
+              name,
+              data,
+              mime: opts.webtoon.format === "jpg" ? "image/jpeg" : "image/png",
+              width,
+              height: strip.height,
+            },
+          ];
+        parts.push({ name, width, height: strip.height, bytes: data.byteLength });
         await zip.add(name, data);
         await progress(0.8 + ((i + 1) / chunks.length) * 0.2);
       }
       await progress(1);
-      return [{ name: `${prefix}_webtoon.zip`, path: await zip!.close(), mime: "application/zip" }];
+      return [{ name: `${prefix}_webtoon.zip`, path: await zip!.close(), mime: "application/zip", parts }];
     }
     case "narration_audio":
     case "timeline": {
@@ -518,6 +614,12 @@ async function buildExport(
     case "video_panels":
     case "video_shorts": {
       const shorts = job.kind === "video_shorts";
+      // A hook variant opens a panel cut: its panels and narration, then the intro and the film.
+      const hook =
+        job.kind === "video_panels" && opts.video?.hookId
+          ? project.settings.video?.hooks?.find((h) => h.id === opts.video?.hookId)
+          : undefined;
+      if (opts.video?.hookId && !hook) throw new Error("That hook variant was removed from the project");
       const aspect = opts.video?.aspect ?? (shorts ? "9:16" : "16:9");
       const v: VideoOptions = {
         height: 1080,
@@ -539,6 +641,7 @@ async function buildExport(
         captions: shorts ? opts.video?.captions : undefined,
         hook: shorts ? opts.video?.hook : undefined,
         hookUserId: job.userId,
+        opening: hook ? { text: hook.text, panelIds: hook.panelIds } : undefined,
       };
       const render = job.kind === "video_pages" ? renderPageCutVideo : renderPanelCutVideo;
       // A panel or page selection narrows the film to those; otherwise the chapter, or the whole project.
@@ -603,7 +706,18 @@ async function buildExport(
           ? "panel-cut"
           : "page-cut";
       const shape = aspect === "16:9" ? "" : `_${aspect.replace(":", "x")}`;
-      const name = `${prefix}_${out.report.language}_${cut}${shape}_${v.height}p`;
+      const variant = hook ? `_hook-${safeName(hook.label).toLowerCase()}` : "";
+      const name = `${prefix}_${out.report.language}_${cut}${variant}${shape}_${v.height}p`;
+      // The version's own title and thumbnail headline, for its upload.
+      if (hook)
+        await deps.db
+          .update(exportJobs)
+          .set({
+            result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({
+              hook: { id: hook.id, label: hook.label, title: hook.title, thumbnailHeadline: hook.thumbnailHeadline },
+            })}::jsonb`,
+          })
+          .where(eq(exportJobs.id, job.id));
       return [
         {
           name: `${name}.mp4`,
@@ -634,7 +748,14 @@ async function buildExport(
       const name = `${prefix}_${safeName(opts.label || (job.kind === "carousel" ? "carousel" : "quote")).toLowerCase()}_${width}x${height}`;
       if (job.kind === "quote_image") {
         const s = shots[0]!;
-        const art = await renderPanelArt(await deps.assets.read(s.art!), width, height, s.panel!.imageTransform);
+        const art = await renderPanelWithEffects(
+          await deps.assets.read(s.art!),
+          width,
+          height,
+          s.panel!.imageTransform,
+          s.panel!.effects,
+          s.panel!.id,
+        );
         const lettering = project.settings.lettering?.types;
         const font = lettering?.narration?.font ?? lettering?.normal?.font ?? "DejaVu Sans";
         const png = await renderQuoteImage(art, width, height, opts.still?.text ?? "", project.title, font);
@@ -642,14 +763,24 @@ async function buildExport(
         return [{ name: `${name}.png`, data: png, mime: "image/png", width, height }, ...captionFile(opts, name)];
       }
       const zip = new ZipWriter(join(dir, "carousel.zip"));
+      const parts: NonNullable<OutFile["parts"]> = [];
       for (const [i, s] of shots.entries()) {
-        const png = await renderPanelArt(await deps.assets.read(s.art!), width, height, s.panel!.imageTransform);
-        await zip.add(`${name}_${String(i + 1).padStart(2, "0")}.png`, png);
+        const png = await renderPanelWithEffects(
+          await deps.assets.read(s.art!),
+          width,
+          height,
+          s.panel!.imageTransform,
+          s.panel!.effects,
+          s.panel!.id,
+        );
+        const slide = `${name}_${String(i + 1).padStart(2, "0")}.png`;
+        parts.push({ name: slide, width, height, bytes: png.byteLength });
+        await zip.add(slide, png);
         await progress((i + 1) / shots.length);
       }
       const caption = captionFile(opts, name)[0];
       if (caption) await zip.add(caption.name, caption.data);
-      return [{ name: `${name}.zip`, path: await zip.close(), mime: "application/zip" }];
+      return [{ name: `${name}.zip`, path: await zip.close(), mime: "application/zip", parts }];
     }
     case "youtube_package": {
       // Packs what already exists (exports make no AI calls): the newest finished video of the same scope, with
@@ -746,7 +877,7 @@ async function buildExport(
       const zip = !psd || ids.length > 1 ? new ZipWriter(join(dir, "layers.zip")) : null;
       const pagesOut: Record<string, unknown>[] = [];
       for (const [i, { id: pid, chapter: chapterNo }] of ids.entries()) {
-        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
+        const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
         const l = await pageLayers(page, opts.scale, await panelGuides(deps, page));
         // Page numbers restart in every chapter, so a whole-project export names each page by both.
         const pageNo = `p${String(page.order).padStart(3, "0")}`;
@@ -806,14 +937,28 @@ async function buildExport(
           const jpg = await sharp(png)
             .jpeg({ quality: opts.jpgQuality, mozjpeg: true })
             .toBuffer({ resolveWithObject: true });
-          cover = { data: new Uint8Array(jpg.data), width: jpg.info.width, height: jpg.info.height };
+          cover = {
+            data: new Uint8Array(jpg.data),
+            width: jpg.info.width,
+            height: jpg.info.height,
+            alt: `Cover: ${meta.title}`,
+          };
         }
       }
       // Each page goes into the archive as it is composed; only its size is kept for the EPUB package files.
+      // An EPUB describes each page for screen readers: its panels' alt text in reading order.
+      const alts =
+        job.kind === "epub"
+          ? await altTextFor(
+              deps.db,
+              ids.map((x) => x.id),
+            )
+          : new Map();
       async function* rendered() {
         for (const [i, { id: pid }] of ids.entries()) {
-          const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection);
-          yield await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
+          const page = await loadRenderPage(deps.db, deps.assets.storage, pid, project.readingDirection, opts.language);
+          const img = await renderPageImage(page, "jpg", { scale: opts.scale, quality: opts.jpgQuality });
+          yield { ...img, alt: alts.get(pid)?.alt };
           await progress(((i + 1) / ids.length) * 0.95);
         }
       }
@@ -842,7 +987,13 @@ async function buildExport(
         .where(eq(pages.projectId, project.id));
       for (const ch of chaptersRows) {
         for (const pg of pageRows.filter((p) => p.chapterId === ch.id).sort((a, b) => a.order - b.order)) {
-          const page = await loadRenderPage(deps.db, deps.assets.storage, pg.id, project.readingDirection);
+          const page = await loadRenderPage(
+            deps.db,
+            deps.assets.storage,
+            pg.id,
+            project.readingDirection,
+            opts.language,
+          );
           const img = await renderPageImage(page, "png", { scale: 0.75 });
           await zip.add(
             `pages/${String(ch.order).padStart(2, "0")}_${safeName(ch.title)}/p${String(pg.order).padStart(3, "0")}.png`,
@@ -1009,7 +1160,13 @@ async function* interiorPages(
     } else if (entry.kind === "blank") {
       yield { ...at, page: imagePage(undefined, size.width, size.height, opts, index), size };
     } else {
-      const render = await loadRenderPage(deps.db, deps.assets.storage, entry.pageId, project.readingDirection);
+      const render = await loadRenderPage(
+        deps.db,
+        deps.assets.storage,
+        entry.pageId,
+        project.readingDirection,
+        opts.language,
+      );
       const img = await renderPageImage(render, "png", { scale: opts.scale });
       size = { width: img.width, height: img.height };
       yield {

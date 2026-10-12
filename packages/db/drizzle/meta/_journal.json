@@ -281,6 +281,90 @@
       "when": 1791504513315,
       "tag": "0039_page_edge",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791727305086,
+      "tag": "0040_panel_source_span",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791729485367,
+      "tag": "0041_timeline_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791732470840,
+      "tag": "0042_location_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791732820794,
+      "tag": "0043_board_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791734776714,
+      "tag": "0044_panel_effects",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791735389448,
+      "tag": "0045_asset_features",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791736525446,
+      "tag": "0046_lettering_translations",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791737712422,
+      "tag": "0047_prompt_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791743441382,
+      "tag": "0048_public_series",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791744286024,
+      "tag": "0049_asset_marks",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791746515039,
+      "tag": "0050_asset_licence",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791747076647,
+      "tag": "0051_panel_alt_text",
+      "breakpoints": true
     }
   ]
 }

@@ -52,3 +52,14 @@ test("files in use cannot make room: what is still over the limit is reported", 
   expect(r.overLimitBytes).toBe(49 * GB);
   expect(r.byKind).toEqual({ export: { files: 1, bytes: GB } });
 });
+
+test("per-kind ages: exports kept longer than the render cache; a kind with null is never deleted for its age", () => {
+  const cache = (id: string, age: number): RetentionCandidate => ({ ...c(id, age, 1), kind: "render_cache" });
+  const trash = (id: string, age: number): RetentionCandidate => ({ ...c(id, age, 1), kind: "trash" });
+  const r = selectForRetention(
+    [c("export-40", 40, 1), c("export-100", 100, 1), cache("cache-10", 10), trash("trash-400", 400)],
+    10 * GB,
+    { ...policy, maxAgeDays: 30, maxTotalGb: null, kindAges: { export: 90, render_cache: 7, trash: null } },
+  );
+  expect(r.selected.map((x) => x.id).sort()).toEqual(["cache-10", "export-100"]);
+});

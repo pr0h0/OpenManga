@@ -1,21 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ExternalLink, FileArchive, Images, Music, RotateCcw, Trash2 } from "lucide-react";
+import { ExternalLink, FileArchive, Images, Music, RotateCcw, Search, Star, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { assetUrl, del, get, post } from "../../api/client.ts";
+import { assetUrl, del, get, post, put } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
 import type { AssetRow, AssetVariantRow } from "../../api/types.ts";
 import {
   AssetImage,
   ConfirmDialog,
+  clsx,
   EmptyState,
   ErrorBox,
+  Field,
   fmt,
   KeyValue,
   Modal,
   PageHeader,
   Spinner,
   StatusChip,
+  TagInput,
 } from "../../components/ui.tsx";
 import { JsonBlock } from "../generation/shared.tsx";
 import { useProjectId } from "../project/ProjectLayout.tsx";
@@ -36,6 +39,27 @@ type Detail = {
   variants: AssetVariantRow[];
   lineage: { id: string; generationJobId: string | null; createdAt: string }[];
   children: { id: string; createdAt: string }[];
+  source: {
+    kind: "generated" | "uploaded" | "derived" | "made";
+    job: {
+      id: string;
+      kind: string;
+      provider: string | null;
+      model: string | null;
+      templateName: string | null;
+      templateVersion: number | null;
+    } | null;
+    uploadedName: string | null;
+    tool: string | null;
+  };
+  usedBy: { kind: string; label: string; panelId: string | null }[];
+  marks: { tags: string[]; collections: string[]; favourite: boolean; licence: { text: string; url?: string } | null };
+};
+const SOURCE: Record<Detail["source"]["kind"], string> = {
+  generated: "Generated",
+  uploaded: "Uploaded",
+  derived: "Edited or derived from another file",
+  made: "Made by the app",
 };
 
 function Thumb({ a, className }: { a: AssetRow; className: string }) {
@@ -49,19 +73,89 @@ function Thumb({ a, className }: { a: AssetRow; className: string }) {
   );
 }
 
+type LibraryAsset = AssetRow & {
+  tags: string[];
+  collections: string[];
+  favourite: boolean;
+  model: string | null;
+};
+type Library = {
+  assets: LibraryAsset[];
+  storage: { bytes: number; variant_bytes: number };
+  facets: { tags: string[]; collections: string[]; models: string[] };
+};
+type View = "" | "favourite" | "unused" | "duplicates" | "trash";
+type Entity = { id: string; name: string };
+
+/**
+ * The asset library: every file of the project, searchable by name, tag, character, place or prop and filtered by
+ * source, model and date; favourites, collections, unused images and duplicate files; bulk actions; and, per file,
+ * where it came from, what uses it and images that look like it.
+ */
 export function AssetsPage() {
   const projectId = useProjectId();
-  const [type, setType] = useState("");
-  const [trash, setTrash] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const listKey = [...qk.assets(projectId), type, trash] as const;
-  const q = useQuery({
-    queryKey: listKey,
-    queryFn: () =>
-      get<{ assets: AssetRow[]; storage: { bytes: number; variant_bytes: number } }>(
-        `/projects/${projectId}/assets?${new URLSearchParams({ ...(type ? { type } : {}), trash: trash ? "1" : "0" })}`,
-      ),
+  const [f, setF] = useState({
+    q: "",
+    type: "",
+    tag: "",
+    collection: "",
+    source: "",
+    model: "",
+    from: "",
+    to: "",
+    entity: "",
   });
+  const [view, setView] = useState<View>("");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkValue, setBulkValue] = useState("");
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const [kind, entityId] = f.entity.split(":");
+  const params = new URLSearchParams({
+    ...Object.fromEntries(Object.entries(f).filter(([k, v]) => v && k !== "entity")),
+    ...(kind ? { [`${kind}Id`]: entityId! } : {}),
+    trash: view === "trash" ? "1" : "0",
+    ...(view === "favourite" ? { favourite: "1" } : view === "unused" || view === "duplicates" ? { view } : {}),
+  });
+  const q = useQuery({
+    queryKey: [...qk.assets(projectId), params.toString()],
+    queryFn: () => get<Library>(`/projects/${projectId}/assets?${params}`),
+  });
+  const entities = useQuery({
+    queryKey: ["project", projectId, "asset-entities"],
+    queryFn: async () => {
+      const [c, l, p] = await Promise.all([
+        get<{ characters: Entity[] }>(`/projects/${projectId}/characters`),
+        get<{ locations: Entity[] }>(`/projects/${projectId}/locations`),
+        get<{ props: Entity[] }>(`/projects/${projectId}/props`),
+      ]);
+      return { characters: c.characters, locations: l.locations, props: p.props };
+    },
+  });
+  const bulk = useAction(
+    (action: string) =>
+      post<{ done: number; skipped: { reason: string }[] }>(`/projects/${projectId}/assets/bulk`, {
+        ids: [...picked],
+        action,
+        ...(bulkValue.trim() ? { value: bulkValue.trim() } : {}),
+      }),
+    {
+      invalidate: [qk.assets(projectId)],
+      success: (r) =>
+        `${r.done} done${r.skipped.length ? `, ${r.skipped.length} skipped: ${r.skipped[0]!.reason}` : ""}`,
+      onSuccess: () => setPicked(new Set()),
+    },
+  );
+  const favourite = useAction((a: LibraryAsset) => put(`/assets/${a.id}/marks`, { favourite: !a.favourite }), {
+    invalidate: [qk.assets(projectId)],
+  });
+  const toggle = (id: string) => {
+    const next = new Set(picked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPicked(next);
+  };
+  const facets = q.data?.facets;
   return (
     <div className="mx-auto max-w-7xl p-6">
       <PageHeader
@@ -71,70 +165,250 @@ export function AssetsPage() {
             ? `${fmt.bytes(q.data.storage.bytes)} canonical files · ${fmt.bytes(q.data.storage.variant_bytes)} derivatives`
             : "Canonical images, audio and exports"
         }
-        actions={
-          <>
-            <select
-              className="input w-auto"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              aria-label="Asset type"
-            >
-              <option value="">All types</option>
-              {TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
-            <button type="button" className={trash ? "btn-primary" : "btn-secondary"} onClick={() => setTrash(!trash)}>
-              <Trash2 className="size-4" /> Trash
-            </button>
-          </>
-        }
       />
+      <div className="mb-3 flex flex-wrap gap-1" role="tablist" aria-label="Views">
+        {(
+          [
+            ["", "All"],
+            ["favourite", "Favourites"],
+            ["unused", "Unused"],
+            ["duplicates", "Duplicates"],
+            ["trash", "Trash"],
+          ] as [View, string][]
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={view === v}
+            className={view === v ? "btn-primary" : "btn-secondary"}
+            onClick={() => {
+              setView(v);
+              setPicked(new Set());
+            }}
+          >
+            {v === "favourite" && <Star className="size-4" />}
+            {v === "trash" && <Trash2 className="size-4" />}
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="mb-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        <input
+          className="input"
+          placeholder="Search name, type or tag"
+          aria-label="Search"
+          value={f.q}
+          onChange={set("q")}
+        />
+        <select className="input" value={f.type} onChange={set("type")} aria-label="Asset type">
+          <option value="">All types</option>
+          {TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        <select className="input" value={f.entity} onChange={set("entity")} aria-label="Character, place or prop">
+          <option value="">Anyone, anywhere</option>
+          {(
+            [
+              ["character", "Characters", entities.data?.characters],
+              ["location", "Places", entities.data?.locations],
+              ["prop", "Props", entities.data?.props],
+            ] as const
+          ).map(([k, label, list]) =>
+            list?.length ? (
+              <optgroup key={k} label={label}>
+                {list.map((e) => (
+                  <option key={e.id} value={`${k}:${e.id}`}>
+                    {e.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null,
+          )}
+        </select>
+        <select className="input" value={f.source} onChange={set("source")} aria-label="Source">
+          <option value="">Any source</option>
+          <option value="generated">Generated</option>
+          <option value="uploaded">Uploaded</option>
+          <option value="derived">Edited or derived</option>
+        </select>
+        <select className="input" value={f.model} onChange={set("model")} aria-label="Model">
+          <option value="">Any model</option>
+          {facets?.models.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+        <div className="flex min-w-0 gap-1 sm:col-span-2 lg:col-span-2">
+          <input className="input min-w-0 flex-1" type="date" aria-label="From" value={f.from} onChange={set("from")} />
+          <input className="input min-w-0 flex-1" type="date" aria-label="To" value={f.to} onChange={set("to")} />
+        </div>
+        {Boolean(facets?.tags.length) && (
+          <select className="input" value={f.tag} onChange={set("tag")} aria-label="Tag">
+            <option value="">Any tag</option>
+            {facets!.tags.map((t) => (
+              <option key={t} value={t}>
+                #{t}
+              </option>
+            ))}
+          </select>
+        )}
+        {Boolean(facets?.collections.length) && (
+          <select className="input" value={f.collection} onChange={set("collection")} aria-label="Collection">
+            <option value="">Any collection</option>
+            {facets!.collections.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {picked.size > 0 && (
+        <section
+          aria-label="Bulk actions"
+          className="card sticky top-2 z-10 mb-3 flex flex-wrap items-center gap-2 p-2 text-sm"
+        >
+          <span className="font-medium">{picked.size} selected</span>
+          <input
+            className="input w-40 py-1"
+            placeholder="Tag or collection"
+            aria-label="Tag or collection"
+            value={bulkValue}
+            onChange={(e) => setBulkValue(e.target.value)}
+          />
+          {(
+            [
+              ["tag", "Tag"],
+              ["untag", "Untag"],
+              ["collect", "Add to collection"],
+              ["uncollect", "Take out of collection"],
+            ] as const
+          ).map(([a, label]) => (
+            <button
+              key={a}
+              type="button"
+              className="btn-secondary py-1"
+              disabled={!bulkValue.trim() || bulk.isPending}
+              onClick={() => bulk.mutate(a)}
+            >
+              {label}
+            </button>
+          ))}
+          <button type="button" className="btn-secondary py-1" onClick={() => bulk.mutate("favourite")}>
+            <Star className="size-4" /> Favourite
+          </button>
+          {view === "trash" ? (
+            <button type="button" className="btn-secondary py-1" onClick={() => bulk.mutate("restore")}>
+              <RotateCcw className="size-4" /> Restore
+            </button>
+          ) : (
+            <button type="button" className="btn-secondary py-1" onClick={() => bulk.mutate("trash")}>
+              <Trash2 className="size-4" /> Move to trash
+            </button>
+          )}
+          <button type="button" className="btn-ghost py-1" onClick={() => setPicked(new Set())}>
+            Clear
+          </button>
+        </section>
+      )}
+      {view === "unused" && (
+        <p className="muted mb-2 text-xs">
+          Images nothing uses: not a panel's artwork, a reference, on the board, the cover or the thumbnail.
+        </p>
+      )}
+      {view === "duplicates" && <p className="muted mb-2 text-xs">Files stored more than once, side by side.</p>}
       {q.error && <ErrorBox error={q.error} onRetry={() => q.refetch()} />}
       {q.isLoading ? (
         <Spinner />
       ) : !q.data?.assets.length ? (
-        <EmptyState icon={<Images className="size-8" />} title={trash ? "Trash is empty" : "No assets yet"} />
+        <EmptyState
+          icon={<Images className="size-8" />}
+          title={view === "trash" ? "Trash is empty" : "No assets match"}
+        />
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-label="Assets">
           {q.data.assets.map((a) => (
-            <button
+            <div
               key={a.id}
-              type="button"
-              className="card overflow-hidden text-left hover:border-accent-500"
-              onClick={() => setOpenId(a.id)}
+              className={clsx(
+                "card relative overflow-hidden text-left hover:border-accent-500",
+                picked.has(a.id) && "border-accent-500 ring-2 ring-accent-500/40",
+              )}
             >
-              <Thumb a={a} className="aspect-square w-full" />
-              <div className="p-2 text-xs">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="truncate font-medium">{a.type.replace(/_/g, " ")}</span>
-                  <StatusChip status={a.status} />
+              <input
+                type="checkbox"
+                className="absolute top-2 left-2 z-[1] size-4"
+                aria-label={`Select ${a.type.replace(/_/g, " ")} ${a.id.slice(0, 8)}`}
+                checked={picked.has(a.id)}
+                onChange={() => toggle(a.id)}
+              />
+              <button
+                type="button"
+                className="absolute top-1.5 right-1.5 z-[1] rounded-full bg-[var(--panel)]/80 p-1"
+                aria-label={a.favourite ? "Unfavourite" : "Favourite"}
+                aria-pressed={a.favourite}
+                onClick={() => favourite.mutate(a)}
+              >
+                <Star className={clsx("size-4", a.favourite && "fill-amber-400 text-amber-400")} />
+              </button>
+              <button type="button" className="block w-full text-left" onClick={() => setOpenId(a.id)}>
+                <Thumb a={a} className="aspect-square w-full" />
+                <div className="p-2 text-xs">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="truncate font-medium">{a.type.replace(/_/g, " ")}</span>
+                    <StatusChip status={a.status} />
+                  </div>
+                  <div className="muted">
+                    {a.width ? `${a.width}×${a.height} · ` : ""}
+                    {fmt.bytes(a.byteSize)}
+                    {a.durationMs ? ` · ${fmt.ms(a.durationMs)}` : ""}
+                  </div>
+                  <div className="muted truncate">
+                    {fmt.ago(a.createdAt)}
+                    {a.model ? ` · ${a.model}` : ""}
+                  </div>
+                  {(a.tags.length > 0 || a.collections.length > 0) && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {a.tags.map((t) => (
+                        <span key={t} className="chip text-[10px]">
+                          #{t}
+                        </span>
+                      ))}
+                      {a.collections.map((t) => (
+                        <span key={t} className="chip bg-accent-600/15 text-[10px]">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="muted">
-                  {a.width ? `${a.width}×${a.height} · ` : ""}
-                  {fmt.bytes(a.byteSize)}
-                  {a.durationMs ? ` · ${fmt.ms(a.durationMs)}` : ""}
-                </div>
-                <div className="muted">{fmt.ago(a.createdAt)}</div>
-                {a.mimeType.startsWith("audio/") && (
-                  // biome-ignore lint/a11y/useMediaCaption: narration transcript lives in the Narration page text
-                  <audio
-                    controls
-                    preload="none"
-                    src={assetUrl(a.id, undefined, undefined, Boolean(a.deletedAt))}
-                    className="mt-1 w-full"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                )}
-              </div>
-            </button>
+              </button>
+              {a.mimeType.startsWith("audio/") && (
+                // biome-ignore lint/a11y/useMediaCaption: narration transcript lives in the Narration page text
+                <audio
+                  controls
+                  preload="none"
+                  src={assetUrl(a.id, undefined, undefined, Boolean(a.deletedAt))}
+                  className="w-full px-2 pb-2"
+                />
+              )}
+            </div>
           ))}
-        </div>
+        </section>
       )}
       {openId && (
-        <AssetDetail id={openId} projectId={projectId} onClose={() => setOpenId(null)} listKey={qk.assets(projectId)} />
+        <AssetDetail
+          id={openId}
+          projectId={projectId}
+          onClose={() => setOpenId(null)}
+          onOpen={setOpenId}
+          listKey={qk.assets(projectId)}
+        />
       )}
     </div>
   );
@@ -144,13 +418,22 @@ function AssetDetail({
   id,
   projectId,
   onClose,
+  onOpen,
   listKey,
 }: {
   id: string;
   projectId: string;
   onClose: () => void;
+  /** Open another asset (an image like this one). */
+  onOpen: (id: string) => void;
   listKey: readonly unknown[];
 }) {
+  const [like, setLike] = useState(false);
+  const similar = useQuery({
+    queryKey: ["asset", id, "similar"],
+    queryFn: () => get<{ similar: (AssetRow & { score: number })[] }>(`/assets/${id}/similar`),
+    enabled: like,
+  });
   const q = useQuery({ queryKey: ["asset", id], queryFn: () => get<Detail>(`/assets/${id}`) });
   const [confirm, setConfirm] = useState(false);
   const inv = [listKey, ["asset", id]] as const;
@@ -160,6 +443,9 @@ function AssetDetail({
     invalidate: [listKey],
     success: "Deleted permanently",
     onSuccess: onClose,
+  });
+  const saveMarks = useAction((m: Partial<Detail["marks"]>) => put(`/assets/${id}/marks`, m), {
+    invalidate: [listKey, ["asset", id]],
   });
   const a = q.data?.asset;
   return (
@@ -259,6 +545,90 @@ function AssetDetail({
               </div>
             </div>
           </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <section aria-label="Where it came from" className="space-y-1 text-sm">
+              <h3 className="font-medium">Where it came from</h3>
+              <p>{SOURCE[q.data.source.kind]}</p>
+              {q.data.source.job && (
+                <p className="muted text-xs">
+                  {q.data.source.job.kind.replace(/_/g, " ")}
+                  {q.data.source.job.provider ? ` · ${q.data.source.job.provider}` : ""}
+                  {q.data.source.job.model ? ` · ${q.data.source.job.model}` : ""}
+                  {q.data.source.job.templateName
+                    ? ` · ${q.data.source.job.templateName} v${q.data.source.job.templateVersion}`
+                    : ""}
+                </p>
+              )}
+              {q.data.source.uploadedName && (
+                <p className="muted text-xs">From the file {q.data.source.uploadedName}</p>
+              )}
+              {q.data.source.tool && <p className="muted text-xs">Made with {q.data.source.tool}</p>}
+              <h3 className="pt-2 font-medium">Used by</h3>
+              {q.data.usedBy.length ? (
+                <ul className="text-xs">
+                  {q.data.usedBy.map((u) => (
+                    <li key={`${u.kind}-${u.label}`}>
+                      {u.kind === "panel" ? "Panel" : u.kind === "reference" ? "Reference of" : ""} {u.label}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted text-xs">Nothing uses it.</p>
+              )}
+            </section>
+            <section aria-label="Filing" className="space-y-2 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={q.data.marks.favourite}
+                  onChange={(e) => saveMarks.mutate({ favourite: e.target.checked })}
+                />
+                Favourite
+              </label>
+              <Field label="Tags">
+                <TagInput
+                  value={q.data.marks.tags}
+                  onChange={(tags) => saveMarks.mutate({ tags })}
+                  placeholder="Add a tag"
+                />
+              </Field>
+              <LicenceField
+                key={JSON.stringify(q.data.marks.licence)}
+                value={q.data.marks.licence}
+                onSave={(licence) => saveMarks.mutate({ licence })}
+              />
+              <Field label="Collections">
+                <TagInput
+                  value={q.data.marks.collections}
+                  onChange={(collections) => saveMarks.mutate({ collections })}
+                  placeholder="Add to a collection"
+                />
+              </Field>
+            </section>
+          </div>
+          {a.mimeType.startsWith("image/") && (
+            <section aria-label="Images like this" className="space-y-2">
+              {!like ? (
+                <button type="button" className="btn-secondary" onClick={() => setLike(true)}>
+                  <Search className="size-4" /> Find images like this
+                </button>
+              ) : similar.isLoading ? (
+                <Spinner />
+              ) : (
+                <>
+                  <h3 className="text-sm font-medium">Images like this</h3>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                    {similar.data?.similar.map((s) => (
+                      <button key={s.id} type="button" className="text-left" onClick={() => onOpen(s.id)}>
+                        <AssetImage assetId={s.id} alt={s.type} className="aspect-square w-full rounded" />
+                        <span className="muted text-[10px]">{Math.round(s.score * 100)}% alike</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
           {q.data.variants.length > 0 && (
             <div>
               <h3 className="mb-1 text-sm font-medium">Derivatives</h3>
@@ -314,5 +684,46 @@ function AssetDetail({
         The file and all derivatives are removed from storage. This cannot be undone.
       </ConfirmDialog>
     </Modal>
+  );
+}
+
+/** Where a file comes from and on what terms (an upload's licence), shown in provenance records. */
+function LicenceField({
+  value,
+  onSave,
+}: {
+  value: { text: string; url?: string } | null;
+  onSave: (v: { text: string; url?: string } | null) => void;
+}) {
+  const [text, setText] = useState(value?.text ?? "");
+  const [url, setUrl] = useState(value?.url ?? "");
+  const changed = text !== (value?.text ?? "") || url !== (value?.url ?? "");
+  return (
+    <Field label="Licence and source" hint="Recorded in provenance records, e.g. “CC BY 4.0, photo by …”.">
+      <div className="flex flex-wrap gap-1">
+        <input
+          className="input min-w-0 flex-1"
+          aria-label="Licence"
+          maxLength={500}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <input
+          className="input min-w-0 flex-1"
+          aria-label="Licence link"
+          placeholder="https://…"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={!changed}
+          onClick={() => onSave(text.trim() ? { text: text.trim(), ...(url.trim() ? { url: url.trim() } : {}) } : null)}
+        >
+          Save
+        </button>
+      </div>
+    </Field>
   );
 }

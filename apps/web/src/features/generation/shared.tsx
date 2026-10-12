@@ -21,10 +21,15 @@ export const KIND_LABELS: Record<string, string> = {
   panel_generation: "Panel",
   panel_edit: "Panel edit",
   cover: "Cover",
+  coverage_sheet: "Coverage sheet",
+  duplicate_scan: "Duplicate scan",
   thumbnail: "Video thumbnail",
   youtube_package: "YouTube package",
   expert_extract: "Expert action",
   bible_extract: "Bible extraction",
+  timeline_extract: "Timeline extraction",
+  lettering_translate: "Lettering translation",
+  video_edit: "Video edit",
   continuity_check: "Continuity check",
 };
 

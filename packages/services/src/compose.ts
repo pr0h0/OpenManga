@@ -17,6 +17,7 @@ import {
   bubbleGeometry,
   edgeDepth,
   edgeOutline,
+  effectLayers,
   featherMask,
   framePolygon,
   layoutBubbleText,
@@ -26,9 +27,10 @@ import {
   stripLayout,
 } from "@openmanga/domain";
 import { renderPanelArt, sharp } from "@openmanga/image-utils";
-import type { Bubble, EdgeStyle, Frame, ImageTransform, PanelSeam, SfxStyle } from "@openmanga/schemas";
+import type { Bubble, EdgeStyle, Frame, ImageTransform, PanelEffect, PanelSeam, SfxStyle } from "@openmanga/schemas";
 import { type AssetStorage, sha256Hex } from "@openmanga/storage";
 import type { AssetService } from "./assets.ts";
+import { translationsOf } from "./lettering-translations.ts";
 
 export type RenderPanel = {
   id: string;
@@ -38,6 +40,8 @@ export type RenderPanel = {
   art: Uint8Array | null;
   /** Vertical strips: how this panel meets the one before it. Ignored by paged rendering. */
   seam?: PanelSeam | null;
+  /** Comic effects over the art; absent when there are none (so older render fingerprints hold). */
+  effects?: PanelEffect[];
 };
 export type RenderText = { id: string; panelId: string | null; text: string; bubble: Bubble };
 export type RenderSfx = { id: string; panelId: string | null; text: string; style: SfxStyle };
@@ -64,13 +68,20 @@ export async function loadRenderPage(
   storage: AssetStorage,
   pageId: string,
   readingDirection: "ltr" | "rtl" | "vertical",
+  /** A translated edition: bubbles and captions in this language where translated (the original elsewhere). */
+  language?: string | null,
 ): Promise<RenderPage> {
-  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection, language);
   return withArt(render, art, storage);
 }
 
 /** Everything a page render is drawn from except the artwork bytes, which are read only when needed. */
-async function loadRenderRows(db: Database, pageId: string, readingDirection: "ltr" | "rtl" | "vertical") {
+async function loadRenderRows(
+  db: Database,
+  pageId: string,
+  readingDirection: "ltr" | "rtl" | "vertical",
+  language?: string | null,
+) {
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error("Page not found");
   const pns = await db.select().from(panels).where(eq(panels.pageId, pageId)).orderBy(asc(panels.order));
@@ -93,7 +104,16 @@ async function loadRenderRows(db: Database, pageId: string, readingDirection: "l
     .orderBy(asc(narrationLines.order));
   const sfx = await db.select().from(soundEffects).where(eq(soundEffects.pageId, pageId));
   const byId = new Map(arts.map((a) => [a.id, a]));
-  const [proj] = await db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, page.projectId));
+  const [proj] = await db
+    .select({ settings: projects.settings, language: projects.language })
+    .from(projects)
+    .where(eq(projects.id, page.projectId));
+  // Another language's edition swaps in its translated lettering, line by line.
+  const translated =
+    language && language !== proj?.language
+      ? await translationsOf(db, [...dialogue.map((d) => d.id), ...narration.map((n) => n.id)], language)
+      : null;
+  const text = (id: string, original: string) => translated?.get(id)?.text ?? original;
   // The page's own edge wins over the project's.
   const edges = { ...proj?.settings.edges, ...(page.edge ? { page: page.edge } : {}) };
   const render: RenderPage = {
@@ -111,12 +131,13 @@ async function loadRenderRows(db: Database, pageId: string, readingDirection: "l
       imageTransform: p.imageTransform,
       art: null,
       seam: p.seam,
+      ...(p.effects?.length ? { effects: p.effects } : {}),
     })),
     bubbles: [
-      ...dialogue.map((d) => ({ id: d.id, panelId: d.panelId, text: d.text, bubble: d.bubble })),
+      ...dialogue.map((d) => ({ id: d.id, panelId: d.panelId, text: text(d.id, d.text), bubble: d.bubble })),
       ...narration
-        .filter((n) => n.showOnPage && n.box)
-        .map((n) => ({ id: n.id, panelId: n.panelId, text: n.text, bubble: n.box! })),
+        .filter((n) => n.showOnPage && n.box && (!proj || n.language === proj.language))
+        .map((n) => ({ id: n.id, panelId: n.panelId, text: text(n.id, n.text), bubble: n.box! })),
     ],
     sfx: sfx.map((s) => ({ id: s.id, panelId: s.panelId, text: s.text, style: s.style })),
   };
@@ -143,7 +164,7 @@ async function withArt(
 const PAGE_RENDER_VERSION = 1;
 
 /** `cutout`: the copy with what lies outside a decorative page edge left transparent (for video previews). */
-type PageRenderMeta = { pageId: string; fingerprint: string; width: number; cutout?: boolean };
+type PageRenderMeta = { pageId: string; fingerprint: string; width: number; cutout?: boolean; language?: string };
 
 const renderFingerprint = (render: RenderPage, art: ({ sha256: string } | null)[]) =>
   sha256Hex(JSON.stringify({ v: PAGE_RENDER_VERSION, render, art: art.map((a) => a?.sha256 ?? null) }));
@@ -172,8 +193,10 @@ export async function cachedPageRender(
   readingDirection: "ltr" | "rtl" | "vertical",
   width: number,
   cutout = false,
+  /** A translated edition's lettering (see loadRenderPage); each language keeps its own copies. */
+  language: string | null = null,
 ) {
-  const { render, art } = await loadRenderRows(db, pageId, readingDirection);
+  const { render, art } = await loadRenderRows(db, pageId, readingDirection, language);
   const fingerprint = renderFingerprint(render, art);
   const cached = await db
     .select()
@@ -186,7 +209,9 @@ export async function cachedPageRender(
       ),
     );
   const meta = (a: (typeof cached)[number]) => a.metadata.pageRender as PageRenderMeta;
-  const same = (a: (typeof cached)[number]) => meta(a).width === width && Boolean(meta(a).cutout) === cutout;
+  const sameLanguage = (a: (typeof cached)[number]) => (meta(a).language ?? null) === language;
+  const same = (a: (typeof cached)[number]) =>
+    meta(a).width === width && Boolean(meta(a).cutout) === cutout && sameLanguage(a);
   const hit = cached.find((a) => meta(a).fingerprint === fingerprint && same(a));
   if (hit && (await assetSvc.storage.exists(hit.storageKey))) return { asset: hit, rendered: false };
   const img = await renderPageImage(await withArt(render, art, assetSvc.storage), "png", {
@@ -201,10 +226,19 @@ export async function cachedPageRender(
     width: img.width,
     height: img.height,
     data: img.data,
-    metadata: { pageRender: { pageId, fingerprint, width, ...(cutout ? { cutout } : {}) } satisfies PageRenderMeta },
+    metadata: {
+      pageRender: {
+        pageId,
+        fingerprint,
+        width,
+        ...(cutout ? { cutout } : {}),
+        ...(language ? { language } : {}),
+      } satisfies PageRenderMeta,
+    },
   });
-  // Older content goes; the same content at other widths stays for other screens.
-  for (const old of cached) if (meta(old).fingerprint !== fingerprint || same(old)) await assetSvc.hardDelete(old);
+  // Older content goes; the same content at other widths, and other languages' copies, stay.
+  for (const old of cached)
+    if (sameLanguage(old) && (meta(old).fingerprint !== fingerprint || same(old))) await assetSvc.hardDelete(old);
   return { asset, rendered: true };
 }
 
@@ -244,6 +278,31 @@ function sfxSvg(s: RenderSfx, W: number, H: number, fontScale: number) {
 type ArtLayer = { input: Buffer; left: number; top: number };
 
 /** A panel's box in page pixels at a `W`×`H` render, before rounding (the art layer rounds it). */
+/**
+ * A panel's art cut to its box, with its comic effects drawn over it: each effect an SVG layer blended in, and a
+ * flashback greying and warming the art first. Without effects, exactly the plain cut art.
+ */
+export async function renderPanelWithEffects(
+  art: Uint8Array,
+  w: number,
+  h: number,
+  t: ImageTransform,
+  effects: PanelEffect[] | null | undefined,
+  panelId: string,
+) {
+  const png = await renderPanelArt(art, w, h, t);
+  if (!effects?.length) return png;
+  const [rw, rh] = [Math.max(1, Math.round(w)), Math.max(1, Math.round(h))];
+  const layers = effectLayers(effects, rw, rh, panelId);
+  let img = sharp(png);
+  if (layers.some((l) => l.tint)) img = sharp(await img.greyscale().toBuffer()).tint({ r: 196, g: 160, b: 112 });
+  const out = await img
+    .composite(layers.map((l) => ({ input: Buffer.from(l.svg), blend: l.blend, left: 0, top: 0 })))
+    .png()
+    .toBuffer();
+  return new Uint8Array(out);
+}
+
 export function panelBox(frame: Frame, W: number, H: number) {
   return {
     x: frame.x * W,
@@ -387,7 +446,7 @@ export async function renderPageSvg(
       // Same pixel box the SVG <image> would occupy (rounded size at the rounded origin).
       const [rw, rh] = [Math.round(w), Math.round(h)];
       const png = await maskToOutline(
-        await renderPanelArt(panel.art, rw, rh, panel.imageTransform),
+        await renderPanelWithEffects(panel.art, rw, rh, panel.imageTransform, panel.effects, panel.id),
         artOutline(panel, W, H, p.edges),
         Math.round(x),
         Math.round(y),
@@ -397,7 +456,7 @@ export async function renderPageSvg(
       layers.push({ input: Buffer.from(png), left: Math.round(x), top: Math.round(y) });
     } else if (panel.art) {
       const png = await maskToOutline(
-        await renderPanelArt(panel.art, w, h, panel.imageTransform),
+        await renderPanelWithEffects(panel.art, w, h, panel.imageTransform, panel.effects, panel.id),
         artOutline(panel, W, H, p.edges),
         x,
         y,

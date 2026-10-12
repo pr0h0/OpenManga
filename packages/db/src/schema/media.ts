@@ -4,12 +4,13 @@ import type {
   Frame,
   ImageTransform,
   NarrationLineVideo,
+  PanelEffect,
   PanelGuide,
   PanelSeam,
-  PanelSpec,
   PlannedLettering,
   SfxStyle,
   ShotVideo,
+  StoredPanelSpec,
 } from "@openmanga/schemas";
 import { bigint, boolean, index, integer, jsonb, pgTable, real, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.ts";
@@ -29,6 +30,7 @@ import {
   characterOutfits,
   characters,
   characterVersions,
+  locationStates,
   locationVersions,
   projectStyles,
   projects,
@@ -119,6 +121,8 @@ export const referenceAssets = pgTable(
     characterVersionId: uuid("character_version_id").references(() => characterVersions.id, { onDelete: "cascade" }),
     outfitId: uuid("outfit_id").references(() => characterOutfits.id, { onDelete: "set null" }),
     locationVersionId: uuid("location_version_id").references(() => locationVersions.id, { onDelete: "cascade" }),
+    /** A reference of the place in one of its states; null for the location's own design. */
+    locationStateId: uuid("location_state_id").references(() => locationStates.id, { onDelete: "cascade" }),
     propVersionId: uuid("prop_version_id").references(() => propVersions.id, { onDelete: "cascade" }),
     projectStyleId: uuid("project_style_id").references(() => projectStyles.id, { onDelete: "cascade" }),
     kind: text("kind").$type<ReferenceKind>().notNull(),
@@ -168,6 +172,60 @@ export const pages = pgTable(
   (t) => [index("pages_chapter_order_idx").on(t.chapterId, t.order)],
 );
 
+/**
+ * The project's reference board: images collected for mood and look (uploads, or any picture of the project), each with
+ * a note. From the board an image becomes a draft reference of a character, outfit, location state, prop or the style,
+ * or a panel's layout guide, or is described for one aspect.
+ */
+/** Near-duplicate features of an image, computed once (assets never change): see `imageFeatures`. */
+export const assetFeatures = pgTable("asset_features", {
+  assetId: uuid("asset_id")
+    .primaryKey()
+    .references(() => assets.id, { onDelete: "cascade" }),
+  dhash: text("dhash").notNull(),
+  center: jsonb("center").$type<number[]>().notNull(),
+  border: jsonb("border").$type<number[]>().notNull(),
+  createdAt: createdAt(),
+});
+
+/** How the owner files an asset in the asset library: tags, collections and a favourite mark. */
+export const assetMarks = pgTable(
+  "asset_marks",
+  {
+    assetId: uuid("asset_id")
+      .primaryKey()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    collections: jsonb("collections").$type<string[]>().notNull().default([]),
+    favourite: boolean("favourite").notNull().default(false),
+    /** Where the file comes from and on what terms (an upload's licence), for provenance records. */
+    licence: jsonb("licence").$type<{ text: string; url?: string }>(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("asset_marks_project_idx").on(t.projectId)],
+);
+
+export const boardItems = pgTable(
+  "board_items",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    note: text("note").notNull().default(""),
+    order: integer("order").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("board_items_project_idx").on(t.projectId, t.order)],
+);
+
 export const panels = pgTable(
   "panels",
   {
@@ -208,6 +266,12 @@ export const panels = pgTable(
     video: jsonb("video").$type<ShotVideo>(),
     /** A layout sketch sent with the panel's generation as a reference image (composition and poses only). */
     guide: jsonb("guide").$type<PanelGuide>(),
+    /** Comic effects drawn over the art in every render (speed lines, screentone, a flashback tint…). */
+    effects: jsonb("effects").$type<PanelEffect[]>(),
+    /** What the panel shows, for readers who cannot see it; null: made from its story beat, dialogue and sounds. */
+    altText: text("alt_text"),
+    /** The part of the chapter text this panel tells, as traced when it was planned (or traced again). */
+    sourceSpan: jsonb("source_span").$type<{ start: number; end: number; text: string }>(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -222,7 +286,7 @@ export const panelSpecs = pgTable(
       .notNull()
       .references(() => panels.id, { onDelete: "cascade" }),
     versionNumber: integer("version_number").notNull(),
-    spec: jsonb("spec").$type<PanelSpec>().notNull(),
+    spec: jsonb("spec").$type<StoredPanelSpec>().notNull(),
     source: text("source").$type<"ai" | "user">().notNull(),
     createdAt: createdAt(),
   },
@@ -322,6 +386,31 @@ export const narrationLines = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("narration_lines_chapter_idx").on(t.chapterId, t.language, t.order)],
+);
+
+/**
+ * Lettering in another language: a dialogue bubble's or an on-page caption's text for one edition. The bubble keeps
+ * its place and style; renders and exports in that language swap the text. `source_sha256` is the original text's
+ * hash when this was written, so a changed original shows the translation as out of date; `edited` marks a hand edit,
+ * which a later machine translation leaves alone.
+ */
+export const letteringTranslations = pgTable(
+  "lettering_translations",
+  {
+    id: id(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sourceType: text("source_type").$type<"dialogue" | "caption">().notNull(),
+    sourceId: uuid("source_id").notNull(),
+    language: text("language").notNull(),
+    text: text("text").notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    edited: boolean("edited").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("lettering_translations_uq").on(t.sourceType, t.sourceId, t.language)],
 );
 
 export const narrationSegments = pgTable(

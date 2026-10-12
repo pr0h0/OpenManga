@@ -26,7 +26,8 @@ ${tag("Title", m.title)}${tag("Series", m.series)}${tag("Number", m.number)}${ta
 `;
 }
 
-export type EpubPage = { file: string; width: number; height: number };
+/** `alt`: what the page shows, for screen readers (its panels' alt text); the cover has its title. */
+export type EpubPage = { file: string; width: number; height: number; alt?: string };
 
 /**
  * The text files of a fixed-layout EPUB 3: one XHTML page per image, each sized to its image, spine in reading
@@ -45,7 +46,7 @@ export function epubFiles(m: BookMeta, pages: EpubPage[], hasCover: boolean, mod
 <head><meta charset="UTF-8"/><title>${esc(m.title)} — ${i + 1}</title>
 <meta name="viewport" content="width=${p.width}, height=${p.height}"/>
 <style>html,body{margin:0;padding:0;width:${p.width}px;height:${p.height}px}img{display:block;width:${p.width}px;height:${p.height}px}</style></head>
-<body><img src="images/${p.file}" alt="Page ${i + 1}"/></body>
+<body><img src="images/${p.file}" alt="${esc(p.alt?.trim() || `Page ${i + 1}`)}"/></body>
 </html>
 `;
   const mime = (f: string) => (f.endsWith(".png") ? "image/png" : "image/jpeg");
@@ -57,6 +58,8 @@ export function epubFiles(m: BookMeta, pages: EpubPage[], hasCover: boolean, mod
     )
     .join("\n");
   const spine = pages.map((_, i) => `    <itemref idref="p${pad(i)}"/>`).join("\n");
+  // Every page described (the cover by its title): the book can be read as text too.
+  const described = pages.every((p, i) => (hasCover && i === 0) || Boolean(p.alt?.trim()));
   const opf = `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="${esc(m.language)}">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -67,6 +70,17 @@ ${m.author ? `    <dc:creator>${esc(m.author)}</dc:creator>\n` : ""}${m.summary 
     <meta property="rendition:layout">pre-paginated</meta>
     <meta property="rendition:orientation">auto</meta>
     <meta property="rendition:spread">landscape</meta>
+    <meta property="schema:accessMode">visual</meta>
+    <meta property="schema:accessMode">textual</meta>
+    <meta property="schema:accessModeSufficient">visual</meta>
+${described ? '    <meta property="schema:accessModeSufficient">textual</meta>\n' : ""}    <meta property="schema:accessibilityFeature">${described ? "alternativeText" : "none"}</meta>
+    <meta property="schema:accessibilityFeature">readingOrder</meta>
+    <meta property="schema:accessibilityHazard">none</meta>
+    <meta property="schema:accessibilitySummary">${esc(
+      described
+        ? "A fixed-layout comic. Each page image has alternative text describing its panels in reading order, with what is said and the sound effects."
+        : "A fixed-layout comic of page images, in reading order.",
+    )}</meta>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
@@ -92,7 +106,7 @@ ${spine}
   ];
 }
 
-export type BookImage = { data: Uint8Array; width: number; height: number };
+export type BookImage = { data: Uint8Array; width: number; height: number; alt?: string };
 
 /**
  * Writes a CBZ or an EPUB to `path`, adding each JPEG page to the archive as `pages` yields it, so memory holds one
@@ -113,7 +127,7 @@ export async function writeBook(
   const sizes: EpubPage[] = [];
   const add = async (file: string, im: BookImage) => {
     await zip.add(kind === "epub" ? `OEBPS/images/${file}` : file, im.data);
-    sizes.push({ file, width: im.width, height: im.height });
+    sizes.push({ file, width: im.width, height: im.height, alt: im.alt });
   };
   if (kind === "epub") {
     await zip.add("mimetype", enc.encode("application/epub+zip"));

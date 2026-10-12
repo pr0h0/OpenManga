@@ -482,6 +482,47 @@ describe("production runs", () => {
     expect((await staleness()).stalePlans).toEqual([]);
   }, 400_000);
 
+  test("why each stage is out of date: item by item, what changed under it and what an update would redo", async () => {
+    const projectId = await produce("Why stale");
+    type Why = { stages: { key: string; items: { label: string; why: string; redo: string; panelId?: string }[] }[] };
+    const why = async (key: string) =>
+      (await u.get<Why>(`/api/projects/${projectId}/staleness/why`)).stages.find((s) => s.key === key)!.items;
+    expect(await why("plan")).toEqual([]);
+    expect(await why("art")).toEqual([]);
+    expect((await why("render"))[0]!.why).toBe("No whole-project video yet");
+    const { chapters } = await u.get<{ chapters: { id: string; title: string }[] }>(
+      `/api/projects/${projectId}/chapters`,
+    );
+    const chapterId = chapters[0]!.id;
+
+    // A sentence rewritten under the plan: the chapter, the panels it hits, and what re-planning replaces.
+    const { chapter } = await u.get<{ chapter: { sourceExcerpt: string } }>(`/api/chapters/${chapterId}`);
+    await u.patch(`/api/chapters/${chapterId}`, {
+      sourceExcerpt: chapter.sourceExcerpt.replace("Kim Do-yun stepped out of the shadows", "Kim Do-yun fell"),
+    });
+    const [plan] = await why("plan");
+    expect(plan!.label).toBe(chapters[0]!.title);
+    expect(plan!.why).toMatch(/Its text changed after planning: \d+ panels? tells? revised text \(page \d+ panel \d+/);
+    expect(plan!.redo).toMatch(/^Re-planning replaces its \d+ pages?/);
+
+    // A drawn panel's spec edited: the fields that changed since its artwork.
+    const { panels } = await u.get<{ panels: { id: string }[] }>(`/api/chapters/${chapterId}/panels`);
+    const { specs } = await u.get<{ specs: { spec: Record<string, unknown> }[] }>(`/api/panels/${panels[0]!.id}`);
+    await u.put(`/api/panels/${panels[0]!.id}/spec`, {
+      spec: { ...specs[0]!.spec, beat: "Woo Jin turns away.", lighting: "moonlight" },
+    });
+    const art = (await why("art")).find((i) => i.panelId === panels[0]!.id)!;
+    expect(art.why).toBe("Edited after its artwork was drawn: beat, lighting");
+    // The same edit is why the narration is out of date.
+    expect((await why("narration"))[0]!.why).toMatch(
+      /^Its panels or dialogue changed after it was written: page 1 panel 1/,
+    );
+
+    // A story revision: new and removed paragraphs against the analysed one.
+    await u.post(`/api/projects/${projectId}/story/revisions`, { content: `${STORY}\n\nThe rain stopped.` }, 201);
+    expect((await why("story"))[0]!.why).toMatch(/1 paragraph new or changed/);
+  }, 400_000);
+
   test("the YouTube text and thumbnail headline are flagged when the title changes, and only regenerated when asked", async () => {
     const p = await u.post<{ project: { id: string } }>(
       "/api/projects",

@@ -36,7 +36,11 @@ const InviteRole = z.enum(["editor", "viewer"]);
 /** Invitations send mail, so they are capped per inviting account. */
 const inviteLimit = rateLimit({ key: "invite", limit: () => 30, windowSec: 3600, by: "user" });
 const authLimit = rateLimit({ key: "auth", limit: () => 30, windowSec: 60 });
-const registerLimit = rateLimit({ key: "register", limit: () => 10, windowSec: 3600 });
+const registerLimit = rateLimit({
+  key: "register",
+  limit: (deps) => deps.config.REGISTER_LIMIT_PER_HOUR,
+  windowSec: 3600,
+});
 
 /** Not accepted, declined, revoked or expired. */
 const pending = () =>

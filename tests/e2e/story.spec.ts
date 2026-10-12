@@ -44,7 +44,7 @@ test("story bible: facts, states, filters, extraction, continuity and rule check
   });
 
   await test.step("add a character state", async () => {
-    await page.getByRole("tab", { name: /^Timeline/ }).click();
+    await page.getByRole("tab", { name: /^States/ }).click();
     await page.getByRole("button", { name: "Add state" }).click();
     const d = page.getByRole("dialog", { name: "Add state" });
     await d.getByLabel("Character").selectOption({ label: "Woo Jin" });
@@ -53,7 +53,7 @@ test("story bible: facts, states, filters, extraction, continuity and rule check
     await d.getByRole("button", { name: "Save" }).click();
     await expect(d).toBeHidden();
     await expect(page.getByText("Sprained left ankle.")).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Timeline (1)" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "States (1)" })).toBeVisible();
   });
 
   await test.step("filter the facts", async () => {

@@ -7,6 +7,8 @@ import {
   eq,
   inArray,
   isNull,
+  locationStates,
+  locationVersions,
   or,
   REFERENCE_KINDS,
   type ReferenceKind,
@@ -144,6 +146,8 @@ export const GenerateRef = z.object({
   kind: z.enum(REFERENCE_KINDS).exclude(["uploaded"]).default("full_body"),
   extraInstruction: z.string().max(2000).optional(),
   outfitId: z.string().uuid().optional(),
+  /** Location references only: draw the place in this state of it, from its approved design. */
+  locationStateId: z.string().uuid().optional(),
   ai: AiChoiceInput,
 });
 
@@ -176,6 +180,7 @@ export function mountReferenceEndpoints(
     const job = await deps.planner.enqueueReference(subject, id, input.kind as ReferenceKind, user(c).id, {
       extraInstruction: input.extraInstruction,
       outfitId: input.outfitId,
+      locationStateId: subject === "location" ? input.locationStateId : undefined,
       ai: input.ai,
     });
     await deps.jobs.kick();
@@ -185,7 +190,7 @@ export function mountReferenceEndpoints(
   doc({
     method: "POST",
     path: `/api/${versionPath}/:id/references/upload`,
-    summary: `Upload your own ${subject} reference (multipart: file, kind)`,
+    summary: `Upload your own ${subject} reference (multipart: file, kind${subject === "location" ? ", and locationStateId for a reference of one of the place's states" : ""})`,
     tag: "references",
   });
   app.post(`/${versionPath}/:id/references/upload`, async (c) => {
@@ -195,47 +200,81 @@ export function mountReferenceEndpoints(
     const up = await readImageUpload(c);
     const kind = String(up.form.get("kind") ?? "uploaded") as ReferenceKind;
     const deps = c.get("deps");
-    const u = user(c);
-    const asset = await deps.assets.store({
-      projectId: v.projectId,
-      ownerUserId: u.id,
-      type: assetTypeFor[subject],
-      data: up.data,
-      mimeType: up.mime,
-      width: up.width,
-      height: up.height,
-      metadata: { uploaded: true, originalName: up.originalName },
-    });
-    const [existingPrimary] = await deps.db
-      .select({ id: referenceAssets.id })
-      .from(referenceAssets)
-      .where(and(eq(versionColumn[subject], id), eq(referenceAssets.isPrimary, true)));
-    const [ref] = await deps.db
-      .insert(referenceAssets)
-      .values({
-        projectId: v.projectId,
-        subjectType: subject,
-        characterVersionId: subject === "character" ? id : null,
-        locationVersionId: subject === "location" ? id : null,
-        propVersionId: subject === "prop" ? id : null,
-        projectStyleId: subject === "style" ? id : null,
-        kind: REFERENCE_KINDS.find((k) => k === kind) ?? "uploaded",
-        assetId: asset.id,
-        isPrimary: !existingPrimary,
-        sourceFingerprint: await versionFingerprint(deps.db, subject, id),
-      })
-      .returning();
-    await deps.assets.ensureThumbnail(asset);
-    await recordAudit(deps.db, {
-      userId: u.id,
-      projectId: v.projectId,
-      action: "reference.upload",
-      targetType: "reference_asset",
-      targetId: ref!.id,
-      requestId: c.get("requestId"),
-    });
+    const stateId = subject === "location" ? String(up.form.get("locationStateId") ?? "") || null : null;
+    if (stateId) {
+      const [s] = await deps.db
+        .select({ id: locationStates.id })
+        .from(locationStates)
+        .innerJoin(locationVersions, eq(locationVersions.locationId, locationStates.locationId))
+        .where(and(eq(locationStates.id, stateId), eq(locationVersions.id, id)));
+      if (!s) throw badRequest("That state belongs to another location");
+    }
+    const { ref, asset } = await storeReference(c, subject, id, v.projectId, up, { kind, locationStateId: stateId });
     return c.json({ reference: ref, asset: { id: asset.id, width: asset.width, height: asset.height } }, 201);
   });
+}
+
+/**
+ * Stores an image the person supplied (an upload, or a picture from the project's reference board) as a draft
+ * reference of a subject version: its own asset of the subject's type, primary when the version has none.
+ */
+export async function storeReference(
+  c: Context<AppEnv>,
+  subject: Subject,
+  versionId: string,
+  projectId: string,
+  file: { data: Uint8Array; mime: string; width: number; height: number; originalName?: string | null },
+  opts: {
+    kind?: string;
+    outfitId?: string | null;
+    locationStateId?: string | null;
+    from?: Record<string, unknown>;
+  } = {},
+) {
+  const deps = c.get("deps");
+  const u = user(c);
+  const asset = await deps.assets.store({
+    projectId,
+    ownerUserId: u.id,
+    type: assetTypeFor[subject],
+    data: file.data,
+    mimeType: file.mime,
+    width: file.width,
+    height: file.height,
+    metadata: { uploaded: true, originalName: file.originalName ?? null, ...opts.from },
+  });
+  const [existingPrimary] = await deps.db
+    .select({ id: referenceAssets.id })
+    .from(referenceAssets)
+    .where(and(eq(versionColumn[subject], versionId), eq(referenceAssets.isPrimary, true)));
+  const [ref] = await deps.db
+    .insert(referenceAssets)
+    .values({
+      projectId,
+      subjectType: subject,
+      characterVersionId: subject === "character" ? versionId : null,
+      outfitId: subject === "character" ? (opts.outfitId ?? null) : null,
+      locationVersionId: subject === "location" ? versionId : null,
+      locationStateId: subject === "location" ? (opts.locationStateId ?? null) : null,
+      propVersionId: subject === "prop" ? versionId : null,
+      projectStyleId: subject === "style" ? versionId : null,
+      kind: REFERENCE_KINDS.find((k) => k === opts.kind) ?? "uploaded",
+      assetId: asset.id,
+      isPrimary: !existingPrimary && !opts.outfitId && !opts.locationStateId,
+      sourceFingerprint: await versionFingerprint(deps.db, subject, versionId),
+    })
+    .returning();
+  await deps.assets.ensureThumbnail(asset);
+  await recordAudit(deps.db, {
+    userId: u.id,
+    projectId,
+    action: "reference.upload",
+    targetType: "reference_asset",
+    targetId: ref!.id,
+    metadata: opts.from ?? {},
+    requestId: c.get("requestId"),
+  });
+  return { ref: ref!, asset };
 }
 
 export const referenceRoutes = new Hono<AppEnv>();

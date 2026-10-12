@@ -30,6 +30,12 @@ export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   StoryOutline: "**Save as outline** from an expert's reply — the chapters, saved as an outline story revision.",
   BibleExtraction:
     "**Extract bible from story** — proposes story bible facts and character states from the chapters, for review.",
+  TimelineExtraction:
+    "**Extract timeline from story** — proposes the story's events in story-time order, with dates and births, for review.",
+  LetteringTranslation:
+    "**Translate lettering** — a chapter's speech bubbles and captions in another language, for a translated edition.",
+  VideoEditPlan:
+    "**Timing → Edit in words** — your instruction about the video as timeline edits, shown as a list to tick, change or reject.",
   ContinuityReport:
     "**Check continuity** — contradictions in one chapter against the story bible and its neighbours, and a verdict per fixed rule.",
   AgentPlan: "**Agent → Start** — the project agent's plan for your goal, shown for approval before anything runs.",

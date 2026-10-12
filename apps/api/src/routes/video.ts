@@ -53,6 +53,8 @@ const PreviewQuery = z.object({
     .pipe(z.array(z.string().uuid()).max(100).optional()),
   language: z.string().trim().min(2).max(16).optional(),
   aspect: VideoAspectParam,
+  /** Panel cut: a hook variant (settings.video.hooks) to open with, as the render does. */
+  hookId: z.string().uuid().optional(),
 });
 
 doc({
@@ -76,7 +78,10 @@ videoRoutes.get("/video-preview", async (c) => {
         : await entityAccess(c, "chapter", q.chapterId!, "read");
   const cut = q.panelId || q.panelIds ? "panel" : q.cut;
   return c.json(
-    await previewPayload(c.get("deps").db, project, q, cut, q.language || project.language, { aspect: q.aspect }),
+    await previewPayload(c.get("deps").db, project, q, cut, q.language || project.language, {
+      aspect: q.aspect,
+      hookId: q.hookId,
+    }),
   );
 });
 
@@ -353,24 +358,25 @@ doc({
   method: "GET",
   path: "/api/pages/:id/render.png",
   summary:
-    "The lettered page as a PNG (deterministic composition), for previews. ?width= up to 1600 (default 1200). ?proof=cmyk soft-proofs it through a generic CMYK press profile and back (colours a press cannot print shift as they will on paper); ?proof=grey as a black-ink interior prints it. ?cutout=1 leaves what lies outside a decorative page edge transparent, as videos draw it.",
+    "The lettered page as a PNG (deterministic composition), for previews. ?width= up to 1600 (default 1200). ?proof=cmyk soft-proofs it through a generic CMYK press profile and back (colours a press cannot print shift as they will on paper); ?proof=grey as a black-ink interior prints it. ?cutout=1 leaves what lies outside a decorative page edge transparent, as videos draw it. ?language= letters it in a translated edition (translated bubbles and captions, the original where there is none).",
   tag: "pages",
 });
 videoRoutes.get("/pages/:id/render.png", async (c) => {
   const id = uuidParam(c, "id");
   const project = await entityAccess(c, "page", id, "read");
-  const { width, proof, cutout } = query(
+  const { width, proof, cutout, language } = query(
     c,
     z.object({
       width: z.coerce.number().int().min(200).max(1600).default(1200),
       proof: z.enum(["cmyk", "grey"]).optional(),
       cutout: z.enum(["1"]).optional(),
+      language: z.string().trim().min(2).max(16).optional(),
     }),
   );
   const { db, assets: assetSvc } = c.get("deps");
   const [page] = await db.select({ width: pages.width }).from(pages).where(eq(pages.id, id));
   if (!page) throw notFound("Page");
-  const render = await loadRenderPage(db, assetSvc.storage, id, project.readingDirection);
+  const render = await loadRenderPage(db, assetSvc.storage, id, project.readingDirection, language);
   const img = await renderPageImage(render, "png", { scale: Math.min(1, width / page.width), cutout: cutout === "1" });
   return new Response(proof ? await softProof(img.data, proof) : img.data, {
     headers: { "content-type": "image/png", "cache-control": "private, max-age=30" },
@@ -382,17 +388,29 @@ export const CardQuery = z.object({
   aspect: VideoAspectParam,
 });
 
-/** A project's intro or outro card PNG, the pixels the render encodes; 404 when that card is off. */
+/**
+ * A project's intro, outro or chapter card PNG (`chapter-<id>`), the pixels the render encodes; 404 when that card is
+ * off. `chapterOk` limits which chapters' cards can be read (a reader link's scope).
+ */
 export async function videoCardResponse(
   deps: AppEnv["Variables"]["deps"],
   project: BrandedProject,
   which: string,
   q: z.infer<typeof CardQuery>,
   cacheControl: string,
+  chapterOk: (chapterId: string) => boolean = () => true,
 ) {
-  if (which !== "intro" && which !== "outro") throw notFound("Card");
+  const chapterId = /^chapter-([0-9a-f-]{36})$/.exec(which)?.[1];
+  if (which !== "intro" && which !== "outro" && !(chapterId && chapterOk(chapterId))) throw notFound("Card");
   const { frameW, frameH } = frameSizeFor(q.height, q.aspect);
-  const png = await renderProjectVideoCard(deps.db, deps.assets, project, which, frameW, frameH);
+  const png = await renderProjectVideoCard(
+    deps.db,
+    deps.assets,
+    project,
+    chapterId ? { chapterId } : (which as "intro" | "outro"),
+    frameW,
+    frameH,
+  );
   if (!png) throw notFound("Card");
   return new Response(png, { headers: { "content-type": "image/png", "cache-control": cacheControl } });
 }
@@ -401,7 +419,7 @@ doc({
   method: "GET",
   path: "/api/projects/:projectId/video-card/:which.png",
   summary:
-    "The project's intro or outro video card (`which`: intro|outro) as the render draws it, at ?height= (the short side) and ?aspect= (16:9, 9:16, 1:1). 404 when the card is off.",
+    "The project's intro, outro or chapter title card (`which`: intro|outro|chapter-<chapterId>) as the render draws it, at ?height= (the short side) and ?aspect= (16:9, 9:16, 1:1). 404 when the card is off.",
   tag: "exports",
 });
 videoRoutes.get("/projects/:projectId/video-card/:file", async (c) => {
@@ -456,6 +474,7 @@ async function brandingPayload(
   return {
     intro: noCards ? null : (v?.intro ?? null),
     outro: noCards ? null : (v?.outro ?? null),
+    chapters: noCards ? [] : (v?.chapterCards ?? []),
     watermark:
       wm && logo?.width && logo.height && !logo.deletedAt && logo.projectId === projectId
         ? { ...wm, width: logo.width, height: logo.height }
@@ -474,13 +493,27 @@ export async function previewPayload(
   scope: Parameters<typeof planVideoShots>[2],
   cut: "page" | "panel",
   language: string,
-  o: { aspect?: VideoAspect } = {},
+  o: { aspect?: VideoAspect; hookId?: string } = {},
 ) {
   const { frameW, frameH } = frameSizeFor(1080, o.aspect);
   const cropAspect = cropsToFrame(o.aspect ?? "16:9") ? frameW / frameH : undefined;
+  const hook = o.hookId ? project.settings?.video?.hooks?.find((h) => h.id === o.hookId) : undefined;
+  if (o.hookId && (!hook || cut !== "panel")) throw notFound("Hook variant");
   let planned: Awaited<ReturnType<typeof planVideoShots>>;
+  let lead: Awaited<ReturnType<typeof planVideoShots>>["shots"] = [];
   try {
     planned = await planVideoShots(db, project, scope, cut, language, { cropAspect });
+    // A hook variant's panels open the film, one shared hold for its narration (as the render times them).
+    if (hook)
+      lead = (
+        await planVideoShots(db, project, { panelIds: hook.panelIds }, "panel", language, { cropAspect })
+      ).shots.map((s, i, all) => ({
+        ...s,
+        key: `opening-${s.key}`,
+        lineIds: [],
+        joinNext: i < all.length - 1,
+        fade: { in: false, out: false },
+      }));
   } catch (e) {
     throw badRequest((e as Error).message);
   }
@@ -499,7 +532,9 @@ export async function previewPayload(
     },
     unplacedLines: planned.unplacedLines,
     disabledPanels: planned.disabledPanels,
-    shots: planned.shots.map((s) => {
+    /** Shots of the hook variant at the start; the intro card plays after them. */
+    openingShots: lead.length,
+    shots: [...lead, ...planned.shots].map((s, i) => {
       const pn = s.panel;
       const art = s.art;
       // Vertical and square frames crop panel art to their own shape, like the render.
@@ -509,13 +544,14 @@ export async function previewPayload(
         key: s.key,
         label: s.label,
         joinNext: s.joinNext,
-        minHoldMs: s.panel?.video?.holdMs ?? null,
+        minHoldMs: i < lead.length ? null : (s.panel?.video?.holdMs ?? null),
         sceneId: s.panel?.sceneId ?? s.page.sceneId,
         fade: s.fade,
         motion: s.motion,
         page: {
           id: s.page.id,
           order: s.page.order,
+          chapterId: s.page.chapterId,
           chapterOrder: s.page.chapterOrder,
           width: s.page.width,
           height: s.page.height,
@@ -541,22 +577,34 @@ export async function previewPayload(
                     : null,
               }
             : null,
-        lines: s.lineIds.map((id) => {
-          const v = lineById.get(id)?.video;
-          return {
-            id,
-            text: lineById.get(id)?.text ?? "",
-            startOffsetMs: v?.startOffsetMs ?? 0,
-            endOffsetMs: v?.endOffsetMs ?? 0,
-            segments: (byLine.get(id) ?? []).map(({ s: seg, a }) => ({
-              id: seg.id,
-              text: seg.text,
-              pauseAfterMs: seg.pauseAfterMs,
-              audioAssetId: a?.assetId ?? null,
-              durationMs: a?.durationMs ?? null,
-            })),
-          };
-        }),
+        // The hook's narration over its first shot (voiced at render, so it shows as text here).
+        lines:
+          hook && i === 0
+            ? [
+                {
+                  id: "opening",
+                  text: hook.text,
+                  startOffsetMs: 0,
+                  endOffsetMs: 0,
+                  segments: [{ id: "opening", text: hook.text, pauseAfterMs: 0, audioAssetId: null, durationMs: null }],
+                },
+              ]
+            : s.lineIds.map((id) => {
+                const v = lineById.get(id)?.video;
+                return {
+                  id,
+                  text: lineById.get(id)?.text ?? "",
+                  startOffsetMs: v?.startOffsetMs ?? 0,
+                  endOffsetMs: v?.endOffsetMs ?? 0,
+                  segments: (byLine.get(id) ?? []).map(({ s: seg, a }) => ({
+                    id: seg.id,
+                    text: seg.text,
+                    pauseAfterMs: seg.pauseAfterMs,
+                    audioAssetId: a?.assetId ?? null,
+                    durationMs: a?.durationMs ?? null,
+                  })),
+                };
+              }),
       };
     }),
   };

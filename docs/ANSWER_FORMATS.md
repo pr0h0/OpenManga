@@ -29,6 +29,9 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 - [ProjectPremise](#projectpremise)
 - [StoryOutline](#storyoutline)
 - [BibleExtraction](#bibleextraction)
+- [TimelineExtraction](#timelineextraction)
+- [LetteringTranslation](#letteringtranslation)
+- [VideoEditPlan](#videoeditplan)
 - [ContinuityReport](#continuityreport)
 - [AgentPlan](#agentplan)
 - [AgentStep](#agentstep)
@@ -3069,6 +3072,275 @@ interface BibleExtraction {
       "fromScene": null,
       "untilChapter": null,
       "outfit": null
+    }
+  ]
+}
+```
+
+</details>
+
+## TimelineExtraction
+
+Asked by **Extract timeline from story** — proposes the story's events in story-time order, with dates and births, for review.
+
+```ts
+/** A proposed story timeline for the user to review, in story-time order. Nothing is saved until applied. */
+interface TimelineExtraction {
+  /**
+   * Events in the order they happen in the story world (a flashback where it happened), one per item.
+   * At most 300 items.
+   * Optional — defaults to [] when left out.
+   */
+  events?: {
+    /**
+     * event, or birth for the event that gives a character's age.
+     * Optional — defaults to "event" when left out.
+     * @example "event"
+     */
+    kind: "event" | "birth";
+    /**
+     * What happens, short.
+     * Between 1 and 200 characters.
+     * @example "Ines arrives at Vell"
+     */
+    title: string;
+    /**
+     * More detail, optional.
+     * At most 1000 characters.
+     * Optional — defaults to "" when left out.
+     * @example "The supply boat leaves her on the jetty in the storm."
+     */
+    description?: string;
+    /**
+     * How the story names the moment, in its words; empty when it gives none.
+     * At most 120 characters.
+     * Optional — defaults to "" when left out.
+     * @example "Autumn, year 3"
+     */
+    when?: string;
+    /**
+     * A story-day number on one scale for the whole story (later = larger; fractions for hours), or null when the text does not let you work it out.
+     * Optional — may be left out.
+     * @example 0
+     */
+    day?: number | null;
+    /**
+     * Number of the chapter that tells it; null for events only mentioned.
+     * Optional — may be left out.
+     * @example 1
+     */
+    chapter?: number | null;
+    /**
+     * Scene number within that chapter (from 1), when clearly split into scenes; else null.
+     * Optional — may be left out.
+     * @example null
+     */
+    scene?: number | null;
+    /**
+     * Who takes part, by name exactly as in the project.
+     * At most 30 items.
+     * Optional — defaults to [] when left out.
+     * @example ["Ines","Tomas"]
+     */
+    characters?: string[];
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "events": [
+    {
+      "kind": "event",
+      "title": "Ines arrives at Vell",
+      "description": "The supply boat leaves her on the jetty in the storm.",
+      "when": "Autumn, year 3",
+      "day": 0,
+      "chapter": 1,
+      "scene": null,
+      "characters": [
+        "Ines",
+        "Tomas"
+      ]
+    }
+  ]
+}
+```
+
+</details>
+
+## LetteringTranslation
+
+Asked by **Translate lettering** — a chapter's speech bubbles and captions in another language, for a translated edition.
+
+```ts
+/** A chapter's lettering in another language, for a translated edition of the same art. */
+interface LetteringTranslation {
+  /**
+   * Every line you were given, translated, each with its ref unchanged.
+   * Between 1 and 1000 items.
+   */
+  lines: {
+    /**
+     * The ref the line was given (d1, c2…).
+     * Between 1 and 20 characters.
+     * @example "d1"
+     */
+    ref: string;
+    /**
+     * The translated text, about as long as the original and within its maxChars.
+     * Between 1 and 1000 characters.
+     * @example "¡Ya basta, Tomás!"
+     */
+    text: string;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "lines": [
+    {
+      "ref": "d1",
+      "text": "¡Ya basta, Tomás!"
+    }
+  ]
+}
+```
+
+</details>
+
+## VideoEditPlan
+
+Asked by **Timing → Edit in words** — your instruction about the video as timeline edits, shown as a list to tick, change or reject.
+
+```ts
+/** Timeline edits for an editor's instruction about the video, shown for review before any is applied. */
+interface VideoEditPlan {
+  /**
+   * One or two sentences on what the edits do, or why the instruction cannot be done.
+   * At most 500 characters.
+   * Optional — defaults to "" when left out.
+   * @example "Chapter 4 runs faster: its pauses are capped at 600 ms."
+   */
+  summary?: string;
+  /**
+   * The smallest set of edits that does what the instruction asks. Empty when it cannot be done.
+   * At most 60 items.
+   */
+  ops: {
+    /**
+     * pauses, holds, shot, card or scene_fades.
+     * @example "pauses"
+     */
+    op: "pauses" | "holds" | "shot" | "card" | "scene_fades";
+    /**
+     * pauses, holds, a chapter card: the chapter number. null = the whole video.
+     * Optional — defaults to null when left out.
+     * @example 4
+     */
+    chapter?: number | null;
+    /**
+     * pauses: the longest a pause may be, in ms.
+     * Optional — defaults to null when left out.
+     * @example 600
+     */
+    maxPauseMs?: number | null;
+    /**
+     * pauses: multiply every pause by this (0.7 = 30% shorter).
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    pauseScale?: number | null;
+    /**
+     * holds: each shot's own minimum hold in ms; null puts them back to the export's.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    holdMs?: number | null;
+    /**
+     * shot: the panel's ref, exactly as in the data.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    panel?: string | null;
+    /**
+     * shot: true leaves the panel out of the video, false plays it.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    disabled?: boolean | null;
+    /**
+     * shot: the camera move (auto, static, pan-left, pan-right, pan-up, pan-down, push-in, pull-out).
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    motion?: "auto" | "static" | "pan-left" | "pan-right" | "pan-up" | "pan-down" | "push-in" | "pull-out" | null;
+    /**
+     * shot: auto, on or off.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    fade?: "auto" | "on" | "off" | null;
+    /**
+     * card: intro, outro or chapter.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    card?: "intro" | "outro" | "chapter" | null;
+    /**
+     * card: its title; null removes the card.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    title?: string | null;
+    /**
+     * card: a line under the title.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    subtitle?: string | null;
+    /**
+     * card: how long it holds, 1 to 15.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    seconds?: number | null;
+    /**
+     * scene_fades: true fades to black at scene breaks.
+     * Optional — defaults to null when left out.
+     * @example null
+     */
+    on?: boolean | null;
+  }[];
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "summary": "Chapter 4 runs faster: its pauses are capped at 600 ms.",
+  "ops": [
+    {
+      "op": "pauses",
+      "chapter": 4,
+      "maxPauseMs": 600,
+      "pauseScale": null,
+      "holdMs": null,
+      "panel": null,
+      "disabled": null,
+      "motion": null,
+      "fade": null,
+      "card": null,
+      "title": null,
+      "subtitle": null,
+      "seconds": null,
+      "on": null
     }
   ]
 }

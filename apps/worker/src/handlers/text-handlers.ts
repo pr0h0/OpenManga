@@ -13,10 +13,13 @@ import {
   bibleExtract,
   chapterPlan,
   imageDescribe,
+  letteringTranslate,
   narrationText,
   pagePrompts,
   storyAnalysis,
   storyRewrite,
+  timelineExtract,
+  videoEdit,
   youtubePackage,
 } from "./text.ts";
 
@@ -32,6 +35,9 @@ export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   image_describe: imageDescribe,
   youtube_package: youtubePackage,
   bible_extract: bibleExtract,
+  timeline_extract: timelineExtract,
+  lettering_translate: letteringTranslate,
+  video_edit: videoEdit,
   continuity_check: continuityCheck,
   narration_lint: narrationLint,
   narration_fix: narrationFix,

@@ -278,7 +278,7 @@ export const panelTools = [
     name: "update_panel",
     title: "Update panel",
     description:
-      "Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.",
+      "Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), comic effects drawn over the art without AI (`effects`: up to 6 of speed, focus, impact, tone, rain, snow, dust, glow, flashback, each with optional x, y, angle, density, strength, size, color; null removes them), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI), alt text (`altText`: what the panel shows, for readers who cannot see it, used in EPUBs and the series reader; null makes it from the beat, dialogue and sound effects; get_accessibility lists what is missing); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.",
     input: PatchPanel.extend({
       panelId: Uuid,
       spec: z
@@ -424,6 +424,203 @@ export const panelTools = [
         body: { ...body, ai: await restAi(ctx, ai) },
       });
       return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(r.job.projectId, r.job.id) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "coverage_sheet",
+    title: "Coverage sheet",
+    description:
+      "A panel's moment from nine camera setups in one image (3x3: 1 wide, 2 full, 3 medium, 4 close-up, 5 extreme close-up, 6 over the shoulder, 7 insert, 8 low angle, 9 high angle), to pick framings from. generate: queue one sheet (an image job; spends image-provider credits, may need approval; poll get_job, see it with get_image). list: the panel's sheets. use: turn picked cells (jobId, cells 1-9) into panels — mode this (one cell) reframes the panel itself, mode new adds them as new panels with the panel's cast, place and spec on a new page right after; each takes its cell as a strict layout guide and its setup's shot type and angle. Nothing is drawn by use.",
+    input: z.object({
+      action: z.enum(["generate", "list", "use"]),
+      panelId: Uuid.optional().describe("For generate and list."),
+      jobId: Uuid.optional().describe("For use: the coverage sheet job."),
+      cells: z.array(z.number().int().min(1).max(9)).min(1).max(9).optional(),
+      mode: z.enum(["this", "new"]).optional(),
+      ai: ImageAiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["generations:run"],
+    scopesFor: (a) =>
+      a.action === "generate" ? ["generations:run"] : a.action === "use" ? ["panels:write"] : ["panels:read"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/panels/:id/coverage", "GET /api/panels/:id/coverage", "POST /api/coverage-sheets/:jobId/use"],
+    actionKeys: ["coverage.generate", "coverage.use"],
+    classify: async (a, ctx) => {
+      if (a.action === "list")
+        return cls("read", "coverage.list", await projectOf(ctx, "panel", a.panelId ?? ""), "List coverage sheets");
+      if (a.action === "generate")
+        return cls(
+          "spend",
+          "coverage.generate",
+          await projectOf(ctx, "panel", a.panelId ?? ""),
+          `Draw a coverage sheet with ${a.ai?.provider ?? "the chosen image key"}; spends image-provider credits`,
+        );
+      return cls(
+        "write",
+        "coverage.use",
+        await projectOf(ctx, "generation", a.jobId ?? ""),
+        "Turn coverage picks into panels",
+      );
+    },
+    handler: async (a, ctx) => {
+      const need = <T>(v: T | undefined, name: string) => {
+        if (v === undefined) throw toolError(400, "bad_request", `${name} is required for ${a.action}`);
+        return v;
+      };
+      if (a.action === "list")
+        return { data: await ctx.invoke("GET", `/api/panels/${need(a.panelId, "panelId")}/coverage`) };
+      if (a.action === "use")
+        return {
+          data: await ctx.invoke("POST", `/api/coverage-sheets/${need(a.jobId, "jobId")}/use`, {
+            body: { cells: need(a.cells, "cells"), mode: a.mode },
+          }),
+        };
+      const r = await ctx.invoke<Jobbed>("POST", `/api/panels/${need(a.panelId, "panelId")}/coverage`, {
+        body: { ai: await restAi(ctx, a.ai) },
+      });
+      return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(r.job.projectId, r.job.id) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "panel_image_tools",
+    title: "Panel image tools",
+    description:
+      "Image tools on a panel's active artwork; each makes a new artwork version, made active (the old one stays: manage_panel_artwork). Without AI, at once: upscale (2x), lineart (black lines on white), palette (paletteAssetId: take another project image's colours; strength 0.1-1). As masked edits (a panel_edit job: spends image credits, may need approval; poll get_job): repair (faces, hands, details), relight (light: e.g. \"warm sunset from the left\"), background (plain white), colorize, expression (character, expression), outpaint (aspect 9:16|16:9|1:1|4:5|2:3: widened instead of cropped). guide_clean / guide_lineart tidy the panel's layout guide instead (no AI).",
+    input: z.object({
+      panelId: Uuid,
+      tool: z.enum([
+        "upscale",
+        "lineart",
+        "palette",
+        "repair",
+        "relight",
+        "background",
+        "colorize",
+        "expression",
+        "outpaint",
+        "guide_clean",
+        "guide_lineart",
+      ]),
+      paletteAssetId: Uuid.optional(),
+      strength: z.number().min(0.1).max(1).optional(),
+      light: z.string().max(300).optional(),
+      character: z.string().max(120).optional(),
+      expression: z.string().max(200).optional(),
+      aspect: z.enum(["9:16", "16:9", "1:1", "4:5", "2:3"]).optional(),
+      ai: ImageAiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["panels:write"],
+    scopesFor: (a) =>
+      ["repair", "relight", "background", "colorize", "expression", "outpaint"].includes(a.tool)
+        ? ["panels:write", "generations:run"]
+        : ["panels:write"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/panels/:id/tools", "POST /api/panels/:id/guide/tools"],
+    actionKeys: ["panel.tool", "panel.tool.ai"],
+    classify: async (a, ctx) => {
+      const ai = ["repair", "relight", "background", "colorize", "expression", "outpaint"].includes(a.tool);
+      return cls(
+        ai ? "spend" : "write",
+        ai ? "panel.tool.ai" : "panel.tool",
+        await projectOf(ctx, "panel", a.panelId),
+        ai ? `Run ${a.tool} on a panel's artwork; spends image-provider credits` : `Run ${a.tool} on a panel`,
+        { target: await stamp(ctx, panels, a.panelId, ["approvalStatus", "updatedAt"]) },
+      );
+    },
+    handler: async ({ panelId, tool, ai, idempotencyKey: _k, ...rest }, ctx) => {
+      if (tool === "guide_clean" || tool === "guide_lineart")
+        return {
+          data: await ctx.invoke("POST", `/api/panels/${panelId}/guide/tools`, {
+            body: { tool: tool === "guide_clean" ? "clean" : "lineart" },
+          }),
+        };
+      const needsAi = ["repair", "relight", "background", "colorize", "expression", "outpaint"].includes(tool);
+      return {
+        data: await ctx.invoke("POST", `/api/panels/${panelId}/tools`, {
+          body: { tool, ...rest, ...(needsAi ? { ai: await restAi(ctx, ai) } : {}) },
+        }),
+      };
+    },
+  }),
+
+  defineMcpTool({
+    name: "find_duplicates",
+    title: "Find near-duplicates",
+    description:
+      "Near-duplicate finder, without AI: run=true queues a scan (a job; poll get_job), run=false reads the newest report: groups of near-identical panels, the same figure staging in panels that are not neighbours (pose), the same background across different scenes, and near-identical cover or thumbnail art, each with a score and its panels (page, chapter).",
+    input: z.object({ projectId: Uuid, run: z.boolean().default(false) }),
+    output: Passthrough,
+    scopes: ["panels:read"],
+    scopesFor: (a) => (a.run ? ["panels:write"] : ["panels:read"]),
+    sensitivity: "write",
+    idempotent: false,
+    routes: ["POST /api/projects/:projectId/duplicates/scan", "GET /api/projects/:projectId/duplicates"],
+    actionKeys: ["duplicates.scan"],
+    classify: async ({ projectId, run }) =>
+      cls(
+        run ? "write" : "read",
+        "duplicates.scan",
+        projectId,
+        run ? "Scan for near-duplicates" : "Read the duplicate report",
+      ),
+    handler: async ({ projectId, run }, ctx) => {
+      if (!run) return { data: await ctx.invoke("GET", `/api/projects/${projectId}/duplicates`) };
+      const r = await ctx.invoke<Jobbed>("POST", `/api/projects/${projectId}/duplicates/scan`);
+      return { data: { job: jobView(r.job) }, links: { job: links(ctx).job(projectId, r.job.id) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "compare_models",
+    title: "Compare image models",
+    description:
+      "Draw one panel with 2-4 image models side by side. run: runs (each an ai choice: credentialId, model) — each spends that key's credits (may need approval); asynchronous, returns the jobs. get: the newest comparison — per run provider, model, status, artwork (assetId: see it with get_image), time taken, estimated cost and visual check. pick: jobId — that run's artwork becomes the panel's active version; draw more panels with the same credentialId and model (generate_panel / run_bulk_generation ai).",
+    input: z.object({
+      action: z.enum(["run", "get", "pick"]),
+      panelId: Uuid,
+      runs: z.array(ImageAiInput.unwrap()).min(2).max(4).optional(),
+      jobId: Uuid.optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["panels:read"],
+    scopesFor: (a) =>
+      a.action === "run" ? ["generations:run"] : a.action === "pick" ? ["panels:write"] : ["panels:read"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/panels/:id/compare", "GET /api/panels/:id/compare", "POST /api/panels/:id/compare/pick"],
+    actionKeys: ["panel.compare", "panel.compare_pick"],
+    classify: async (a, ctx) => {
+      const project = await projectOf(ctx, "panel", a.panelId);
+      if (a.action === "get") return cls("read", "panel.compare", project, "Read a model comparison");
+      if (a.action === "pick") return cls("write", "panel.compare_pick", project, "Use a comparison run's artwork");
+      return cls(
+        "spend",
+        "panel.compare",
+        project,
+        `Draw a panel with ${a.runs?.length ?? 0} image models; spends image-provider credits`,
+      );
+    },
+    handler: async (a, ctx) => {
+      if (a.action === "get") return { data: await ctx.invoke("GET", `/api/panels/${a.panelId}/compare`) };
+      if (a.action === "pick") {
+        if (!a.jobId) throw toolError(400, "bad_request", "jobId is required for pick");
+        return {
+          data: await ctx.invoke("POST", `/api/panels/${a.panelId}/compare/pick`, { body: { jobId: a.jobId } }),
+        };
+      }
+      if (!a.runs) throw toolError(400, "bad_request", "runs are required for run");
+      const runs = [];
+      for (const r of a.runs) runs.push(await restAi(ctx, r));
+      return { data: await ctx.invoke("POST", `/api/panels/${a.panelId}/compare`, { body: { runs } }) };
     },
   }),
 

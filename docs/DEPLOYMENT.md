@@ -302,6 +302,12 @@ worker runs the outbox publisher and the Redis reconcile loop, which are safe to
 `WORKER_QUEUES` stops the worker at start, and the worker logs the queues it consumes. The Queues table in Admin shows the
 `render` queue's counts next to the others.
 
+**Workers by capability.** A worker takes only the queues it can serve: video renders need ffmpeg, narration needs
+the voice. So a machine added with `WORKER_CAPABILITIES=-ffmpeg` (or one without ffmpeg) never picks up a render,
+and declared capabilities (`gpu`, `comfyui`) mark the machines for work that needs them. Admin → Overview → *Workers*
+lists every worker alive (each checks in every 30 s), what it can do and takes, and warns when jobs wait on a queue no
+running worker takes, naming the workers that left it and what they lack.
+
 **Upgrading from a release without the `render` queue.** Renders and imports queued before the upgrade stay on the
 `export` queue and still run there: the `export` worker takes any export kind, and reconcile, cancel and the stalled
 sweep look on both queues. They need a worker that consumes `export`, which the main worker does in both setups above.
@@ -348,6 +354,20 @@ All exports are deterministic compositions — no AI calls — and are queued: `
   project costs no more memory than one chapter. Page images spanning chapters are named
   `<title>_project_ch02_p003.png`, since page numbers restart in every chapter. A whole-project webtoon without
   `split` is still one image, capped at 200 MP like any strip, so leave splitting on for a long project.
+  An EPUB describes each page for screen readers: the `alt` of its image is its panels' alt text in reading order
+  (`altTextFor`, `packages/services/src/accessibility.ts`; a panel's own, or one made from its story beat, dialogue
+  and sound effects), and the package declares schema.org accessibility metadata (`accessMode`, `accessModeSufficient`
+  textual when every page is described, `accessibilityFeature` alternativeText and readingOrder, no hazards, a summary).
+  `webtoon.exactHeight` cuts any image taller than `maxChunkHeight` (a panel or blended run taller than the limit)
+  into pieces that stack back seamlessly (`…_06_a.jpg`, `…_06_b.jpg`), for platforms that refuse taller images.
+- **Export targets** (`GET /api/export-targets`, `packages/domain/src/export-targets.ts`): platform presets — YouTube,
+  YouTube Shorts, TikTok, Instagram Reels, Instagram carousel, WEBTOON Canvas, Tapas, Amazon KDP paperback and plain
+  PDF — each with the export kind and options it sets, its limits (video length, file size, image count, width,
+  height and size, episode total, page count) and notes for what a check cannot measure (safe areas, naming,
+  codecs). `GET /api/projects/:id/export-targets/:key/check` checks one before exporting (a panel cut's length from
+  the timing, a PDF's pages, the strip's images at the target's width, a Short's or carousel's pick); an export with
+  `target` is checked again against its files, recorded as `result.targetCheck`. Limits are the platforms' own as of
+  2026 and change: each message names the number it checked against.
   `youtube_package` makes no video of its own: it zips the newest full finished video of the same scope (chapter or whole
   project) with its subtitles and chapter timestamps, the thumbnail and the publishing text written by
   `POST /api/projects/:id/youtube-package`, and fails until both exist (`docs/STORAGE.md` lists the files).
