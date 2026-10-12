@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-12
+
+Upgrading: pull the new images and restart. Twelve migrations run on start through the migrate service
+(`0040_panel_source_span` to `0051_panel_alt_text`). New optional settings: `WORKER_CAPABILITIES` (what a worker can
+do beyond what it detects) and `REGISTER_LIMIT_PER_HOUR` (default 10). Source-to-panel tracing, story timeline,
+location states, directing controls, coverage sheets, a reference board, image tools, comic effects, near-duplicate
+checks, model comparison, translated lettering, a prompt lab, editing the video in words, native 9:16 projects, hook
+variants, export targets, a public series reader, a richer asset library, per-project storage policies, workers by
+capability, provenance records and accessibility.
+
 ### Added
 
 - Accessibility: every panel has alt text — written by hand on the Panel tab (even when the panel is locked) or made
