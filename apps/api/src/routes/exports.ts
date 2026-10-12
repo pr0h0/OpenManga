@@ -207,7 +207,7 @@ export const ExportOptions = z.object({
       zoom: 0.06,
       breathMs: 150,
     }),
-  /** Narration track language for narration/timeline/agent/video exports (default: project language). */
+  /** Narration track language for narration/timeline/agent/video exports (default: project language); for pages, PDF, CBZ, EPUB and webtoon, the translated lettering edition. */
   language: z.string().trim().min(2).max(16).optional(),
   /**
    * A platform target (GET /api/export-targets): its limits are checked against the files made, on the job's result

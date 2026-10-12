@@ -149,6 +149,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- MCP: `update_project` explains video hook variants (`settings.video.hooks`), `update_panel` lists `altText`, and
+  `create_export` explains `language` (lettering edition or narration track), `target` and `provenance`.
 - A video with no narration (pages or shots not voiced yet) failed to render: its silent soundtrack measured
   -inf loudness and the normalising pass broke. Silence is now left as it is.
 

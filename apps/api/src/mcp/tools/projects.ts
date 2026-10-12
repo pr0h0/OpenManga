@@ -115,7 +115,7 @@ export const projectTools = [
     name: "update_project",
     title: "Update project",
     description:
-      "Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project) and intro/outro cards, ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.",
+      "Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project), intro/outro cards and `hooks` (up to 10 alternative openings for a panel-cut video, the whole list: [{ id (a new UUID), label, text (what the narrator says, up to 600 characters), panelIds (1-6 panels shown under it), title?, thumbnailHeadline? }]; render one with create_export video_panels `video.hookId`), ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.",
     input: UpdateProject.extend({ projectId: Uuid }),
     output: z.object({ project: Passthrough }),
     scopes: ["projects:write"],
