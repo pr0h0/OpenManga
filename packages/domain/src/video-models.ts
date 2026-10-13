@@ -29,6 +29,8 @@ export type VideoModel = {
   note: string;
   /** Endpoint for text-to-video when it differs from the image-to-video one (fal splits them). */
   textEndpoint?: string;
+  /** A flat fee per clip on top of the per-second price (an input-image fee). */
+  perClipUsd?: number;
 };
 
 /**
@@ -37,6 +39,13 @@ export type VideoModel = {
  */
 export const LOCAL_VIDEO_MODEL = "still-motion";
 
+// Seedance bills tokens: width × height × 24 fps × seconds / 1024, at $1 per 1M tokens for 1.0 Pro Fast.
+const seedanceFast = (w: number, h: number) => Math.round(((w * h * 24) / 1024 / 1e6) * 1e6) / 1e6;
+
+/**
+ * fal models, from fal's model pages (2026-10; sources in docs/VIDEO_PROVIDERS.md). List prices: check fal's pricing
+ * before relying on them, and add a new rate snapshot when they change.
+ */
 export const VIDEO_MODELS: VideoModel[] = [
   {
     id: LOCAL_VIDEO_MODEL,
@@ -51,6 +60,128 @@ export const VIDEO_MODELS: VideoModel[] = [
     audio: false,
     pricePerSecond: { "480p": { silent: 0 }, "720p": { silent: 0 }, "1080p": { silent: 0 } },
     note: "The shot's image with a slow camera move. Nothing moves inside the picture. Free, for drafts and tests.",
+  },
+  {
+    id: "fal-ai/bytedance/seedance/v1/pro/fast/image-to-video",
+    provider: "fal",
+    label: "Seedance 1.0 Pro Fast",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    resolutions: ["480p", "720p", "1080p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: false,
+    audio: false,
+    pricePerSecond: {
+      "480p": { silent: seedanceFast(864, 480) },
+      "720p": { silent: seedanceFast(1280, 720) },
+      "1080p": { silent: seedanceFast(1920, 1080) },
+    },
+    note: "The cheapest real motion: about $0.05 for 5 s at 480p. Realistic and anime both fine. No end frame.",
+  },
+  {
+    id: "xai/grok-imagine-video/v1.5/lite/image-to-video",
+    provider: "fal",
+    label: "Grok Imagine 1.5 Lite",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [3, 4, 5, 6, 8, 10, 12, 15],
+    resolutions: ["480p", "720p", "1080p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: false,
+    audio: false,
+    pricePerSecond: { "480p": { silent: 0.02 }, "720p": { silent: 0.03 }, "1080p": { silent: 0.14 } },
+    perClipUsd: 0.01,
+    note: "Very cheap drafts (plus $0.01 per clip for the image).",
+  },
+  {
+    id: "fal-ai/minimax/hailuo-02/standard/image-to-video",
+    provider: "fal",
+    label: "Hailuo 02 Standard",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [6, 10],
+    resolutions: ["480p", "720p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: true,
+    audio: false,
+    // 480p is MiniMax's 512P, 720p its 768P.
+    pricePerSecond: { "480p": { silent: 0.017 }, "720p": { silent: 0.045 } },
+    note: "Good physics, liked for stylised and anime looks. 6 or 10 s only. Lands on an end frame.",
+  },
+  {
+    id: "fal-ai/wan-25-preview/image-to-video",
+    provider: "fal",
+    label: "Wan 2.5",
+    imageToVideo: true,
+    textToVideo: true,
+    textEndpoint: "fal-ai/wan-25-preview/text-to-video",
+    durations: [5, 10],
+    resolutions: ["480p", "720p", "1080p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: false,
+    audio: false,
+    pricePerSecond: { "480p": { silent: 0.05 }, "720p": { silent: 0.1 }, "1080p": { silent: 0.15 } },
+    note: "Open model, general purpose; also makes a shot from words alone.",
+  },
+  {
+    id: "fal-ai/pixverse/v6/image-to-video",
+    provider: "fal",
+    label: "PixVerse v6",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [3, 4, 5, 6, 8, 10],
+    resolutions: ["480p", "720p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: false,
+    audio: true,
+    // 480p is PixVerse's 540p.
+    pricePerSecond: { "480p": { silent: 0.036 }, "720p": { silent: 0.045, audio: 0.06 } },
+    note: "Has an anime style setting, used for manga and cartoon looks.",
+  },
+  {
+    id: "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+    provider: "fal",
+    label: "Kling 2.5 Turbo Pro",
+    imageToVideo: true,
+    textToVideo: true,
+    textEndpoint: "fal-ai/kling-video/v2.5-turbo/pro/text-to-video",
+    durations: [5, 10],
+    resolutions: ["1080p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: true,
+    audio: false,
+    pricePerSecond: { "1080p": { silent: 0.07 } },
+    note: "Realistic, strong motion; lands on an end frame. $0.35 for 5 s.",
+  },
+  {
+    id: "fal-ai/kling-video/v3/standard/image-to-video",
+    provider: "fal",
+    label: "Kling 3 Standard",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [3, 4, 5, 6, 8, 10, 12, 15],
+    resolutions: ["720p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: true,
+    audio: true,
+    pricePerSecond: { "720p": { silent: 0.084, audio: 0.126 } },
+    note: "Cinematic, realistic and good at stylised looks; sound on request.",
+  },
+  {
+    id: "fal-ai/veo3.1/fast/image-to-video",
+    provider: "fal",
+    label: "Veo 3.1 Fast",
+    imageToVideo: true,
+    textToVideo: true,
+    textEndpoint: "fal-ai/veo3.1/fast",
+    durations: [4, 6, 8],
+    resolutions: ["720p", "1080p"],
+    aspects: ["16:9", "9:16"],
+    endFrame: false,
+    audio: true,
+    pricePerSecond: { "720p": { silent: 0.1, audio: 0.15 }, "1080p": { silent: 0.1, audio: 0.15 } },
+    note: "Polished realism with sound. Check it is still offered on fal before relying on it.",
   },
 ];
 
@@ -83,15 +214,18 @@ export function estimateClipUsd(m: VideoModel, seconds: number, resolution: Vide
   const p = m.pricePerSecond[resolution] ?? Object.values(m.pricePerSecond)[0];
   if (!p) return 0;
   const rate = audio && m.audio ? (p.audio ?? p.silent) : p.silent;
-  return Math.round(rate * seconds * 10000) / 10000;
+  return Math.round((rate * seconds + (m.perClipUsd ?? 0)) * 10000) / 10000;
 }
 
 /** Rate snapshots for every priced video model, seeded like the other models' rates. */
 export const VIDEO_RATE_SNAPSHOTS = VIDEO_MODELS.filter((m) => m.provider !== "local").flatMap((m) =>
-  Object.entries(m.pricePerSecond).flatMap(([res, p]) => [
-    { model: videoRateModel(m.id, res as VideoResolution, false), rate: p!.silent, provider: m.provider },
-    ...(m.audio && p!.audio !== undefined
-      ? [{ model: videoRateModel(m.id, res as VideoResolution, true), rate: p!.audio, provider: m.provider }]
-      : []),
-  ]),
+  Object.entries(m.pricePerSecond).flatMap(([res, p]) => {
+    const base = { provider: m.provider, perClip: m.perClipUsd ?? 0 };
+    return [
+      { ...base, model: videoRateModel(m.id, res as VideoResolution, false), rate: p!.silent },
+      ...(m.audio && p!.audio !== undefined
+        ? [{ ...base, model: videoRateModel(m.id, res as VideoResolution, true), rate: p!.audio }]
+        : []),
+    ];
+  }),
 );

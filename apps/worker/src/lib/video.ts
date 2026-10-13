@@ -22,7 +22,7 @@ import {
   watermarkBox,
 } from "@openmanga/domain";
 import { sharp } from "@openmanga/image-utils";
-import type { ProjectSettings, ShortsCaptions } from "@openmanga/schemas";
+import type { OnScreenText, ProjectSettings, ShortsCaptions } from "@openmanga/schemas";
 import {
   type BrandedProject,
   backdrop,
@@ -227,6 +227,17 @@ async function prepareBranding(
   return { intro: await card("intro"), outro: await card("outro"), watermark, chapters };
 }
 
+/** The project's music bed, copied next to the render, or null. */
+async function prepareMusic(deps: WorkerDeps, project: BrandedProject, dir: string) {
+  const m = project.settings.video?.music;
+  if (!m?.assetId || m.volume <= 0) return null;
+  const a = await deps.assets.get(m.assetId);
+  if (!a || a.deletedAt || a.projectId !== project.id || !a.mimeType.startsWith("audio/")) return null;
+  const path = join(dir, "music");
+  await Bun.write(path, new Response(deps.assets.storage.stream(a.storageKey)));
+  return { path, volume: m.volume, duck: m.duck !== false, sha: a.sha256 };
+}
+
 /**
  * The zoompan filter for a camera move over `frames` output frames, at box size `w`×`h`. `motionPath` is the same
  * curve the preview plays: zoom, and where the window sits in the slack the zoom leaves.
@@ -316,12 +327,35 @@ const assTime = (ms: number) => {
   return `${Math.floor(cs / 360_000)}:${p(Math.floor(cs / 6000) % 60)}:${p(Math.floor(cs / 100) % 60)}.${p(cs % 100)}`;
 };
 
-/** An ASS subtitle file for burning captions into a frame of this size: white bold text with a black outline. */
-export function toAss(cues: Cue[], style: CaptionStyle, frameW: number, frameH: number) {
-  const st = CAPTION[style];
+/** Text over a shot (an ad's headline, offer or call to action) for the time it is on screen. */
+export type Overlay = { startMs: number; endMs: number } & OnScreenText;
+
+/** Size (share of the short side) of each on-screen text style; a call to action sits in a box. */
+const OVERLAY = { headline: 0.085, caption: 0.055, cta: 0.07 } as const;
+const OVERLAY_ALIGN = { top: 8, center: 5, bottom: 2 } as const;
+
+/**
+ * An ASS subtitle file for burning text into a frame of this size: captions (white bold text with a black outline,
+ * when `style` is set) and on-screen texts, each in its own style and place.
+ */
+export function toAss(
+  cues: Cue[],
+  style: CaptionStyle | null,
+  frameW: number,
+  frameH: number,
+  overlays: Overlay[] = [],
+) {
+  const st = CAPTION[style ?? "bottom"];
   const size = Math.round(Math.min(frameW, frameH) * st.size);
   const side = Math.round(frameW * 0.08);
   const assText = (t: string) => t.replace(/[\\{}]/g, "").replace(/\n/g, "\\N");
+  const short = Math.min(frameW, frameH);
+  const overlayStyle = (name: string, k: keyof typeof OVERLAY) => {
+    const fs = Math.round(short * OVERLAY[k]);
+    // A call to action is drawn in an opaque box (BorderStyle 3), the others outlined like captions.
+    const box = k === "cta";
+    return `Style: ${name},DejaVu Sans,${fs},&H00FFFFFF,&H00FFFFFF,${box ? "&H00202020" : "&H00000000"},${box ? "&H00202020" : "&H80000000"},-1,0,0,0,100,100,0,0,${box ? 3 : 1},${box ? Math.round(fs * 0.35) : Math.max(2, Math.round(fs * 0.08))},${box ? 0 : 2},2,${side},${side},${Math.round(frameH * 0.08)},1`;
+  };
   return [
     "[Script Info]",
     "ScriptType: v4.00+",
@@ -333,11 +367,18 @@ export function toAss(cues: Cue[], style: CaptionStyle, frameW: number, frameH: 
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
     `Style: Default,DejaVu Sans,${size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,${Math.max(2, Math.round(size * 0.09))},2,${st.align},${side},${side},${Math.round(frameH * st.marginV)},1`,
+    overlayStyle("Headline", "headline"),
+    overlayStyle("Caption", "caption"),
+    overlayStyle("Cta", "cta"),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ...captionChunks(cues, style).map(
+    ...(style ? captionChunks(cues, style) : []).map(
       (c) => `Dialogue: 0,${assTime(c.startMs)},${assTime(c.endMs)},Default,,0,0,0,,${assText(c.text)}`,
+    ),
+    ...overlays.map(
+      (o) =>
+        `Dialogue: 1,${assTime(o.startMs)},${assTime(o.endMs)},${o.style === "headline" ? "Headline" : o.style === "cta" ? "Cta" : "Caption"},,0,0,0,,{\\an${OVERLAY_ALIGN[o.position]}}${assText(o.text)}`,
     ),
     "",
   ].join("\n");
@@ -387,7 +428,51 @@ type FilmSetup<S extends Shot> = {
   onSections?: (keys: string[]) => Promise<void>;
   /** Cards before the shot at this index: a chapter's title card before its first shot, the intro after an opening. */
   cardsBefore?: Map<number, Card[]>;
+  /** Text drawn over a shot for its whole hold. */
+  overlayOf?: (shot: S) => OnScreenText | null;
+  /** A shot's own sound (a generated clip's), mixed under the narration from the shot's start for its hold. */
+  audioOf?: (shot: S) => Promise<{ path: string; volume: number } | null>;
+  /** A music bed under the whole film, looped, turned down while the narration speaks when `duck` is on. */
+  music?: { path: string; volume: number; duck: boolean } | null;
 };
+
+/**
+ * The audio graph mixing shots' own sound and a music bed under the narration (input 1). Each shot's sound starts at
+ * its shot and stops with it; the music loops under the whole film and, with `duck`, is pressed down by the
+ * narration (a sidechain compressor). Nothing extra: no filter, the narration is mapped as it is.
+ */
+export function audioMix(
+  shots: { path: string; volume: number; startMs: number; durationMs: number }[],
+  music: { path: string; volume: number; duck: boolean } | null,
+) {
+  if (!shots.length && !music) return { inputs: [] as string[], filter: "" };
+  const inputs = shots.flatMap((s) => ["-i", s.path]);
+  const parts: string[] = [];
+  const mixed: string[] = [];
+  const first = 2;
+  shots.forEach((s, k) => {
+    const d = Math.round(s.startMs);
+    parts.push(
+      `[${first + k}:a]atrim=0:${(s.durationMs / 1000).toFixed(3)},asetpts=PTS-STARTPTS,aresample=48000,volume=${s.volume.toFixed(3)},adelay=${d}|${d}[s${k}]`,
+    );
+    mixed.push(`[s${k}]`);
+  });
+  const narration = music?.duck ? "[nar]" : "[1:a]";
+  if (music) {
+    const m = first + shots.length;
+    inputs.push("-stream_loop", "-1", "-i", music.path);
+    if (music.duck) {
+      parts.push("[1:a]asplit=2[nar][key]");
+      parts.push(
+        `[${m}:a]aresample=48000,volume=${music.volume.toFixed(3)}[mraw];[mraw][key]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=350[mus]`,
+      );
+    } else parts.push(`[${m}:a]aresample=48000,volume=${music.volume.toFixed(3)}[mus]`);
+    mixed.push("[mus]");
+  }
+  // duration=first: the narration track is the film's length; normalize=0 keeps every level as set.
+  parts.push(`${narration}${mixed.join("")}amix=inputs=${mixed.length + 1}:duration=first:normalize=0[aout]`);
+  return { inputs, filter: parts.join(";") };
+}
 
 /**
  * Shared film pipeline. Pass 1 in shot order, one hold group at a time (a shot, or the run of shots a narration line
@@ -425,6 +510,8 @@ async function buildFilm<S extends Shot>(
   const holds: { frames: number; holdSec: number }[] = [];
   /** Where each shot starts in the film (its chapter's card, for a chapter's first), for chapter timestamps. */
   const startsMs: number[] = [];
+  /** Where each shot's own picture starts and ends (after any card before it). */
+  const spans: { startMs: number; endMs: number }[] = [];
   let totalFrames = 0;
   // A card is silence on the audio track; everything after it (cues, chapter marks) starts that much later.
   const holdCard = async (card: Card) => {
@@ -504,6 +591,7 @@ async function buildFilm<S extends Shot>(
         const frames = timing.frames[m]!;
         // A chapter mark points at the chapter's title card when it has one.
         startsMs.push(m === 0 && chapterCard ? cardStartMs : (totalFrames * 1000) / opts.fps);
+        spans.push({ startMs: (totalFrames * 1000) / opts.fps, endMs: ((totalFrames + frames) * 1000) / opts.fps });
         totalFrames += frames;
         holds.push({ frames, holdSec: frames / opts.fps });
         Object.assign(shot.report, {
@@ -643,6 +731,14 @@ async function buildFilm<S extends Shot>(
 
   const rawPath = join(dir, "raw.mp4");
   const aac = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"];
+  // Shots' own sound and the music bed, mixed under the narration (which runs the whole film, so it sets the length).
+  const shotAudio: { path: string; volume: number; startMs: number; durationMs: number }[] = [];
+  if (film.audioOf)
+    for (const [i, shot] of shots.entries()) {
+      const a = spans[i] ? await film.audioOf(shot) : null;
+      if (a) shotAudio.push({ ...a, startMs: spans[i]!.startMs, durationMs: spans[i]!.endMs - spans[i]!.startMs });
+    }
+  const mix = audioMix(shotAudio, film.music ?? null);
   await run(
     [
       "ffmpeg",
@@ -658,10 +754,8 @@ async function buildFilm<S extends Shot>(
       listPath,
       "-i",
       audioPath,
-      "-map",
-      "0:v",
-      "-map",
-      "1:a",
+      ...mix.inputs,
+      ...(mix.filter ? ["-filter_complex", mix.filter, "-map", "0:v", "-map", "[aout]"] : ["-map", "0:v", "-map", "1:a"]),
       "-c:v",
       "copy",
       ...aac,
@@ -689,8 +783,15 @@ async function buildFilm<S extends Shot>(
   // The filter names the file relative to the temp dir (ffmpeg runs there), so no character of its path can break the
   // filtergraph's syntax.
   const captions = opts.captions && opts.captions !== "off" && cues.length ? opts.captions : null;
-  if (captions) await Bun.write(join(dir, "captions.ass"), toAss(cues, captions, film.frameW, film.frameH));
-  const videoOut = captions
+  const overlays: Overlay[] = film.overlayOf
+    ? shots.flatMap((shot, i) => {
+        const o = spans[i] ? film.overlayOf!(shot) : null;
+        return o ? [{ ...o, ...spans[i]! }] : [];
+      })
+    : [];
+  const burn = Boolean(captions || overlays.length);
+  if (burn) await Bun.write(join(dir, "captions.ass"), toAss(cues, captions, film.frameW, film.frameH, overlays));
+  const videoOut = burn
     ? ["-vf", "ass=captions.ass", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"]
     : ["-c:v", "copy"];
   await run(
@@ -748,6 +849,9 @@ async function buildFilm<S extends Shot>(
       sections: { reused, encoded: clips.length - reused },
       subtitleCues: cues.length,
       ...(captions ? { captions } : {}),
+      ...(overlays.length ? { onScreenTexts: overlays.length } : {}),
+      ...(shotAudio.length ? { shotAudio: shotAudio.length } : {}),
+      ...(film.music ? { music: { volume: film.music.volume, duck: film.music.duck } } : {}),
       loudness: m,
     },
   };
@@ -796,7 +900,8 @@ async function plan(deps: WorkerDeps, project: Project, chapterId: string | null
   );
   const shots = planned.shots.map((s) => ({
     ...s,
-    minHoldMs: s.panel?.video?.holdMs ?? null,
+    // A shot with a clip holds at least the clip, so the whole of it plays.
+    minHoldMs: s.panel?.video?.holdMs ?? s.clip?.durationMs ?? null,
     report: {
       chapter: s.page.chapterOrder,
       page: s.page.order,
@@ -886,6 +991,7 @@ export async function renderPageCutVideo(
       branding: openingShots ? { ...branding, intro: null } : branding,
       cardsBefore: cardsBefore(shots, branding, openingShots),
       onSections: opts.onSections,
+      music: await prepareMusic(deps, project, dir),
       // The lettered page (its render fingerprint), its framing and scroll, its length and its fades.
       describe: async (shot, frames) => ({
         cut: "page",
@@ -972,10 +1078,21 @@ export async function renderPanelCutVideo(
       branding: openingShots ? { ...branding, intro: null } : branding,
       cardsBefore: cardsBefore(shots, branding, openingShots),
       onSections: opts.onSections,
+      music: await prepareMusic(deps, project, dir),
+      overlayOf: (shot) => shot.panel?.video?.onScreenText ?? null,
+      // A clip's own sound, when the shot mixes it in: the clip file itself (ffmpeg reads its audio stream).
+      audioOf: async (shot) => {
+        if (!shot.clip || shot.panel?.video?.clipAudio !== "mix" || !shot.clip.metadata.audio) return null;
+        const path = join(dir, `clip-audio-${shot.clip.id}.mp4`);
+        if (!(await Bun.file(path).exists()))
+          await Bun.write(path, new Response(deps.assets.storage.stream(shot.clip.storageKey)));
+        return { path, volume: 0.6 };
+      },
       // The artwork (its hash) and how it is cropped, or the lettered page when there is none; the move, its length
-      // and its fades.
+      // and its fades. A clip instead: its file, how it fills the frame, its length and fades.
       describe: async (shot, frames) => {
         const pn = shot.panel!;
+        if (shot.clip) return { cut: "clip", clip: shot.clip.sha256, aspect: opts.aspect ?? "16:9", frames, fade: shot.fade };
         return {
           cut: "panel",
           art: shot.art?.sha256 ?? null,
@@ -995,6 +1112,14 @@ export async function renderPanelCutVideo(
       const pg = shot.page;
       const pn = shot.panel!;
       const n = String(i + 1).padStart(5, "0");
+      if (shot.clip) {
+        const src = join(dir, `src-${n}.mp4`);
+        await Bun.write(src, new Response(deps.assets.storage.stream(shot.clip.storageKey)));
+        Object.assign(shot.report, { source: "clip", clipAssetId: shot.clip.id, clipMs: shot.clip.durationMs });
+        await encodeVideoClip(src, frameW, frameH, frames, opts.fps, shot.fade, clip, shot.label, branding.watermark);
+        await rm(src);
+        return;
+      }
       const { art, focus } = shot;
       // Vertical and square frames crop the art to their own shape around its focal point; landscape keeps the panel.
       const fill = Boolean(art) && cropsToFrame(opts.aspect ?? "16:9");
@@ -1111,6 +1236,58 @@ async function encodeClip(
       "20",
       ...(still ? ["-tune", "stillimage"] : []),
       clip,
+    ],
+    `${label} clip`,
+  );
+}
+
+/**
+ * Encodes one shot from a generated clip: filled to the frame (cropped around the centre when its shape differs),
+ * at the film's frame rate, held on its last frame when the shot runs longer than the clip and cut when shorter, with
+ * the shot's fades and the watermark. The clip's own sound is mixed separately (audioMix).
+ */
+async function encodeVideoClip(
+  src: string,
+  frameW: number,
+  frameH: number,
+  frames: number,
+  fps: number,
+  fade: { in: boolean; out: boolean },
+  out: string,
+  label: string,
+  watermark: Watermark | null,
+) {
+  const holdSec = (frames / fps).toFixed(3);
+  const base = `[0:v]fps=${fps},scale=${frameW}:${frameH}:force_original_aspect_ratio=increase,crop=${frameW}:${frameH},setsar=1,tpad=stop_mode=clone:stop_duration=${holdSec}${fadeFilter(fade, frames, fps)}`;
+  const graph = watermark
+    ? `${base}[base];[1:v]format=rgba,colorchannelmixer=aa=${watermark.opacity.toFixed(3)}[wm];[base][wm]overlay=${watermark.x}:${watermark.y},format=yuv420p[v]`
+    : `${base},format=yuv420p[v]`;
+  await run(
+    [
+      "ffmpeg",
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      src,
+      ...(watermark ? ["-loop", "1", "-framerate", String(fps), "-i", watermark.path] : []),
+      "-filter_complex",
+      graph,
+      "-map",
+      "[v]",
+      "-an",
+      "-frames:v",
+      String(frames),
+      "-r",
+      String(fps),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "20",
+      out,
     ],
     `${label} clip`,
   );

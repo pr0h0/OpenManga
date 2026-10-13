@@ -381,7 +381,11 @@ export class CredentialService {
     const base = (cred.baseUrl ?? cat.baseUrl ?? "").replace(/\/$/, "");
     let url: string;
     let headers: Record<string, string>;
-    if (cred.kind === "elevenlabs") {
+    if (cred.kind === "fal") {
+      // fal has no model list per key; reading one model's price needs a valid key and costs nothing.
+      url = "https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai/bytedance/seedance/v1/pro/fast/image-to-video";
+      headers = { authorization: `Key ${cred.apiKey}` };
+    } else if (cred.kind === "elevenlabs") {
       url = `${base}/v1/models`;
       headers = { "xi-api-key": cred.apiKey };
     } else if (cred.kind === "anthropic") {
@@ -418,6 +422,7 @@ export class CredentialService {
     } catch {
       throw new CredentialError(`${cat.label} returned an unexpected model list`);
     }
+    if (cred.kind === "fal") return [];
     if (Array.isArray(json))
       return (json as { model_id?: string; can_do_text_to_speech?: boolean }[])
         .filter((m) => m.model_id)

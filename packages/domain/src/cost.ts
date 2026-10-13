@@ -225,6 +225,8 @@ export const DEFAULT_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = [
     imageInputRate: 0,
     imageOutputRate: 0,
     videoSecondRate: v.rate,
+    // A flat fee per clip (an input-image fee), recorded as one "image" per clip.
+    ...(v.perClip ? { imageUnitRate: v.perClip } : {}),
   })),
 ];
 

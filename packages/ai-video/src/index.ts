@@ -29,6 +29,8 @@ export type VideoRequest = {
   seed?: number | null;
   /** The shot's camera move, for the local model (paid models read it from the prompt). */
   motion?: string;
+  /** The project's look, for models with a style switch (PixVerse's anime style). */
+  style?: "anime" | "cartoon" | "realistic" | null;
 };
 
 /** A finished clip: an MP4 (or the provider's container) and what the provider reported. */

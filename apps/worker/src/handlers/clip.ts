@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { VideoInputImage, VideoResult } from "@openmanga/ai-video";
 import { eq, generationJobs, generationOutputs, panels } from "@openmanga/db";
 import { ProviderError, type VideoClipAspect, type VideoResolution, videoRateModel } from "@openmanga/domain";
+import { sharp } from "@openmanga/image-utils";
 import type { ShotVideo } from "@openmanga/schemas";
 import type { WorkerDeps } from "../context.ts";
 import { InputError, isCancelRequested, JobCancelledError, type ProjectJob } from "../lib/runner.ts";
@@ -21,6 +22,8 @@ export type ClipInput = {
   audio: boolean;
   seed: number | null;
   motion: string;
+  /** The project's look, for models with a style switch. */
+  style?: "anime" | "cartoon" | "realistic" | null;
   /** Make it the shot's clip when it lands. */
   activate: boolean;
 };
@@ -30,11 +33,20 @@ const MAX_WAIT_MS = 30 * 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * A frame for the video model: the image fitted inside 1920 px as a high-quality JPEG. Video models work at 1080p at
+ * most, and a smaller upload keeps the request quick; the canonical image is never touched.
+ */
 async function image(deps: WorkerDeps, assetId: string | null): Promise<VideoInputImage | null> {
   if (!assetId) return null;
   const a = await deps.assets.get(assetId);
   if (!a) throw new InputError("The shot's image was deleted");
-  return { data: await deps.assets.read(a), mime: a.mimeType };
+  const data = await sharp(await deps.assets.read(a))
+    .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
+    .flatten({ background: "#ffffff" })
+    .jpeg({ quality: 90 })
+    .toBuffer();
+  return { data: new Uint8Array(data), mime: "image/jpeg" };
 }
 
 /**
@@ -65,6 +77,7 @@ export async function panelClip(deps: WorkerDeps, job: ProjectJob) {
       audio: input.audio,
       seed: input.seed,
       motion: input.motion,
+      style: input.style ?? null,
     });
     requestId = sub.id;
     result = sub.result ?? null;
@@ -133,6 +146,8 @@ export async function panelClip(deps: WorkerDeps, job: ProjectJob) {
     generationJobId: job.id,
     userId: job.userId,
     videoSeconds: input.seconds,
+    // One clip: a model's flat per-clip fee is priced as an image (imageUnitRate) on its rate snapshot.
+    images: 1,
     rawUsage: { seconds: input.seconds, resolution: input.resolution, audio: input.audio },
     metadata: { panelId: input.panelId, aspect: input.aspect },
   });
