@@ -2,6 +2,7 @@ import type { GenerationKind } from "@openmanga/db";
 import type { Job } from "@openmanga/queue";
 import type { WorkerDeps } from "./context.ts";
 import { agentStep } from "./handlers/agent.ts";
+import { panelClip } from "./handlers/clip.ts";
 import { continuityCheck } from "./handlers/continuity.ts";
 import { duplicateScan } from "./handlers/duplicates.ts";
 import { expertExtract } from "./handlers/expert-extract.ts";
@@ -13,6 +14,7 @@ import { audioCheck, narrationFix, narrationLint } from "./handlers/narration-qa
 import { panelCheck } from "./handlers/qa.ts";
 import { storyCoverage } from "./handlers/story-coverage.ts";
 import {
+  adScript,
   bibleExtract,
   chapterPlan,
   imageDescribe,
@@ -40,6 +42,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   ...(TEXT_HANDLERS as Record<string, ProjectHandler>),
   story_analysis: storyAnalysis,
   story_rewrite: storyRewrite,
+  ad_script: adScript,
   chapter_plan: chapterPlan,
   page_prompts: pagePrompts,
   narration_text: narrationText,
@@ -67,6 +70,7 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
   story_coverage: storyCoverage,
   cover: coverGeneration,
   coverage_sheet: coverageSheet,
+  panel_clip: panelClip,
   thumbnail: coverGeneration,
   image_batch_submit: imageBatchSubmit,
   text_batch_submit: textBatchSubmit,

@@ -18,6 +18,8 @@ export const QUEUES = [
   "maintenance",
   /** Submits provider batches: one job collects many panels into one submission, then parks them. */
   "image-batch",
+  /** Video clips: each waits minutes on its provider (or encodes on this machine), so it never holds up images. */
+  "video-generation",
 ] as const;
 export type QueueName = (typeof QUEUES)[number];
 

@@ -1,0 +1,13 @@
+{
+  "name": "@openmanga/ai-video",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@openmanga/domain": "workspace:*",
+    "@openmanga/logger": "workspace:*",
+    "@openmanga/testing": "workspace:*"
+  }
+}

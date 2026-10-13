@@ -82,6 +82,7 @@ Queues and what they carry:
 | `export` | every export kind except video (pages, PDF, webtoon, EPUB/CBZ, ZIP packages, audio, YouTube package) | `EXPORT_WORKER_CONCURRENCY` (1) |
 | `render` | video renders (`video_pages`, `video_panels`, `video_shorts`) and project import, so an hour-long render never holds up a PDF | `RENDER_WORKER_CONCURRENCY` (1) |
 | `image-batch` | submitting a bulk run's image or text jobs to a provider's batch API | fixed at 1 |
+| `video-generation` | a shot's video clip: waits on its provider (or encodes the free still-motion clip with ffmpeg) | `VIDEO_WORKER_CONCURRENCY` (2) |
 | `asset-processing` | thumbnail and prompt-reference jobs; nothing enqueues them today (derivatives are made inline) | fixed at 2 |
 | `maintenance` | the hourly cleanup cycle, and the provider-batch poll every `BATCH_POLL_INTERVAL_SECONDS` (300) | fixed at 1 |
 

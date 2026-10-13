@@ -65,6 +65,7 @@ export async function startHarness() {
     createWorker("text-ai", w.redis, gen, { concurrency: 4 }),
     createWorker("image-generation", w.redis, gen, { concurrency: 4 }),
     createWorker("image-edit", w.redis, gen, { concurrency: 2 }),
+    createWorker("video-generation", w.redis, gen, { concurrency: 2 }),
     createWorker("tts", w.redis, ttsProcessor(w.deps), { concurrency: 2 }),
     createWorker("export", w.redis, exportProcessor(w.deps), { concurrency: 1 }),
     createWorker("render", w.redis, exportProcessor(w.deps), { concurrency: 1 }),

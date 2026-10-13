@@ -57,6 +57,7 @@ export async function bootstrapReferenceData(db: Database, config: AppConfig, lo
       imageOutputRate: String(r.imageOutputRate),
       imageUnitRate: String(r.imageUnitRate ?? 0),
       characterRate: String(r.characterRate ?? 0),
+      videoSecondRate: String(r.videoSecondRate ?? 0),
       metadata: {
         source: "seed-default",
         note: "Verify against provider pricing and add a new snapshot when prices change.",

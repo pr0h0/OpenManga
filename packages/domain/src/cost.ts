@@ -1,3 +1,5 @@
+import { VIDEO_RATE_SNAPSHOTS } from "./video-models.ts";
+
 export type RateSnapshot = {
   id?: string;
   provider: string;
@@ -13,6 +15,8 @@ export type RateSnapshot = {
   imageUnitRate?: number;
   /** USD per 1M characters (speech providers bill by input text length, not tokens). */
   characterRate?: number;
+  /** USD per generated second of video. */
+  videoSecondRate?: number;
 };
 
 export type UsageTokens = {
@@ -25,6 +29,8 @@ export type UsageTokens = {
   images?: number;
   /** Characters sent to a speech provider. */
   characters?: number;
+  /** Seconds of video generated. */
+  videoSeconds?: number;
 };
 
 /** Estimated USD cost from real token counts and a rate snapshot. cachedInputTokens are a subset of textInputTokens. */
@@ -39,7 +45,8 @@ export function estimateCostUsd(u: UsageTokens, r: RateSnapshot | null): number 
       u.imageOutputTokens * r.imageOutputRate +
       (u.characters ?? 0) * (r.characterRate ?? 0)) /
       1_000_000 +
-    (u.images ?? 0) * (r.imageUnitRate ?? 0);
+    (u.images ?? 0) * (r.imageUnitRate ?? 0) +
+    (u.videoSeconds ?? 0) * (r.videoSecondRate ?? 0);
   return Math.round(usd * 1e8) / 1e8;
 }
 
@@ -207,6 +214,18 @@ export const DEFAULT_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = [
     imageInputRate: 0,
     imageOutputRate: 0,
   },
+  // Video bills per generated second, by model, resolution and sound (see videoRateModel).
+  ...VIDEO_RATE_SNAPSHOTS.map((v) => ({
+    provider: v.provider,
+    model: v.model,
+    effectiveFrom: "2026-10-01T00:00:00Z",
+    textInputRate: 0,
+    cachedInputRate: 0,
+    textOutputRate: 0,
+    imageInputRate: 0,
+    imageOutputRate: 0,
+    videoSecondRate: v.rate,
+  })),
 ];
 
 /**

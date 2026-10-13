@@ -32,6 +32,8 @@ export const assetType = pgEnum("asset_type", [
   "source_image",
   "export",
   "audio",
+  /** A generated video clip of a panel's shot (played in place of its still in video renders). */
+  "panel_clip",
 ]);
 export const assetVisibility = pgEnum("asset_visibility", ["private", "public"]);
 

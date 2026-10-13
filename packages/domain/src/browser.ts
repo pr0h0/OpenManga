@@ -33,5 +33,6 @@ export * from "./timeline.ts";
 export * from "./timing.ts";
 export * from "./trace.ts";
 export * from "./video.ts";
+export * from "./video-models.ts";
 export * from "./visual-checks.ts";
 export * from "./youtube.ts";

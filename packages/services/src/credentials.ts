@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { AppConfig } from "@openmanga/config";
 import { and, type Database, type DbOrTx, desc, eq, providerCredentials, sql, youtubeChannels } from "@openmanga/db";
-import { type AiCapability, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
+import { type AiCapability, catalogModels, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 
 type KeyConfig = Pick<AppConfig, "CREDENTIALS_ENCRYPTION_KEY" | "CREDENTIALS_ENCRYPTION_OLD_KEYS" | "SESSION_SECRET">;
@@ -356,7 +356,9 @@ export class CredentialService {
   /** Model ids available to a key, split by capability (best effort, merged with catalog suggestions). */
   async listModels(cred: { kind: ProviderKind; baseUrl: string | null; apiKey: string }, cap: AiCapability) {
     const cat = providerCatalog(cred.kind)!;
-    const suggested = cap === "text" ? cat.textModels : cap === "image" ? cat.imageModels : cat.ttsModels;
+    const suggested = catalogModels(cat, cap);
+    // Video models come from the catalog only: their request shapes are per model, so an unknown id cannot run.
+    if (cap === "video") return suggested;
     const all = this.offline ? [] : await this.fetchModels(cred);
     const isImage = (id: string) => /image|dall-e|imagen|flux|stable-diffusion|sdxl|seedream|recraft/i.test(id);
     const isTts = (id: string, m: { tts?: boolean }) => Boolean(m.tts) || /tts|speech|eleven_/i.test(id);

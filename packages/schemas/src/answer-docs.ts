@@ -4,6 +4,7 @@ import type { FieldDocs } from "./answer-format.ts";
 import { BibleExtraction, ContinuityReport, TimelineExtraction } from "./bible.ts";
 import { ProjectConcept, ProjectPremise, StoryOutline } from "./experts.ts";
 import {
+  AdScript,
   ChapterOutline,
   LetteringTranslation,
   NarrationDraftV2,
@@ -29,6 +30,7 @@ import { ImageDescription } from "./vision.ts";
 export const ANSWER_SCHEMAS = {
   StoryAnalysis,
   StoryRewrite,
+  AdScript,
   ChapterOutline,
   ScenePages,
   PanelPromptDraft,
@@ -439,6 +441,18 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "The rewritten line: the same meaning, voice and facts, close to its word budget (within about 15%).",
       "The lamp turned at three in the morning, and Ines wrote the hour down.",
     ],
+  },
+
+  AdScript: {
+    "": "An ad's script, written from its brief, saved as the project's story.",
+    title: ["A short working title for the ad.", "The Lamp That Never Sleeps"],
+    content: [
+      "The script, scene by scene: what the viewer sees, what the voiceover says and any text on screen, timed to " +
+        "the brief's length (about 2.5 spoken words a second). It is saved as a new revision of the story.",
+      "SCENE 1 (0-5 s)\nVISUAL: A storm hits a dark coast; one lighthouse beam cuts through.\n" +
+        "VOICEOVER: Some lights never go out.\nON SCREEN: VELL LAMPWORKS",
+    ],
+    notes: ["A short note for the user: claims to check, choices made. Not part of the script.", "Check the 10-year warranty claim."],
   },
 
   StoryRewrite: {

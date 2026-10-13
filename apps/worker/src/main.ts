@@ -75,6 +75,12 @@ const start: Record<QueueName, () => ReturnType<typeof createWorker>> = {
   // One at a time, with a long lock: a submit reads every panel's references and uploads them.
   "image-batch": () => createWorker("image-batch", redis, gen, { concurrency: 1, lockDuration: 30 * 60_000 }),
   maintenance: () => createWorker("maintenance", redis, maintenanceProcessor(deps), { concurrency: 1 }),
+  // A clip polls its provider for minutes; the lock is renewed while it runs.
+  "video-generation": () =>
+    createWorker("video-generation", redis, gen, {
+      concurrency: config.VIDEO_WORKER_CONCURRENCY,
+      lockDuration: 10 * 60_000,
+    }),
 };
 const workers = consumed.map((q) => start[q]());
 for (const w of workers) {

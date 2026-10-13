@@ -28,9 +28,12 @@ import {
   OpenAITTSProvider,
   type TTSProvider,
 } from "@openmanga/audio";
+import { FalVideoProvider, LocalVideoProvider, type VideoAIProvider } from "@openmanga/ai-video";
 import type { AppConfig } from "@openmanga/config";
 import {
   type AiCapability,
+  catalogModels,
+  LOCAL_VIDEO_MODEL,
   ProviderError,
   type ProviderKind,
   providerCatalog,
@@ -249,7 +252,7 @@ export function byokTextBatch(
  * and rate-limit cooldowns are shared across jobs using the same key.
  */
 export class ProviderResolver {
-  private readonly cache = new Map<string, TextAIProvider | ImageAIProvider | TTSProvider>();
+  private readonly cache = new Map<string, TextAIProvider | ImageAIProvider | TTSProvider | VideoAIProvider>();
   private readonly defaults: { text: TextAIProvider | null; image: ImageAIProvider | null; tts: TTSProvider | null };
 
   constructor(
@@ -307,12 +310,51 @@ export class ProviderResolver {
     return byokTextBatch(cred.kind, cred, chosen, this.config);
   }
 
+  /**
+   * A video provider. No key: the free local model (the shot's image with a camera move, made by ffmpeg), which every
+   * server has; it also stands in for every paid model in AI_MOCK_MODE, so nothing is spent there.
+   */
+  async video(choice: AiChoice | null | undefined, userId: string | null): Promise<VideoAIProvider> {
+    const local = () => this.cached("video:local", () => new LocalVideoProvider({ tempRoot: this.config.TEMP_ROOT }));
+    if (!choice?.credentialId) {
+      const model = choice?.model?.trim();
+      if (model && model !== LOCAL_VIDEO_MODEL)
+        throw new ProviderError("local", "invalid_request", `${model} needs one of your provider keys`, {
+          retryable: false,
+        });
+      return local();
+    }
+    const cred = await this.credentials.resolve(choice.credentialId, userId);
+    if (!providerSupports(cred.kind, "video"))
+      throw new ProviderError(cred.kind, "invalid_request", `${cred.label} can't be used for video generation`, {
+        retryable: false,
+      });
+    const cat = providerCatalog(cred.kind)!;
+    const chosen = choice.model?.trim() || catalogModels(cat, "video")[0]!;
+    if (!catalogModels(cat, "video").includes(chosen))
+      throw new ProviderError(cred.kind, "invalid_request", `${chosen} is not a video model of ${cred.label}`, {
+        retryable: false,
+      });
+    void this.credentials.touch(cred.id).catch(() => {});
+    if (this.config.AI_MOCK_MODE) return local();
+    return this.cached(
+      `video:${credentialFingerprint(cred, chosen)}`,
+      () =>
+        new FalVideoProvider({
+          apiKey: cred.apiKey,
+          model: chosen,
+          baseUrl: cred.baseUrl ?? cat.baseUrl ?? "",
+          logger: this.logger,
+        }),
+    );
+  }
+
   /** Reads the choice stored on a job (parameters.ai) and resolves it for the job's user. */
-  forJob(cap: AiCapability, job: { parameters: Record<string, unknown>; userId: string | null }) {
+  forJob(cap: Exclude<AiCapability, "video">, job: { parameters: Record<string, unknown>; userId: string | null }) {
     return this.resolve(cap, (job.parameters.ai as AiChoice | undefined) ?? null, job.userId);
   }
 
-  private async resolve(cap: AiCapability, choice: AiChoice | null | undefined, userId: string | null) {
+  private async resolve(cap: Exclude<AiCapability, "video">, choice: AiChoice | null | undefined, userId: string | null) {
     const model = choice?.model?.trim() || null;
     if (cap === "tts" && !choice?.credentialId) return this.defaults.tts;
     if (!choice?.credentialId) {
@@ -327,7 +369,7 @@ export class ProviderResolver {
         retryable: false,
       });
     const cat = providerCatalog(cred.kind)!;
-    const chosen = model ?? (cap === "text" ? cat.textModels : cap === "image" ? cat.imageModels : cat.ttsModels)[0];
+    const chosen = model ?? catalogModels(cat, cap)[0];
     if (!chosen)
       throw new ProviderError(cred.kind, "invalid_request", `Pick a ${cap} model for ${cred.label}`, {
         retryable: false,
@@ -344,7 +386,10 @@ export class ProviderResolver {
     );
   }
 
-  private cached<T extends TextAIProvider | ImageAIProvider | TTSProvider>(key: string, make: () => T): T {
+  private cached<T extends TextAIProvider | ImageAIProvider | TTSProvider | VideoAIProvider>(
+    key: string,
+    make: () => T,
+  ): T {
     const hit = this.cache.get(key);
     if (hit) return hit as T;
     // ponytail: simple size cap; an LRU would keep hot keys longer if many users bring keys.

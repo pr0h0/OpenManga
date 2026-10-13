@@ -54,6 +54,7 @@ import {
   socialCopyV2,
   storyAnalysisV3,
   storyRewriteV1,
+  adScriptV1,
   timelineExtractV1,
   videoEditV1,
   youtubePackageV2,
@@ -73,6 +74,8 @@ import {
   SocialCopy,
   StoryAnalysis,
   StoryRewrite,
+  AdBrief,
+  AdScript,
   TimelineExtraction,
   type VideoEditOp,
   VideoEditPlan,
@@ -229,6 +232,40 @@ export async function storyRewrite(deps: WorkerDeps, job: ProjectJob) {
         source: "ai_rewrite",
         inputKind: rev.inputKind,
         title: rev.title,
+        content: r.data.content,
+        contentSha256: sha256Hex(r.data.content),
+        createdByUserId: job.userId,
+      })
+      .returning();
+    return row!;
+  });
+  return { storyRevisionId: created.id, revisionNumber: created.revisionNumber, notes: r.data.notes };
+}
+
+/** An ad's script from its brief, saved as a new story revision (a screenplay), ready for analysis and planning. */
+export async function adScript(deps: WorkerDeps, job: ProjectJob) {
+  const brief = AdBrief.parse(job.input.brief);
+  const r = await structured(
+    deps,
+    job,
+    adScriptV1.build({ brief, language: String(job.input.language ?? "en"), look: String(job.input.look ?? "") }),
+    AdScript,
+    "AdScript",
+    16_000,
+  );
+  const created = await deps.db.transaction(async (tx) => {
+    const [max] = await tx
+      .select({ n: sql<number>`coalesce(max(${storyRevisions.revisionNumber}),0)::int` })
+      .from(storyRevisions)
+      .where(eq(storyRevisions.projectId, job.projectId));
+    const [row] = await tx
+      .insert(storyRevisions)
+      .values({
+        projectId: job.projectId,
+        revisionNumber: (max?.n ?? 0) + 1,
+        source: "ai_rewrite",
+        inputKind: "screenplay",
+        title: r.data.title,
         content: r.data.content,
         contentSha256: sha256Hex(r.data.content),
         createdByUserId: job.userId,

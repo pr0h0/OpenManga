@@ -85,6 +85,7 @@
       "dependencies": {
         "@openmanga/ai-image": "workspace:*",
         "@openmanga/ai-text": "workspace:*",
+        "@openmanga/ai-video": "workspace:*",
         "@openmanga/audio": "workspace:*",
         "@openmanga/config": "workspace:*",
         "@openmanga/db": "workspace:*",
@@ -121,6 +122,14 @@
         "@openmanga/schemas": "workspace:*",
         "@openmanga/testing": "workspace:*",
         "zod": "^4.1.0",
+      },
+    },
+    "packages/ai-video": {
+      "name": "@openmanga/ai-video",
+      "dependencies": {
+        "@openmanga/domain": "workspace:*",
+        "@openmanga/logger": "workspace:*",
+        "@openmanga/testing": "workspace:*",
       },
     },
     "packages/audio": {
@@ -203,6 +212,7 @@
       "dependencies": {
         "@openmanga/ai-image": "workspace:*",
         "@openmanga/ai-text": "workspace:*",
+        "@openmanga/ai-video": "workspace:*",
         "@openmanga/audio": "workspace:*",
         "@openmanga/auth": "workspace:*",
         "@openmanga/config": "workspace:*",
@@ -437,6 +447,8 @@
     "@openmanga/ai-image": ["@openmanga/ai-image@workspace:packages/ai-image"],
 
     "@openmanga/ai-text": ["@openmanga/ai-text@workspace:packages/ai-text"],
+
+    "@openmanga/ai-video": ["@openmanga/ai-video@workspace:packages/ai-video"],
 
     "@openmanga/api": ["@openmanga/api@workspace:apps/api"],
 
