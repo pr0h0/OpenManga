@@ -20,6 +20,7 @@ import {
   type TextAIProvider,
   type TextBatchProvider,
 } from "@openmanga/ai-text";
+import { FalVideoProvider, LocalVideoProvider, type VideoAIProvider } from "@openmanga/ai-video";
 import {
   ElevenLabsTTSProvider,
   FakeTTSProvider,
@@ -28,7 +29,6 @@ import {
   OpenAITTSProvider,
   type TTSProvider,
 } from "@openmanga/audio";
-import { FalVideoProvider, LocalVideoProvider, type VideoAIProvider } from "@openmanga/ai-video";
 import type { AppConfig } from "@openmanga/config";
 import {
   type AiCapability,
@@ -354,7 +354,11 @@ export class ProviderResolver {
     return this.resolve(cap, (job.parameters.ai as AiChoice | undefined) ?? null, job.userId);
   }
 
-  private async resolve(cap: Exclude<AiCapability, "video">, choice: AiChoice | null | undefined, userId: string | null) {
+  private async resolve(
+    cap: Exclude<AiCapability, "video">,
+    choice: AiChoice | null | undefined,
+    userId: string | null,
+  ) {
     const model = choice?.model?.trim() || null;
     if (cap === "tts" && !choice?.credentialId) return this.defaults.tts;
     if (!choice?.credentialId) {

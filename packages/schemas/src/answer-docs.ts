@@ -452,7 +452,10 @@ export const ANSWER_FIELD_DOCS: Record<keyof typeof ANSWER_SCHEMAS, FieldDocs> =
       "SCENE 1 (0-5 s)\nVISUAL: A storm hits a dark coast; one lighthouse beam cuts through.\n" +
         "VOICEOVER: Some lights never go out.\nON SCREEN: VELL LAMPWORKS",
     ],
-    notes: ["A short note for the user: claims to check, choices made. Not part of the script.", "Check the 10-year warranty claim."],
+    notes: [
+      "A short note for the user: claims to check, choices made. Not part of the script.",
+      "Check the 10-year warranty claim.",
+    ],
   },
 
   StoryRewrite: {

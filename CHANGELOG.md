@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- AI video ([AI_VIDEO](docs/AI_VIDEO.md)): a shot can play a generated video clip instead of its still and camera move.
+  Panel tab → *Video clip* makes one from the shot's artwork with a video model: *Still motion*, free on every server
+  (ffmpeg, no key), or a fal.ai model on your own key (Seedance 1.0 Pro Fast, Grok Imagine 1.5 Lite, Hailuo 02, Wan
+  2.5, PixVerse v6, Kling 2.5 Turbo Pro, Kling 3, Veo 3.1 Fast), priced per second before it runs; *Compare with* makes
+  a second with another model to choose from. Chapter → *Animate shots* does every shot with a price check first.
+  Videos and the preview play the clips (held on the last frame when the narration is longer). Clips are
+  `panel_clip` assets made on a new `video-generation` queue (`VIDEO_WORKER_CONCURRENCY`, default 2); a restarted
+  worker resumes polling the same provider request instead of paying again. Usage is billed per second
+  (`video_second_rate` on rate snapshots, `video_seconds` on usage) under the project and server budget caps.
+  Migration `0052_ai_video`.
+- Ads: Story → *Ad from a brief* writes an ad's script (scenes with what is seen, the voiceover and text on screen)
+  from product, audience, message, offer, call to action, notes, length and tone, saved as a new story revision.
+  *Text on screen* per shot (headline, caption or a boxed call to action) is burned into videos; Settings → Video →
+  *Music bed* loops an uploaded track under the film, lowered while the narrator speaks; a clip's own sound can be
+  mixed under the narration. New project presets *AI video ad, 60 s* (realistic or cartoon) and *AI video story,
+  3 min (anime)*, and a *Cartoon* style.
+- MCP `video_clips` (models, list, generate or compare, use, delete, animate a chapter, with `dryRun` prices) and
+  `write_ad_script`; `update_panel` `video` takes the clip, clip prompt, clip sound and text on screen, and merges
+  instead of replacing (a change to the camera move no longer clears other shot settings).
+
 ## [0.18.0] — 2026-10-12
 
 Upgrading: pull the new images and restart. Twelve migrations run on start through the migrate service

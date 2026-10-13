@@ -108,16 +108,7 @@ export async function panelClip(deps: WorkerDeps, job: ProjectJob) {
   let probe: { durationMs: number; width: number; height: number; audio: boolean };
   try {
     const out = await run(
-      [
-        "ffprobe",
-        "-v",
-        "error",
-        "-show_entries",
-        "format=duration:stream=codec_type,width,height",
-        "-of",
-        "json",
-        tmp,
-      ],
+      ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", tmp],
       "clip probe",
     );
     const j = JSON.parse(out.stdout) as {

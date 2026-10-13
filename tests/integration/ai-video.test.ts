@@ -109,10 +109,11 @@ test("a shot is animated only once it is drawn; prices are estimated before anyt
     },
     { label: "shots", timeoutMs: 90_000 },
   );
-  const free = await u.post<{ estimate: { usd: number; runs: { seconds: number }[] } }>(
-    `/api/panels/${id}/clips`,
-    { runs: [{ credentialId: null }], seconds: 4, dryRun: true },
-  );
+  const free = await u.post<{ estimate: { usd: number; runs: { seconds: number }[] } }>(`/api/panels/${id}/clips`, {
+    runs: [{ credentialId: null }],
+    seconds: 4,
+    dryRun: true,
+  });
   expect(free.estimate).toMatchObject({ usd: 0, runs: [{ seconds: 4 }] });
   // With a fal key (stored unverified in mock mode), the same shot is priced per second at the model's rate.
   const cred = await u.post<{ credential: { id: string } }>(

@@ -51,13 +51,17 @@ describe("fal inputs", () => {
       generate_audio: false,
     });
     expect(falInput("xai/grok-imagine-video/v1.5/lite/image-to-video", req(), urls)).toMatchObject({ duration: 5 });
-    expect(falInput("fal-ai/minimax/hailuo-02/standard/image-to-video", req({ resolution: "480p" }), urls)).toMatchObject(
-      { resolution: "512P" },
-    );
+    expect(
+      falInput("fal-ai/minimax/hailuo-02/standard/image-to-video", req({ resolution: "480p" }), urls),
+    ).toMatchObject({ resolution: "512P" });
     // Kling 3 names its first frame differently and defaults to sound: off unless asked for.
     expect(
       falInput("fal-ai/kling-video/v3/standard/image-to-video", req(), { ...urls, endImage: "https://cdn/y.jpg" }),
-    ).toMatchObject({ start_image_url: "https://cdn/x.jpg", end_image_url: "https://cdn/y.jpg", generate_audio: false });
+    ).toMatchObject({
+      start_image_url: "https://cdn/x.jpg",
+      end_image_url: "https://cdn/y.jpg",
+      generate_audio: false,
+    });
     // Text-to-video takes the frame shape; image-to-video follows the image's.
     expect(falInput("fal-ai/wan-25-preview/text-to-video", req({ image: null, aspect: "9:16" }), {})).toMatchObject({
       aspect_ratio: "9:16",
@@ -84,7 +88,10 @@ describe("fal queue", () => {
 
   test("submit uploads the image, sends the input with the Key header and keeps fal's URLs", async () => {
     const s = stub([
-      [/storage\/upload\/initiate/, () => json({ upload_url: "https://up/put", file_url: "https://v3.fal.media/f.jpg" })],
+      [
+        /storage\/upload\/initiate/,
+        () => json({ upload_url: "https://up/put", file_url: "https://v3.fal.media/f.jpg" }),
+      ],
       [/PUT https:\/\/up\/put/, () => new Response(null, { status: 200 })],
       [/POST https:\/\/queue\.fal\.run\/fal-ai\/kling/, () => json(handle)],
     ]);
@@ -119,11 +126,19 @@ describe("fal queue", () => {
             [{ status: "IN_QUEUE", queue_position: 3 }, { status: "IN_PROGRESS" }, { status: "COMPLETED" }][n++] ?? {},
           ),
       ],
-      [/requests\/r1$/, () => json({ video: { url: "https://v3.fal.media/out.mp4", content_type: "video/mp4" }, seed: 7 })],
+      [
+        /requests\/r1$/,
+        () => json({ video: { url: "https://v3.fal.media/out.mp4", content_type: "video/mp4" }, seed: 7 }),
+      ],
       [/out\.mp4/, () => new Response(new Uint8Array([9, 9, 9]))],
     ]);
     const p = new FalVideoProvider({ apiKey: "k", model, baseUrl: "https://queue.fal.run", fetch: s.fetch });
-    const id = JSON.stringify({ id: "r1", status: handle.status_url, response: handle.response_url, cancel: handle.cancel_url });
+    const id = JSON.stringify({
+      id: "r1",
+      status: handle.status_url,
+      response: handle.response_url,
+      cancel: handle.cancel_url,
+    });
     expect(await p.poll(id)).toEqual({ state: "queued", position: 3 });
     expect(await p.poll(id)).toEqual({ state: "running", position: null });
     const done = await p.poll(id);
@@ -147,9 +162,14 @@ describe("fal queue", () => {
     const p = new FalVideoProvider({ apiKey: "k", model, baseUrl: "https://queue.fal.run", fetch: s.fetch });
     const e1 = await p.submit(req({ image: null })).catch((e) => e);
     expect(e1).toMatchObject({ code: "server_error", retryable: true });
-    const bad = stub([[/POST https:\/\/queue/, () => json({ detail: [{ type: "image_too_small", msg: "small" }] }, 422)]]);
+    const bad = stub([
+      [/POST https:\/\/queue/, () => json({ detail: [{ type: "image_too_small", msg: "small" }] }, 422)],
+    ]);
     const q = new FalVideoProvider({ apiKey: "k", model, baseUrl: "https://queue.fal.run", fetch: bad.fetch });
-    expect(await q.submit(req({ image: null })).catch((e) => e)).toMatchObject({ code: "invalid_request", retryable: false });
+    expect(await q.submit(req({ image: null })).catch((e) => e)).toMatchObject({
+      code: "invalid_request",
+      retryable: false,
+    });
   });
 
   test("an image-only model refuses a shot without its image", async () => {

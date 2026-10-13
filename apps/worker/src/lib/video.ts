@@ -755,7 +755,9 @@ async function buildFilm<S extends Shot>(
       "-i",
       audioPath,
       ...mix.inputs,
-      ...(mix.filter ? ["-filter_complex", mix.filter, "-map", "0:v", "-map", "[aout]"] : ["-map", "0:v", "-map", "1:a"]),
+      ...(mix.filter
+        ? ["-filter_complex", mix.filter, "-map", "0:v", "-map", "[aout]"]
+        : ["-map", "0:v", "-map", "1:a"]),
       "-c:v",
       "copy",
       ...aac,
@@ -1092,7 +1094,8 @@ export async function renderPanelCutVideo(
       // and its fades. A clip instead: its file, how it fills the frame, its length and fades.
       describe: async (shot, frames) => {
         const pn = shot.panel!;
-        if (shot.clip) return { cut: "clip", clip: shot.clip.sha256, aspect: opts.aspect ?? "16:9", frames, fade: shot.fade };
+        if (shot.clip)
+          return { cut: "clip", clip: shot.clip.sha256, aspect: opts.aspect ?? "16:9", frames, fade: shot.fade };
         return {
           cut: "panel",
           art: shot.art?.sha256 ?? null,

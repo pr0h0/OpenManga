@@ -1,5 +1,5 @@
 import type { ProjectSettings, VideoCard, VideoWatermark } from "@openmanga/schemas";
-import { ImagePlus, Trash2 } from "lucide-react";
+import { ImagePlus, Music2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api, assetUrl } from "../../api/client.ts";
 import { clsx, Field, Spinner, TagInput, toast } from "../../components/ui.tsx";
@@ -20,12 +20,15 @@ const CORNERS: [VideoWatermark["corner"], string][] = [
  */
 export function VideoSection({
   logoUpload,
+  musicUpload,
   projectTitle,
   chapters,
   value,
   onChange,
 }: {
   logoUpload: string;
+  /** Where a music track goes (a project's own files); a channel profile has no music bed. */
+  musicUpload?: string;
   projectTitle: string;
   /** A project's chapters, for title cards before each (a channel profile has none). */
   chapters?: { id: string; order: number; title: string }[];
@@ -143,6 +146,8 @@ export function VideoSection({
           </div>
         )}
       </div>
+
+      {musicUpload && <MusicBed upload={musicUpload} value={v.music ?? null} onChange={(music) => set({ music })} />}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <CardFields
@@ -329,6 +334,94 @@ function CardFields({
             />
           </Field>
         </>
+      )}
+    </div>
+  );
+}
+
+type Music = NonNullable<Video["music"]>;
+
+/** A music bed under the whole video: an uploaded track, looped, at a volume, turned down while the narration speaks. */
+function MusicBed({
+  upload,
+  value,
+  onChange,
+}: {
+  upload: string;
+  value: Music | null;
+  onChange: (m: Music | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState<string | null>(null);
+  const send = async (file: File) => {
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const r = await api<{ asset: { id: string; name: string } }>(upload, { method: "POST", body: form });
+      setName(r.asset.name);
+      onChange({ volume: 0.25, duck: true, ...value, assetId: r.asset.id });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <div className="label">Music bed</div>
+      <p className="muted text-xs">
+        A track under the whole video, looped, turned down while the narrator speaks. Use only music you have the rights
+        to. Generated clips' own sound is set per shot (Panel tab → Video clip).
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        {value && (
+          <audio src={assetUrl(value.assetId)} controls className="h-8 max-w-64" aria-label="Music bed">
+            <track kind="captions" />
+          </audio>
+        )}
+        {name && <span className="muted text-xs">{name}</span>}
+        <label className={clsx("btn-secondary cursor-pointer", busy && "pointer-events-none opacity-50")}>
+          {busy ? <Spinner /> : <Music2 className="size-4" />} {value ? "Replace track" : "Upload a track"}
+          <input
+            type="file"
+            accept="audio/mpeg,audio/wav,audio/ogg,audio/flac,audio/mp4,.mp3,.wav,.ogg,.flac,.m4a"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void send(f);
+            }}
+          />
+        </label>
+        {value && (
+          <button type="button" className="btn-ghost text-red-500" onClick={() => onChange(null)}>
+            <Trash2 className="size-4" /> Remove
+          </button>
+        )}
+      </div>
+      {value && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label={`Volume ${Math.round(value.volume * 100)}%`}>
+            <input
+              type="range"
+              className="w-full"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={value.volume}
+              onChange={(e) => onChange({ ...value, volume: Number(e.target.value) })}
+            />
+          </Field>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={value.duck}
+              onChange={(e) => onChange({ ...value, duck: e.target.checked })}
+            />
+            Lower the music while the narrator speaks
+          </label>
+        </div>
       )}
     </div>
   );

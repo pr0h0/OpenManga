@@ -64,7 +64,13 @@ const ClipOptions = z.object({
   aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
   /** Ask for sound, on models that make it. */
   audio: z.boolean().default(false),
-  seed: z.number().int().min(0).max(2 ** 31).nullable().default(null),
+  seed: z
+    .number()
+    .int()
+    .min(0)
+    .max(2 ** 31)
+    .nullable()
+    .default(null),
   /** What moves, for this run only (the shot's own clipPrompt otherwise, then its beat). */
   prompt: z.string().trim().max(1500).nullable().optional(),
   /** A project image to land on as the last frame (models with endFrame), e.g. the next shot's art. */

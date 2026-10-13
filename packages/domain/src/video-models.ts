@@ -198,7 +198,10 @@ export function clipDuration(m: VideoModel, wantedSec: number) {
 export function clipResolution(m: VideoModel, wanted: VideoResolution): VideoResolution {
   const order: VideoResolution[] = ["480p", "720p", "1080p"];
   if (m.resolutions.includes(wanted)) return wanted;
-  const lower = order.slice(0, order.indexOf(wanted)).reverse().find((r) => m.resolutions.includes(r));
+  const lower = order
+    .slice(0, order.indexOf(wanted))
+    .reverse()
+    .find((r) => m.resolutions.includes(r));
   return lower ?? m.resolutions[0]!;
 }
 

@@ -30,7 +30,12 @@ const RES = { key: "resolution" };
 
 /** Every endpoint the catalog names, by fal endpoint id. Sources: docs/VIDEO_PROVIDERS.md. */
 export const FAL_INPUTS: Record<string, FalInputSpec> = {
-  "fal-ai/bytedance/seedance/v1/pro/fast/image-to-video": { image: "image_url", duration: D(), resolution: RES, seed: "seed" },
+  "fal-ai/bytedance/seedance/v1/pro/fast/image-to-video": {
+    image: "image_url",
+    duration: D(),
+    resolution: RES,
+    seed: "seed",
+  },
   "xai/grok-imagine-video/v1.5/lite/image-to-video": { image: "image_url", duration: D("number"), resolution: RES },
   "fal-ai/minimax/hailuo-02/standard/image-to-video": {
     image: "image_url",
@@ -66,7 +71,11 @@ export const FAL_INPUTS: Record<string, FalInputSpec> = {
     duration: D(),
     negative: "negative_prompt",
   },
-  "fal-ai/kling-video/v2.5-turbo/pro/text-to-video": { duration: D(), aspect: "aspect_ratio", negative: "negative_prompt" },
+  "fal-ai/kling-video/v2.5-turbo/pro/text-to-video": {
+    duration: D(),
+    aspect: "aspect_ratio",
+    negative: "negative_prompt",
+  },
   "fal-ai/kling-video/v3/standard/image-to-video": {
     image: "start_image_url",
     endImage: "end_image_url",
@@ -95,7 +104,8 @@ export const FAL_INPUTS: Record<string, FalInputSpec> = {
 /** The JSON body fal gets, with the images already turned into URLs. Exported for tests. */
 export function falInput(endpoint: string, req: VideoRequest, urls: { image?: string; endImage?: string }) {
   const s = FAL_INPUTS[endpoint];
-  if (!s) throw new ProviderError("fal", "invalid_request", `No fal input format for ${endpoint}`, { retryable: false });
+  if (!s)
+    throw new ProviderError("fal", "invalid_request", `No fal input format for ${endpoint}`, { retryable: false });
   const d = req.seconds;
   const body: Record<string, unknown> = { prompt: req.prompt, ...s.extra };
   if (s.image && urls.image) body[s.image] = urls.image;

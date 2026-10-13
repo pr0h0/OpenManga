@@ -36,9 +36,7 @@ export type VideoRequest = {
 /** A finished clip: an MP4 (or the provider's container) and what the provider reported. */
 export type VideoResult = { data: Uint8Array; mime: string; seed: number | null; raw: unknown };
 
-export type VideoPoll =
-  | { state: "queued" | "running"; position: number | null }
-  | ({ state: "done" } & VideoResult);
+export type VideoPoll = { state: "queued" | "running"; position: number | null } | ({ state: "done" } & VideoResult);
 
 /**
  * A video provider. Generation is asynchronous everywhere: `submit` returns the provider's request id, which the job

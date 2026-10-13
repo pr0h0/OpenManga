@@ -323,13 +323,13 @@ publicShareRoutes.get("/shares/:token/assets/:assetId", async (c) => {
     .from(assets)
     .where(and(eq(assets.id, id), eq(assets.projectId, p.id)));
   if (!a || a.deletedAt) throw notFound("Asset");
-  // Only what the preview plays, and only inside the link's scope: a panel's current artwork, a line's audio, or the
-  // project's video watermark.
+  // Only what the preview plays, and only inside the link's scope: a panel's current artwork or clip, a line's audio,
+  // or the project's video watermark.
   if (p.settings.video?.watermark?.assetId === id) return sendAsset(c, a);
   const chapter = s.chapterId ? sql`and pg.chapter_id = ${s.chapterId}` : sql``;
   const [used] = await db.execute<{ ok: number }>(sql`
     select 1 as ok from panels pn join pages pg on pg.id = pn.page_id
-      where pn.active_artwork_asset_id = ${id} ${chapter}
+      where (pn.active_artwork_asset_id = ${id} or pn.video->>'clipAssetId' = ${id}::text) ${chapter}
     union all
     select 1 from narration_segments ns join narration_lines nl on nl.id = ns.narration_line_id
       where ns.active_audio_asset_id = ${id} ${s.chapterId ? sql`and nl.chapter_id = ${s.chapterId}` : sql``}

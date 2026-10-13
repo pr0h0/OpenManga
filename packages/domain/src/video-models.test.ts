@@ -40,9 +40,7 @@ test("clip prices: per second by resolution and sound, plus a per-clip fee; the 
 test("every priced model is seeded as a rate, and usage is costed from it like any other model", () => {
   for (const m of VIDEO_MODELS.filter((x) => x.provider !== "local"))
     for (const res of Object.keys(m.pricePerSecond))
-      expect(
-        DEFAULT_RATE_SNAPSHOTS.some((r) => r.model === videoRateModel(m.id, res as "720p", false)),
-      ).toBe(true);
+      expect(DEFAULT_RATE_SNAPSHOTS.some((r) => r.model === videoRateModel(m.id, res as "720p", false))).toBe(true);
   const at = new Date("2026-10-13T00:00:00Z");
   const rate = selectRate(
     DEFAULT_RATE_SNAPSHOTS.map((r) => ({ ...r })),
@@ -50,7 +48,13 @@ test("every priced model is seeded as a rate, and usage is costed from it like a
     videoRateModel("fal-ai/veo3.1/fast/image-to-video", "720p", true),
     at,
   );
-  const usage = { textInputTokens: 0, cachedInputTokens: 0, textOutputTokens: 0, imageInputTokens: 0, imageOutputTokens: 0 };
+  const usage = {
+    textInputTokens: 0,
+    cachedInputTokens: 0,
+    textOutputTokens: 0,
+    imageInputTokens: 0,
+    imageOutputTokens: 0,
+  };
   expect(estimateCostUsd({ ...usage, videoSeconds: 8, images: 1 }, rate)).toBeCloseTo(1.2, 6);
   const grok = selectRate(
     DEFAULT_RATE_SNAPSHOTS.map((r) => ({ ...r })),
@@ -65,5 +69,7 @@ test("fal is a video-only provider; a custom endpoint is never offered for video
   expect(providerSupports("fal", "video")).toBe(true);
   expect(providerSupports("fal", "image")).toBe(false);
   expect(providerSupports("openai_compatible", "video")).toBe(false);
-  expect(providerCatalog("fal")!.videoModels).toEqual(VIDEO_MODELS.filter((m) => m.provider === "fal").map((m) => m.id));
+  expect(providerCatalog("fal")!.videoModels).toEqual(
+    VIDEO_MODELS.filter((m) => m.provider === "fal").map((m) => m.id),
+  );
 });

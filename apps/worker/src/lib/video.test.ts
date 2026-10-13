@@ -122,12 +122,15 @@ test("on-screen texts are their own events, in their place and style, and burn w
 
 test("the audio mix: nothing extra is no filter; clips start at their shot; music ducks under the narration", () => {
   expect(audioMix([], null)).toEqual({ inputs: [], filter: "" });
-  const m = audioMix(
-    [{ path: "a.mp4", volume: 0.6, startMs: 2500, durationMs: 4000 }],
-    { path: "m.mp3", volume: 0.25, duck: true },
-  );
+  const m = audioMix([{ path: "a.mp4", volume: 0.6, startMs: 2500, durationMs: 4000 }], {
+    path: "m.mp3",
+    volume: 0.25,
+    duck: true,
+  });
   expect(m.inputs).toEqual(["-i", "a.mp4", "-stream_loop", "-1", "-i", "m.mp3"]);
-  expect(m.filter).toContain("[2:a]atrim=0:4.000,asetpts=PTS-STARTPTS,aresample=48000,volume=0.600,adelay=2500|2500[s0]");
+  expect(m.filter).toContain(
+    "[2:a]atrim=0:4.000,asetpts=PTS-STARTPTS,aresample=48000,volume=0.600,adelay=2500|2500[s0]",
+  );
   expect(m.filter).toContain("[1:a]asplit=2[nar][key]");
   expect(m.filter).toContain("[mraw][key]sidechaincompress");
   expect(m.filter).toEndWith("[nar][s0][mus]amix=inputs=3:duration=first:normalize=0[aout]");

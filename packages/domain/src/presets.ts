@@ -104,6 +104,53 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
     settings: { imageQuality: "medium", targetRuntime: null, referencePolicy: "all", batchPolicy: "interactive" },
   },
   {
+    key: "ai-video-ad",
+    name: "AI video ad, 60 s (realistic)",
+    description:
+      "A one-minute ad in live-action look: write the script from a brief (Story → Ad from a brief), then animate the 4–6 s shots into video clips.",
+    projectType: "illustrated_story",
+    format: "film",
+    stylePresetKey: "realistic",
+    colorMode: "full_color",
+    settings: {
+      imageQuality: "medium",
+      targetRuntime: { minutes: 1, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 6 },
+      referencePolicy: "all",
+      batchPolicy: "interactive",
+    },
+  },
+  {
+    key: "ai-video-ad-cartoon",
+    name: "AI video ad, 60 s (cartoon)",
+    description: "The one-minute ad as a bright 2D cartoon: script from a brief, then each shot animated into a clip.",
+    projectType: "illustrated_story",
+    format: "film",
+    stylePresetKey: "cartoon",
+    colorMode: "full_color",
+    settings: {
+      imageQuality: "medium",
+      targetRuntime: { minutes: 1, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 6 },
+      referencePolicy: "all",
+      batchPolicy: "interactive",
+    },
+  },
+  {
+    key: "ai-video-story",
+    name: "AI video story, 3 min (anime)",
+    description:
+      "A short narrated story in anime look whose shots are animated into video clips instead of panned stills.",
+    projectType: "manhwa",
+    format: "film",
+    stylePresetKey: "minimal-anime",
+    colorMode: "full_color",
+    settings: {
+      imageQuality: "medium",
+      targetRuntime: { minutes: 3, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 },
+      referencePolicy: "main",
+      batchPolicy: "interactive",
+    },
+  },
+  {
     key: "economy",
     name: "Economy draft",
     description:

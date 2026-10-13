@@ -698,7 +698,12 @@ export const panelTools = [
       const what = a.action === "animate_chapter" ? "a clip of every shot of a chapter" : `${runs.length} clip(s)`;
       return free
         ? cls("write", "panel.clip", project, `Make ${what} with the free still-motion model`)
-        : cls("spend", a.action === "animate_chapter" ? "chapter.clips" : "panel.clip", project, `Make ${what}; spends video-provider credits`);
+        : cls(
+            "spend",
+            a.action === "animate_chapter" ? "chapter.clips" : "panel.clip",
+            project,
+            `Make ${what}; spends video-provider credits`,
+          );
     },
     handler: async (a, ctx) => {
       if (a.action === "models") return { data: await ctx.invoke("GET", "/api/video-models") };
@@ -724,7 +729,9 @@ export const panelTools = [
       if (a.action === "list") return { data: await ctx.invoke("GET", `/api/panels/${a.panelId}/clips`) };
       if (a.action === "use")
         return {
-          data: await ctx.invoke("POST", `/api/panels/${a.panelId}/clips/use`, { body: { assetId: a.assetId ?? null } }),
+          data: await ctx.invoke("POST", `/api/panels/${a.panelId}/clips/use`, {
+            body: { assetId: a.assetId ?? null },
+          }),
         };
       if (a.action === "delete") {
         if (!a.assetId) throw toolError(400, "bad_request", "assetId is required for delete");

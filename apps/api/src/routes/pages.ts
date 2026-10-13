@@ -772,7 +772,10 @@ pageRoutes.patch("/panels/:id", async (c) => {
   const set: Partial<typeof panels.$inferInsert> = {
     ...input,
     frame: input.frame ? clampFrame(input.frame) : undefined,
-    video: input.video === undefined ? undefined : input.video && ShotVideo.parse({ ...(panel.video ?? {}), ...input.video }),
+    video:
+      input.video === undefined
+        ? undefined
+        : input.video && ShotVideo.parse({ ...(panel.video ?? {}), ...input.video }),
   };
   if (input.promptOverride !== undefined && panel.status === "planned" && input.promptOverride)
     set.status = "prompt-ready";
