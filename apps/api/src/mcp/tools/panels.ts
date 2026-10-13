@@ -1,4 +1,5 @@
 import { count, eq, inArray, pages, panels } from "@openmanga/db";
+import { videoModel } from "@openmanga/domain";
 import { z } from "zod";
 import {
   AddPanel,
@@ -35,14 +36,22 @@ type Jobbed = { job: Record<string, unknown> & { id: string; projectId: string }
 const VideoAiInput = z.object({
   model: z.string().max(200).optional().describe("A video model id (default: still-motion, free)."),
   credentialId: Uuid.optional().describe("The user's key for the model's provider (ids from get_server_info)."),
-  provider: z.string().max(40).optional().describe("Use the user's first saved key of this provider kind (fal)."),
+  provider: z
+    .string()
+    .max(40)
+    .optional()
+    .describe("Use the user's first saved key of this provider kind (default: the model's provider)."),
 });
 
 /** The REST video choice: the free model needs no key; a paid one takes the named key or the provider's first. */
 async function videoAi(ctx: ToolContext, ai: z.infer<typeof VideoAiInput> | undefined) {
   const model = ai?.model ?? "still-motion";
   if (model === "still-motion") return { credentialId: null, model };
-  const r = await restAi(ctx, { credentialId: ai?.credentialId, provider: ai?.provider ?? "fal", model });
+  const r = await restAi(ctx, {
+    credentialId: ai?.credentialId,
+    provider: ai?.provider ?? videoModel(model)?.provider ?? "fal",
+    model,
+  });
   return { credentialId: r?.credentialId ?? null, model };
 }
 
@@ -643,14 +652,16 @@ export const panelTools = [
     name: "video_clips",
     title: "Shot video clips",
     description:
-      "AI video: a shot's video clip (image-to-video from its artwork, or from its words alone on models that can), played in video renders in place of its still and camera move. models: the video models with lengths, resolutions, shapes, end-frame and sound support, price per second and whether the user can run them (`still-motion` is free on every server: the image with a camera move; paid fal models need the user's fal key). list (panelId): its clips, the one it plays, clips being made, the prompt a clip would get. generate (panelId, runs: 1 model, or 2-4 to compare; seconds, resolution 480p|720p|1080p, aspect, audio, seed, prompt: what moves, endAssetId: an image to land on): one run becomes the shot's clip when done, compared runs are kept to pick from; dryRun=true only prices it. use (panelId, assetId or null for the still). delete (panelId, assetId). animate_chapter (chapterId, one ai, onlyMissing): a clip for every drawn shot, dryRun=true for the count and cost first. Paid runs spend the user's credits at the model's per-second price (may need approval); asynchronous: poll get_job, then list. Set the shot's clip prompt, sound (clipAudio mix|mute) and text on screen with update_panel `video`.",
+      "AI video: a shot's video clip (image-to-video from its artwork, or from its words alone on models that can), played in video renders in place of its still and camera move. models: the video models with lengths, resolutions, shapes, end-frame and sound support, price per second and whether the user can run them (`still-motion` is free on every server: the image with a camera move; paid ones run on the user's key for their provider: fal, google (Veo on a Gemini key), kling, runway, minimax, byteplus). list (panelId): its clips, the one it plays, clips being made, the prompt a clip would get. generate (panelId, runs: 1 model, or 2-4 to compare; seconds up to 60, resolution 480p|720p|1080p, aspect, audio, seed, prompt: what moves, endAssetId: an image to land on): one run becomes the shot's clip when done, compared runs are kept to pick from; dryRun=true only prices it. A shot longer than the model's longest clip is made in parts (partSeconds, default the longest; 20 s in parts of 5 s is 4 parts), each starting from the last frame of the part before and joined into one clip; `parts` says what happens in each part in order (blank parts carry the action on), so write them for a long shot. use (panelId, assetId or null for the still). delete (panelId, assetId). animate_chapter (chapterId, one ai, onlyMissing): a clip for every drawn shot, dryRun=true for the count and cost first. Paid runs spend the user's credits at the model's per-second price for every part (may need approval); asynchronous: poll get_job, then list. Set the shot's clip prompt, sound (clipAudio mix|mute) and text on screen with update_panel `video`.",
     input: z.object({
       action: z.enum(["models", "list", "generate", "use", "delete", "animate_chapter"]),
       panelId: Uuid.optional(),
       chapterId: Uuid.optional(),
       runs: z.array(VideoAiInput).min(1).max(4).optional(),
       ai: VideoAiInput.optional(),
-      seconds: z.number().min(1).max(20).optional(),
+      seconds: z.number().min(1).max(60).optional(),
+      partSeconds: z.number().min(1).max(20).optional(),
+      parts: z.array(z.string().trim().max(600)).max(12).optional(),
       resolution: z.enum(["480p", "720p", "1080p"]).optional(),
       aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
       audio: z.boolean().optional(),
@@ -709,6 +720,8 @@ export const panelTools = [
       if (a.action === "models") return { data: await ctx.invoke("GET", "/api/video-models") };
       const opts = {
         seconds: a.seconds,
+        partSeconds: a.partSeconds,
+        parts: a.parts,
         resolution: a.resolution,
         aspect: a.aspect,
         audio: a.audio,

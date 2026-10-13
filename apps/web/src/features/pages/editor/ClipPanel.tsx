@@ -1,8 +1,11 @@
 import {
   clipDuration,
+  clipPlan,
   clipResolution,
   estimateClipUsd,
   LOCAL_VIDEO_MODEL,
+  MAX_SHOT_SECONDS,
+  providerCatalog,
   type VideoModel,
   type VideoResolution,
 } from "@openmanga/domain/browser";
@@ -21,6 +24,7 @@ type Clip = {
   provider: string | null;
   model: string | null;
   seconds: number | null;
+  parts: number;
   resolution: string | null;
   audio: boolean;
   costUsd: number;
@@ -49,12 +53,13 @@ export const useVideoModels = () =>
 export function modelLabel(m: VideoModel & { usable: boolean }, resolution: VideoResolution) {
   const usd = estimateClipUsd(m, clipDuration(m, 5), clipResolution(m, resolution), false);
   const price = m.provider === "local" ? "free" : `${fmt.usd(usd)} / ${clipDuration(m, 5)} s`;
-  return `${m.label} — ${price}${m.usable ? "" : " (add a fal key)"}`;
+  const key = providerCatalog(m.provider)?.label.replace(/ \(.*\)$/, "") ?? m.provider;
+  return `${m.label} — ${price}${m.usable ? "" : ` (add a ${m.provider === "fal" ? "fal" : key} key)`}`;
 }
 
 /**
  * The shot as a video clip: made from its artwork by a video model (the free still-motion model on every server, or a
- * paid one with your fal key, priced before it runs), compared, picked, or set aside for the still. Also what the
+ * paid one with your key for its provider, priced before it runs), compared, picked, or set aside for the still. Also what the
  * shot's clip does with its own sound, and text drawn over the shot in videos.
  */
 export function ClipPanel({
@@ -79,6 +84,8 @@ export function ClipPanel({
   const [model, setModel] = useState(LOCAL_VIDEO_MODEL);
   const [compareWith, setCompareWith] = useState("");
   const [seconds, setSeconds] = useState(5);
+  const [partSeconds, setPartSeconds] = useState<number | null>(null);
+  const [partNotes, setPartNotes] = useState<string[]>([]);
   const [resolution, setResolution] = useState<VideoResolution>("720p");
   const [audio, setAudio] = useState(false);
   const all = models.data?.models ?? [];
@@ -93,17 +100,37 @@ export function ClipPanel({
   const estimate = runs.reduce((n, r) => {
     const mm = all.find((x) => x.id === r.model);
     return mm
-      ? n + estimateClipUsd(mm, clipDuration(mm, seconds), clipResolution(mm, resolution), audio && mm.audio)
+      ? n +
+          clipPlan(mm, seconds, partSeconds).parts *
+            estimateClipUsd(
+              mm,
+              clipPlan(mm, seconds, partSeconds).part,
+              clipResolution(mm, resolution),
+              audio && mm.audio,
+            )
       : n;
   }, 0);
   const done = () => {
     void qc.invalidateQueries({ queryKey: key });
     for (const k of invalidate) void qc.invalidateQueries({ queryKey: k });
   };
-  const generate = useAction(() => post(`/panels/${panelId}/clips`, { runs, seconds, resolution, audio }), {
-    onSuccess: done,
-    success: runs.length > 1 ? "Making a clip with each model" : "Making the clip",
-  });
+  const plan = m ? clipPlan(m, seconds, partSeconds) : null;
+  const generate = useAction(
+    () =>
+      post(`/panels/${panelId}/clips`, {
+        runs,
+        seconds,
+        resolution,
+        audio,
+        partSeconds,
+        // Every part, blank ones as "" (they carry the action on).
+        parts: plan && plan.parts > 1 ? Array.from({ length: plan.parts }, (_, k) => partNotes[k] ?? "") : undefined,
+      }),
+    {
+      onSuccess: done,
+      success: runs.length > 1 ? "Making a clip with each model" : "Making the clip",
+    },
+  );
   const use = useAction((assetId: string | null) => post(`/panels/${panelId}/clips/use`, { assetId }), {
     onSuccess: done,
     success: (r) =>
@@ -130,7 +157,7 @@ export function ClipPanel({
       <fieldset disabled={locked} className="mt-2 space-y-2 text-xs">
         <p className="muted">
           Turn this shot into a moving clip. Videos then play it in place of the still and its camera move. Still motion
-          is free; paid models run on your fal key and are priced before they start.
+          is free; paid models run on your key for their provider and are priced before they start.
         </p>
         {active && (
           <video
@@ -165,9 +192,9 @@ export function ClipPanel({
               className="input text-xs"
               type="number"
               min={1}
-              max={20}
+              max={MAX_SHOT_SECONDS}
               value={seconds}
-              onChange={(e) => setSeconds(Math.max(1, Math.min(20, Number(e.target.value) || 5)))}
+              onChange={(e) => setSeconds(Math.max(1, Math.min(MAX_SHOT_SECONDS, Number(e.target.value) || 5)))}
             />
           </Field>
           <Field label="Resolution">
@@ -199,6 +226,46 @@ export function ClipPanel({
             </select>
           </Field>
         </div>
+        {m && (plan?.parts ?? 1) > 1 && (
+          <div className="space-y-1.5 rounded border border-[var(--border)] p-1.5">
+            <div className="flex items-center gap-2">
+              <span>
+                Made as <strong>{plan!.parts} parts</strong> of {plan!.part} s, each continuing from the last frame of
+                the one before
+              </span>
+              <select
+                className="input ml-auto w-auto py-0.5 text-xs"
+                aria-label="Part length"
+                value={partSeconds ?? ""}
+                onChange={(e) => setPartSeconds(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">Longest ({Math.max(...m.durations)} s)</option>
+                {m.durations.map((d) => (
+                  <option key={d} value={d}>
+                    {d} s parts
+                  </option>
+                ))}
+              </select>
+            </div>
+            {Array.from({ length: plan!.parts }, (_, k) => (
+              <input
+                key={k}
+                className="input text-xs"
+                aria-label={`Part ${k + 1}`}
+                placeholder={`${k * plan!.part}–${(k + 1) * plan!.part} s: ${k === 0 ? "how it starts" : k === plan!.parts - 1 ? "how it ends" : "what happens next"} (blank carries the action on)`}
+                maxLength={600}
+                value={partNotes[k] ?? ""}
+                onChange={(e) =>
+                  setPartNotes((n) => {
+                    const next = [...n];
+                    next[k] = e.target.value;
+                    return next;
+                  })
+                }
+              />
+            ))}
+          </div>
+        )}
         {m?.audio && (
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={audio} onChange={(e) => setAudio(e.target.checked)} />
@@ -219,7 +286,7 @@ export function ClipPanel({
         </Field>
         <div className="flex items-center gap-2">
           <span className="muted">
-            {m && `${clipDuration(m, seconds)} s at ${clipResolution(m, resolution)}`}
+            {plan && `${plan.total} s at ${clipResolution(m!, resolution)}`}
             {runs.length > 1 ? " each" : ""} · {estimate ? `~${fmt.usd(estimate)}` : "free"}
           </span>
           <button
@@ -264,7 +331,8 @@ export function ClipPanel({
                     {c.assetId === data!.activeAssetId && " · playing"}
                   </div>
                   <div className="muted">
-                    {c.durationMs ? `${(c.durationMs / 1000).toFixed(1)} s` : ""} · {c.resolution} ·{" "}
+                    {c.durationMs ? `${(c.durationMs / 1000).toFixed(1)} s` : ""}
+                    {c.parts > 1 ? ` in ${c.parts} parts` : ""} · {c.resolution} ·{" "}
                     {c.costUsd ? fmt.usd(c.costUsd) : "free"}
                   </div>
                 </div>

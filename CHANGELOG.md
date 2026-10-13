@@ -12,7 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - AI video ([AI_VIDEO](docs/AI_VIDEO.md)): a shot can play a generated video clip instead of its still and camera move.
   Panel tab → *Video clip* makes one from the shot's artwork with a video model: *Still motion*, free on every server
   (ffmpeg, no key), or a fal.ai model on your own key (Seedance 1.0 Pro Fast, Grok Imagine 1.5 Lite, Hailuo 02, Wan
-  2.5, PixVerse v6, Kling 2.5 Turbo Pro, Kling 3, Veo 3.1 Fast), priced per second before it runs; *Compare with* makes
+  2.5, PixVerse v6, Kling 2.5 Turbo Pro, Kling 3, Veo 3.1 Fast) or a provider's own API (below), priced per second
+  before it runs; *Compare with* makes
   a second with another model to choose from. Chapter → *Animate shots* does every shot with a price check first.
   Videos and the preview play the clips (held on the last frame when the narration is longer). Clips are
   `panel_clip` assets made on a new `video-generation` queue (`VIDEO_WORKER_CONCURRENCY`, default 2); a restarted
@@ -25,6 +26,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   *Music bed* loops an uploaded track under the film, lowered while the narrator speaks; a clip's own sound can be
   mixed under the narration. New project presets *AI video ad, 60 s* (realistic or cartoon) and *AI video story,
   3 min (anime)*, and a *Cartoon* style.
+- Video providers' own APIs besides fal.ai: Google Veo 3.1 Fast and Lite (on a Gemini key), Kling 3.0, Runway Gen-4
+  Turbo, MiniMax Hailuo 02 and 2.3, and Seedance 1.5 Pro on BytePlus ModelArk (new provider kinds `kling`, `runway`,
+  `minimax`, `byteplus`; their keys are saved unchecked, as none has a free check). Not yet run with real keys.
+- Long shots up to 60 s: made in parts (the model's longest clip, or a chosen part length), each starting from the last
+  frame of the part before with a prompt for its own seconds (what happens, what the parts before showed, keep
+  everything continuous), joined into one clip. Parts are billed and kept as they land, so a failure or a restart
+  resumes at the part it stopped on.
+- Provenance records list each panel's video clip (provider, model, job, prompt fingerprint, parts) and the music bed
+  with its licence note.
 - MCP `video_clips` (models, list, generate or compare, use, delete, animate a chapter, with `dryRun` prices) and
   `write_ad_script`; `update_panel` `video` takes the clip, clip prompt, clip sound and text on screen, and merges
   instead of replacing (a change to the camera move no longer clears other shot settings).

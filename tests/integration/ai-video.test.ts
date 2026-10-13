@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { sql } from "@openmanga/db";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 // Clips (the free still-motion model) and renders need ffmpeg/ffprobe: present in the app image.
@@ -268,3 +269,73 @@ test("an ad's script is written from its brief and saved as the story", async ()
   );
   expect(p.project.settings.ad).toMatchObject({ product: brief.product, lengthSeconds: 30 });
 });
+
+test.skipIf(!hasFfmpeg)(
+  "a long shot is made in parts that continue from each other's last frame, joined into one clip",
+  async () => {
+    const id = panelIds[1]!;
+    const before = (await u.get<Clips>(`/api/panels/${id}/clips`)).clips.length;
+    const r = await u.post<{ jobs: { id: string }[]; estimate: { runs: { parts: number; seconds: number }[] } }>(
+      `/api/panels/${id}/clips`,
+      {
+        runs: [{ credentialId: null }],
+        seconds: 9,
+        partSeconds: 3,
+        resolution: "480p",
+        parts: ["she reaches for the lamp", "", "the room fills with light"],
+      },
+      202,
+    );
+    expect(r.estimate.runs[0]).toMatchObject({ parts: 3, seconds: 9 });
+    const job = await waitJob(r.jobs[0]!.id, 120_000);
+    expect(job.status).toBe("completed");
+    expect(job.result).toMatchObject({ parts: 3 });
+    const detail = await u.get<{ job: { compiledPrompt: string } }>(`/api/generations/${job.id}`);
+    const [p1, p2, p3] = detail.job.compiledPrompt.split("\n\n---\n\n");
+    expect(p1).toContain("part 1 of 3");
+    expect(p1).toContain("she reaches for the lamp");
+    expect(p2).toContain("LAST FRAME of the previous part");
+    expect(p2).toContain("Seconds 0–3: she reaches for the lamp");
+    expect(p2).toContain("Carry the action on");
+    expect(p3).toContain("the room fills with light");
+    const clips = await u.get<Clips & { clips: { parts: number }[] }>(`/api/panels/${id}/clips`);
+    // One new clip of about 9 s (each continuation drops its first frame); its parts are not listed.
+    expect(clips.clips).toHaveLength(before + 1);
+    expect(clips.clips[0]!.parts).toBe(3);
+    expect(clips.clips[0]!.durationMs).toBeGreaterThan(8500);
+    expect(clips.clips[0]!.durationMs).toBeLessThan(9500);
+    expect(clips.activeAssetId).toBe(clips.clips[0]!.assetId);
+
+    // The provenance record says what made the clip.
+    const prov = await u.get<{
+      panels: { clip: { parts: number; job: { model: string } } | null }[];
+      models: { kind: string }[];
+    }>(`/api/projects/${projectId}/provenance`);
+    expect(prov.panels.find((p) => p.clip?.parts === 3)?.clip?.job.model).toBe("still-motion");
+    expect(prov.models.some((m) => m.kind === "video")).toBe(true);
+  },
+  180_000,
+);
+
+test.skipIf(!hasFfmpeg)(
+  "a part that keeps failing is retried from that part: the parts already made are not made again",
+  async () => {
+    const id = panelIds[2]!;
+    const before = (await u.get<Clips>(`/api/panels/${id}/clips`)).clips.length;
+    const r = await u.post<{ jobs: { id: string }[] }>(
+      `/api/panels/${id}/clips`,
+      { runs: [{ credentialId: null }], seconds: 6, partSeconds: 3, resolution: "480p", parts: ["", "[[mock:500]]"] },
+      202,
+    );
+    const job = await waitJob(r.jobs[0]!.id, 120_000);
+    expect(job.status).toBe("failed");
+    // Part 1 was made once and kept on the job; every attempt stopped at part 2.
+    expect((job.result as { parts?: string[] } | null)?.parts).toHaveLength(1);
+    const usage = await h.deps.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from ai_usage where generation_job_id = ${job.id}`,
+    );
+    expect(usage[0]!.n).toBe(1);
+    expect((await u.get<Clips>(`/api/panels/${id}/clips`)).clips).toHaveLength(before);
+  },
+  180_000,
+);

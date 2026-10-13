@@ -259,6 +259,12 @@ export type CredentialSummary = {
 };
 export type ResolvedCredential = CredentialSummary & { apiKey: string; updatedAt: Date };
 
+/**
+ * Video providers with no free way to check a key (no model list, no free read): their keys are saved as given and a
+ * wrong one fails the first run with the provider's "rejected the key" error, before anything is spent.
+ */
+const UNCHECKED_KINDS = new Set<ProviderKind>(["kling", "runway", "minimax", "byteplus"]);
+
 export class CredentialService {
   readonly ring: KeyRing;
   /** Mock mode never calls providers: keys are stored unverified and model lists come from the catalog. */
@@ -308,7 +314,8 @@ export class CredentialService {
             allowPrivate: this.allowPrivateEndpoints,
           })
         : null;
-    if (!this.offline) await this.fetchModels({ kind: input.kind, baseUrl, apiKey });
+    if (!this.offline && !UNCHECKED_KINDS.has(input.kind))
+      await this.fetchModels({ kind: input.kind, baseUrl, apiKey });
     const [row] = await this.db
       .insert(providerCredentials)
       .values({

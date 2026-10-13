@@ -9820,7 +9820,7 @@ Draw one panel with 2-4 image models side by side. run: runs (each an ai choice:
 
 ### video_clips
 
-AI video: a shot's video clip (image-to-video from its artwork, or from its words alone on models that can), played in video renders in place of its still and camera move. models: the video models with lengths, resolutions, shapes, end-frame and sound support, price per second and whether the user can run them (`still-motion` is free on every server: the image with a camera move; paid fal models need the user's fal key). list (panelId): its clips, the one it plays, clips being made, the prompt a clip would get. generate (panelId, runs: 1 model, or 2-4 to compare; seconds, resolution 480p|720p|1080p, aspect, audio, seed, prompt: what moves, endAssetId: an image to land on): one run becomes the shot's clip when done, compared runs are kept to pick from; dryRun=true only prices it. use (panelId, assetId or null for the still). delete (panelId, assetId). animate_chapter (chapterId, one ai, onlyMissing): a clip for every drawn shot, dryRun=true for the count and cost first. Paid runs spend the user's credits at the model's per-second price (may need approval); asynchronous: poll get_job, then list. Set the shot's clip prompt, sound (clipAudio mix|mute) and text on screen with update_panel `video`.
+AI video: a shot's video clip (image-to-video from its artwork, or from its words alone on models that can), played in video renders in place of its still and camera move. models: the video models with lengths, resolutions, shapes, end-frame and sound support, price per second and whether the user can run them (`still-motion` is free on every server: the image with a camera move; paid ones run on the user's key for their provider: fal, google (Veo on a Gemini key), kling, runway, minimax, byteplus). list (panelId): its clips, the one it plays, clips being made, the prompt a clip would get. generate (panelId, runs: 1 model, or 2-4 to compare; seconds up to 60, resolution 480p|720p|1080p, aspect, audio, seed, prompt: what moves, endAssetId: an image to land on): one run becomes the shot's clip when done, compared runs are kept to pick from; dryRun=true only prices it. A shot longer than the model's longest clip is made in parts (partSeconds, default the longest; 20 s in parts of 5 s is 4 parts), each starting from the last frame of the part before and joined into one clip; `parts` says what happens in each part in order (blank parts carry the action on), so write them for a long shot. use (panelId, assetId or null for the still). delete (panelId, assetId). animate_chapter (chapterId, one ai, onlyMissing): a clip for every drawn shot, dryRun=true for the count and cost first. Paid runs spend the user's credits at the model's per-second price for every part (may need approval); asynchronous: poll get_job, then list. Set the shot's clip prompt, sound (clipAudio mix|mute) and text on screen with update_panel `video`.
 
 - **Scopes:** `panels:read` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
@@ -9876,7 +9876,7 @@ AI video: a shot's video clip (image-to-video from its artwork, or from its word
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
           "provider": {
-            "description": "Use the user's first saved key of this provider kind (fal).",
+            "description": "Use the user's first saved key of this provider kind (default: the model's provider).",
             "type": "string",
             "maxLength": 40
           }
@@ -9898,7 +9898,7 @@ AI video: a shot's video clip (image-to-video from its artwork, or from its word
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
         },
         "provider": {
-          "description": "Use the user's first saved key of this provider kind (fal).",
+          "description": "Use the user's first saved key of this provider kind (default: the model's provider).",
           "type": "string",
           "maxLength": 40
         }
@@ -9907,7 +9907,20 @@ AI video: a shot's video clip (image-to-video from its artwork, or from its word
     "seconds": {
       "type": "number",
       "minimum": 1,
+      "maximum": 60
+    },
+    "partSeconds": {
+      "type": "number",
+      "minimum": 1,
       "maximum": 20
+    },
+    "parts": {
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 600
+      }
     },
     "resolution": {
       "type": "string",
@@ -14133,7 +14146,7 @@ check: for a chapter or the project, without AI — how many panels have alt tex
 
 ### get_provenance
 
-Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.
+Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences, each panel's video clip (provider, model, job, prompt hash, parts) and the music bed with its licence note. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.
 
 - **Scopes:** `exports:read`
 - **Sensitivity:** read

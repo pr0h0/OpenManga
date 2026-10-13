@@ -45,7 +45,7 @@ export function AnimateShots({ chapterId }: { chapterId: string }) {
       <div className="mt-3 space-y-2 text-sm">
         <p className="muted">
           Make a video clip of every drawn shot of this chapter. Videos play each clip in place of its still. Check the
-          price first: paid models run on your fal key.
+          price first: paid models run on your key for their provider.
         </p>
         <div className="grid gap-2 sm:grid-cols-4">
           <Field label="Model">
@@ -64,15 +64,15 @@ export function AnimateShots({ chapterId }: { chapterId: string }) {
               ))}
             </select>
           </Field>
-          <Field label="Length per shot (s)">
+          <Field label="Length per shot (s)" hint="Longer than the model's longest clip: made in parts that continue">
             <input
               className="input"
               type="number"
               min={1}
-              max={20}
+              max={60}
               value={seconds}
               onChange={(e) => {
-                setSeconds(Math.max(1, Math.min(20, Number(e.target.value) || 5)));
+                setSeconds(Math.max(1, Math.min(60, Number(e.target.value) || 5)));
                 changed();
               }}
             />

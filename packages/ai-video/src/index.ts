@@ -10,7 +10,47 @@ import {
 } from "@openmanga/domain";
 import { scenarioFromText } from "@openmanga/testing";
 
-export { FalVideoProvider } from "./fal.ts";
+import {
+  BytePlusSeedanceProvider,
+  GeminiVeoProvider,
+  KlingVideoProvider,
+  MiniMaxVideoProvider,
+  RunwayVideoProvider,
+} from "./direct.ts";
+import { FalVideoProvider } from "./fal.ts";
+
+export { findVideoUrl } from "./direct.ts";
+export {
+  BytePlusSeedanceProvider,
+  FalVideoProvider,
+  GeminiVeoProvider,
+  KlingVideoProvider,
+  MiniMaxVideoProvider,
+  RunwayVideoProvider,
+};
+
+/** The adapter for a provider kind's video models, or null for a kind that makes no video. */
+export function videoProviderFor(
+  kind: string,
+  opts: { apiKey: string; model: string; baseUrl: string; logger?: import("@openmanga/logger").Logger },
+): VideoAIProvider | null {
+  switch (kind) {
+    case "fal":
+      return new FalVideoProvider(opts);
+    case "google":
+      return new GeminiVeoProvider(opts);
+    case "kling":
+      return new KlingVideoProvider(opts);
+    case "runway":
+      return new RunwayVideoProvider(opts);
+    case "minimax":
+      return new MiniMaxVideoProvider(opts);
+    case "byteplus":
+      return new BytePlusSeedanceProvider(opts);
+    default:
+      return null;
+  }
+}
 
 export type VideoInputImage = { data: Uint8Array; mime: string };
 

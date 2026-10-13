@@ -20,7 +20,7 @@ import {
   type TextAIProvider,
   type TextBatchProvider,
 } from "@openmanga/ai-text";
-import { FalVideoProvider, LocalVideoProvider, type VideoAIProvider } from "@openmanga/ai-video";
+import { LocalVideoProvider, type VideoAIProvider, videoProviderFor } from "@openmanga/ai-video";
 import {
   ElevenLabsTTSProvider,
   FakeTTSProvider,
@@ -337,16 +337,19 @@ export class ProviderResolver {
       });
     void this.credentials.touch(cred.id).catch(() => {});
     if (this.config.AI_MOCK_MODE) return local();
-    return this.cached(
-      `video:${credentialFingerprint(cred, chosen)}`,
-      () =>
-        new FalVideoProvider({
-          apiKey: cred.apiKey,
-          model: chosen,
-          baseUrl: cred.baseUrl ?? cat.baseUrl ?? "",
-          logger: this.logger,
-        }),
-    );
+    return this.cached(`video:${credentialFingerprint(cred, chosen)}`, () => {
+      const p = videoProviderFor(cred.kind, {
+        apiKey: cred.apiKey,
+        model: chosen,
+        baseUrl: cred.baseUrl ?? cat.baseUrl ?? "",
+        logger: this.logger,
+      });
+      if (!p)
+        throw new ProviderError(cred.kind, "invalid_request", `${cred.label} can't be used for video generation`, {
+          retryable: false,
+        });
+      return p;
+    });
   }
 
   /** Reads the choice stored on a job (parameters.ai) and resolves it for the job's user. */

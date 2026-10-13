@@ -17,10 +17,12 @@ import {
   sql,
 } from "@openmanga/db";
 import {
-  clipDuration,
+  clipPlan,
   clipResolution,
   estimateClipUsd,
   LOCAL_VIDEO_MODEL,
+  MAX_SHOT_PARTS,
+  MAX_SHOT_SECONDS,
   PRIORITY,
   ProviderError,
   providerSupports,
@@ -57,8 +59,15 @@ const VideoChoice = z.object({
 type VideoChoice = z.infer<typeof VideoChoice>;
 
 const ClipOptions = z.object({
-  /** Wanted length; the model's closest offered length at or above it is used. */
-  seconds: z.number().min(1).max(20).default(5),
+  /**
+   * Wanted length. Up to the model's longest clip it is made at once (its closest length at or above it); longer, it
+   * is made in parts, each continuing from the last frame of the one before, and joined into one clip.
+   */
+  seconds: z.number().min(1).max(MAX_SHOT_SECONDS).default(5),
+  /** A long shot's part length (default the model's longest clip): 20 s with parts of 5 s is 4 × 5 s. */
+  partSeconds: z.number().min(1).max(20).nullable().optional(),
+  /** What happens in each part of a long shot, in order (blank parts carry the action on). */
+  parts: z.array(z.string().trim().max(600)).max(MAX_SHOT_PARTS).optional(),
   resolution: z.enum(["480p", "720p", "1080p"]).default("720p"),
   /** Frame shape; default the project's video shape. */
   aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
@@ -100,7 +109,12 @@ async function clipPrompt(
   pn: typeof panels.$inferSelect,
   m: VideoModel,
   seconds: number,
-  opts: { prompt?: string | null; fromImage: boolean; endFrame: boolean },
+  opts: {
+    prompt?: string | null;
+    fromImage: boolean;
+    endFrame: boolean;
+    part?: { index: number; count: number; directions: string[] };
+  },
 ) {
   const deps = c.get("deps");
   const { style } = await deps.planner.styleContext(pn.projectId);
@@ -134,6 +148,16 @@ async function clipPrompt(
     })),
     location: loc ? `${loc.name}${loc.d.summary ? ` — ${loc.d.summary}` : ""}` : null,
     endFrame: opts.endFrame && m.endFrame,
+    part: opts.part && {
+      index: opts.part.index,
+      count: opts.part.count,
+      fromSec: opts.part.index * seconds,
+      toSec: (opts.part.index + 1) * seconds,
+      direction: opts.part.directions[opts.part.index]?.trim() || null,
+      before: opts.part.directions
+        .slice(0, opts.part.index)
+        .map((d, k) => d.trim() || (k === 0 ? "the action began" : "the action carried on")),
+    },
   });
 }
 
@@ -141,7 +165,10 @@ type Planned = {
   panel: typeof panels.$inferSelect;
   model: VideoModel;
   ai: VideoChoice;
+  /** One clip's (or one part's) length. */
   seconds: number;
+  /** How many parts make the shot (1: a single clip). */
+  partCount: number;
   resolution: "480p" | "720p" | "1080p";
   audio: boolean;
   usd: number;
@@ -157,10 +184,19 @@ function planClip(
   if (!pn.activeArtworkAssetId && !m.textToVideo)
     throw badRequest(`${m.label} animates the shot's image: draw the shot first`);
   if (pn.activeArtworkAssetId && !m.imageToVideo) throw badRequest(`${m.label} makes clips from words only`);
-  const seconds = clipDuration(m, o.seconds);
+  const plan = clipPlan(m, o.seconds, o.partSeconds);
   const resolution = clipResolution(m, o.resolution);
   const audio = o.audio && m.audio;
-  return { panel: pn, model: m, ai, seconds, resolution, audio, usd: estimateClipUsd(m, seconds, resolution, audio) };
+  return {
+    panel: pn,
+    model: m,
+    ai,
+    seconds: plan.part,
+    partCount: plan.parts,
+    resolution,
+    audio,
+    usd: Math.round(plan.parts * estimateClipUsd(m, plan.part, resolution, audio) * 10000) / 10000,
+  };
 }
 
 /** Queues the planned clips (one job each) in one transaction; the caller has checked access and budget. */
@@ -182,11 +218,18 @@ async function enqueueClips(
   const jobs = [];
   for (const p of planned) {
     const fromImage = Boolean(p.panel.activeArtworkAssetId);
-    const compiled = await clipPrompt(c, p.panel, p.model, p.seconds, {
-      prompt: o.prompt,
-      fromImage,
-      endFrame: Boolean(o.endAssetId),
-    });
+    // One prompt per part: each continues from the last frame of the part before it.
+    const prompts: string[] = [];
+    for (let k = 0; k < p.partCount; k++)
+      prompts.push(
+        await clipPrompt(c, p.panel, p.model, p.seconds, {
+          prompt: o.prompt,
+          fromImage: fromImage || k > 0,
+          endFrame: Boolean(o.endAssetId),
+          part: p.partCount > 1 ? { index: k, count: p.partCount, directions: o.parts ?? [] } : undefined,
+        }),
+      );
+    const compiled = prompts.join("\n\n---\n\n");
     const video = (p.panel.video ?? {}) as Partial<ShotVideo>;
     jobs.push(
       await deps.db.transaction((tx) =>
@@ -213,6 +256,8 @@ async function enqueueClips(
             sourceAssetId: p.panel.activeArtworkAssetId,
             endAssetId: o.endAssetId && p.model.endFrame ? o.endAssetId : null,
             seconds: p.seconds,
+            partCount: p.partCount,
+            prompts,
             resolution: p.resolution,
             aspect: p.model.aspects.includes(aspect) ? aspect : p.model.aspects[0],
             audio: p.audio,
@@ -278,6 +323,8 @@ aiVideoRoutes.get("/panels/:id/clips", async (c) => {
         eq(assets.type, "panel_clip"),
         isNull(assets.deletedAt),
         sql`${assets.metadata}->>'panelId' = ${id}`,
+        // The parts of a long shot still being made are not clips of their own.
+        sql`${assets.metadata}->>'partOf' is null`,
       ),
     )
     .orderBy(desc(assets.createdAt))
@@ -313,6 +360,7 @@ aiVideoRoutes.get("/panels/:id/clips", async (c) => {
         provider: m.provider ?? null,
         model: m.model ?? null,
         seconds: m.seconds ?? null,
+        parts: m.parts ?? 1,
         resolution: m.resolution ?? null,
         audio: Boolean(m.audio),
         jobId: x.jobId,
@@ -349,7 +397,14 @@ aiVideoRoutes.post("/panels/:id/clips", async (c) => {
   for (const ai of input.runs) planned.push(planClip(pn, (await videoRun(c, ai)).model, ai, input));
   const estimate = {
     usd: Math.round(planned.reduce((n, p) => n + p.usd, 0) * 10000) / 10000,
-    runs: planned.map((p) => ({ model: p.model.id, seconds: p.seconds, resolution: p.resolution, usd: p.usd })),
+    runs: planned.map((p) => ({
+      model: p.model.id,
+      seconds: p.seconds * p.partCount,
+      parts: p.partCount,
+      partSeconds: p.seconds,
+      resolution: p.resolution,
+      usd: p.usd,
+    })),
   };
   if (input.dryRun) return c.json({ estimate });
   await assertBudget(c, project.id, estimate.usd);
@@ -454,7 +509,7 @@ aiVideoRoutes.post("/chapters/:id/clips", async (c) => {
   }
   const estimate = {
     shots: planned.length,
-    seconds: planned.reduce((n, p) => n + p.seconds, 0),
+    seconds: planned.reduce((n, p) => n + p.seconds * p.partCount, 0),
     usd: Math.round(planned.reduce((n, p) => n + p.usd, 0) * 10000) / 10000,
     model: m.id,
   };

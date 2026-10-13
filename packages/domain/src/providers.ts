@@ -10,6 +10,10 @@ export type ProviderKind =
   | "openrouter"
   | "elevenlabs"
   | "fal"
+  | "kling"
+  | "runway"
+  | "minimax"
+  | "byteplus"
   | "openai_compatible";
 export type AiCapability = "text" | "image" | "tts" | "video";
 
@@ -65,7 +69,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     textModels: ["gemini-3.6-flash"],
     imageModels: ["gemini-3.1-flash-lite-image", "gemini-2.5-flash-image", "gemini-3.1-flash-image"],
     ttsModels: ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"],
-    videoModels: [],
+    videoModels: videoModelsOf("google").map((m) => m.id),
   },
   {
     kind: "meta",
@@ -107,6 +111,46 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     ttsModels: [],
     // From the video model catalog, so the picker and the adapter never disagree.
     videoModels: videoModelsOf("fal").map((m) => m.id),
+  },
+  {
+    kind: "kling",
+    label: "Kling (video)",
+    baseUrl: "https://api-singapore.klingai.com",
+    keyUrl: "https://app.klingai.com/global/dev",
+    textModels: [],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: videoModelsOf("kling").map((m) => m.id),
+  },
+  {
+    kind: "runway",
+    label: "Runway (video)",
+    baseUrl: "https://api.dev.runwayml.com/v1",
+    keyUrl: "https://dev.runwayml.com",
+    textModels: [],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: videoModelsOf("runway").map((m) => m.id),
+  },
+  {
+    kind: "minimax",
+    label: "MiniMax Hailuo (video)",
+    baseUrl: "https://api.minimax.io/v1",
+    keyUrl: "https://platform.minimax.io/user-center/basic-information/interface-key",
+    textModels: [],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: videoModelsOf("minimax").map((m) => m.id),
+  },
+  {
+    kind: "byteplus",
+    label: "BytePlus ModelArk (Seedance video)",
+    baseUrl: "https://ark.ap-southeast.bytepluses.com/api/v3",
+    keyUrl: "https://console.byteplus.com/ark/region:ark+ap-southeast-1/apiKey",
+    textModels: [],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: videoModelsOf("byteplus").map((m) => m.id),
   },
   {
     kind: "openai_compatible",

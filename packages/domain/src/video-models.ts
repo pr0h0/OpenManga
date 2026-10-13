@@ -10,7 +10,8 @@ export type VideoClipAspect = "16:9" | "9:16" | "1:1";
 export type VideoModel = {
   /** The id runs record and the adapter calls (a fal endpoint id for fal). */
   id: string;
-  provider: "local" | "fal";
+  /** Who runs it: this server, fal.ai, or a provider's own API (a ProviderKind with this model in its videoModels). */
+  provider: "local" | "fal" | "google" | "kling" | "runway" | "minimax" | "byteplus";
   label: string;
   /** Whether it animates a starting image, writes a clip from the prompt alone, or both. */
   imageToVideo: boolean;
@@ -183,10 +184,136 @@ export const VIDEO_MODELS: VideoModel[] = [
     pricePerSecond: { "720p": { silent: 0.1, audio: 0.15 }, "1080p": { silent: 0.1, audio: 0.15 } },
     note: "Polished realism with sound. Check it is still offered on fal before relying on it.",
   },
+  // Providers' own APIs (docs/VIDEO_PROVIDERS.md §2–3). Each runs on the user's key for that provider.
+  {
+    id: "veo-3.1-fast-generate-preview",
+    provider: "google",
+    label: "Veo 3.1 Fast (Google)",
+    imageToVideo: true,
+    textToVideo: true,
+    durations: [4, 6, 8],
+    // 1080p only allows 8 s on the Gemini API; 720p takes every length.
+    resolutions: ["720p"],
+    aspects: ["16:9", "9:16"],
+    endFrame: true,
+    // Always made with sound on the Gemini API, and priced with it.
+    audio: true,
+    pricePerSecond: { "720p": { silent: 0.1, audio: 0.1 } },
+    note: "Realism with sound, on a Gemini API key; cheaper than Veo on fal. Preview model.",
+  },
+  {
+    id: "veo-3.1-lite-generate-preview",
+    provider: "google",
+    label: "Veo 3.1 Lite (Google)",
+    imageToVideo: true,
+    textToVideo: true,
+    durations: [4, 6, 8],
+    resolutions: ["720p"],
+    aspects: ["16:9", "9:16"],
+    endFrame: true,
+    audio: true,
+    pricePerSecond: { "720p": { silent: 0.05, audio: 0.05 } },
+    note: "Cheapest Veo, with sound, on a Gemini API key. Preview model.",
+  },
+  {
+    id: "kling-3.0",
+    provider: "kling",
+    label: "Kling 3.0 (Kling)",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [3, 4, 5, 6, 8, 10, 12, 15],
+    resolutions: ["720p", "1080p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: true,
+    audio: true,
+    pricePerSecond: { "720p": { silent: 0.084, audio: 0.126 }, "1080p": { silent: 0.112, audio: 0.168 } },
+    note: "Kling's own API: cinematic, realistic, good stylisation; sound on request.",
+  },
+  {
+    id: "gen4_turbo",
+    provider: "runway",
+    label: "Runway Gen-4 Turbo (Runway)",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [2, 3, 4, 5, 6, 7, 8, 9, 10],
+    resolutions: ["720p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: false,
+    audio: false,
+    pricePerSecond: { "720p": { silent: 0.05 } },
+    note: "Realistic. A refused (moderated) clip is still billed by Runway.",
+  },
+  {
+    id: "MiniMax-Hailuo-02",
+    provider: "minimax",
+    label: "Hailuo 02 (MiniMax)",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [6, 10],
+    // 480p is MiniMax's 512P, 720p its 768P.
+    resolutions: ["480p", "720p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: false,
+    audio: false,
+    pricePerSecond: { "480p": { silent: 0.0167 }, "720p": { silent: 0.045 } },
+    note: "MiniMax's own API: stylised and anime looks, good physics. 6 or 10 s.",
+  },
+  {
+    id: "MiniMax-Hailuo-2.3",
+    provider: "minimax",
+    label: "Hailuo 2.3 (MiniMax)",
+    imageToVideo: true,
+    textToVideo: false,
+    durations: [6, 10],
+    resolutions: ["720p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: false,
+    audio: false,
+    pricePerSecond: { "720p": { silent: 0.0467 } },
+    note: "Newer Hailuo on MiniMax's own API, 768P. 6 or 10 s.",
+  },
+  {
+    id: "seedance-1-5-pro-251215",
+    provider: "byteplus",
+    label: "Seedance 1.5 Pro (BytePlus)",
+    imageToVideo: true,
+    textToVideo: true,
+    durations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
+    resolutions: ["480p", "720p", "1080p"],
+    aspects: ["16:9", "9:16", "1:1"],
+    endFrame: true,
+    audio: true,
+    // BytePlus bills tokens; its page could not be read, so these are fal's rates for the same model (a proxy).
+    pricePerSecond: {
+      "480p": { silent: 0.0117, audio: 0.0233 },
+      "720p": { silent: 0.0259, audio: 0.0518 },
+      "1080p": { silent: 0.0583, audio: 0.1166 },
+    },
+    note: "ByteDance's own API (ModelArk): realistic and anime, end frame, sound. Prices are estimates.",
+  },
 ];
 
 export const videoModel = (id: string) => VIDEO_MODELS.find((m) => m.id === id);
 export const videoModelsOf = (provider: VideoModel["provider"]) => VIDEO_MODELS.filter((m) => m.provider === provider);
+
+/** Longest single clip, total length and parts of a long shot (each part continues from the last one's final frame). */
+export const MAX_SHOT_SECONDS = 60;
+export const MAX_SHOT_PARTS = 12;
+
+/**
+ * How a shot of `seconds` is made with a model: one clip when the model can make it at once, else parts of `part`
+ * seconds (the asked part length, or the longest the model makes), each continuing from the last frame of the one
+ * before. 20 s on a model of 5 and 10 s is 2 × 10 s; with parts of 5 s, 4 × 5 s.
+ */
+export function clipPlan(m: VideoModel, seconds: number, partSeconds?: number | null) {
+  const longest = Math.max(...m.durations);
+  const want = Math.min(seconds, MAX_SHOT_SECONDS);
+  if (!partSeconds && want <= longest + 0.05)
+    return { parts: 1, part: clipDuration(m, want), total: clipDuration(m, want) };
+  const part = clipDuration(m, Math.min(partSeconds ?? longest, longest));
+  const parts = Math.min(MAX_SHOT_PARTS, Math.max(1, Math.ceil((want - 0.05) / part)));
+  return { parts, part, total: parts * part };
+}
 
 /** The duration a model will make for a wanted length: the shortest it offers at or above it, else its longest. */
 export function clipDuration(m: VideoModel, wantedSec: number) {

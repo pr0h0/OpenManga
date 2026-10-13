@@ -904,6 +904,18 @@ export type PanelClipInput = {
   location: string | null;
   /** Lands on a given last frame. */
   endFrame: boolean;
+  /**
+   * A long shot made in parts, each continuing from the last frame of the one before: this part's place in the shot
+   * and what happens in it (`direction`; null: carry the action on), and what the parts before it showed.
+   */
+  part?: { index: number; count: number; fromSec: number; toSec: number; direction: string | null; before: string[] };
+};
+
+/** What a part does when nobody said: begin the action, carry it on, or bring it to its end. */
+const PART_DEFAULT = {
+  first: "Begin the action and let it develop; do not finish it, it carries on in the next part.",
+  middle: "Carry the action on from exactly where it stands, the natural next step; do not finish it yet.",
+  last: "Bring the action to its natural end and settle into a calm closing moment that can hold.",
 };
 
 /**
@@ -915,12 +927,50 @@ export const panelClipV1: ImageTemplate<PanelClipInput> = {
   version: 1,
   kind: "image",
   description: "Video clip of one shot: motion and camera for image-to-video, the whole shot for text-to-video.",
-  body: "ACTION / CAMERA / CONTINUITY / RULES for a video model; from an image only motion is asked for.",
+  body: "ACTION / CAMERA / CONTINUITY / RULES for a video model; from an image only motion is asked for. A long shot is made in parts: each continues from the previous part's last frame, with WHOLE SHOT / SO FAR / THIS PART.",
   compile(i) {
     const look = i.style.definition?.photoreal
       ? "photorealistic live-action footage"
       : `${kindLabel(i.style)} animation${i.style.presetName ? ` in the ${i.style.presetName} style` : ""}`;
     const action = clean(i.action) || clean(i.beat) || "a quiet moment; subtle natural movement";
+    const p = i.part && i.part.count > 1 ? i.part : null;
+    if (p) {
+      const total = p.count * i.seconds;
+      const last = p.index === p.count - 1;
+      const own =
+        clean(p.direction) || (p.index === 0 ? PART_DEFAULT.first : last ? PART_DEFAULT.last : PART_DEFAULT.middle);
+      return join([
+        p.index === 0
+          ? `Animate this image into the first ${i.seconds} seconds of one continuous ${total}-second shot of ${look}, made in ${p.count} parts of ${i.seconds} seconds. This is part 1 of ${p.count} (seconds ${p.fromSec}–${p.toSec}).`
+          : `This image is the LAST FRAME of the previous part. Continue the same shot from exactly this frame for the next ${i.seconds} seconds: part ${p.index + 1} of ${p.count} of one continuous ${total}-second shot of ${look} (seconds ${p.fromSec}–${p.toSec}).`,
+        section("WHOLE SHOT", [action]),
+        p.before.length
+          ? section(
+              "SO FAR",
+              p.before.map((b, k) => `Seconds ${k * i.seconds}–${(k + 1) * i.seconds}: ${clean(b)}`),
+            )
+          : "",
+        section(`THIS PART (seconds ${p.fromSec}–${p.toSec}, ${i.seconds} s)`, [own]),
+        section("CAMERA", [
+          p.index === 0
+            ? (CLIP_CAMERA[i.motion] ?? CLIP_CAMERA.auto!)
+            : "Keep the camera move going in the same direction and speed as it was; no reframing jump.",
+          line("Framing", `${i.shotType}${i.cameraAngle ? `, ${i.cameraAngle}` : ""}`),
+        ]),
+        section("CONTINUITY", [
+          p.index === 0
+            ? "Keep every person's face, hair, body and clothes, the place, the light and the colours exactly as in the image."
+            : "Start exactly on the given frame: the same people, faces, clothes, positions, place, light, colours and camera. No cut, no fade, no restart of the action, no new scene.",
+          last ? "" : "Do not end the action in this part: it goes on in the next one.",
+          last && i.endFrame ? "End exactly on the given last frame." : "",
+        ]),
+        section("RULES", [
+          "Natural, physically plausible motion at a calm pace; no sudden morphing, no extra limbs, no new people.",
+          "One shot: no cuts, no transitions, no split screen.",
+          "No text, captions, subtitles, logos or watermarks in the picture.",
+        ]),
+      ]);
+    }
     return join([
       i.fromImage
         ? `Animate this image into one continuous ${i.seconds}-second shot of ${look}.`

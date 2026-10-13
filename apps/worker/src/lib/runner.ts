@@ -314,7 +314,8 @@ export async function runGenerationJob(
           status: "queued",
           failureCode: code,
           failureReason: `${message} Retrying…`,
-          providerRequestId: requestId ?? job.providerRequestId,
+          // What the handler last stored (a clip's provider request it resumes), not what the job started with.
+          providerRequestId: requestId ?? sql`${generationJobs.providerRequestId}`,
         })
         .where(eq(generationJobs.id, jobId))
         .returning();
@@ -329,7 +330,7 @@ export async function runGenerationJob(
         finishedAt: new Date(),
         failureCode: code,
         failureReason: message,
-        providerRequestId: requestId ?? job.providerRequestId,
+        providerRequestId: requestId ?? sql`${generationJobs.providerRequestId}`,
         latencyMs: Math.round(performance.now() - t0),
       })
       .where(eq(generationJobs.id, jobId))

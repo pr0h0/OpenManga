@@ -3,6 +3,7 @@ import { DEFAULT_RATE_SNAPSHOTS, estimateCostUsd, selectRate } from "./cost.ts";
 import { providerCatalog, providerSupports } from "./providers.ts";
 import {
   clipDuration,
+  clipPlan,
   clipResolution,
   estimateClipUsd,
   LOCAL_VIDEO_MODEL,
@@ -72,4 +73,22 @@ test("fal is a video-only provider; a custom endpoint is never offered for video
   expect(providerCatalog("fal")!.videoModels).toEqual(
     VIDEO_MODELS.filter((m) => m.provider === "fal").map((m) => m.id),
   );
+});
+
+test("a long shot is made in parts of the model's longest clip, or of the part length asked for", () => {
+  const kling = videoModel("fal-ai/kling-video/v2.5-turbo/pro/image-to-video")!;
+  expect(clipPlan(kling, 8)).toEqual({ parts: 1, part: 10, total: 10 });
+  expect(clipPlan(kling, 20)).toEqual({ parts: 2, part: 10, total: 20 });
+  expect(clipPlan(kling, 20, 5)).toEqual({ parts: 4, part: 5, total: 20 });
+  expect(clipPlan(kling, 22, 5)).toEqual({ parts: 5, part: 5, total: 25 });
+  // Never more than a minute or twelve parts.
+  expect(clipPlan(videoModel(LOCAL_VIDEO_MODEL)!, 200, 3).parts).toBeLessThanOrEqual(12);
+});
+
+test("every direct provider's models are in its catalog entry, and unknown to the others", () => {
+  for (const kind of ["google", "kling", "runway", "minimax", "byteplus"] as const) {
+    const ids = VIDEO_MODELS.filter((m) => m.provider === kind).map((m) => m.id);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(providerCatalog(kind)!.videoModels).toEqual(ids);
+  }
 });
