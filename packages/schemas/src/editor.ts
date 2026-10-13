@@ -279,6 +279,17 @@ export const ShotVideo = z.object({
   onScreenText: OnScreenText.nullable().default(null),
 });
 export type ShotVideo = z.infer<typeof ShotVideo>;
+/** A change to a shot's video settings: only the fields given change, the rest keep their stored values. */
+export const ShotVideoPatch = z.object({
+  motion: ShotMotion.optional(),
+  fade: z.enum(["auto", "on", "off"]).optional(),
+  disabled: z.boolean().optional(),
+  holdMs: z.number().int().min(500).max(60_000).nullable().optional(),
+  clipAssetId: z.string().uuid().nullable().optional(),
+  clipPrompt: z.string().trim().max(1500).nullable().optional(),
+  clipAudio: z.enum(["mute", "mix"]).optional(),
+  onScreenText: OnScreenText.nullable().optional(),
+});
 
 /**
  * A rough sketch, stick-figure pose or composition thumbnail for one panel. It goes with the panel's generation

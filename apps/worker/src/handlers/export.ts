@@ -675,7 +675,13 @@ async function buildExport(
       await deps.db
         .update(exportJobs)
         .set({
-          result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({ sections: out.report.sections })}::jsonb`,
+          result: sql`coalesce(${exportJobs.result}, '{}'::jsonb) || ${JSON.stringify({
+            sections: out.report.sections,
+            // What the film is made of beyond stills: shots playing generated clips, texts on screen, a music bed.
+            clipShots: ("panels" in out.report ? out.report.panels : []).filter((p) => p.source === "clip").length,
+            onScreenTexts: out.report.onScreenTexts ?? 0,
+            music: out.report.music ?? null,
+          })}::jsonb`,
         })
         .where(eq(exportJobs.id, job.id));
       await deps.db

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { captionsSupported, fitBox, scrollPlan } from "@openmanga/domain";
 import { focusInCrop } from "@openmanga/image-utils";
-import { captionChunks, fadeFilter, toAss, toSrt, zoompanFor } from "./video.ts";
+import { audioMix, captionChunks, fadeFilter, toAss, toSrt, zoompanFor } from "./video.ts";
 
 test("scroll is capped and centred when the hold is short", () => {
   expect(scrollPlan(648, 1.1, 60)).toEqual({ y0: 291, travel: 66 });
@@ -105,4 +105,34 @@ test("captions: empty and zero-length cues, and text that could break the ASS fi
 test("captions are refused only for scripts the render has no font for", () => {
   for (const l of ["en", "de", "ru", "ar", "vi", "pt-BR"]) expect(captionsSupported(l)).toBe(true);
   for (const l of ["ja", "ko", "zh", "zh-CN", "hi", "th", "JA"]) expect(captionsSupported(l)).toBe(false);
+});
+
+test("on-screen texts are their own events, in their place and style, and burn without captions", () => {
+  const ass = toAss([], null, 1920, 1080, [
+    { startMs: 1000, endMs: 4000, text: "50% OFF", position: "top", style: "headline" },
+    { startMs: 4000, endMs: 6500, text: "Order {today}", position: "bottom", style: "cta" },
+  ]);
+  expect(ass).toContain("Dialogue: 1,0:00:01.00,0:00:04.00,Headline,,0,0,0,,{\\an8}50% OFF");
+  expect(ass).toContain("Dialogue: 1,0:00:04.00,0:00:06.50,Cta,,0,0,0,,{\\an2}Order today");
+  // No captions asked for: no caption events.
+  expect(ass).not.toContain(",Default,,");
+  // The call to action is boxed (BorderStyle 3).
+  expect(ass).toMatch(/Style: Cta,[^\n]*,-1,0,0,0,100,100,0,0,3,/);
+});
+
+test("the audio mix: nothing extra is no filter; clips start at their shot; music ducks under the narration", () => {
+  expect(audioMix([], null)).toEqual({ inputs: [], filter: "" });
+  const m = audioMix(
+    [{ path: "a.mp4", volume: 0.6, startMs: 2500, durationMs: 4000 }],
+    { path: "m.mp3", volume: 0.25, duck: true },
+  );
+  expect(m.inputs).toEqual(["-i", "a.mp4", "-stream_loop", "-1", "-i", "m.mp3"]);
+  expect(m.filter).toContain("[2:a]atrim=0:4.000,asetpts=PTS-STARTPTS,aresample=48000,volume=0.600,adelay=2500|2500[s0]");
+  expect(m.filter).toContain("[1:a]asplit=2[nar][key]");
+  expect(m.filter).toContain("[mraw][key]sidechaincompress");
+  expect(m.filter).toEndWith("[nar][s0][mus]amix=inputs=3:duration=first:normalize=0[aout]");
+  // Without ducking the narration goes straight into the mix.
+  expect(audioMix([], { path: "m.mp3", volume: 0.2, duck: false }).filter).toBe(
+    "[2:a]aresample=48000,volume=0.200[mus];[1:a][mus]amix=inputs=2:duration=first:normalize=0[aout]",
+  );
 });

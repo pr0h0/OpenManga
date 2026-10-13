@@ -63,6 +63,7 @@ import {
   SfxStyle,
   ShotType,
   ShotVideo,
+  ShotVideoPatch,
   StoredPanelSpec,
 } from "@openmanga/schemas";
 import {
@@ -676,8 +677,11 @@ export const PatchPanel = z.object({
   promptOverride: z.string().max(32_000).nullable().optional(),
   /** Vertical strips: how this panel meets the one before it. Null clears it back to the project's plain gap. */
   seam: PanelSeam.nullable().optional(),
-  /** The panel as a video shot: camera motion, fade at the cut into it, disabled. Null resets every default. */
-  video: ShotVideo.nullable().optional(),
+  /**
+   * The panel as a video shot: camera motion, fade at the cut into it, disabled, its own hold, its clip and clip prompt,
+   * its clip's sound and text on screen. Only the fields given change; null resets every default.
+   */
+  video: ShotVideoPatch.nullable().optional(),
   /**
    * Layout sketch sent with the generation (composition and poses only): any image asset of this project, e.g. one
    * uploaded with POST /api/panels/:id/guide. Null removes it.
@@ -760,9 +764,15 @@ pageRoutes.patch("/panels/:id", async (c) => {
       );
     if (!a) throw badRequest("Unknown guide image: use an image asset of this project");
   }
+  if (input.video?.clipAssetId) {
+    const a = await c.get("deps").assets.get(input.video.clipAssetId);
+    if (!a || a.deletedAt || a.type !== "panel_clip" || (a.metadata as { panelId?: string }).panelId !== panel.id)
+      throw badRequest("Unknown clip: use one of this panel's clips (GET /api/panels/:id/clips)");
+  }
   const set: Partial<typeof panels.$inferInsert> = {
     ...input,
     frame: input.frame ? clampFrame(input.frame) : undefined,
+    video: input.video === undefined ? undefined : input.video && ShotVideo.parse({ ...(panel.video ?? {}), ...input.video }),
   };
   if (input.promptOverride !== undefined && panel.status === "planned" && input.promptOverride)
     set.status = "prompt-ready";

@@ -40,6 +40,7 @@ import { entityAccess, projectAccess } from "../lib/access.ts";
 import { AiChoiceInput, assertBudget, textRun } from "../lib/ai.ts";
 import { badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
+import { readAudioUpload } from "../lib/uploads.ts";
 
 /**
  * AI video: a shot's video clip from its image (or its words alone) by a video model, played in video renders in
@@ -503,4 +504,35 @@ aiVideoRoutes.post("/projects/:id/ad-script", async (c) => {
   );
   await deps.jobs.kick();
   return c.json({ job }, 202);
+});
+
+doc({
+  method: "POST",
+  path: "/api/projects/:projectId/video-music",
+  summary:
+    "Upload a music track for the video's music bed (multipart: file; MP3, WAV, OGG, FLAC or M4A). Returns the asset; set it as settings.video.music.assetId (with volume and duck) with PATCH /api/projects/:projectId. Use only music you have the rights to.",
+  tag: "exports",
+});
+aiVideoRoutes.post("/projects/:projectId/video-music", async (c) => {
+  const p = await projectAccess(c, uuidParam(c, "projectId"), "write");
+  const up = await readAudioUpload(c);
+  const deps = c.get("deps");
+  const asset = await deps.assets.store({
+    projectId: p.id,
+    ownerUserId: user(c).id,
+    type: "audio",
+    data: up.data,
+    mimeType: up.mime,
+    metadata: { role: "video_music", originalName: up.originalName },
+  });
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: p.id,
+    action: "project.video_music",
+    targetType: "asset",
+    targetId: asset.id,
+    metadata: { bytes: up.data.byteLength },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ asset: { id: asset.id, mimeType: asset.mimeType, name: up.originalName } }, 201);
 });
