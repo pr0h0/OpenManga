@@ -1,4 +1,5 @@
 import { storyAnalyses } from "@openmanga/db";
+import { AdBrief } from "@openmanga/schemas";
 import { z } from "zod";
 import { CoverageInput, NewRevision, PatchRevision } from "../../routes/stories.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
@@ -257,6 +258,38 @@ export const storyTools = [
           body: { instruction, ai: await restAi(ctx, ai), batch },
         },
       );
+      return { data: { ...r, job: jobView(r.job) } };
+    },
+  }),
+
+  defineMcpTool({
+    name: "write_ad_script",
+    title: "Write an ad script",
+    description:
+      "AI video ads: write an ad's script from its brief (product required; audience, key message, offer, callToAction, notes such as brand rules and claims to avoid, lengthSeconds 10-600, tone). The script (scenes with VISUAL, VOICEOVER and ON SCREEN lines, timed to the length) is saved as a new story revision, ready for run_story_analysis and planning like any story; the brief is kept in the project settings (`ad`). Then draw the shots, make clips with video_clips and put the ON SCREEN lines on their shots with update_panel video.onScreenText. Asynchronous: returns a job; poll get_job. Manual mode (ai.manual=true) asks you for an AdScript answer; a provider run spends credits (may need approval).",
+    input: z.object({
+      projectId: Uuid,
+      brief: AdBrief,
+      ai: AiInput,
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: JobResult,
+    scopes: ["story:write", "generations:run"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: ["POST /api/projects/:id/ad-script"],
+    actionKeys: ["story.ad_script"],
+    classify: async ({ projectId, ai, brief }, ctx) =>
+      cls(
+        textSpend(ai, "write"),
+        "story.ad_script",
+        projectId,
+        `Write an ad script for ${brief.product.slice(0, 80)} ${aiLabel(ai)}`,
+      ),
+    handler: async ({ projectId, brief, ai }, ctx) => {
+      const r = await ctx.invoke<{ job: Record<string, unknown> }>("POST", `/api/projects/${projectId}/ad-script`, {
+        body: { brief, ai: await restAi(ctx, ai) },
+      });
       return { data: { ...r, job: jobView(r.job) } };
     },
   }),

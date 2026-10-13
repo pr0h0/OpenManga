@@ -31,6 +31,21 @@ import {
 
 type Jobbed = { job: Record<string, unknown> & { id: string; projectId: string } };
 
+/** A video run: a model of `video_clips models`, and the user's key for its provider (none for the free model). */
+const VideoAiInput = z.object({
+  model: z.string().max(200).optional().describe("A video model id (default: still-motion, free)."),
+  credentialId: Uuid.optional().describe("The user's key for the model's provider (ids from get_server_info)."),
+  provider: z.string().max(40).optional().describe("Use the user's first saved key of this provider kind (fal)."),
+});
+
+/** The REST video choice: the free model needs no key; a paid one takes the named key or the provider's first. */
+async function videoAi(ctx: ToolContext, ai: z.infer<typeof VideoAiInput> | undefined) {
+  const model = ai?.model ?? "still-motion";
+  if (model === "still-motion") return { credentialId: null, model };
+  const r = await restAi(ctx, { credentialId: ai?.credentialId, provider: ai?.provider ?? "fal", model });
+  return { credentialId: r?.credentialId ?? null, model };
+}
+
 /** How many panels a chapter- or project-wide lettering change touches, to decide whether it is a bulk edit. */
 async function panelCount(ctx: ToolContext, pageId: string, scope: "page" | "chapter" | "project") {
   const [pg] = await ctx.deps.db.select().from(pages).where(eq(pages.id, pageId));
@@ -278,7 +293,7 @@ export const panelTools = [
     name: "update_panel",
     title: "Update panel",
     description:
-      "Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), comic effects drawn over the art without AI (`effects`: up to 6 of speed, focus, impact, tone, rain, snow, dust, glow, flashback, each with optional x, y, angle, density, strength, size, color; null removes them), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI), alt text (`altText`: what the panel shows, for readers who cannot see it, used in EPUBs and the series reader; null makes it from the beat, dialogue and sound effects; get_accessibility lists what is missing); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.",
+      "Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`, only the fields given change: motion, fade at the cut, disabled, holdMs, clipAssetId (one of its clips from video_clips list, null for the still), clipPrompt (what moves in its next clip), clipAudio mute|mix (a clip's own sound under the narration), onScreenText { text, position top|center|bottom, style headline|caption|cta } or null: text over the shot for its whole hold, e.g. an ad's offer or call to action), comic effects drawn over the art without AI (`effects`: up to 6 of speed, focus, impact, tone, rain, snow, dust, glow, flashback, each with optional x, y, angle, density, strength, size, color; null removes them), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI), alt text (`altText`: what the panel shows, for readers who cannot see it, used in EPUBs and the series reader; null makes it from the beat, dialogue and sound effects; get_accessibility lists what is missing); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.",
     input: PatchPanel.extend({
       panelId: Uuid,
       spec: z
@@ -621,6 +636,104 @@ export const panelTools = [
       const runs = [];
       for (const r of a.runs) runs.push(await restAi(ctx, r));
       return { data: await ctx.invoke("POST", `/api/panels/${a.panelId}/compare`, { body: { runs } }) };
+    },
+  }),
+
+  defineMcpTool({
+    name: "video_clips",
+    title: "Shot video clips",
+    description:
+      "AI video: a shot's video clip (image-to-video from its artwork, or from its words alone on models that can), played in video renders in place of its still and camera move. models: the video models with lengths, resolutions, shapes, end-frame and sound support, price per second and whether the user can run them (`still-motion` is free on every server: the image with a camera move; paid fal models need the user's fal key). list (panelId): its clips, the one it plays, clips being made, the prompt a clip would get. generate (panelId, runs: 1 model, or 2-4 to compare; seconds, resolution 480p|720p|1080p, aspect, audio, seed, prompt: what moves, endAssetId: an image to land on): one run becomes the shot's clip when done, compared runs are kept to pick from; dryRun=true only prices it. use (panelId, assetId or null for the still). delete (panelId, assetId). animate_chapter (chapterId, one ai, onlyMissing): a clip for every drawn shot, dryRun=true for the count and cost first. Paid runs spend the user's credits at the model's per-second price (may need approval); asynchronous: poll get_job, then list. Set the shot's clip prompt, sound (clipAudio mix|mute) and text on screen with update_panel `video`.",
+    input: z.object({
+      action: z.enum(["models", "list", "generate", "use", "delete", "animate_chapter"]),
+      panelId: Uuid.optional(),
+      chapterId: Uuid.optional(),
+      runs: z.array(VideoAiInput).min(1).max(4).optional(),
+      ai: VideoAiInput.optional(),
+      seconds: z.number().min(1).max(20).optional(),
+      resolution: z.enum(["480p", "720p", "1080p"]).optional(),
+      aspect: z.enum(["16:9", "9:16", "1:1"]).optional(),
+      audio: z.boolean().optional(),
+      seed: z.number().int().min(0).optional(),
+      prompt: z.string().trim().max(1500).optional(),
+      endAssetId: Uuid.optional(),
+      assetId: Uuid.nullable().optional(),
+      onlyMissing: z.boolean().optional(),
+      dryRun: z.boolean().optional(),
+      idempotencyKey: IdempotencyKey,
+    }),
+    output: Passthrough,
+    scopes: ["panels:read"],
+    scopesFor: (a) =>
+      a.action === "generate" || a.action === "animate_chapter"
+        ? a.dryRun
+          ? ["panels:read"]
+          : ["generations:run"]
+        : a.action === "use" || a.action === "delete"
+          ? ["panels:write"]
+          : ["panels:read"],
+    sensitivity: "spend",
+    idempotent: false,
+    routes: [
+      "GET /api/video-models",
+      "GET /api/panels/:id/clips",
+      "POST /api/panels/:id/clips",
+      "POST /api/panels/:id/clips/use",
+      "DELETE /api/clips/:assetId",
+      "POST /api/chapters/:id/clips",
+    ],
+    actionKeys: ["panel.clip", "panel.clip_use", "panel.clip_delete", "chapter.clips"],
+    classify: async (a, ctx) => {
+      if (a.action === "models") return cls("read", "panel.clip", null, "List video models");
+      const project = await projectOf(
+        ctx,
+        a.action === "animate_chapter" ? "chapter" : "panel",
+        (a.action === "animate_chapter" ? a.chapterId : a.panelId) ?? "",
+      );
+      if (a.action === "list" || a.dryRun) return cls("read", "panel.clip", project, "Read or price video clips");
+      if (a.action === "use") return cls("write", "panel.clip_use", project, "Choose what a shot plays in videos");
+      if (a.action === "delete") return cls("delete", "panel.clip_delete", project, "Move a clip to the trash");
+      const runs = a.action === "animate_chapter" ? [a.ai] : (a.runs ?? []);
+      const free = runs.every((r) => !r?.model || r.model === "still-motion");
+      const what = a.action === "animate_chapter" ? "a clip of every shot of a chapter" : `${runs.length} clip(s)`;
+      return free
+        ? cls("write", "panel.clip", project, `Make ${what} with the free still-motion model`)
+        : cls("spend", a.action === "animate_chapter" ? "chapter.clips" : "panel.clip", project, `Make ${what}; spends video-provider credits`);
+    },
+    handler: async (a, ctx) => {
+      if (a.action === "models") return { data: await ctx.invoke("GET", "/api/video-models") };
+      const opts = {
+        seconds: a.seconds,
+        resolution: a.resolution,
+        aspect: a.aspect,
+        audio: a.audio,
+        seed: a.seed,
+        prompt: a.prompt,
+        endAssetId: a.endAssetId,
+        dryRun: a.dryRun,
+      };
+      if (a.action === "animate_chapter") {
+        if (!a.chapterId) throw toolError(400, "bad_request", "chapterId is required for animate_chapter");
+        return {
+          data: await ctx.invoke("POST", `/api/chapters/${a.chapterId}/clips`, {
+            body: { ...opts, ai: await videoAi(ctx, a.ai), onlyMissing: a.onlyMissing },
+          }),
+        };
+      }
+      if (!a.panelId) throw toolError(400, "bad_request", "panelId is required");
+      if (a.action === "list") return { data: await ctx.invoke("GET", `/api/panels/${a.panelId}/clips`) };
+      if (a.action === "use")
+        return {
+          data: await ctx.invoke("POST", `/api/panels/${a.panelId}/clips/use`, { body: { assetId: a.assetId ?? null } }),
+        };
+      if (a.action === "delete") {
+        if (!a.assetId) throw toolError(400, "bad_request", "assetId is required for delete");
+        await ctx.invoke("DELETE", `/api/clips/${a.assetId}`);
+        return { data: { deleted: a.assetId } };
+      }
+      const runs = [];
+      for (const r of a.runs ?? [{}]) runs.push(await videoAi(ctx, r));
+      return { data: await ctx.invoke("POST", `/api/panels/${a.panelId}/clips`, { body: { ...opts, runs } }) };
     },
   }),
 
