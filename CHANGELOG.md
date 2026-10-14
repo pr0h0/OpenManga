@@ -39,6 +39,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   query matched every job's usage (a clip showed the whole server's spend; comparison runs showed $0). Budgets were
   never affected. A clip's own words for what moves now set its camera too (no default "slow move" next to "static
   camera"): clip prompt v2.
+- Image estimates follow the project's image quality and provider (measured on real runs: gpt-image-2 about $0.015
+  an image at low, $0.067 at medium, about four times that at high; Gemini about $0.035 at any quality): they assumed
+  low-quality OpenAI images for everything, under-pricing medium about fourfold. The production cost planner prices
+  images from runs of the chosen model at that quality only (it averaged every provider and quality together). The AI
+  video presets start at low image quality, like the others.
+- Markdown and plain-text export files (provenance records, captions) are stored with their own extension instead of
+  `.bin`. MCP `video_clips` answers with each job's id, shot, status and model rather than whole job rows.
 - MCP `video_clips` (models, list, generate or compare, use, delete, animate a chapter, with `dryRun` prices) and
   `write_ad_script`; `update_panel` `video` takes the clip, clip prompt, clip sound and text on screen, and merges
   instead of replacing (a change to the camera move no longer clears other shot settings).

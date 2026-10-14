@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DEFAULT_RATE_SNAPSHOTS, estimateCostUsd, selectRate } from "./cost.ts";
+import { DEFAULT_RATE_SNAPSHOTS, estimateCostUsd, estimateImageBatchUsd, imageUnitUsage, selectRate } from "./cost.ts";
 import { providerCatalog, providerSupports } from "./providers.ts";
 import {
   clipDuration,
@@ -91,4 +91,16 @@ test("every direct provider's models are in its catalog entry, and unknown to th
     expect(ids.length).toBeGreaterThan(0);
     expect(providerCatalog(kind)!.videoModels).toEqual(ids);
   }
+});
+
+test("image estimates follow the quality: low, medium and high gpt-image-2 images are priced like real runs", () => {
+  const rate = DEFAULT_RATE_SNAPSHOTS.find((r) => r.provider === "openai" && r.model === "gpt-image-2")!;
+  const one = (q: string) => estimateImageBatchUsd(1, imageUnitUsage("openai", q), rate)!;
+  // Measured on real runs: about $0.015 at low and $0.067 at medium.
+  expect(one("low")).toBeCloseTo(0.015, 2);
+  expect(one("medium")).toBeCloseTo(0.0685, 2);
+  expect(one("high")).toBeGreaterThan(one("medium") * 3);
+  expect(estimateImageBatchUsd(11, imageUnitUsage("openai", "low"), rate)!).toBeCloseTo(11 * one("low"), 6);
+  // Gemini's cost does not change with the quality setting; flat-priced providers bill per image.
+  expect(imageUnitUsage("google", "low")).toEqual(imageUnitUsage("google", "high"));
 });

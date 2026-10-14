@@ -43,6 +43,17 @@ const VideoAiInput = z.object({
     .describe("Use the user's first saved key of this provider kind (default: the model's provider)."),
 });
 
+/**
+ * A clip run's answer as an agent needs it: the price and, per job, its id, shot, status and model. The full job rows
+ * (each with its whole compiled prompt) would fill the agent's context for nothing: get_job has them.
+ */
+function clipRuns(r: { jobs?: { id: string; targetId: string | null; status: string; model: string | null }[] }) {
+  return {
+    ...r,
+    jobs: (r.jobs ?? []).map((j) => ({ id: j.id, panelId: j.targetId, status: j.status, model: j.model })),
+  };
+}
+
 /** The REST video choice: the free model needs no key; a paid one takes the named key or the provider's first. */
 async function videoAi(ctx: ToolContext, ai: z.infer<typeof VideoAiInput> | undefined) {
   const model = ai?.model ?? "still-motion";
@@ -733,9 +744,11 @@ export const panelTools = [
       if (a.action === "animate_chapter") {
         if (!a.chapterId) throw toolError(400, "bad_request", "chapterId is required for animate_chapter");
         return {
-          data: await ctx.invoke("POST", `/api/chapters/${a.chapterId}/clips`, {
-            body: { ...opts, ai: await videoAi(ctx, a.ai), onlyMissing: a.onlyMissing },
-          }),
+          data: clipRuns(
+            await ctx.invoke("POST", `/api/chapters/${a.chapterId}/clips`, {
+              body: { ...opts, ai: await videoAi(ctx, a.ai), onlyMissing: a.onlyMissing },
+            }),
+          ),
         };
       }
       if (!a.panelId) throw toolError(400, "bad_request", "panelId is required");
@@ -753,7 +766,9 @@ export const panelTools = [
       }
       const runs = [];
       for (const r of a.runs ?? [{}]) runs.push(await videoAi(ctx, r));
-      return { data: await ctx.invoke("POST", `/api/panels/${a.panelId}/clips`, { body: { ...opts, runs } }) };
+      return {
+        data: clipRuns(await ctx.invoke("POST", `/api/panels/${a.panelId}/clips`, { body: { ...opts, runs } })),
+      };
     },
   }),
 

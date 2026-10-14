@@ -264,20 +264,29 @@ export const BATCH_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = DEFAULT_RATE_SNA
   ...(r.characterRate === undefined ? {} : { characterRate: r.characterRate / 2 }),
 }));
 
-/** Rough pre-flight estimate for confirmation dialogs (not used for accounting). */
-export function estimateImageBatchUsd(count: number, perImageOutputTokens = 400, rate?: RateSnapshot | null) {
+/**
+ * What one generated image typically uses, by provider and quality, measured on this app's own runs (2026-10):
+ * OpenAI gpt-image-2 makes about 170 output tokens at low, 1,600 at medium and roughly four times that at high;
+ * Gemini about 1,120 output tokens and 2,000 of reference input whatever the quality; flat-priced providers count one
+ * image. Only for estimates: spend is always recorded from what the provider reports.
+ */
+export function imageUnitUsage(provider: string, quality?: string | null): UsageTokens {
+  const one = (textIn: number, imageIn: number, imageOut: number): UsageTokens => ({
+    textInputTokens: textIn,
+    cachedInputTokens: 0,
+    textOutputTokens: 0,
+    imageInputTokens: imageIn,
+    imageOutputTokens: imageOut,
+    images: 1,
+  });
+  if (provider === "google") return one(950, 2000, 1120);
+  if (provider === "openai" || provider === "openai_compatible")
+    return one(1000, 300, quality === "high" ? 6400 : quality === "medium" ? 1600 : 175);
+  return one(1200, 300, 400);
+}
+
+/** Pre-flight estimate of `count` images for confirmation dialogs (not used for accounting). */
+export function estimateImageBatchUsd(count: number, usage: UsageTokens, rate?: RateSnapshot | null) {
   if (!rate) return null;
-  return (
-    estimateCostUsd(
-      {
-        textInputTokens: 1200,
-        cachedInputTokens: 0,
-        textOutputTokens: 0,
-        imageInputTokens: 300,
-        imageOutputTokens: perImageOutputTokens,
-        images: 1,
-      },
-      rate,
-    ) * count
-  );
+  return estimateCostUsd(usage, rate) * count;
 }

@@ -55,6 +55,8 @@ export const extForMime = (m: string) =>
     "application/json": "json",
     "video/mp4": "mp4",
     "application/x-subrip": "srt",
+    "text/markdown": "md",
+    "text/plain": "txt",
     "application/vnd.adobe.photoshop": "psd",
   })[m] ?? "bin";
 

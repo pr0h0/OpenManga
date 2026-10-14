@@ -113,7 +113,7 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
     stylePresetKey: "realistic",
     colorMode: "full_color",
     settings: {
-      imageQuality: "medium",
+      imageQuality: "low",
       targetRuntime: { minutes: 1, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 6 },
       referencePolicy: "all",
       batchPolicy: "interactive",
@@ -128,7 +128,7 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
     stylePresetKey: "cartoon",
     colorMode: "full_color",
     settings: {
-      imageQuality: "medium",
+      imageQuality: "low",
       targetRuntime: { minutes: 1, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 6 },
       referencePolicy: "all",
       batchPolicy: "interactive",
@@ -144,7 +144,7 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
     stylePresetKey: "minimal-anime",
     colorMode: "full_color",
     settings: {
-      imageQuality: "medium",
+      imageQuality: "low",
       targetRuntime: { minutes: 3, wordsPerMinute: 150, minShotSeconds: 4, maxShotSeconds: 8 },
       referencePolicy: "main",
       batchPolicy: "interactive",

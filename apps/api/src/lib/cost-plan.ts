@@ -2,6 +2,7 @@ import { inArray, panels, sql } from "@openmanga/db";
 import {
   batchModel,
   IMAGE_KINDS,
+  imageUnitUsage,
   NARRATION_BYTES_PER_SECOND,
   narrationSeconds,
   type PlanKind,
@@ -42,8 +43,19 @@ export type ChapterPlanRow = {
   usd: Usd;
 };
 
-/** Average usage per unit of each kind on this server over the last 90 days (summed per job: repairs, retries). */
-async function usageHistory(db: AppEnv["Variables"]["deps"]["db"]) {
+/**
+ * Average usage per unit of each kind on this server over the last 90 days (summed per job: repairs, retries). Image
+ * kinds count only runs of the chosen image model at the project's quality: one image at medium costs about nine at
+ * low, and other providers bill differently, so a server-wide average would misprice them.
+ */
+async function usageHistory(
+  db: AppEnv["Variables"]["deps"]["db"],
+  image: { provider: string; model: string; quality: string } | null,
+) {
+  const imageOnly = image
+    ? sql`and (g.kind not in ('panel_generation', 'character_reference', 'location_reference', 'prop_reference', 'thumbnail')
+        or (g.provider = ${image.provider} and g.model = ${image.model} and j.quality = ${image.quality}))`
+    : sql`and g.kind not in ('panel_generation', 'character_reference', 'location_reference', 'prop_reference', 'thumbnail')`;
   const rows = await db.execute<{
     kind: string;
     n: number;
@@ -61,12 +73,13 @@ async function usageHistory(db: AppEnv["Variables"]["deps"]["db"]) {
     from (
       select u.generation_job_id as id, sum(u.text_input_tokens) as ti, sum(u.text_output_tokens) as to,
         sum(u.cached_input_tokens) as ci, sum(u.image_input_tokens) as ii, sum(u.image_output_tokens) as io,
-        sum(u.images) as im
+        sum(u.images) as im, max(u.metadata->>'quality') as quality
       from ai_usage u where u.success and u.generation_job_id is not null and u.created_at > now() - interval '90 days'
       group by u.generation_job_id
     ) j join generation_jobs g on g.id = j.id
     where g.kind in ('story_analysis', 'chapter_plan', 'page_prompts', 'narration_text', 'youtube_package',
       'panel_generation', 'character_reference', 'location_reference', 'prop_reference', 'thumbnail')
+      ${imageOnly}
     group by 1`);
   const out: Partial<Record<PlanKind, UsageTokens>> = {};
   for (const r of rows)
@@ -103,7 +116,14 @@ export async function costPlan(c: Context<AppEnv>, p: ProjectRecord, o: RunOptio
   const imageRate = await rate(imageModel, batch.image);
   if (textModel && !manualText && !textRate) warnings.push(`No price is known for ${textModel.model}`);
   if (imageModel && !imageRate) warnings.push(`No price is known for ${imageModel.model}`);
-  const history = await usageHistory(db);
+  const quality = p.settings.imageQuality ?? deps.config.IMAGE_QUALITY;
+  const history = await usageHistory(
+    db,
+    imageModel ? { provider: imageModel.provider, model: imageModel.model, quality } : null,
+  );
+  // No history of this model at this quality yet: what one image of it typically uses.
+  const unit = imageModel ? imageUnitUsage(imageModel.provider, quality) : null;
+  for (const k of IMAGE_KINDS) if (!history[k] && unit) history[k] = unit;
   const price = (kind: PlanKind, count: number): Usd => {
     if (!IMAGE_KINDS.has(kind) && manualText) return 0;
     return planUnitsUsd(kind, count, IMAGE_KINDS.has(kind) ? imageRate : textRate, history);
