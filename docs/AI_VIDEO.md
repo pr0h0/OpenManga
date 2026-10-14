@@ -16,8 +16,9 @@ needs no key and is what tests and demos use. Nothing moves inside the picture.
 Paid models run on your own key for their provider (Account → AI providers): **fal.ai** (one key for many models), or a
 provider's own API: **Google** (Veo, on a Gemini API key), **Kling**, **Runway**, **MiniMax** (Hailuo) and **BytePlus**
 (Seedance). A Google key is checked when you save it; Kling, Runway, MiniMax and BytePlus keys cannot be checked for
-free, so a wrong one shows up as "rejected the key" on its first run, before anything is spent. None of these adapters
-has been called with a real key yet: their request shapes follow the providers' docs ([VIDEO_PROVIDERS](VIDEO_PROVIDERS.md)),
+free, so a wrong one shows up as "rejected the key" on its first run, before anything is spent. fal.ai has made a real
+60 s ad (11 Seedance 1.0 Pro Fast clips at 480p, $0.58 for 60 s); the providers' own APIs have not been called with a
+real key yet: their request shapes follow the providers' docs ([VIDEO_PROVIDERS](VIDEO_PROVIDERS.md)),
 so expect a first real run per provider to need a small fix.
 
 fal.ai models, with list prices that seed the rate table (check pricing before relying on them):

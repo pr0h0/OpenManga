@@ -7,14 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-10-14
+
+Upgrading: pull the new images and restart. One migration runs on start through the migrate service
+(`0052_ai_video`). New optional setting: `VIDEO_WORKER_CONCURRENCY` (default 2); video clips need ffmpeg on the
+worker. AI video: generated clips per shot (free still motion, fal.ai and providers' own APIs on your key), long shots
+in continuing parts, ads from a brief, text on screen, a music bed, and image estimates by quality.
+
 ### Added
 
 - AI video ([AI_VIDEO](docs/AI_VIDEO.md)): a shot can play a generated video clip instead of its still and camera move.
   Panel tab → *Video clip* makes one from the shot's artwork with a video model: *Still motion*, free on every server
   (ffmpeg, no key), or a fal.ai model on your own key (Seedance 1.0 Pro Fast, Grok Imagine 1.5 Lite, Hailuo 02, Wan
   2.5, PixVerse v6, Kling 2.5 Turbo Pro, Kling 3, Veo 3.1 Fast) or a provider's own API (below), priced per second
-  before it runs; *Compare with* makes
-  a second with another model to choose from. Chapter → *Animate shots* does every shot with a price check first.
+  before it runs; *Compare with* makes a second with another model to choose from. Chapter → *Animate shots* does every shot with a price check first.
   Videos and the preview play the clips (held on the last frame when the narration is longer). Clips are
   `panel_clip` assets made on a new `video-generation` queue (`VIDEO_WORKER_CONCURRENCY`, default 2); a restarted
   worker resumes polling the same provider request instead of paying again. Usage is billed per second
@@ -35,6 +41,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   resumes at the part it stopped on.
 - Provenance records list each panel's video clip (provider, model, job, prompt fingerprint, parts) and the music bed
   with its licence note.
+
+### Fixed
+
 - Shown costs of a clip (Panel tab → Video clip) and of a model comparison run are their own job's spend: the
   query matched every job's usage (a clip showed the whole server's spend; comparison runs showed $0). Budgets were
   never affected. A clip's own words for what moves now set its camera too (no default "slow move" next to "static
