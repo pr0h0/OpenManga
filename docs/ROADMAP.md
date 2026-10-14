@@ -38,13 +38,11 @@ Grouped by area, roughly most useful first within each.
 - **Timeline editor.** Video and audio tracks (shots, titles and overlays; narration, music and ambience, effects)
   with waveforms, zoom, markers, shot lengths set by dragging, reorder, split and duplicate, pan and zoom keyframes,
   title tracks, alternative takes per shot, locked tracks, and rendering a selected range from the cached sections.
-- **Motion clips for key shots.** Optional short image-to-video clips for a few dramatic shots, mixed with the Ken
-  Burns shots. Costly per clip, so opt-in and budgeted.
 
 ### Sound and voices
 
-- **Music and ambience.** Background music per scene mood, ducked under narration before loudness normalisation,
-  and ambience beds tagged from the scene's time, weather and mood. From a library the user supplies, so nothing
+- **Music and ambience.** Music per scene mood (one ducked music bed per film exists since 0.19.0), and ambience
+  beds tagged from the scene's time, weather and mood. From a library the user supplies, so nothing
   with unclear licensing ships in the repository.
 - **Sound effects.** A tagged local library of effects (footsteps, impacts, doors, crowds, thunder) on its own track,
   with cues suggested from the panels' sound effects and actions, never inserted unasked.

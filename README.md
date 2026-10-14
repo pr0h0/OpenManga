@@ -68,7 +68,7 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 - **Reader links**: share a project or one chapter as an unlisted, read-only link (`/app/read/<token>`) that anyone can read without an account, page by page or as one long scroll, or play a chapter as the video preview; revoke it to close it.
 - **Project overview**: pipeline state, spend against the budget, and the disk space the project's files take, including what is in the trash. Trashing a character, location or prop trashes its reference images with it, and restoring brings them back; a generation whose image was deleted keeps its row, cost and prompt.
 - **Experts**: chats with brainstorming specialists outside any chapter — topic scout, title doctor, thumbnail designer, story developer, character and world designers, hook editor, narration scriptwriter, beta reader, channel strategist — or experts you write yourself. Pick the model, attach images (upload, drop or paste), talk about a project, and tick *Generate image* for a picture with the reply. Chats are kept, and work without an API key by pasting answers from any chat. A reply can be turned into a new project, the project's premise, an outline revision or its YouTube text: the app extracts it, you review and edit it, then apply.
-- **AI video**: animate shots into video clips: free still motion on every server, or fal models (Seedance, Kling, Wan, Hailuo, PixVerse, Veo, Grok) on your own key, priced per second before they run, compared side by side; videos play the clips in place of the stills. Ads from a brief, text on screen per shot, a ducked music bed and a clip's own sound. See [AI_VIDEO](docs/AI_VIDEO.md).
+- **AI video**: animate shots into video clips: free still motion on every server, or on your own key fal.ai models (Seedance, Kling, Wan, Hailuo, PixVerse, Veo, Grok) or a provider's own API (Google Veo, Kling, Runway, MiniMax, BytePlus), priced per second before they run, compared side by side; videos play the clips in place of the stills. Shots up to 60 s are made in parts that each continue from the last frame of the one before. Ads from a brief, text on screen per shot, a ducked music bed and a clip's own sound; provenance records list each clip and the music's licence. A 60 s ad (script, references, 11 stills, 11 Seedance clips at 480p, narration and the 1080p render) cost about $1.40. See [AI_VIDEO](docs/AI_VIDEO.md).
 - **AI agents (MCP)**: connect ChatGPT or Claude (OAuth) or any MCP agent (personal access token) to build projects as you — story, analysis, chapter plans, panels, narration, exports, production runs and Update production — including the whole pipeline in paste mode with no API key, `get_image` lets an agent look at artwork, pages and references, and it can delete exports, narration audio and trashed assets. Each connection has its own scopes, projects and approval mode; spending, deleting and other sensitive actions can wait for your approval in the app. See [MCP](docs/MCP.md).
 - **Describe an image**: upload a reference — a frame from a video, a page you like — and extract its art style, character, outfit, location, lighting, composition, mood, props, era or technique, plus your own free-text question. Style, character and location results apply straight into the project; the upload stays in the library as a reference for later generation.
 - **Provider batches**: send image or text generation to OpenAI's or Google's batch API for **half price**, results within 24h, opt-in per run.
@@ -183,12 +183,12 @@ instead of building locally, pin a tag in a compose override:
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
 services:
-  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.18.0", build: !reset null }
-  api: { image: "ghcr.io/pr0h0/openmanga-app:0.18.0" }
-  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.18.0" }
-  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.18.0" }
-  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.18.0", build: !reset null }
-  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.18.0", build: !reset null }
+  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.19.0", build: !reset null }
+  api: { image: "ghcr.io/pr0h0/openmanga-app:0.19.0" }
+  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.19.0" }
+  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.19.0" }
+  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.19.0", build: !reset null }
+  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.19.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
 than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.15`). `!reset`

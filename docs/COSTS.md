@@ -29,6 +29,11 @@ cap (see below).
 | 50-project run | **1,226 images for $14.31** — an average of $0.0117 per image across references, panels, edits and covers |
 | Per panel, `gpt-image-2` quality `low` | **$0.0138–$0.0158** |
 | Per image, Meta `muse-image-1.0` | **$0.01 flat**, no input-token billing |
+| Per reference, `gpt-image-2` quality `medium` (October 2026) | **$0.058–$0.094** (props with more input images cost more) |
+| Per second of video, fal.ai Seedance 1.0 Pro Fast at 480p (October 2026) | **$0.0097** (60 s of clips for $0.58) |
+
+Estimates price an image by its provider and the project's image quality: `gpt-image-2` about $0.015 at `low`,
+$0.067 at `medium` and about four times that at `high`; Gemini about $0.035 at any quality.
 
 At those rates an average 24-panel chapter is about **$0.24** on a flat 1¢/image provider and about **$0.33–$0.38** on
 `gpt-image-2` at `low`. References, covers and any regenerations are on top; a regeneration costs the same as the
