@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   resumes at the part it stopped on.
 - Provenance records list each panel's video clip (provider, model, job, prompt fingerprint, parts) and the music bed
   with its licence note.
+- Shown costs of a clip (Panel tab → Video clip) and of a model comparison run are their own job's spend: the
+  query matched every job's usage (a clip showed the whole server's spend; comparison runs showed $0). Budgets were
+  never affected. A clip's own words for what moves now set its camera too (no default "slow move" next to "static
+  camera"): clip prompt v2.
 - MCP `video_clips` (models, list, generate or compare, use, delete, animate a chapter, with `dryRun` prices) and
   `write_ad_script`; `update_panel` `video` takes the clip, clip prompt, clip sound and text on screen, and merges
   instead of replacing (a change to the camera move no longer clears other shot settings).

@@ -154,6 +154,13 @@ test.skipIf(!hasFfmpeg)(
     expect(clips.clips).toHaveLength(1);
     expect(clips.activeAssetId).toBe(clips.clips[0]!.assetId);
     expect(clips.clips[0]).toMatchObject({ provider: "local", model: "still-motion" });
+    // A clip's cost is its own job's usage only: spend of other jobs on the server never shows on it.
+    await h.deps.db.execute(
+      sql`insert into ai_usage (provider, model, operation, generation_job_id, estimated_cost_usd) values ('openai', 'x', 'panel_generation', ${crypto.randomUUID()}, 123.45)`,
+    );
+    expect((await u.get<Clips & { clips: { costUsd: number }[] }>(`/api/panels/${id}/clips`)).clips[0]!.costUsd).toBe(
+      0,
+    );
     expect(clips.clips[0]!.durationMs).toBeGreaterThan(2500);
     expect(clips.prompt).toContain("ACTION");
     const detail = await u.get<{ job: { compiledPrompt: string } }>(`/api/generations/${job.id}`);

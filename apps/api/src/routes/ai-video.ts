@@ -314,7 +314,8 @@ aiVideoRoutes.get("/panels/:id/clips", async (c) => {
       height: assets.height,
       metadata: assets.metadata,
       jobId: assets.generationJobId,
-      costUsd: sql<number>`coalesce((select sum(u.estimated_cost_usd)::float from ai_usage u where u.generation_job_id = ${assets.generationJobId}), 0)`,
+      // The outer column is named in full: unqualified, it would resolve to the subquery's own ai_usage column.
+      costUsd: sql<number>`coalesce((select sum(u.estimated_cost_usd)::float from ai_usage u where u.generation_job_id = "assets"."generation_job_id"), 0)`,
     })
     .from(assets)
     .where(

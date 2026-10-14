@@ -911,6 +911,15 @@ export type PanelClipInput = {
   part?: { index: number; count: number; fromSec: number; toSec: number; direction: string | null; before: string[] };
 };
 
+/**
+ * The camera line: the shot's motion setting, except that an "auto" move gives way to the user's own words for what
+ * moves (they may ask for a locked-off camera, which a default "slow move" would contradict).
+ */
+const clipCamera = (motion: string, ownAction: boolean) =>
+  motion === "auto" && ownAction
+    ? "as the action above describes; otherwise a locked-off camera"
+    : (CLIP_CAMERA[motion] ?? CLIP_CAMERA.auto!);
+
 /** What a part does when nobody said: begin the action, carry it on, or bring it to its end. */
 const PART_DEFAULT = {
   first: "Begin the action and let it develop; do not finish it, it carries on in the next part.",
@@ -924,7 +933,7 @@ const PART_DEFAULT = {
  */
 export const panelClipV1: ImageTemplate<PanelClipInput> = {
   name: "panel-clip",
-  version: 1,
+  version: 2,
   kind: "image",
   description: "Video clip of one shot: motion and camera for image-to-video, the whole shot for text-to-video.",
   body: "ACTION / CAMERA / CONTINUITY / RULES for a video model; from an image only motion is asked for. A long shot is made in parts: each continues from the previous part's last frame, with WHOLE SHOT / SO FAR / THIS PART.",
@@ -953,7 +962,7 @@ export const panelClipV1: ImageTemplate<PanelClipInput> = {
         section(`THIS PART (seconds ${p.fromSec}–${p.toSec}, ${i.seconds} s)`, [own]),
         section("CAMERA", [
           p.index === 0
-            ? (CLIP_CAMERA[i.motion] ?? CLIP_CAMERA.auto!)
+            ? clipCamera(i.motion, Boolean(clean(i.action)))
             : "Keep the camera move going in the same direction and speed as it was; no reframing jump.",
           line("Framing", `${i.shotType}${i.cameraAngle ? `, ${i.cameraAngle}` : ""}`),
         ]),
@@ -977,7 +986,7 @@ export const panelClipV1: ImageTemplate<PanelClipInput> = {
         : `One continuous ${i.seconds}-second shot of ${look}.`,
       section("ACTION", [action]),
       section("CAMERA", [
-        CLIP_CAMERA[i.motion] ?? CLIP_CAMERA.auto!,
+        clipCamera(i.motion, Boolean(clean(i.action))),
         line("Framing", `${i.shotType}${i.cameraAngle ? `, ${i.cameraAngle}` : ""}`),
       ]),
       i.fromImage
