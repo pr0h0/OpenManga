@@ -544,10 +544,14 @@ export async function previewPayload(
         key: s.key,
         label: s.label,
         joinNext: s.joinNext,
-        minHoldMs: i < lead.length ? null : (s.panel?.video?.holdMs ?? null),
+        // A shot with a clip holds at least the clip, as the render does.
+        minHoldMs: i < lead.length ? null : (s.panel?.video?.holdMs ?? s.clip?.durationMs ?? null),
         sceneId: s.panel?.sceneId ?? s.page.sceneId,
         fade: s.fade,
         motion: s.motion,
+        /** The generated clip the shot plays in place of its still and move. */
+        clip: s.clip?.durationMs ? { assetId: s.clip.id, durationMs: s.clip.durationMs } : null,
+        onScreenText: s.panel?.video?.onScreenText ?? null,
         page: {
           id: s.page.id,
           order: s.page.order,

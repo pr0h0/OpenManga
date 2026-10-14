@@ -8,6 +8,7 @@ import { adminRoutes } from "./routes/admin.ts";
 import { agentRunRoutes } from "./routes/agent-runs.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { aiRoutes } from "./routes/ai.ts";
+import { aiVideoRoutes } from "./routes/ai-video.ts";
 import { assetRoutes, cdnRoutes } from "./routes/assets.ts";
 import { audioRoutes } from "./routes/audio.ts";
 import { authRoutes, devMailRoutes } from "./routes/auth.ts";
@@ -103,6 +104,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     projectStorageRoutes,
     videoEditRoutes,
     locationStateRoutes,
+    aiVideoRoutes,
   ])
     api.route("/", r);
 }

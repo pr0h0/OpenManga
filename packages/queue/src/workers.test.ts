@@ -8,11 +8,15 @@ test("capabilities: detected plus declared, a declared minus takes one away, an 
   expect(() => workerCapabilities("quantum", [])).toThrow(/unknown capability quantum/);
 });
 
-test("a worker without ffmpeg leaves video renders to one that has it, and says why", () => {
+test("a worker without ffmpeg leaves video renders and clips to one that has it, and says why", () => {
   const { consumed, refused } = servableQueues([...QUEUES], ["tts"]);
   expect(consumed).not.toContain("render");
+  expect(consumed).not.toContain("video-generation");
   expect(consumed).toContain("export");
-  expect(refused).toEqual([{ queue: "render", missing: ["ffmpeg"] }]);
+  expect(refused).toEqual([
+    { queue: "render", missing: ["ffmpeg"] },
+    { queue: "video-generation", missing: ["ffmpeg"] },
+  ]);
 });
 
 test("queues nothing alive takes, with what waits and who refused them", () => {

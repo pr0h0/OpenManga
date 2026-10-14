@@ -12,7 +12,7 @@ Enums (`common.ts`): `approval_status` (`draft|approved|locked|superseded`), `us
 (`ltr|rtl|vertical`), `color_mode` (`full_color|grayscale|bw_manga`), `project_status` (`active|archived`),
 `member_role` (`owner|editor|viewer`), `asset_type` (`character_reference`, `location_reference`,
 `prop_reference`, `style_reference`, `panel_art`, `panel_mask`, `cover`, `thumbnail`, `prompt_reference`,
-`source_image`, `export`, `audio`), `asset_visibility` (`private|public`), `panel_status`
+`source_image`, `export`, `audio`, `panel_clip`), `asset_visibility` (`private|public`), `panel_status`
 (`planned|prompt-ready|queued|generating|ready|failed`), `job_status`
 (`queued|submitted|awaiting_input|processing|completed|failed|cancel_requested|cancelled|paused`; `submitted` is
 waiting in a provider's batch API, `awaiting_input` is a paste-mode job waiting for an answer — neither holds a worker
@@ -268,10 +268,11 @@ range moves with its chapters; deleting a chapter leaves the range open on that 
   job. `exports` holds the produced file asset, its name and `expires_at` (30 days after it was made). Deleting an
   export removes its job row and file at once.
 - `ai_usage` — provider, model, operation, request id, token counts (text in/out, image in/out, cached), billable
-  `images` and `characters`, raw usage JSON, the rate snapshot used, estimated cost, latency, success, metadata.
+  `images`, `characters` and `video_seconds`, raw usage JSON, the rate snapshot used, estimated cost, latency, success, metadata.
 - `provider_rate_snapshots` — editable per-model rates with effective dates: text in/out and cached input and image
   in/out in USD per 1M tokens, plus `image_unit_rate` in USD per generated image for providers that bill a flat price
-  per image and `character_rate` in USD per 1M characters for speech providers.
+  per image, `character_rate` in USD per 1M characters for speech providers and `video_second_rate` in USD per second
+  of video (keyed `<model>@<resolution>[+audio]`).
 - `provider_batches` — one submission to a provider's async batch API covering many jobs of a bulk run: capability
   (`image|text`), provider, model, the provider's handle, a unique idempotency key, state
   (`pending|running|succeeded|partial|failed|expired|cancelled`), request/completed/failed counts, uploaded file ids to

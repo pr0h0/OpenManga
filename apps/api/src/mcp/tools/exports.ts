@@ -150,7 +150,7 @@ export const exportTools = [
     name: "get_provenance",
     title: "Provenance record",
     description:
-      "Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.",
+      "Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences, each panel's video clip (provider, model, job, prompt hash, parts) and the music bed with its licence note. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.",
     input: z.object({
       projectId: Uuid,
       chapterId: Uuid.optional(),

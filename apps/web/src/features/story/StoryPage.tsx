@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { History, Sparkles, Wand2 } from "lucide-react";
+import { History, Megaphone, Sparkles, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { onProjectEvent, qk } from "../../api/hooks.ts";
@@ -8,6 +8,7 @@ import {
   clsx,
   EmptyState,
   ErrorBox,
+  Field,
   fmt,
   Modal,
   PageHeader,
@@ -18,7 +19,7 @@ import {
   useAutosave,
 } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
-import { useProjectId } from "../project/ProjectLayout.tsx";
+import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { StaleChapters, useStaleness } from "../project/StaleChapters.tsx";
 import { AnalysisReview } from "./AnalysisReview.tsx";
 import { StoryCoverage } from "./StoryCoverage.tsx";
@@ -31,6 +32,7 @@ export function StoryPage() {
   const [viewRevisionId, setViewRevisionId] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [rewriteOpen, setRewriteOpen] = useState(false);
+  const [adOpen, setAdOpen] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
 
   useEffect(
@@ -38,6 +40,12 @@ export function StoryPage() {
       onProjectEvent((e) => {
         if (e.type === "job.updated" && e.kind === "story_rewrite" && e.status === "completed")
           toast.success("AI rewrite saved as a new revision");
+        if (e.type === "job.updated" && e.kind === "ad_script") {
+          if (e.status === "completed") {
+            toast.success("Ad script saved as a new revision");
+            void qc.invalidateQueries({ queryKey: qk.story(projectId) });
+          } else if (e.status === "failed") toast.error("The ad script could not be written");
+        }
         if (e.type === "analysis.updated" && e.status === "completed") setAnalysisId(String(e.analysisId));
       }),
     [],
@@ -84,17 +92,27 @@ export function StoryPage() {
         title="Story"
         subtitle="Every analysis references a specific revision. Analyzed revisions are locked; editing forks a new revision."
         actions={
-          latest && (
-            <>
-              <button type="button" className="btn-secondary" onClick={() => setRewriteOpen(true)}>
-                <Wand2 className="size-4" /> AI rewrite
-              </button>
-              <AiChip cap="text" />
-              <button type="button" className="btn-primary" onClick={analyze} disabled={analyzing}>
-                {analyzing ? <Spinner /> : <Sparkles className="size-4" />} Analyze revision {latest.revisionNumber}
-              </button>
-            </>
-          )
+          <>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setAdOpen(true)}
+              title="Write an ad's script from a brief"
+            >
+              <Megaphone className="size-4" /> Ad from a brief
+            </button>
+            {latest && (
+              <>
+                <button type="button" className="btn-secondary" onClick={() => setRewriteOpen(true)}>
+                  <Wand2 className="size-4" /> AI rewrite
+                </button>
+                <AiChip cap="text" />
+                <button type="button" className="btn-primary" onClick={analyze} disabled={analyzing}>
+                  {analyzing ? <Spinner /> : <Sparkles className="size-4" />} Analyze revision {latest.revisionNumber}
+                </button>
+              </>
+            )}
+          </>
         }
       />
       {!latest ? (
@@ -203,6 +221,7 @@ export function StoryPage() {
         </div>
       )}
       {latest && <RewriteModal open={rewriteOpen} onClose={() => setRewriteOpen(false)} revisionId={latest.id} />}
+      <AdBriefModal open={adOpen} onClose={() => setAdOpen(false)} projectId={projectId} />
     </div>
   );
 }
@@ -431,5 +450,127 @@ function ChangedChapters({ projectId }: { projectId: string }) {
     <section className="mt-8">
       <StaleChapters projectId={projectId} stage="plan" chapters={q.data.stalePlans} />
     </section>
+  );
+}
+
+type Brief = {
+  product: string;
+  audience: string;
+  message: string;
+  offer: string;
+  callToAction: string;
+  notes: string;
+  lengthSeconds: number;
+  tone: string;
+};
+const EMPTY_BRIEF: Brief = {
+  product: "",
+  audience: "",
+  message: "",
+  offer: "",
+  callToAction: "",
+  notes: "",
+  lengthSeconds: 60,
+  tone: "",
+};
+
+/**
+ * An ad from a brief: what is sold, to whom, the one thing to remember, the offer and the call to action, at a length.
+ * The text model writes the script (scenes with what is seen, the voiceover and text on screen) as a new revision of
+ * the story; analyse and plan it like any story, then animate the shots.
+ */
+function AdBriefModal({ open, onClose, projectId }: { open: boolean; onClose: () => void; projectId: string }) {
+  const aiText = useAiBody("text");
+  const saved = useProject().data?.project.settings.ad as Partial<Brief> | undefined;
+  const [brief, setBrief] = useState<Brief>({ ...EMPTY_BRIEF, ...saved });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (open) setBrief({ ...EMPTY_BRIEF, ...saved });
+  }, [open, saved]);
+  const set = (k: keyof Brief) => (e: { target: { value: string } }) =>
+    setBrief((b) => ({ ...b, [k]: k === "lengthSeconds" ? Number(e.target.value) || 60 : e.target.value }));
+  const field = (k: keyof Brief, label: string, placeholder: string, area = false) => (
+    <Field label={label}>
+      {area ? (
+        <textarea
+          className="input min-h-16"
+          aria-label={label}
+          value={String(brief[k])}
+          onChange={set(k)}
+          placeholder={placeholder}
+        />
+      ) : (
+        <input
+          className="input"
+          aria-label={label}
+          value={String(brief[k])}
+          onChange={set(k)}
+          placeholder={placeholder}
+        />
+      )}
+    </Field>
+  );
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Ad from a brief"
+      footer={
+        <>
+          <AiChip cap="text" className="mr-auto" />
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy || brief.product.trim().length < 2}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await post(`/projects/${projectId}/ad-script`, { ...aiText(), brief });
+                toast.info("Writing the ad script. It will appear as a new revision.");
+                onClose();
+              } catch (e) {
+                toast.error(e);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy && <Spinner />} Write the script
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-2">
+        <p className="muted text-sm">
+          The script comes back as scenes, each with what is seen, the voiceover and any text on screen, timed to the
+          length. It is saved as a new revision of the story. Then analyse and plan it, draw the shots and animate them.
+        </p>
+        {field("product", "Product or service", "e.g. Glowtide, a desk lamp that wakes you with sunrise light", true)}
+        {field("audience", "Audience", "e.g. people who work late and wake up tired")}
+        {field("message", "The one thing to remember", "e.g. wake up with light, not an alarm")}
+        <div className="grid grid-cols-2 gap-2">
+          {field("offer", "Offer", "e.g. 30% off this week")}
+          {field("callToAction", "Call to action", "e.g. Order at glowtide.com")}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Length (seconds)">
+            <input
+              className="input"
+              type="number"
+              min={10}
+              max={600}
+              aria-label="Length (seconds)"
+              value={brief.lengthSeconds}
+              onChange={set("lengthSeconds")}
+            />
+          </Field>
+          {field("tone", "Tone", "e.g. warm, calm, premium")}
+        </div>
+        {field("notes", "Notes", "Brand rules, claims to avoid, words to use", true)}
+      </div>
+    </Modal>
   );
 }

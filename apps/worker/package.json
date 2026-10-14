@@ -9,6 +9,7 @@
   "dependencies": {
     "@openmanga/ai-image": "workspace:*",
     "@openmanga/ai-text": "workspace:*",
+    "@openmanga/ai-video": "workspace:*",
     "@openmanga/audio": "workspace:*",
     "@openmanga/config": "workspace:*",
     "@openmanga/db": "workspace:*",

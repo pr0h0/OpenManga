@@ -6,6 +6,7 @@ import { assembleExample, type JsonSchema, renderInterface } from "./answer-form
 export const ANSWER_ASKED_BY: Record<keyof typeof ANSWER_SCHEMAS, string> = {
   StoryAnalysis: "**Analyse story** — reads the story and proposes the cast, places, props and chapters.",
   StoryRewrite: "**Rewrite story** — returns a rewritten story following your instruction.",
+  AdScript: "**Write ad script** — the ad's script from its brief, saved as the project's story.",
   ChapterOutline: "**Plan chapter**, first question — the chapter's scenes, before any pages.",
   ScenePages:
     "**Plan chapter**, one question per scene — that scene's pages and panels. For a film project these are shots, " +

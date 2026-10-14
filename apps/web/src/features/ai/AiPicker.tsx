@@ -1,4 +1,13 @@
-import { type AiCapability, PROVIDER_CATALOG, type ProviderKind, providerCatalog } from "@openmanga/domain/browser";
+import {
+  type AiCapability as AnyCapability,
+  PROVIDER_CATALOG,
+  type ProviderKind,
+  providerCatalog,
+} from "@openmanga/domain/browser";
+
+/** Text, image and voice runs; video clips have their own picker with prices (ClipPanel). */
+type AiCapability = Exclude<AnyCapability, "video">;
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Cpu, KeyRound, Trash2 } from "lucide-react";

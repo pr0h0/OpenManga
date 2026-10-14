@@ -334,6 +334,7 @@ export function SettingsPage() {
 
         <VideoSection
           logoUpload={`/projects/${projectId}/video-logo`}
+          musicUpload={`/projects/${projectId}/video-music`}
           projectTitle={form.title}
           chapters={chapters.data}
           value={s.video}

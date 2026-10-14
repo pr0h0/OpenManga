@@ -874,6 +874,140 @@ export const coverageSheetV1: ImageTemplate<PanelPromptInput> = {
   },
 };
 
+/** Camera moves a clip is asked for, from the shot's motion setting (the still's Ken Burns move). */
+const CLIP_CAMERA: Record<string, string> = {
+  auto: "a slow, steady camera move that suits the moment",
+  static: "a locked-off camera; only the subject moves",
+  "pan-left": "a slow pan to the left",
+  "pan-right": "a slow pan to the right",
+  "pan-up": "a slow tilt up",
+  "pan-down": "a slow tilt down",
+  "push-in": "a slow push in towards the subject",
+  "pull-out": "a slow pull back from the subject",
+};
+
+export type PanelClipInput = {
+  style: StyleContext;
+  /** What happens in the shot (the story beat). */
+  beat: string;
+  /** The user's own words for what moves; replaces the beat as the action when set. */
+  action: string | null;
+  shotType: string;
+  cameraAngle: string | null;
+  /** The still's motion setting. */
+  motion: string;
+  seconds: number;
+  /** Animating an image (true) or writing the shot from words alone. */
+  fromImage: boolean;
+  /** Needed only without an image: who and where, as the image prompt describes them. */
+  cast: { name: string; look: string }[];
+  location: string | null;
+  /** Lands on a given last frame. */
+  endFrame: boolean;
+  /**
+   * A long shot made in parts, each continuing from the last frame of the one before: this part's place in the shot
+   * and what happens in it (`direction`; null: carry the action on), and what the parts before it showed.
+   */
+  part?: { index: number; count: number; fromSec: number; toSec: number; direction: string | null; before: string[] };
+};
+
+/**
+ * The camera line: the shot's motion setting, except that an "auto" move gives way to the user's own words for what
+ * moves (they may ask for a locked-off camera, which a default "slow move" would contradict).
+ */
+const clipCamera = (motion: string, ownAction: boolean) =>
+  motion === "auto" && ownAction
+    ? "as the action above describes; otherwise a locked-off camera"
+    : (CLIP_CAMERA[motion] ?? CLIP_CAMERA.auto!);
+
+/** What a part does when nobody said: begin the action, carry it on, or bring it to its end. */
+const PART_DEFAULT = {
+  first: "Begin the action and let it develop; do not finish it, it carries on in the next part.",
+  middle: "Carry the action on from exactly where it stands, the natural next step; do not finish it yet.",
+  last: "Bring the action to its natural end and settle into a calm closing moment that can hold.",
+};
+
+/**
+ * The prompt a video model gets for one shot. From an image it asks only for motion and keeps everything the image
+ * already decided (identity, clothes, place, light); without one it describes the shot like the panel prompt does.
+ */
+export const panelClipV1: ImageTemplate<PanelClipInput> = {
+  name: "panel-clip",
+  version: 2,
+  kind: "image",
+  description: "Video clip of one shot: motion and camera for image-to-video, the whole shot for text-to-video.",
+  body: "ACTION / CAMERA / CONTINUITY / RULES for a video model; from an image only motion is asked for. A long shot is made in parts: each continues from the previous part's last frame, with WHOLE SHOT / SO FAR / THIS PART.",
+  compile(i) {
+    const look = i.style.definition?.photoreal
+      ? "photorealistic live-action footage"
+      : `${kindLabel(i.style)} animation${i.style.presetName ? ` in the ${i.style.presetName} style` : ""}`;
+    const action = clean(i.action) || clean(i.beat) || "a quiet moment; subtle natural movement";
+    const p = i.part && i.part.count > 1 ? i.part : null;
+    if (p) {
+      const total = p.count * i.seconds;
+      const last = p.index === p.count - 1;
+      const own =
+        clean(p.direction) || (p.index === 0 ? PART_DEFAULT.first : last ? PART_DEFAULT.last : PART_DEFAULT.middle);
+      return join([
+        p.index === 0
+          ? `Animate this image into the first ${i.seconds} seconds of one continuous ${total}-second shot of ${look}, made in ${p.count} parts of ${i.seconds} seconds. This is part 1 of ${p.count} (seconds ${p.fromSec}–${p.toSec}).`
+          : `This image is the LAST FRAME of the previous part. Continue the same shot from exactly this frame for the next ${i.seconds} seconds: part ${p.index + 1} of ${p.count} of one continuous ${total}-second shot of ${look} (seconds ${p.fromSec}–${p.toSec}).`,
+        section("WHOLE SHOT", [action]),
+        p.before.length
+          ? section(
+              "SO FAR",
+              p.before.map((b, k) => `Seconds ${k * i.seconds}–${(k + 1) * i.seconds}: ${clean(b)}`),
+            )
+          : "",
+        section(`THIS PART (seconds ${p.fromSec}–${p.toSec}, ${i.seconds} s)`, [own]),
+        section("CAMERA", [
+          p.index === 0
+            ? clipCamera(i.motion, Boolean(clean(i.action)))
+            : "Keep the camera move going in the same direction and speed as it was; no reframing jump.",
+          line("Framing", `${i.shotType}${i.cameraAngle ? `, ${i.cameraAngle}` : ""}`),
+        ]),
+        section("CONTINUITY", [
+          p.index === 0
+            ? "Keep every person's face, hair, body and clothes, the place, the light and the colours exactly as in the image."
+            : "Start exactly on the given frame: the same people, faces, clothes, positions, place, light, colours and camera. No cut, no fade, no restart of the action, no new scene.",
+          last ? "" : "Do not end the action in this part: it goes on in the next one.",
+          last && i.endFrame ? "End exactly on the given last frame." : "",
+        ]),
+        section("RULES", [
+          "Natural, physically plausible motion at a calm pace; no sudden morphing, no extra limbs, no new people.",
+          "One shot: no cuts, no transitions, no split screen.",
+          "No text, captions, subtitles, logos or watermarks in the picture.",
+        ]),
+      ]);
+    }
+    return join([
+      i.fromImage
+        ? `Animate this image into one continuous ${i.seconds}-second shot of ${look}.`
+        : `One continuous ${i.seconds}-second shot of ${look}.`,
+      section("ACTION", [action]),
+      section("CAMERA", [
+        clipCamera(i.motion, Boolean(clean(i.action))),
+        line("Framing", `${i.shotType}${i.cameraAngle ? `, ${i.cameraAngle}` : ""}`),
+      ]),
+      i.fromImage
+        ? section("CONTINUITY", [
+            "Keep every person's face, hair, body and clothes, the place, the light and the colours exactly as in the image.",
+            i.endFrame ? "End exactly on the given last frame." : "",
+          ])
+        : section("SHOT", [
+            ...i.cast.map((c) => line(c.name, c.look)),
+            line("Place", i.location),
+            line("Style", i.style.definition?.summary ?? i.style.customDescription),
+          ]),
+      section("RULES", [
+        "Natural, physically plausible motion at a calm pace; no sudden morphing, no extra limbs, no new people.",
+        "One shot: no cuts, no transitions, no split screen.",
+        "No text, captions, subtitles, logos or watermarks in the picture.",
+      ]),
+    ]);
+  },
+};
+
 export const IMAGE_TEMPLATES = [
   characterReferenceV1,
   locationReferenceV1,
@@ -881,6 +1015,7 @@ export const IMAGE_TEMPLATES = [
   styleReferenceV1,
   panelGenerationV1,
   coverageSheetV1,
+  panelClipV1,
   panelEditV1,
   coverV1,
   thumbnailV1,

@@ -13,6 +13,7 @@ import {
   eq,
   generationJobs,
   inArray,
+  isNull,
   narrationLines,
   narrationSegments,
   pages,
@@ -74,6 +75,7 @@ export async function buildProvenance(
       characterVersionIds: panels.characterVersionIds,
       locationVersionId: panels.locationVersionId,
       propVersionIds: panels.propVersionIds,
+      clipAssetId: sql<string | null>`${panels.video}->>'clipAssetId'`,
       asset: assets,
       job: generationJobs,
     })
@@ -85,8 +87,25 @@ export async function buildProvenance(
     .where(pageWhere)
     .orderBy(asc(chapters.order), asc(pages.order), asc(panels.order));
 
+  // The clips the panels play in videos, with the jobs that made them.
+  const clipIds = rows.flatMap((r) => (r.clipAssetId ? [r.clipAssetId] : []));
+  const clipRows = clipIds.length
+    ? await db
+        .select({ asset: assets, job: generationJobs })
+        .from(assets)
+        .leftJoin(generationJobs, eq(generationJobs.id, assets.generationJobId))
+        .where(and(inArray(assets.id, clipIds), isNull(assets.deletedAt)))
+    : [];
+  const clipOf = new Map(clipRows.map((c) => [c.asset.id, c]));
   const assetIds = new Set<string>();
   const panelsOut = rows.map((r) => {
+    const clip = r.clipAssetId ? clipOf.get(r.clipAssetId) : undefined;
+    const cm = (clip?.asset.metadata ?? {}) as {
+      parts?: number;
+      seconds?: number;
+      resolution?: string;
+      audio?: boolean;
+    };
     if (r.asset) assetIds.add(r.asset.id);
     const overrides = (r.job?.parameters?.promptOverrides ?? null) as Record<string, number> | null;
     return {
@@ -116,6 +135,30 @@ export async function buildProvenance(
                   promptSha256: r.job.compiledPrompt ? sha(r.job.compiledPrompt) : null,
                   promptOverrides: overrides,
                   createdAt: r.job.createdAt,
+                }
+              : null,
+          }
+        : null,
+      // The generated video clip this panel plays in place of its still (made from the artwork above, or from words).
+      clip: clip
+        ? {
+            assetId: clip.asset.id,
+            sha256: clip.asset.sha256,
+            createdAt: clip.asset.createdAt,
+            durationMs: clip.asset.durationMs,
+            seconds: cm.seconds ?? null,
+            parts: cm.parts ?? 1,
+            resolution: cm.resolution ?? null,
+            sound: Boolean(cm.audio),
+            fromAssetId: clip.asset.parentAssetId,
+            job: clip.job
+              ? {
+                  id: clip.job.id,
+                  provider: clip.job.provider,
+                  model: clip.job.model,
+                  template: clip.job.templateName ? `${clip.job.templateName} v${clip.job.templateVersion}` : null,
+                  promptSha256: clip.job.compiledPrompt ? sha(clip.job.compiledPrompt) : null,
+                  createdAt: clip.job.createdAt,
                 }
               : null,
           }
@@ -213,6 +256,24 @@ export async function buildProvenance(
     models.set(k, m);
   };
   for (const p of panelsOut) if (p.art?.job) addModel("image", p.art.job.provider, p.art.job.model);
+  for (const p of panelsOut) if (p.clip?.job) addModel("video", p.clip.job.provider, p.clip.job.model);
+
+  // The music bed under the videos: an uploaded track, with the licence note recorded for it.
+  const musicId = project.settings.video?.music?.assetId ?? null;
+  const [musicAsset] = musicId
+    ? await db
+        .select()
+        .from(assets)
+        .where(and(eq(assets.id, musicId), isNull(assets.deletedAt)))
+    : [];
+  if (musicAsset) {
+    assetIds.add(musicAsset.id);
+    const [mark] = await db
+      .select({ licence: assetMarks.licence })
+      .from(assetMarks)
+      .where(eq(assetMarks.assetId, musicAsset.id));
+    if (mark?.licence) licenceOf.set(musicAsset.id, mark.licence);
+  }
   for (const j of textJobs) addModel("text", j.provider, j.model, j.n);
 
   return {
@@ -246,6 +307,14 @@ export async function buildProvenance(
       model: r.model,
       licence: licenceOf.get(r.asset_id) ?? null,
     })),
+    music: musicAsset
+      ? {
+          assetId: musicAsset.id,
+          sha256: musicAsset.sha256,
+          uploadedName: (musicAsset.metadata?.originalName as string | undefined) ?? null,
+          licence: licenceOf.get(musicAsset.id) ?? null,
+        }
+      : null,
     narration: {
       voices: voices.map((v) => ({
         voice: v.voice,
@@ -282,7 +351,7 @@ export function provenanceMarkdown(p: Provenance) {
           x.art
             ? `${x.art.source}${x.art.job ? ` by ${x.art.job.provider} ${x.art.job.model ?? ""}, ${x.art.job.template ?? ""}` : ""}${x.art.tool ? `, tool ${x.art.tool}` : ""} · sha256 ${x.art.sha256.slice(0, 12)}`
             : "no artwork"
-        }`,
+        }${x.clip ? ` · video clip by ${x.clip.job?.provider ?? "?"} ${x.clip.job?.model ?? ""}${x.clip.parts > 1 ? ` in ${x.clip.parts} parts` : ""} · sha256 ${x.clip.sha256.slice(0, 12)}` : ""}`,
     ),
     "",
     "## References",
@@ -293,6 +362,13 @@ export function provenanceMarkdown(p: Provenance) {
         )
       : ["- none"]),
     "",
+    ...(p.music
+      ? [
+          "## Music",
+          `- ${p.music.uploadedName ?? p.music.assetId}${p.music.licence ? ` · licence: ${p.music.licence.text}${p.music.licence.url ? ` <${p.music.licence.url}>` : ""}` : " · no licence note recorded"}`,
+          "",
+        ]
+      : []),
     "## Narration voices",
     ...(p.narration.voices.length ? p.narration.voices.map((v) => `- ${v.voice} (${v.provider})`) : ["- none"]),
     "",

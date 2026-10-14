@@ -293,7 +293,7 @@ CPU, or a separate host with the same volumes and network), split the queues wit
 
 1. Uncomment the `worker-render` service in `docker-compose.yml`. It runs the same image with `WORKER_QUEUES: render`.
 2. In `.env`, set `WORKER_QUEUES` for the main worker to every other queue:
-   `WORKER_QUEUES=text-ai,image-generation,image-edit,asset-processing,tts,export,maintenance,image-batch`.
+   `WORKER_QUEUES=text-ai,image-generation,image-edit,asset-processing,tts,export,maintenance,image-batch,video-generation`.
    Leaving it empty also works, but then the main worker keeps taking renders too.
 3. `docker compose up -d worker worker-render`.
 

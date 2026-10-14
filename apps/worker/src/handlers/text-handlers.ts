@@ -10,6 +10,7 @@ import { narrationFix, narrationLint } from "./narration-qa.ts";
 import { panelCheck } from "./qa.ts";
 import { storyCoverage } from "./story-coverage.ts";
 import {
+  adScript,
   bibleExtract,
   chapterPlan,
   imageDescribe,
@@ -28,6 +29,7 @@ export type GenerationHandler = (deps: WorkerDeps, job: ProjectJob) => Promise<R
 export const TEXT_HANDLERS: Record<string, GenerationHandler> = {
   story_analysis: storyAnalysis,
   story_rewrite: storyRewrite,
+  ad_script: adScript,
   chapter_plan: chapterPlan,
   page_prompts: pagePrompts,
   narration_text: narrationText,

@@ -186,6 +186,24 @@ export const BUILTIN_STYLE_PRESETS: { key: string; name: string; definition: Sty
     },
   },
   {
+    key: "cartoon",
+    name: "Cartoon",
+    definition: {
+      summary: "Bright modern 2D cartoon, like a polished animated series or a brand's animated ad.",
+      lineTreatment: "Bold, smooth, even outlines with rounded ends.",
+      colorPolicy: "Saturated, cheerful flat palette with a few accent colors.",
+      shading: "Flat cel shading with one soft shadow tone and simple highlights.",
+      detailLevel: "Simplified shapes, readable at a glance; no fine texture.",
+      faceRendering: "Expressive, slightly exaggerated features with big readable expressions; consistent shapes.",
+      backgroundRendering: "Clean stylised backgrounds with simple shapes and gentle gradients.",
+      motionEffects: "Squash and stretch, simple motion arcs.",
+      contrast: "Medium-high, clean.",
+      screenTones: "None.",
+      lighting: "Even, friendly light with soft rim highlights.",
+      exclusions: [...common, "photorealism", "gritty texture", "manga screentones"],
+    },
+  },
+  {
     key: "realistic",
     name: "Realistic",
     definition: {

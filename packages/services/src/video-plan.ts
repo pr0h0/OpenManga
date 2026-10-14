@@ -50,6 +50,8 @@ export type PlannedShot = {
   art: typeof assets.$inferSelect | null;
   focus: { x: number; y: number };
   motion: Motion | null;
+  /** Panel cut: the generated clip the shot plays in place of its still and move, when it has one. */
+  clip: typeof assets.$inferSelect | null;
 };
 
 /** On-page aspect of a panel: its frame at the page's size. */
@@ -151,6 +153,7 @@ export async function planVideoShots(
     art: null,
     focus: { x: 0.5, y: 0.5 },
     motion: null,
+    clip: null,
   });
   // Every panel (disabled ones too) mapped to the shot it shows in, or the last shot before it: where a span ends.
   const shotOfPanel = new Map<string, number>();
@@ -220,6 +223,14 @@ export async function planVideoShots(
       if (s.art?.width && s.art.height)
         s.focus = focusInCrop(s.art.width, s.art.height, o.cropAspect ?? panelAspect(pn, s.page), pn.imageTransform);
     }
+    const clipIds = shots.map((s) => s.panel!.video?.clipAssetId).filter((x): x is string => Boolean(x));
+    const clips = clipIds.length
+      ? await db
+          .select()
+          .from(assets)
+          .where(and(inArray(assets.id, clipIds), eq(assets.type, "panel_clip"), isNull(assets.deletedAt)))
+      : [];
+    for (const s of shots) s.clip = clips.find((a) => a.id === s.panel!.video?.clipAssetId) ?? null;
     const motions = resolveMotions(
       shots.map((s) => ({ motion: s.panel!.video?.motion, shotType: s.panel!.shotType, focus: s.focus })),
     );

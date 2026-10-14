@@ -1,3 +1,5 @@
+import { VIDEO_RATE_SNAPSHOTS } from "./video-models.ts";
+
 export type RateSnapshot = {
   id?: string;
   provider: string;
@@ -13,6 +15,8 @@ export type RateSnapshot = {
   imageUnitRate?: number;
   /** USD per 1M characters (speech providers bill by input text length, not tokens). */
   characterRate?: number;
+  /** USD per generated second of video. */
+  videoSecondRate?: number;
 };
 
 export type UsageTokens = {
@@ -25,6 +29,8 @@ export type UsageTokens = {
   images?: number;
   /** Characters sent to a speech provider. */
   characters?: number;
+  /** Seconds of video generated. */
+  videoSeconds?: number;
 };
 
 /** Estimated USD cost from real token counts and a rate snapshot. cachedInputTokens are a subset of textInputTokens. */
@@ -39,7 +45,8 @@ export function estimateCostUsd(u: UsageTokens, r: RateSnapshot | null): number 
       u.imageOutputTokens * r.imageOutputRate +
       (u.characters ?? 0) * (r.characterRate ?? 0)) /
       1_000_000 +
-    (u.images ?? 0) * (r.imageUnitRate ?? 0);
+    (u.images ?? 0) * (r.imageUnitRate ?? 0) +
+    (u.videoSeconds ?? 0) * (r.videoSecondRate ?? 0);
   return Math.round(usd * 1e8) / 1e8;
 }
 
@@ -207,6 +214,20 @@ export const DEFAULT_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = [
     imageInputRate: 0,
     imageOutputRate: 0,
   },
+  // Video bills per generated second, by model, resolution and sound (see videoRateModel).
+  ...VIDEO_RATE_SNAPSHOTS.map((v) => ({
+    provider: v.provider,
+    model: v.model,
+    effectiveFrom: "2026-10-01T00:00:00Z",
+    textInputRate: 0,
+    cachedInputRate: 0,
+    textOutputRate: 0,
+    imageInputRate: 0,
+    imageOutputRate: 0,
+    videoSecondRate: v.rate,
+    // A flat fee per clip (an input-image fee), recorded as one "image" per clip.
+    ...(v.perClip ? { imageUnitRate: v.perClip } : {}),
+  })),
 ];
 
 /**
@@ -243,20 +264,29 @@ export const BATCH_RATE_SNAPSHOTS: Omit<RateSnapshot, "id">[] = DEFAULT_RATE_SNA
   ...(r.characterRate === undefined ? {} : { characterRate: r.characterRate / 2 }),
 }));
 
-/** Rough pre-flight estimate for confirmation dialogs (not used for accounting). */
-export function estimateImageBatchUsd(count: number, perImageOutputTokens = 400, rate?: RateSnapshot | null) {
+/**
+ * What one generated image typically uses, by provider and quality, measured on this app's own runs (2026-10):
+ * OpenAI gpt-image-2 makes about 170 output tokens at low, 1,600 at medium and roughly four times that at high;
+ * Gemini about 1,120 output tokens and 2,000 of reference input whatever the quality; flat-priced providers count one
+ * image. Only for estimates: spend is always recorded from what the provider reports.
+ */
+export function imageUnitUsage(provider: string, quality?: string | null): UsageTokens {
+  const one = (textIn: number, imageIn: number, imageOut: number): UsageTokens => ({
+    textInputTokens: textIn,
+    cachedInputTokens: 0,
+    textOutputTokens: 0,
+    imageInputTokens: imageIn,
+    imageOutputTokens: imageOut,
+    images: 1,
+  });
+  if (provider === "google") return one(950, 2000, 1120);
+  if (provider === "openai" || provider === "openai_compatible")
+    return one(1000, 300, quality === "high" ? 6400 : quality === "medium" ? 1600 : 175);
+  return one(1200, 300, 400);
+}
+
+/** Pre-flight estimate of `count` images for confirmation dialogs (not used for accounting). */
+export function estimateImageBatchUsd(count: number, usage: UsageTokens, rate?: RateSnapshot | null) {
   if (!rate) return null;
-  return (
-    estimateCostUsd(
-      {
-        textInputTokens: 1200,
-        cachedInputTokens: 0,
-        textOutputTokens: 0,
-        imageInputTokens: 300,
-        imageOutputTokens: perImageOutputTokens,
-        images: 1,
-      },
-      rate,
-    ) * count
-  );
+  return estimateCostUsd(usage, rate) * count;
 }
