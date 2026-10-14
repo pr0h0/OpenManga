@@ -35,6 +35,7 @@ import { CommentBadge, useCommentCounts } from "../../comments/comments.tsx";
 import { useProject, useProjectId } from "../../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../../video/VideoPreview.tsx";
 import { EdgePicker } from "../EdgePicker.tsx";
+import { ClipPanel } from "./ClipPanel.tsx";
 import { CompareModels } from "./CompareModels.tsx";
 import { CoverageSheet } from "./CoverageSheet.tsx";
 import { DescribePose } from "./DescribePose.tsx";
@@ -760,6 +761,8 @@ export function PanelTab({
       <PanelShape panelId={panel.id} disabled={locked} />
 
       <VideoShot panel={panel} locked={locked} onPatch={(video) => patchPanel.mutate({ video })} />
+
+      <ClipPanel panelId={panel.id} video={panel.video ?? null} locked={locked} invalidate={inv} />
 
       {panel.artwork && (
         <div className="space-y-2 rounded-lg border border-[var(--border)] p-2">

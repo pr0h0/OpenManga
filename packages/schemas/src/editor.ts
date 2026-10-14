@@ -249,6 +249,14 @@ export const ShotMotion = z.enum([
   "pull-out",
 ]);
 export type ShotMotion = z.infer<typeof ShotMotion>;
+/** Text over a shot in videos: where it sits and how loud it is (headline big, caption plain, cta in a box). */
+export const OnScreenText = z.object({
+  text: z.string().trim().min(1).max(200),
+  position: z.enum(["top", "center", "bottom"]).default("bottom"),
+  style: z.enum(["headline", "caption", "cta"]).default("caption"),
+});
+export type OnScreenText = z.infer<typeof OnScreenText>;
+
 export const ShotVideo = z.object({
   motion: ShotMotion.default("auto"),
   fade: z.enum(["auto", "on", "off"]).default("auto"),
@@ -258,8 +266,30 @@ export const ShotVideo = z.object({
    * (never below its narration). Null = the export's minimum. Set by the timing pass's rebalance or by hand.
    */
   holdMs: z.number().int().min(500).max(60_000).nullable().default(null),
+  /**
+   * The generated clip this shot plays in video renders in place of its still and camera move (a panel_clip asset
+   * of the panel). Null: the still, moved by `motion`.
+   */
+  clipAssetId: z.string().uuid().nullable().default(null),
+  /** What moves in the clip, for the next one generated. Null: written from the shot's beat and directing. */
+  clipPrompt: z.string().trim().max(1500).nullable().default(null),
+  /** A clip's own sound (models that make it): left out, or mixed under the narration. */
+  clipAudio: z.enum(["mute", "mix"]).default("mute"),
+  /** Text drawn over this shot for its whole hold (an ad's headline, price, offer or call to action). */
+  onScreenText: OnScreenText.nullable().default(null),
 });
 export type ShotVideo = z.infer<typeof ShotVideo>;
+/** A change to a shot's video settings: only the fields given change, the rest keep their stored values. */
+export const ShotVideoPatch = z.object({
+  motion: ShotMotion.optional(),
+  fade: z.enum(["auto", "on", "off"]).optional(),
+  disabled: z.boolean().optional(),
+  holdMs: z.number().int().min(500).max(60_000).nullable().optional(),
+  clipAssetId: z.string().uuid().nullable().optional(),
+  clipPrompt: z.string().trim().max(1500).nullable().optional(),
+  clipAudio: z.enum(["mute", "mix"]).optional(),
+  onScreenText: OnScreenText.nullable().optional(),
+});
 
 /**
  * A rough sketch, stick-figure pose or composition thumbnail for one panel. It goes with the panel's generation
@@ -463,6 +493,23 @@ export const ProjectStorage = z.object({
 });
 export type ProjectStorage = z.infer<typeof ProjectStorage>;
 
+/**
+ * An ad's brief: what is sold, to whom, the one thing to remember, the offer and what the viewer should do, at about
+ * this length. The ad script is written from it, as the project's story.
+ */
+export const AdBrief = z.object({
+  product: z.string().trim().min(2).max(2000),
+  audience: z.string().trim().max(1000).default(""),
+  message: z.string().trim().max(1000).default(""),
+  offer: z.string().trim().max(500).default(""),
+  callToAction: z.string().trim().max(200).default(""),
+  /** Brand, tone and things to avoid (claims, competitors, words). */
+  notes: z.string().trim().max(2000).default(""),
+  lengthSeconds: z.number().int().min(10).max(600).default(60),
+  tone: z.string().trim().max(200).default(""),
+});
+export type AdBrief = z.infer<typeof AdBrief>;
+
 export const ProjectSettings = z.object({
   format: ProjectFormat.default("comic"),
   storage: ProjectStorage.optional(),
@@ -599,6 +646,18 @@ export const ProjectSettings = z.object({
         .array(VideoCard.extend({ chapterId: z.string().uuid() }))
         .max(200)
         .optional(),
+      /**
+       * A music bed under the whole video: an audio file of this project, looped, at `volume` (0..1), turned down
+       * while the narration speaks when `duck` is on.
+       */
+      music: z
+        .object({
+          assetId: z.string().uuid(),
+          volume: z.number().min(0).max(1).default(0.25),
+          duck: z.boolean().default(true),
+        })
+        .nullable()
+        .optional(),
       /** What a video export renders at when its request does not say: frame shape, and the short side in pixels. */
       output: z
         .object({
@@ -618,6 +677,8 @@ export const ProjectSettings = z.object({
    * count, in turn, and re-laying a chapter or the project matches existing pages to them the same way.
    */
   layouts: z.array(CustomLayout).max(30).optional(),
+  /** An ad's brief, kept so its script can be written again (POST /api/projects/:id/ad-script). */
+  ad: AdBrief.optional(),
   /** The repurposing plan: Shorts, trailer, teaser, carousel and quote images, reviewed before rendering. */
   repurpose: z.object({ items: z.array(RepurposeItem).max(40).default([]) }).optional(),
   /**

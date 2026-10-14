@@ -80,7 +80,8 @@ compareRoutes.get("/panels/:id/compare", async (c) => {
       startedAt: generationJobs.startedAt,
       finishedAt: generationJobs.finishedAt,
       assetId: sql<string | null>`${generationJobs.result}->>'assetId'`,
-      costUsd: sql<number>`coalesce((select sum(u.estimated_cost_usd)::float from ${aiUsage} u where u.generation_job_id = ${generationJobs.id}), 0)`,
+      // The outer column is named in full: unqualified, "id" would resolve to the subquery's own ai_usage.id.
+      costUsd: sql<number>`coalesce((select sum(u.estimated_cost_usd)::float from ${aiUsage} u where u.generation_job_id = "generation_jobs"."id"), 0)`,
     })
     .from(generationJobs)
     .where(and(eq(generationJobs.targetId, panelId), sql`${generationJobs.parameters}->>'compare' = ${latest.id}`))

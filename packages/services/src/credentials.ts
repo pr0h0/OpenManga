@@ -3,7 +3,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { AppConfig } from "@openmanga/config";
 import { and, type Database, type DbOrTx, desc, eq, providerCredentials, sql, youtubeChannels } from "@openmanga/db";
-import { type AiCapability, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
+import { type AiCapability, catalogModels, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 
 type KeyConfig = Pick<AppConfig, "CREDENTIALS_ENCRYPTION_KEY" | "CREDENTIALS_ENCRYPTION_OLD_KEYS" | "SESSION_SECRET">;
@@ -259,6 +259,12 @@ export type CredentialSummary = {
 };
 export type ResolvedCredential = CredentialSummary & { apiKey: string; updatedAt: Date };
 
+/**
+ * Video providers with no free way to check a key (no model list, no free read): their keys are saved as given and a
+ * wrong one fails the first run with the provider's "rejected the key" error, before anything is spent.
+ */
+const UNCHECKED_KINDS = new Set<ProviderKind>(["kling", "runway", "minimax", "byteplus"]);
+
 export class CredentialService {
   readonly ring: KeyRing;
   /** Mock mode never calls providers: keys are stored unverified and model lists come from the catalog. */
@@ -308,7 +314,8 @@ export class CredentialService {
             allowPrivate: this.allowPrivateEndpoints,
           })
         : null;
-    if (!this.offline) await this.fetchModels({ kind: input.kind, baseUrl, apiKey });
+    if (!this.offline && !UNCHECKED_KINDS.has(input.kind))
+      await this.fetchModels({ kind: input.kind, baseUrl, apiKey });
     const [row] = await this.db
       .insert(providerCredentials)
       .values({
@@ -356,7 +363,9 @@ export class CredentialService {
   /** Model ids available to a key, split by capability (best effort, merged with catalog suggestions). */
   async listModels(cred: { kind: ProviderKind; baseUrl: string | null; apiKey: string }, cap: AiCapability) {
     const cat = providerCatalog(cred.kind)!;
-    const suggested = cap === "text" ? cat.textModels : cap === "image" ? cat.imageModels : cat.ttsModels;
+    const suggested = catalogModels(cat, cap);
+    // Video models come from the catalog only: their request shapes are per model, so an unknown id cannot run.
+    if (cap === "video") return suggested;
     const all = this.offline ? [] : await this.fetchModels(cred);
     const isImage = (id: string) => /image|dall-e|imagen|flux|stable-diffusion|sdxl|seedream|recraft/i.test(id);
     const isTts = (id: string, m: { tts?: boolean }) => Boolean(m.tts) || /tts|speech|eleven_/i.test(id);
@@ -379,7 +388,11 @@ export class CredentialService {
     const base = (cred.baseUrl ?? cat.baseUrl ?? "").replace(/\/$/, "");
     let url: string;
     let headers: Record<string, string>;
-    if (cred.kind === "elevenlabs") {
+    if (cred.kind === "fal") {
+      // fal has no model list per key; reading one model's price needs a valid key and costs nothing.
+      url = "https://api.fal.ai/v1/models/pricing?endpoint_id=fal-ai/bytedance/seedance/v1/pro/fast/image-to-video";
+      headers = { authorization: `Key ${cred.apiKey}` };
+    } else if (cred.kind === "elevenlabs") {
       url = `${base}/v1/models`;
       headers = { "xi-api-key": cred.apiKey };
     } else if (cred.kind === "anthropic") {
@@ -416,6 +429,7 @@ export class CredentialService {
     } catch {
       throw new CredentialError(`${cat.label} returned an unexpected model list`);
     }
+    if (cred.kind === "fal") return [];
     if (Array.isArray(json))
       return (json as { model_id?: string; can_do_text_to_speech?: boolean }[])
         .filter((m) => m.model_id)

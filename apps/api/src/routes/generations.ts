@@ -24,6 +24,7 @@ import {
   BATCH_CAPABLE_PROVIDERS,
   batchModel,
   estimateImageBatchUsd,
+  imageUnitUsage,
   PRIORITY,
   providerSupports,
 } from "@openmanga/domain";
@@ -480,7 +481,12 @@ generationRoutes.post("/projects/:projectId/generations/bulk", async (c) => {
       ).length,
       locked: rows.filter((r) => r.approvalStatus === "locked").length,
     },
-    estimatedUsd: estimateImageBatchUsd(ids.length, chosen.provider === "google" ? 1120 : 400, rate),
+    // Priced at the project's image quality: medium costs about nine times low on OpenAI.
+    estimatedUsd: estimateImageBatchUsd(
+      ids.length,
+      imageUnitUsage(chosen.provider, p.settings.imageQuality ?? deps.config.IMAGE_QUALITY),
+      rate,
+    ),
     provider: { provider: chosen.provider, model: chosen.model },
     batch: input.batch,
     rateSnapshot: rate ? { provider: rate.provider, model: rate.model, effectiveFrom: rate.effectiveFrom } : null,
@@ -663,7 +669,11 @@ async function bulkReferences(
         (r) => input.onlyMissing && r.versionId && withReference.has(r.versionId) && !inProgress.has(r.versionId),
       ).length,
     },
-    estimatedUsd: estimateImageBatchUsd(eligible.length, chosen.provider === "google" ? 1120 : 400, rate),
+    estimatedUsd: estimateImageBatchUsd(
+      eligible.length,
+      imageUnitUsage(chosen.provider, project?.settings.imageQuality ?? deps.config.IMAGE_QUALITY),
+      rate,
+    ),
     provider: { provider: chosen.provider, model: chosen.model },
     batch: input.batch,
     rateSnapshot: rate ? { provider: rate.provider, model: rate.model, effectiveFrom: rate.effectiveFrom } : null,

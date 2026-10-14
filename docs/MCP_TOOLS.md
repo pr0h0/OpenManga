@@ -17,15 +17,15 @@ tool results with `isError: true` and `{ ok: false, error: { code, message, stat
 | `projects:write` | Change project settings, state and metadata, and trash or delete stored assets. | `update_project`, `set_project_status`, `delete_project`, `manage_series`, `manage_assets`, `write_social_copy`, `keep_publishing_text`, `use_expert_reply` |
 | `projects:create` | Create new projects. | `create_project`, `duplicate_project`, `use_expert_reply` |
 | `story:read` | Read story revisions and analyses. | `get_story`, `get_story_revision`, `get_story_analysis`, `get_story_coverage`, `run_story_coverage`, `get_story_bible`, `get_timeline`, `run_continuity_check`, `get_continuity_report` |
-| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`, `use_expert_reply` |
+| `story:write` | Create and edit story revisions and apply story analyses. | `save_story_revision`, `run_story_analysis`, `edit_story_analysis`, `apply_story_analysis`, `run_story_rewrite`, `write_ad_script`, `manage_story_bible`, `run_bible_extraction`, `apply_bible_extraction`, `manage_timeline`, `run_timeline_extraction`, `apply_timeline_extraction`, `use_expert_reply` |
 | `library:read` | Read characters, locations, props, styles and references. | `list_library`, `get_library_item`, `manage_character_details`, `project_style`, `get_image` |
 | `library:write` | Create and edit characters, world entities, versions, outfits, styles and references. | `apply_story_analysis`, `create_library_item`, `update_library_item`, `manage_library_version`, `manage_character_details`, `migrate_character_panels`, `manage_references`, `project_style`, `manage_location_states`, `manage_reference_board` |
 | `chapters:read` | Read chapters, scenes, beats and pages. | `list_chapters`, `translate_lettering`, `get_chapter_source`, `get_chapter`, `get_page`, `manage_layouts`, `get_accessibility` |
 | `chapters:write` | Create, edit and re-plan chapters, scenes and pages. | `apply_story_analysis`, `manage_chapter`, `run_chapter_plan`, `manage_scene`, `manage_page`, `keep_stale_chapter` |
-| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `find_duplicates`, `compare_models`, `manage_panel_artwork`, `list_comments`, `get_image` |
+| `panels:read` | Read panel specs, prompts and artwork metadata. | `list_chapter_panels`, `get_page`, `get_panel`, `manage_panel_outfits`, `get_panel_prompt`, `find_duplicates`, `compare_models`, `video_clips`, `manage_panel_artwork`, `list_comments`, `get_image` |
 | `panels:write` | Create, edit and reorder panels, specs, outfits and lettering. | `migrate_character_panels`, `manage_page`, `manage_lettering`, `update_panel`, `manage_panel_outfits`, `prepare_page_prompts`, `panel_image_tools`, `manage_panel_artwork`, `run_panel_check`, `manage_panel`, `post_comment`, `resolve_comment`, `assign_comment`, `apply_timing_fix` |
 | `generations:read` | Read AI job, batch, prompt and generation status. | `list_jobs`, `get_job`, `get_manual_prompt`, `estimate_bulk_generation`, `manage_batch`, `get_production_run` |
-| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `edit_video`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
+| `generations:run` | Start, retry, answer or control AI and image generation work (may spend your provider credits). | `run_story_analysis`, `run_story_rewrite`, `write_ad_script`, `run_story_coverage`, `run_bible_extraction`, `run_timeline_extraction`, `run_continuity_check`, `manage_references`, `run_chapter_plan`, `prepare_page_prompts`, `generate_panel`, `coverage_sheet`, `run_panel_check`, `submit_manual_answer`, `control_job`, `run_bulk_generation`, `manage_batch`, `generate_cover`, `run_narration_generation`, `run_narration_lint`, `propose_narration_fix`, `retime_narration`, `edit_video`, `write_social_copy`, `estimate_production_run`, `start_production_run`, `update_production`, `continue_production_run`, `cancel_production_run` |
 | `narration:read` | Read narration text, segments, audio status and timelines. | `get_chapter_narration`, `get_narration_status`, `get_narration_qa`, `get_timing` |
 | `narration:write` | Edit narration, request synthesis and delete narration audio. | `edit_narration`, `run_narration_generation`, `synthesize_narration`, `run_narration_lint`, `update_narration_finding`, `propose_narration_fix`, `apply_narration_fix`, `delete_narration_audio`, `apply_timing_fix`, `retime_narration` |
 | `exports:read` | Read export status and files. | `export_targets`, `get_provenance`, `suggest_shorts`, `suggest_repurpose`, `list_exports` |
@@ -70,6 +70,7 @@ requests) need no scope.
 | [`edit_story_analysis`](#edit_story_analysis) | write | `story:write` |
 | [`apply_story_analysis`](#apply_story_analysis) | sensitive-write | `story:write` `library:write` `chapters:write` |
 | [`run_story_rewrite`](#run_story_rewrite) | spend | `story:write` `generations:run` |
+| [`write_ad_script`](#write_ad_script) | spend | `story:write` `generations:run` |
 | [`get_story_coverage`](#get_story_coverage) | read | `story:read` |
 | [`run_story_coverage`](#run_story_coverage) | spend | `story:read` `generations:run` |
 | [`get_story_bible`](#get_story_bible) | read | `story:read` |
@@ -114,6 +115,7 @@ requests) need no scope.
 | [`panel_image_tools`](#panel_image_tools) | spend | `panels:write` |
 | [`find_duplicates`](#find_duplicates) | write | `panels:read` |
 | [`compare_models`](#compare_models) | spend | `panels:read` |
+| [`video_clips`](#video_clips) | spend | `panels:read` |
 | [`manage_panel_artwork`](#manage_panel_artwork) | delete | `panels:read` `panels:write` |
 | [`run_panel_check`](#run_panel_check) | spend | `panels:write` `generations:run` |
 | [`manage_panel`](#manage_panel) | delete | `panels:write` |
@@ -232,6 +234,7 @@ The live JSON Schema of one answer format a manual (paste-mode) job can ask for,
       "enum": [
         "StoryAnalysis",
         "StoryRewrite",
+        "AdScript",
         "ChapterOutline",
         "ScenePages",
         "PanelPromptDraft",
@@ -795,7 +798,7 @@ Create a new project (optionally with its first story revision in `story`). Need
 
 ### update_project
 
-Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project), intro/outro cards and `hooks` (up to 10 alternative openings for a panel-cut video, the whole list: [{ id (a new UUID), label, text (what the narrator says, up to 600 characters), panelIds (1-6 panels shown under it), title?, thumbnailHeadline? }]; render one with create_export video_panels `video.hookId`), ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
+Change a project's title, description, type, language, reading direction, colour mode or `settings` (merged into the current settings: budgetUsd, narration voice/speed, `pronunciation` (the whole dictionary: [{ term, spoken, caseSensitive?, wholeWord? }], applied only to what the voice says; segments whose spoken text changes get stale audio), lettering defaults, imageQuality, `video` for scene-break fades, a watermark (an image of this project), intro/outro cards and `hooks` (up to 10 alternative openings for a panel-cut video, the whole list: [{ id (a new UUID), label, text (what the narrator says, up to 600 characters), panelIds (1-6 panels shown under it), title?, thumbnailHeadline? }]; render one with create_export video_panels `video.hookId`) and `music` ({ assetId, volume 0-1, duck: true lowers it while the narration speaks }; uploading the track needs the OpenManga UI), `ad` (an ad's brief; write_ad_script writes the script from it), ...). Raising or clearing the budget cap is sensitive and may need the user's approval. The format cannot change once pages exist.
 
 - **Scopes:** `projects:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -1848,6 +1851,36 @@ Change a project's title, description, type, language, reading direction, colour
                 ]
               }
             },
+            "music": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "assetId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "volume": {
+                      "default": 0.25,
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "duck": {
+                      "default": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "assetId"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "output": {
               "type": "object",
               "properties": {
@@ -2046,6 +2079,55 @@ Change a project's title, description, type, language, reading direction, colour
               "frames"
             ]
           }
+        },
+        "ad": {
+          "type": "object",
+          "properties": {
+            "product": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 2000
+            },
+            "audience": {
+              "default": "",
+              "type": "string",
+              "maxLength": 1000
+            },
+            "message": {
+              "default": "",
+              "type": "string",
+              "maxLength": 1000
+            },
+            "offer": {
+              "default": "",
+              "type": "string",
+              "maxLength": 500
+            },
+            "callToAction": {
+              "default": "",
+              "type": "string",
+              "maxLength": 200
+            },
+            "notes": {
+              "default": "",
+              "type": "string",
+              "maxLength": 2000
+            },
+            "lengthSeconds": {
+              "default": 60,
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 600
+            },
+            "tone": {
+              "default": "",
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "product"
+          ]
         },
         "repurpose": {
           "type": "object",
@@ -3615,6 +3697,142 @@ Queue an AI rewrite of a revision following `instruction`; the result is a new r
   "required": [
     "revisionId",
     "instruction"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "job": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "job"
+  ],
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### write_ad_script
+
+AI video ads: write an ad's script from its brief (product required; audience, key message, offer, callToAction, notes such as brand rules and claims to avoid, lengthSeconds 10-600, tone). The script (scenes with VISUAL, VOICEOVER and ON SCREEN lines, timed to the length) is saved as a new story revision, ready for run_story_analysis and planning like any story; the brief is kept in the project settings (`ad`). Then draw the shots, make clips with video_clips and put the ON SCREEN lines on their shots with update_panel video.onScreenText. Asynchronous: returns a job; poll get_job. Manual mode (ai.manual=true) asks you for an AdScript answer; a provider run spends credits (may need approval).
+
+- **Scopes:** `story:write`, `generations:run`
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `story.ad_script`
+- **Wraps:** `POST /api/projects/:id/ad-script`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projectId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "brief": {
+      "type": "object",
+      "properties": {
+        "product": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 2000
+        },
+        "audience": {
+          "default": "",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "message": {
+          "default": "",
+          "type": "string",
+          "maxLength": 1000
+        },
+        "offer": {
+          "default": "",
+          "type": "string",
+          "maxLength": 500
+        },
+        "callToAction": {
+          "default": "",
+          "type": "string",
+          "maxLength": 200
+        },
+        "notes": {
+          "default": "",
+          "type": "string",
+          "maxLength": 2000
+        },
+        "lengthSeconds": {
+          "default": 60,
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 600
+        },
+        "tone": {
+          "default": "",
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "product"
+      ]
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "description": "Paste mode: the job compiles its prompt and waits for your answer (get_manual_prompt). No spending.",
+          "type": "boolean"
+        },
+        "credentialId": {
+          "description": "One of the user's saved provider keys (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key for this provider kind.",
+          "type": "string",
+          "maxLength": 40
+        },
+        "model": {
+          "description": "Model id; defaults to the provider's first model.",
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "projectId",
+    "brief"
   ]
 }
 ```
@@ -8384,7 +8602,7 @@ One panel: fields (shot, camera, story beat, cast/location/prop versions, prompt
 
 ### update_panel
 
-Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`: motion, fade at the cut, disabled), comic effects drawn over the art without AI (`effects`: up to 6 of speed, focus, impact, tone, rain, snow, dust, glow, flashback, each with optional x, y, angle, density, strength, size, color; null removes them), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI), alt text (`altText`: what the panel shows, for readers who cannot see it, used in EPUBs and the series reader; null makes it from the beat, dialogue and sound effects; get_accessibility lists what is missing); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
+Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), location and prop versions, prompt override, frame, scene, approval status, video shot settings (`video`, only the fields given change: motion, fade at the cut, disabled, holdMs, clipAssetId (one of its clips from video_clips list, null for the still), clipPrompt (what moves in its next clip), clipAudio mute|mix (a clip's own sound under the narration), onScreenText { text, position top|center|bottom, style headline|caption|cta } or null: text over the shot for its whole hold, e.g. an ad's offer or call to action), comic effects drawn over the art without AI (`effects`: up to 6 of speed, focus, impact, tone, rain, snow, dust, glow, flashback, each with optional x, y, angle, density, strength, size, color; null removes them), the layout guide (`guide`: { assetId, strength: loose|strict }, an image asset of the project, e.g. from manage_assets list, sent with generation for composition and poses only; null removes it; uploading a new sketch needs the OpenManga UI), alt text (`altText`: what the panel shows, for readers who cannot see it, used in EPUBs and the series reader; null makes it from the beat, dialogue and sound effects; get_accessibility lists what is missing); and/or save a new PanelSpec version (`spec`: the whole spec object, shaped like get_panel specs[0].spec; its optional `direction` holds the directing: cameraHeight ground|knee|waist|eye|above|overhead, lens ultra-wide|wide|normal|telephoto|macro, depthOfField deep|shallow, purpose establish|reveal|reaction|insert|action|dialogue|transition, focus (the focus subject), and figures[] per characterId with view frontal|three-quarter|profile|back|over-the-shoulder|pov, facing camera|screen-left|screen-right|away, eyeLine, depth foreground|midground|background, holding). Locked panels are read-only. Setting approvalStatus to approved/locked is sensitive. Nothing is generated; use generate_panel for artwork.
 
 - **Scopes:** `panels:write`
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
@@ -8691,7 +8909,6 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
           "type": "object",
           "properties": {
             "motion": {
-              "default": "auto",
               "type": "string",
               "enum": [
                 "auto",
@@ -8705,7 +8922,6 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
               ]
             },
             "fade": {
-              "default": "auto",
               "type": "string",
               "enum": [
                 "auto",
@@ -8714,16 +8930,82 @@ Edit a panel: shot type, camera angle, story beat, cast (characterVersionIds), l
               ]
             },
             "disabled": {
-              "default": false,
               "type": "boolean"
             },
             "holdMs": {
-              "default": null,
               "anyOf": [
                 {
                   "type": "integer",
                   "minimum": 500,
                   "maximum": 60000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clipAssetId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clipPrompt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1500
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clipAudio": {
+              "type": "string",
+              "enum": [
+                "mute",
+                "mix"
+              ]
+            },
+            "onScreenText": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "position": {
+                      "default": "bottom",
+                      "type": "string",
+                      "enum": [
+                        "top",
+                        "center",
+                        "bottom"
+                      ]
+                    },
+                    "style": {
+                      "default": "caption",
+                      "type": "string",
+                      "enum": [
+                        "headline",
+                        "caption",
+                        "cta"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ]
                 },
                 {
                   "type": "null"
@@ -9517,6 +9799,190 @@ Draw one panel with 2-4 image models side by side. run: runs (each an ai choice:
   "required": [
     "action",
     "panelId"
+  ]
+}
+```
+
+</details>
+
+<details><summary>Output (<code>data</code>) schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": {}
+}
+```
+
+</details>
+
+### video_clips
+
+AI video: a shot's video clip (image-to-video from its artwork, or from its words alone on models that can), played in video renders in place of its still and camera move. models: the video models with lengths, resolutions, shapes, end-frame and sound support, price per second and whether the user can run them (`still-motion` is free on every server: the image with a camera move; paid ones run on the user's key for their provider: fal, google (Veo on a Gemini key), kling, runway, minimax, byteplus). list (panelId): its clips, the one it plays, clips being made, the prompt a clip would get. generate (panelId, runs: 1 model, or 2-4 to compare; seconds up to 60, resolution 480p|720p|1080p, aspect, audio, seed, prompt: what moves, endAssetId: an image to land on): one run becomes the shot's clip when done, compared runs are kept to pick from; dryRun=true only prices it. A shot longer than the model's longest clip is made in parts (partSeconds, default the longest; 20 s in parts of 5 s is 4 parts), each starting from the last frame of the part before and joined into one clip; `parts` says what happens in each part in order (blank parts carry the action on), so write them for a long shot. use (panelId, assetId or null for the still). delete (panelId, assetId). animate_chapter (chapterId, one ai, onlyMissing): a clip for every drawn shot, dryRun=true for the count and cost first. Paid runs spend the user's credits at the model's per-second price for every part (may need approval); asynchronous: poll get_job, then list. Set the shot's clip prompt, sound (clipAudio mix|mute) and text on screen with update_panel `video`.
+
+- **Scopes:** `panels:read` — per action, see description
+- **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
+- **Idempotent:** no — accepts `idempotencyKey`
+- **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
+- **Approval action keys:** `panel.clip`, `panel.clip_use`, `panel.clip_delete`, `chapter.clips`
+- **Wraps:** `GET /api/video-models`, `GET /api/panels/:id/clips`, `POST /api/panels/:id/clips`, `POST /api/panels/:id/clips/use`, `DELETE /api/clips/:assetId`, `POST /api/chapters/:id/clips`
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "models",
+        "list",
+        "generate",
+        "use",
+        "delete",
+        "animate_chapter"
+      ]
+    },
+    "panelId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "chapterId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "runs": {
+      "minItems": 1,
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "description": "A video model id (default: still-motion, free).",
+            "type": "string",
+            "maxLength": 200
+          },
+          "credentialId": {
+            "description": "The user's key for the model's provider (ids from get_server_info).",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "provider": {
+            "description": "Use the user's first saved key of this provider kind (default: the model's provider).",
+            "type": "string",
+            "maxLength": 40
+          }
+        }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "A video model id (default: still-motion, free).",
+          "type": "string",
+          "maxLength": 200
+        },
+        "credentialId": {
+          "description": "The user's key for the model's provider (ids from get_server_info).",
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "provider": {
+          "description": "Use the user's first saved key of this provider kind (default: the model's provider).",
+          "type": "string",
+          "maxLength": 40
+        }
+      }
+    },
+    "seconds": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 60
+    },
+    "partSeconds": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 20
+    },
+    "parts": {
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 600
+      }
+    },
+    "resolution": {
+      "type": "string",
+      "enum": [
+        "480p",
+        "720p",
+        "1080p"
+      ]
+    },
+    "aspect": {
+      "type": "string",
+      "enum": [
+        "16:9",
+        "9:16",
+        "1:1"
+      ]
+    },
+    "audio": {
+      "type": "boolean"
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "prompt": {
+      "type": "string",
+      "maxLength": 1500
+    },
+    "endAssetId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "assetId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "onlyMissing": {
+      "type": "boolean"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "description": "Optional client request id. Retrying with the same key and arguments returns the first result instead of repeating the action; the same key with different arguments is a conflict.",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128,
+      "pattern": "^[\\w.:-]+$"
+    }
+  },
+  "required": [
+    "action"
   ]
 }
 ```
@@ -13680,7 +14146,7 @@ check: for a chapter or the project, without AI — how many panels have alt tex
 
 ### get_provenance
 
-Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.
+Where an output comes from, for a chapter or the whole project: the app build, story revision, each panel's artwork with the job, provider, model, template version, prompt hash and prompt-lab rules that made it (or the upload or tool), the references the panels draw on with their licence notes, narration voices, lettering fonts and their licences, each panel's video clip (provider, model, job, prompt hash, parts) and the music bed with its licence note. format md: a page a person reads. create_export with provenance=true ships the same record with the files. Read-only.
 
 - **Scopes:** `exports:read`
 - **Sensitivity:** read

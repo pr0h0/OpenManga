@@ -297,6 +297,8 @@ const RateInput = z.object({
   imageOutputRate: z.number().min(0),
   imageUnitRate: z.number().min(0).default(0),
   characterRate: z.number().min(0).default(0),
+  /** USD per generated second of video. */
+  videoSecondRate: z.number().min(0).default(0),
   note: z.string().max(500).default(""),
 });
 doc({ method: "GET", path: "/api/admin/rates", summary: "Provider rate snapshots", tag: "admin" });
@@ -331,6 +333,7 @@ adminRoutes.post("/rates", async (c) => {
       imageOutputRate: String(r.imageOutputRate),
       imageUnitRate: String(r.imageUnitRate),
       characterRate: String(r.characterRate),
+      videoSecondRate: String(r.videoSecondRate),
       metadata: { note: r.note, createdBy: user(c).id },
     })
     .returning();

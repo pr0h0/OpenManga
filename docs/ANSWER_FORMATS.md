@@ -13,6 +13,7 @@ lighthouse itself; Ines's weather notebook. Each complete example below is a val
 
 - [StoryAnalysis](#storyanalysis)
 - [StoryRewrite](#storyrewrite)
+- [AdScript](#adscript)
 - [ChapterOutline](#chapteroutline)
 - [ScenePages](#scenepages)
 - [PanelPromptDraft](#panelpromptdraft)
@@ -812,6 +813,46 @@ interface StoryRewrite {
 {
   "content": "The supply boat left Ines on the jetty at Vell just as the wind turned. Up on the point, the lamp was already lit.",
   "notes": "Tightened the opening and moved the storm warning earlier."
+}
+```
+
+</details>
+
+## AdScript
+
+Asked by **Write ad script** — the ad's script from its brief, saved as the project's story.
+
+```ts
+/** An ad's script, written from its brief, saved as the project's story. */
+interface AdScript {
+  /**
+   * A short working title for the ad.
+   * Between 1 and 200 characters.
+   * @example "The Lamp That Never Sleeps"
+   */
+  title: string;
+  /**
+   * The script, scene by scene: what the viewer sees, what the voiceover says and any text on screen, timed to the brief's length (about 2.5 spoken words a second). It is saved as a new revision of the story.
+   * At least 1 characters.
+   * @example "SCENE 1 (0-5 s)\nVISUAL: A storm hits a dark coast; one lighthouse beam cuts through.\nVOICEOVER: Some lights never go out.\nON SCREEN: VELL LAMPWORKS"
+   */
+  content: string;
+  /**
+   * A short note for the user: claims to check, choices made. Not part of the script.
+   * Optional — defaults to "" when left out.
+   * @example "Check the 10-year warranty claim."
+   */
+  notes?: string;
+}
+```
+
+<details><summary>Complete example</summary>
+
+```json
+{
+  "title": "The Lamp That Never Sleeps",
+  "content": "SCENE 1 (0-5 s)\nVISUAL: A storm hits a dark coast; one lighthouse beam cuts through.\nVOICEOVER: Some lights never go out.\nON SCREEN: VELL LAMPWORKS",
+  "notes": "Check the 10-year warranty claim."
 }
 ```
 

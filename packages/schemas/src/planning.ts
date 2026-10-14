@@ -284,6 +284,10 @@ export function narrationDraftFor(panels: { id: string; beat?: string }[], words
 
 export const StoryRewrite = z.object({ content: str.min(1), notes: optStr });
 
+/** An ad's script from its brief: a title, the script (saved as the project's story) and notes for the user. */
+export const AdScript = z.object({ title: str.min(1).max(200), content: str.min(1), notes: optStr });
+export type AdScript = z.infer<typeof AdScript>;
+
 /** A social title and caption for each item of a repurposing plan, by the item's id. */
 export const SocialCopy = z.object({
   items: z

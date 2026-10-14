@@ -113,6 +113,8 @@ const EnvSchema = z.object({
 
   IMAGE_WORKER_CONCURRENCY: int(24),
   IMAGE_EDIT_WORKER_CONCURRENCY: int(6),
+  /** Video clips at once: each mostly waits on its provider; the free model encodes with ffmpeg here. */
+  VIDEO_WORKER_CONCURRENCY: int(2),
   TEXT_WORKER_CONCURRENCY: int(4),
   /** Match KOKORO_WORKERS: more worker concurrency than Kokoro processes only queues requests at Kokoro. */
   TTS_WORKER_CONCURRENCY: int(4),

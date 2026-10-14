@@ -18,6 +18,7 @@
     "@openmanga/ai-text": "workspace:*",
     "@openmanga/ai-image": "workspace:*",
     "@openmanga/audio": "workspace:*",
-    "@openmanga/auth": "workspace:*"
+    "@openmanga/auth": "workspace:*",
+    "@openmanga/ai-video": "workspace:*"
   }
 }

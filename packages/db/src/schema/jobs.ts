@@ -57,7 +57,11 @@ export type GenerationKind =
   /** One step of the in-app project agent's thinking: its plan, or its next tool call. The API runs the tool. */
   | "agent_step"
   /** A social title and caption for each item of the repurposing plan, written into settings.repurpose. */
-  | "social_copy";
+  | "social_copy"
+  /** A video clip of a panel's shot, from its image (or its prompt alone), by a video model. */
+  | "panel_clip"
+  /** An ad's script written from a brief (product, audience, message, offer, call to action), saved as the story. */
+  | "ad_script";
 
 export const generationJobs = pgTable(
   "generation_jobs",
@@ -330,6 +334,8 @@ export const providerRateSnapshots = pgTable(
     imageUnitRate: numeric("image_unit_rate", { precision: 12, scale: 6 }).notNull().default("0"),
     /** USD per 1M characters, for speech providers that bill by input text length. */
     characterRate: numeric("character_rate", { precision: 12, scale: 6 }).notNull().default("0"),
+    /** USD per generated second of video (by model, resolution and sound: see videoRateModel). */
+    videoSecondRate: numeric("video_second_rate", { precision: 12, scale: 6 }).notNull().default("0"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
@@ -355,6 +361,7 @@ export const aiUsage = pgTable(
     /** Billable quantities the cost was computed from, so spend can be re-checked against a corrected rate. */
     images: integer("images").notNull().default(0),
     characters: integer("characters").notNull().default(0),
+    videoSeconds: numeric("video_seconds", { precision: 10, scale: 3 }).notNull().default("0"),
     rawUsage: jsonb("raw_usage").$type<Record<string, unknown>>().notNull().default({}),
     rateSnapshotId: uuid("rate_snapshot_id"),
     rateSnapshot: jsonb("rate_snapshot").$type<Record<string, unknown>>(),

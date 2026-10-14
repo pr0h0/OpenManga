@@ -365,6 +365,13 @@
       "when": 1791747076647,
       "tag": "0051_panel_alt_text",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791925326187,
+      "tag": "0052_ai_video",
+      "breakpoints": true
     }
   ]
 }

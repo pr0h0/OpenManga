@@ -11,6 +11,8 @@ export type Capability = (typeof CAPABILITIES)[number];
 /** What a queue's jobs need from the worker that takes them. */
 export const QUEUE_NEEDS: Partial<Record<QueueName, Capability[]>> = {
   render: ["ffmpeg"],
+  // The free model encodes on the worker, and every clip is probed for its length.
+  "video-generation": ["ffmpeg"],
   tts: ["tts"],
 };
 

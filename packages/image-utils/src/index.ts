@@ -47,11 +47,16 @@ export const extForMime = (m: string) =>
     "image/webp": "webp",
     "audio/wav": "wav",
     "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "audio/flac": "flac",
+    "audio/mp4": "m4a",
     "application/pdf": "pdf",
     "application/zip": "zip",
     "application/json": "json",
     "video/mp4": "mp4",
     "application/x-subrip": "srt",
+    "text/markdown": "md",
+    "text/plain": "txt",
     "application/vnd.adobe.photoshop": "psd",
   })[m] ?? "bin";
 

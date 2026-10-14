@@ -20,6 +20,7 @@ import { CheckPanelsButton } from "../generation/CheckPanels.tsx";
 import { BulkGenerateButton } from "../pages/BulkGenerate.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
+import { AnimateShots } from "./AnimateShots.tsx";
 import { DeleteChapterButton } from "./DeleteChapterButton.tsx";
 import { PlanButton } from "./PlanButton.tsx";
 import { SceneEditor } from "./SceneEditor.tsx";
@@ -228,6 +229,8 @@ export function ChapterDetailPage() {
       </section>
 
       {data.pages.length > 0 && <SourceTrace key={chapterId} projectId={projectId} chapterId={chapterId} />}
+
+      {data.pages.length > 0 && <AnimateShots key={`animate-${chapterId}`} chapterId={chapterId} />}
 
       {data.pages.length > 0 && (
         <TranslatedLettering

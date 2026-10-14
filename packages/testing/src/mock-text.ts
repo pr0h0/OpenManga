@@ -379,6 +379,7 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
     "vertical-scene-shots": "scene-pages-v1",
     "panel-prompts": "panel-prompts-v1",
     "story-rewrite": "story-rewrite-v1",
+    "ad-script": "ad-script-v1",
     "narration-retime": "narration-retime-v1",
     "social-copy": "social-copy-v1",
     "json-repair": "json-repair-v1",
@@ -747,6 +748,23 @@ export function mockTextCompletion(messages: { role: string; content: string }[]
             ? { hook: `What happened next in ${it.label}?` }
             : {}),
         })),
+      };
+    }
+    case "ad-script-v1": {
+      // A four-scene ad around the brief's product, under one chapter heading so analysis finds a chapter.
+      const brief = extractTagged(user, "ad_brief")[0] ?? "";
+      const product = /Product: (.+)/.exec(brief)?.[1]?.trim() || "the product";
+      const cta = /Call to action: (.+)/.exec(brief)?.[1]?.trim() || "Try it today";
+      return {
+        title: `${product.slice(0, 60)} ad`,
+        content: [
+          `Chapter 1: ${product.slice(0, 60)}`,
+          "SCENE 1 (0-5 s)\nVISUAL: A tired commuter stares at a grey rainy street.\nVOICEOVER: Mornings can feel the same every day.",
+          `SCENE 2 (5-10 s)\nVISUAL: She opens a box and ${product.slice(0, 80)} glows in her hands.\nVOICEOVER: Until you try ${product.slice(0, 80)}.`,
+          "SCENE 3 (10-15 s)\nVISUAL: She walks out smiling into sunlight.\nVOICEOVER: Small change, brighter day.",
+          `SCENE 4 (15-20 s)\nVISUAL: The product on a clean table, soft light.\nVOICEOVER: ${cta}.\nON SCREEN: ${cta.toUpperCase()}`,
+        ].join("\n\n"),
+        notes: "Mock script.",
       };
     }
     case "story-rewrite-v1":
