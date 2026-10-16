@@ -13,8 +13,8 @@ import {
   sql,
   users,
 } from "@openmanga/db";
+import { isPrivateAddress } from "@openmanga/services";
 import { mockStoryAnalysis } from "@openmanga/testing";
-import { isPrivateAddress } from "../../apps/api/src/mcp/oauth.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;

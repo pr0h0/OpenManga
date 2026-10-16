@@ -174,8 +174,27 @@ export async function credentialKeyStatus(db: Database, ring: KeyRing) {
   return { primaryKeyId: ring.primary.id, configuredKeyIds: ring.ids, byKey, pending };
 }
 
-/** True for loopback, private, link-local, CGNAT, unique-local and unspecified addresses. */
-export function isPrivateAddress(ip: string) {
+/** An IPv6 address as its eight 16-bit groups (an embedded dotted IPv4 tail included), or null. */
+function ipv6Groups(ip: string): number[] | null {
+  let s = ip.toLowerCase();
+  const v4 = s.match(/(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4) {
+    const [a, b, c, d] = v4[1]!.split(".").map(Number) as [number, number, number, number];
+    s = `${s.slice(0, -v4[1]!.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = s.split("::") as [string, string | undefined];
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array(8 - h.length - t.length).fill("0"), ...t];
+  return groups.length === 8 ? groups.map((g) => Number.parseInt(g, 16)) : null;
+}
+
+/**
+ * True for loopback, private, link-local, CGNAT, benchmark, multicast, unique-local and unspecified addresses, in
+ * every spelling: an IPv4 address mapped into, embedded in or translated (NAT64) to IPv6 is judged as IPv4. Anything
+ * that is not an IP address counts as private.
+ */
+export function isPrivateAddress(ip: string): boolean {
   const v = isIP(ip);
   if (v === 4) {
     const [a, b] = ip.split(".").map(Number) as [number, number];
@@ -187,14 +206,19 @@ export function isPrivateAddress(ip: string) {
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168) ||
       (a === 100 && b >= 64 && b <= 127) ||
+      (a === 198 && (b === 18 || b === 19)) ||
       a >= 224
     );
   }
   if (v === 6) {
-    const s = ip.toLowerCase();
-    if (s === "::1" || s === "::") return true;
-    if (s.startsWith("::ffff:")) return isPrivateAddress(s.slice(7));
-    return /^(fc|fd|fe8|fe9|fea|feb)/.test(s);
+    const g = ipv6Groups(ip);
+    if (!g) return true;
+    const v4 = () => `${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`;
+    const zeroTo = (n: number) => g.slice(0, n).every((x) => x === 0);
+    // ::/96 (unspecified, loopback, IPv4-compatible), ::ffff:0:0/96 (mapped), 64:ff9b::/96 (NAT64).
+    const nat64 = g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0);
+    if (zeroTo(6) || (zeroTo(5) && g[5] === 0xffff) || nat64) return isPrivateAddress(v4());
+    return (g[0]! & 0xfe00) === 0xfc00 || (g[0]! & 0xffc0) === 0xfe80 || (g[0]! & 0xff00) === 0xff00;
   }
   return true;
 }
