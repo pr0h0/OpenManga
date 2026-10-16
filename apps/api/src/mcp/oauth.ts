@@ -15,7 +15,7 @@ import {
   oauthRefreshTokens,
   userServices,
 } from "@openmanga/db";
-import { recordAudit } from "@openmanga/services";
+import { isPrivateAddress, recordAudit } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
@@ -119,36 +119,6 @@ function validRedirectUri(raw: unknown): raw is string {
   if (u.hash) return false;
   if (u.protocol === "https:") return true;
   return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
-}
-
-/** Whether an address is private, loopback, link-local or otherwise not a public destination. */
-export function isPrivateAddress(ip: string) {
-  const v = ip.replace(/^::ffff:/i, "");
-  if (isIP(v) === 4) {
-    const [a, b] = v.split(".").map(Number) as [number, number];
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      a >= 224
-    );
-  }
-  const l = v.toLowerCase();
-  return (
-    l === "::" ||
-    l === "::1" ||
-    l.startsWith("fc") ||
-    l.startsWith("fd") ||
-    l.startsWith("fe8") ||
-    l.startsWith("fe9") ||
-    l.startsWith("fea") ||
-    l.startsWith("feb")
-  );
 }
 
 /**
