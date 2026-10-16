@@ -196,6 +196,7 @@ export async function createProject(c: Context<AppEnv>, raw: z.infer<typeof Crea
   const { db } = deps;
   const profile = raw.profileId ? ownProfile(c, raw.profileId) : null;
   const presetKey = raw.preset ?? profile?.preset ?? undefined;
+  const fromTemplate = Boolean(presetKey?.startsWith("template:"));
   // The preset or template seeds the settings and, where the caller left them out, the type, format and style.
   const setup: Partial<ProjectTemplate> & { settings?: Record<string, unknown> } =
     (presetKey?.startsWith("template:")
@@ -253,6 +254,11 @@ export async function createProject(c: Context<AppEnv>, raw: z.infer<typeof Crea
         ? { lettering: { ...VERTICAL_LETTERING, ...(presetSettings.lettering as object | undefined) } }
         : {}),
     });
+    // A template's thumbnail, logo and music are files of the project it was saved from, not of this one.
+    if (fromTemplate) {
+      delete settings.thumbnail;
+      if (settings.video) settings.video = { ...settings.video, watermark: null, music: null };
+    }
     const [p] = await tx
       .insert(projects)
       .values({

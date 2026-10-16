@@ -687,11 +687,38 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
       { settings: { video: { fadeAtSceneBreaks: false, watermark: { assetId: crypto.randomUUID() } } } },
       400,
     );
-    // So are the thumbnail art and the music bed (an image is no music).
-    await u.patch(`/api/projects/${projectId}`, { settings: { thumbnail: { assetId: crypto.randomUUID() } } }, 400);
+    // So are the thumbnail art and the music bed: another project's files are refused.
+    const other = (await u.post<{ project: { id: string } }>("/api/projects", { title: "Other" }, 201)).project.id;
+    const otherLogo = await u.json<{ asset: { id: string } }>("POST", `/api/projects/${other}/video-logo`, form, 201);
+    const wav = new Uint8Array(44 + 1600);
+    const dv = new DataView(wav.buffer);
+    wav.set(new TextEncoder().encode("RIFF"), 0);
+    dv.setUint32(4, 36 + 1600, true);
+    wav.set(new TextEncoder().encode("WAVEfmt "), 8);
+    for (const [at, v, n] of [
+      [16, 16, 4],
+      [20, 1, 2],
+      [22, 1, 2],
+      [24, 8000, 4],
+      [28, 16000, 4],
+      [32, 2, 2],
+      [34, 16, 2],
+    ])
+      n === 4 ? dv.setUint32(at!, v!, true) : dv.setUint16(at!, v!, true);
+    wav.set(new TextEncoder().encode("data"), 36);
+    dv.setUint32(40, 1600, true);
+    const music = new FormData();
+    music.set("file", new File([wav], "bed.wav", { type: "audio/wav" }));
+    const otherMusic = await u.json<{ asset: { id: string } }>(
+      "POST",
+      `/api/projects/${other}/video-music`,
+      music,
+      201,
+    );
+    await u.patch(`/api/projects/${projectId}`, { settings: { thumbnail: { assetId: otherLogo.asset.id } } }, 400);
     await u.patch(
       `/api/projects/${projectId}`,
-      { settings: { video: { fadeAtSceneBreaks: false, music: { assetId: logo.asset.id } } } },
+      { settings: { video: { fadeAtSceneBreaks: false, music: { assetId: otherMusic.asset.id } } } },
       400,
     );
     await u.patch(`/api/projects/${projectId}`, {
