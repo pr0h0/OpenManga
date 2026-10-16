@@ -1,0 +1,6 @@
+# CodeRabbit reviews every PR: feature PRs target staging, releases target master (the default branch).
+reviews:
+  auto_review:
+    enabled: true
+    base_branches:
+      - "staging"
