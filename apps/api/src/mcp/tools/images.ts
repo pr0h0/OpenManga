@@ -258,6 +258,9 @@ export const imageTools = [
       if (a.assetId) {
         const [row] = await ctx.deps.db.select({ p: assets.projectId }).from(assets).where(eq(assets.id, a.assetId));
         if (!row?.p) throw toolError(404, "not_found", "Asset not found");
+        // The call is approved for one project and must run there: the handler posts to projectId.
+        if (a.projectId && a.projectId !== row.p)
+          throw toolError(400, "bad_request", "assetId belongs to another project than projectId");
         projectId = row.p;
       }
       if (!projectId) throw toolError(400, "bad_request", "projectId or assetId is required");
