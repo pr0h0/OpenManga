@@ -834,7 +834,7 @@ async function buildExport(
       }
       const thumb = project.settings.thumbnail;
       const art = thumb ? await deps.assets.get(thumb.assetId) : null;
-      if (thumb && art && !art.deletedAt) {
+      if (thumb && art && !art.deletedAt && art.projectId === project.id) {
         const bytes = await deps.assets.read(art);
         await zip.add("thumbnail.png", await renderThumbnail(bytes, thumb.title, thumb.subtitle, thumb.side));
         // Every headline on the same art, to compare or to upload to YouTube's Test & compare (three at a time):

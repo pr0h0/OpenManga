@@ -1155,7 +1155,7 @@ generationRoutes.get("/projects/:projectId/thumbnail.png", async (c) => {
   const deps = c.get("deps");
   const t = ProjectSettings.parse(p.settings).thumbnail;
   const art = t ? await deps.assets.get(t.assetId) : null;
-  if (!t || !art || art.deletedAt) throw notFound("Thumbnail");
+  if (!t || !art || art.deletedAt || art.projectId !== p.id) throw notFound("Thumbnail");
   const png = await renderThumbnail(
     await deps.assets.read(art),
     q.title ?? t.title,

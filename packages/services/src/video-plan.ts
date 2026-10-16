@@ -228,7 +228,14 @@ export async function planVideoShots(
       ? await db
           .select()
           .from(assets)
-          .where(and(inArray(assets.id, clipIds), eq(assets.type, "panel_clip"), isNull(assets.deletedAt)))
+          .where(
+            and(
+              inArray(assets.id, clipIds),
+              eq(assets.projectId, project.id),
+              eq(assets.type, "panel_clip"),
+              isNull(assets.deletedAt),
+            ),
+          )
       : [];
     for (const s of shots) s.clip = clips.find((a) => a.id === s.panel!.video?.clipAssetId) ?? null;
     const motions = resolveMotions(
@@ -280,7 +287,7 @@ export async function renderProjectVideoCard(
   let art: typeof assets.$inferSelect | null = null;
   for (const id of chapterId ? [] : candidates) {
     const a = await assetSvc.get(id);
-    if (a && !a.deletedAt) {
+    if (a && !a.deletedAt && a.projectId === project.id) {
       art = a;
       break;
     }
