@@ -7,12 +7,14 @@ import {
   and,
   eq,
   gt,
+  inArray,
   isNull,
   oauthAccessTokens,
   oauthAuthorizationCodes,
   oauthAuthorizationRequests,
   oauthClients,
   oauthRefreshTokens,
+  personalAccessTokens,
   userServices,
 } from "@openmanga/db";
 import { isPrivateAddress, recordAudit } from "@openmanga/services";
@@ -418,6 +420,28 @@ export async function revokeTokens(deps: Deps, by: { serviceId?: string; familyI
     .update(oauthAccessTokens)
     .set({ revokedAt: now })
     .where(and(accessWhere, isNull(oauthAccessTokens.revokedAt)));
+}
+
+/**
+ * After a password change or reset: every agent token of the user stops working (personal tokens and OAuth access
+ * and refresh tokens), so a token made with a stolen session does not outlive the password. The connections stay,
+ * with their settings: an OAuth client signs in again, a personal token is made anew.
+ */
+export async function revokeUserAgentTokens(deps: Deps, userId: string) {
+  const now = new Date();
+  const mine = deps.db.select({ id: userServices.id }).from(userServices).where(eq(userServices.userId, userId));
+  await deps.db
+    .update(personalAccessTokens)
+    .set({ revokedAt: now })
+    .where(and(inArray(personalAccessTokens.serviceId, mine), isNull(personalAccessTokens.revokedAt)));
+  await deps.db
+    .update(oauthRefreshTokens)
+    .set({ revokedAt: now })
+    .where(and(inArray(oauthRefreshTokens.serviceId, mine), isNull(oauthRefreshTokens.revokedAt)));
+  await deps.db
+    .update(oauthAccessTokens)
+    .set({ revokedAt: now })
+    .where(and(inArray(oauthAccessTokens.serviceId, mine), isNull(oauthAccessTokens.revokedAt)));
 }
 
 oauthRoutes.post(

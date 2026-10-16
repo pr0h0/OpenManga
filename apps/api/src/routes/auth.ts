@@ -14,6 +14,7 @@ import {
   setSessionCookie,
 } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
+import { revokeUserAgentTokens } from "../mcp/oauth.ts";
 
 const LoginInput = z.object({ identifier: z.string().trim().min(1).max(254), password: z.string().min(1).max(256) });
 const ResetRequest = z.object({ identifier: z.string().trim().min(1).max(254) });
@@ -197,6 +198,7 @@ authRoutes.post("/password", requireUser, passwordLimit, async (c) => {
     throw e;
   });
   await deps.auth.revokeAllSessions(u.id);
+  await revokeUserAgentTokens(deps, u.id);
   const s = await deps.auth.createSession(u.id, { ip: clientIp(c), userAgent: c.req.header("user-agent") });
   setSessionCookie(c, s.token, s.expiresAt);
   await recordAudit(deps.db, { userId: u.id, action: "auth.password_changed", requestId: c.get("requestId") });
@@ -250,6 +252,7 @@ authRoutes.post("/password-reset/confirm", authLimit, async (c) => {
     if (e instanceof AuthError && e.code === "invalid_token") await guesses.fail();
     throw e;
   });
+  await revokeUserAgentTokens(deps, userId);
   await recordAudit(deps.db, { userId, action: "auth.password_reset", ip: clientIp(c), requestId: c.get("requestId") });
   return c.json({ ok: true });
 });
