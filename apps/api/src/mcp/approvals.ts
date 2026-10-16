@@ -502,8 +502,19 @@ export async function decideApproval(
     finish({ status, error: { code, message } });
   const tool = toolsByName.get(r.toolName);
   if (!tool) return fail("unknown_tool", "This tool no longer exists.");
-  const actor = await loadActor(deps.db, r.serviceId);
-  if (!actor) return fail("connection_inactive", "The connection was revoked or its user disabled while waiting.");
+  const loaded = await loadActor(deps.db, r.serviceId);
+  if (!loaded) return fail("connection_inactive", "The connection was revoked or its user disabled while waiting.");
+  // The in-app agent's connection reaches all projects, but each run is held to its own project: a call it parked
+  // could only be parked for that project (or for none), so that is all the approved call may reach.
+  const actor: typeof loaded =
+    loaded.serviceKind === "app"
+      ? {
+          ...loaded,
+          projectAccess: "selected",
+          projectIds: new Set(r.projectId ? [r.projectId] : []),
+          allowProjectCreate: false,
+        }
+      : loaded;
   if (r.projectId && !serviceMayAccess(actor, r.projectId))
     return fail("project_not_granted", "The connection lost access to this project while waiting.");
   try {
