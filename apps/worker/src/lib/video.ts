@@ -240,7 +240,9 @@ async function prepareMusic(deps: WorkerDeps, project: BrandedProject, dir: stri
 
 /**
  * The zoompan filter for a camera move over `frames` output frames, at box size `w`×`h`. `motionPath` is the same
- * curve the preview plays: zoom, and where the window sits in the slack the zoom leaves.
+ * curve the preview plays: zoom, and where the window sits in the slack the zoom leaves. It makes all `frames` from
+ * one input frame (d), so the still is decoded once rather than once per frame (`-loop 1` re-decoded the 3x
+ * supersampled PNG every frame, most of a shot's encode time).
  */
 export function zoompanFor(
   motion: Motion,
@@ -255,7 +257,7 @@ export function zoompanFor(
   const path = motionPath(motion, zoom, focus);
   const lerp = ([a, b]: [number, number]) =>
     a === b ? a.toFixed(4) : `(${a.toFixed(4)}${b > a ? "+" : "-"}${Math.abs(b - a).toFixed(4)}*on/${n})`;
-  return `zoompan=z='${lerp(path.z)}':x='(iw-iw/zoom)*${lerp(path.x)}':y='(ih-ih/zoom)*${lerp(path.y)}':d=1:s=${w}x${h}:fps=${fps}`;
+  return `zoompan=z='${lerp(path.z)}':x='(iw-iw/zoom)*${lerp(path.x)}':y='(ih-ih/zoom)*${lerp(path.y)}':d=${n}:s=${w}x${h}:fps=${fps}`;
 }
 
 /** ffmpeg fades for a scene break at either end of a clip (fadeOpacity is the same ramp for the preview). */
@@ -1174,7 +1176,18 @@ export async function renderPanelCutVideo(
       const move = zoompanFor(motion, zoom, focus, frames, box.w, box.h, opts.fps);
       const filter = bgPath ? `[1:v]${move}[fg];[0:v][fg]overlay=(W-w)/2:(H-h)/2` : `[0:v]${move}`;
       const fade = fadeFilter(shot.fade, frames, opts.fps);
-      await encodeClip(bgPath, fgPath, filter + fade, frames, opts.fps, clip, shot.label, false, branding.watermark);
+      await encodeClip(
+        bgPath,
+        fgPath,
+        filter + fade,
+        frames,
+        opts.fps,
+        clip,
+        shot.label,
+        false,
+        branding.watermark,
+        true,
+      );
       await Promise.all([bgPath ? rm(bgPath) : null, rm(fgPath)]);
     },
   );
@@ -1203,6 +1216,8 @@ async function encodeClip(
   label: string,
   still = true,
   watermark: Watermark | null = null,
+  /** The filter makes every frame from the foreground's one frame (zoompan with d = frames): read it once. */
+  fgOnce = false,
 ) {
   const logo = bgPath ? 2 : 1;
   const graph = watermark
@@ -1216,10 +1231,7 @@ async function encodeClip(
       "-loglevel",
       "error",
       ...(bgPath ? ["-loop", "1", "-framerate", String(fps), "-i", bgPath] : []),
-      "-loop",
-      "1",
-      "-framerate",
-      String(fps),
+      ...(fgOnce ? [] : ["-loop", "1", "-framerate", String(fps)]),
       "-i",
       fgPath,
       ...(watermark ? ["-loop", "1", "-framerate", String(fps), "-i", watermark.path] : []),

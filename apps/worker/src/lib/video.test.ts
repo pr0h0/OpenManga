@@ -12,7 +12,7 @@ test("scroll is capped and centred when the hold is short", () => {
 test("zoompan follows the move: zooms anchored on the focus, pans across the slack", () => {
   const focus = { x: 0.25, y: 0.75 };
   expect(zoompanFor("push-in", 0.06, focus, 90, 676, 1014, 30)).toBe(
-    "zoompan=z='(1.0000+0.0600*on/90)':x='(iw-iw/zoom)*0.2500':y='(ih-ih/zoom)*0.7500':d=1:s=676x1014:fps=30",
+    "zoompan=z='(1.0000+0.0600*on/90)':x='(iw-iw/zoom)*0.2500':y='(ih-ih/zoom)*0.7500':d=90:s=676x1014:fps=30",
   );
   expect(zoompanFor("pull-out", 0.1, focus, 0, 2, 2, 24)).toContain("z='(1.1000-0.1000*on/1)'");
   expect(zoompanFor("pan-left", 0.06, focus, 90, 2, 2, 30)).toContain(
