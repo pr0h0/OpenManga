@@ -433,22 +433,43 @@ export async function updateProject(c: Context<AppEnv>, projectId: string, input
       settings.lettering = { ...VERTICAL_LETTERING, ...settings.lettering };
     }
   }
-  // A watermark is one of this project's own images: any other id would put someone else's file in the video.
-  const logoId = settings.video?.watermark?.assetId;
-  if (logoId && logoId !== p.settings.video?.watermark?.assetId) {
-    const [logo] = await c
+  // A watermark, thumbnail art or music bed is one of this project's own files: any other id would put someone
+  // else's file in the video, the thumbnail or the provenance record.
+  const owned: [string | undefined, string | undefined, string, string][] = [
+    [
+      settings.video?.watermark?.assetId,
+      p.settings.video?.watermark?.assetId,
+      "image/%",
+      "The watermark must be an image of this project (upload one with POST video-logo)",
+    ],
+    [
+      settings.thumbnail?.assetId,
+      p.settings.thumbnail?.assetId,
+      "image/%",
+      "The thumbnail must be an image of this project (make one with POST thumbnail)",
+    ],
+    [
+      settings.video?.music?.assetId,
+      p.settings.video?.music?.assetId,
+      "audio/%",
+      "The music bed must be an audio file of this project (upload one with POST video-music)",
+    ],
+  ];
+  for (const [id, was, mime, message] of owned) {
+    if (!id || id === was) continue;
+    const [own] = await c
       .get("deps")
       .db.select({ id: assets.id })
       .from(assets)
       .where(
         and(
-          eq(assets.id, logoId),
+          eq(assets.id, id),
           eq(assets.projectId, p.id),
           isNull(assets.deletedAt),
-          sql`${assets.mimeType} like 'image/%'`,
+          sql`${assets.mimeType} like ${mime}`,
         ),
       );
-    if (!logo) throw badRequest("The watermark must be an image of this project (upload one with POST video-logo)");
+    if (!own) throw badRequest(message);
   }
   const db = c.get("deps").db;
   const [row] = await db.transaction(async (tx) => {

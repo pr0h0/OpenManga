@@ -687,6 +687,13 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
       { settings: { video: { fadeAtSceneBreaks: false, watermark: { assetId: crypto.randomUUID() } } } },
       400,
     );
+    // So are the thumbnail art and the music bed (an image is no music).
+    await u.patch(`/api/projects/${projectId}`, { settings: { thumbnail: { assetId: crypto.randomUUID() } } }, 400);
+    await u.patch(
+      `/api/projects/${projectId}`,
+      { settings: { video: { fadeAtSceneBreaks: false, music: { assetId: logo.asset.id } } } },
+      400,
+    );
     await u.patch(`/api/projects/${projectId}`, {
       settings: {
         video: {

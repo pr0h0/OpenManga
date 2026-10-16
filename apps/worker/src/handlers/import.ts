@@ -411,6 +411,9 @@ async function restore(
   const logo = await importAsset(p.videoLogo, "source_image", { metadata: { role: "video_logo" } });
   const wm = p.settings.video?.watermark;
   if (wm) p.settings.video!.watermark = logo ? { ...wm, assetId: logo.id } : null;
+  // The package carries no thumbnail art or music file: their ids are the exporting instance's, never this one's.
+  delete p.settings.thumbnail;
+  if (p.settings.video?.music) p.settings.video.music = null;
   await tx
     .update(projects)
     .set({
@@ -670,7 +673,8 @@ async function restore(
             propVersionIds: pn.props.flatMap((r) => refs.get(r) ?? []),
             approvalStatus: pick(approvalStatus.enumValues, pn.approvalStatus, "draft"),
             promptOverride: pn.promptOverride,
-            video: pn.video,
+            // A clip id is the exporting instance's asset; clips are not in the package.
+            video: pn.video && { ...pn.video, clipAssetId: null },
             plannedLettering: pn.plannedLettering && {
               ...pn.plannedLettering,
               dialogue: pn.plannedLettering.dialogue.map((d) => ({

@@ -264,7 +264,7 @@ export async function buildProvenance(
     ? await db
         .select()
         .from(assets)
-        .where(and(eq(assets.id, musicId), isNull(assets.deletedAt)))
+        .where(and(eq(assets.id, musicId), eq(assets.projectId, project.id), isNull(assets.deletedAt)))
     : [];
   if (musicAsset) {
     assetIds.add(musicAsset.id);
