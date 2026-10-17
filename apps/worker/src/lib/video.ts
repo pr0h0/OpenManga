@@ -701,24 +701,24 @@ async function buildFilm<S extends Shot>(
     }
   const mix = audioMix(shotAudio, film.music ?? null);
   const target = "I=-14:TP=-1.5:LRA=11";
-  // The soundtrack needs no picture: mixed and measured while the shots encode.
+  // The soundtrack needs no picture: mixed and measured while the shots encode. It is measured in the film's own
+  // layout (48 kHz stereo): mono narration spread over two channels peaks 3 dB lower at the same loudness, and
+  // measured as mono its peak left loudnorm no room to reach the target (a film came out at -16 LUFS, not -14).
   const soundtrack = (async () => {
-    const path = mix.filter ? join(dir, "soundtrack.wav") : audioPath;
-    if (mix.filter)
-      await run(
-        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", audioPath, ...mix.inputs].concat([
-          "-filter_complex",
-          mix.filter,
-          "-map",
-          "[aout]",
-          "-c:a",
-          "pcm_s16le",
-          "-ar",
-          "48000",
-          path,
-        ]),
-        "audio mix",
-      );
+    const path = join(dir, "soundtrack.wav");
+    const graph = mix.filter ? ["-filter_complex", mix.filter, "-map", "[aout]"] : [];
+    await run(
+      ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", audioPath, ...mix.inputs, ...graph].concat([
+        "-c:a",
+        "pcm_s16le",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        path,
+      ]),
+      "soundtrack",
+    );
     const measure = await run(
       ["ffmpeg", "-hide_banner", "-i", path, "-af", `loudnorm=${target}:print_format=json`, "-f", "null", "-"],
       "loudness measure",
