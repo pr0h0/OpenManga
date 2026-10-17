@@ -240,7 +240,9 @@ async function prepareMusic(deps: WorkerDeps, project: BrandedProject, dir: stri
 
 /**
  * The zoompan filter for a camera move over `frames` output frames, at box size `w`×`h`. `motionPath` is the same
- * curve the preview plays: zoom, and where the window sits in the slack the zoom leaves.
+ * curve the preview plays: zoom, and where the window sits in the slack the zoom leaves. It makes all `frames` from
+ * one input frame (d), so the still is decoded once rather than once per frame (`-loop 1` re-decoded the 3x
+ * supersampled PNG every frame, most of a shot's encode time).
  */
 export function zoompanFor(
   motion: Motion,
@@ -255,7 +257,7 @@ export function zoompanFor(
   const path = motionPath(motion, zoom, focus);
   const lerp = ([a, b]: [number, number]) =>
     a === b ? a.toFixed(4) : `(${a.toFixed(4)}${b > a ? "+" : "-"}${Math.abs(b - a).toFixed(4)}*on/${n})`;
-  return `zoompan=z='${lerp(path.z)}':x='(iw-iw/zoom)*${lerp(path.x)}':y='(ih-ih/zoom)*${lerp(path.y)}':d=1:s=${w}x${h}:fps=${fps}`;
+  return `zoompan=z='${lerp(path.z)}':x='(iw-iw/zoom)*${lerp(path.x)}':y='(ih-ih/zoom)*${lerp(path.y)}':d=${n}:s=${w}x${h}:fps=${fps}`;
 }
 
 /** ffmpeg fades for a scene break at either end of a clip (fadeOpacity is the same ramp for the preview). */
@@ -437,7 +439,7 @@ type FilmSetup<S extends Shot> = {
 };
 
 /**
- * The audio graph mixing shots' own sound and a music bed under the narration (input 1). Each shot's sound starts at
+ * The audio graph mixing shots' own sound and a music bed under the narration (input 0). Each shot's sound starts at
  * its shot and stops with it; the music loops under the whole film and, with `duck`, is pressed down by the
  * narration (a sidechain compressor). Nothing extra: no filter, the narration is mapped as it is.
  */
@@ -449,7 +451,7 @@ export function audioMix(
   const inputs = shots.flatMap((s) => ["-i", s.path]);
   const parts: string[] = [];
   const mixed: string[] = [];
-  const first = 2;
+  const first = 1;
   shots.forEach((s, k) => {
     const d = Math.round(s.startMs);
     parts.push(
@@ -457,12 +459,12 @@ export function audioMix(
     );
     mixed.push(`[s${k}]`);
   });
-  const narration = music?.duck ? "[nar]" : "[1:a]";
+  const narration = music?.duck ? "[nar]" : "[0:a]";
   if (music) {
     const m = first + shots.length;
     inputs.push("-stream_loop", "-1", "-i", music.path);
     if (music.duck) {
-      parts.push("[1:a]asplit=2[nar][key]");
+      parts.push("[0:a]asplit=2[nar][key]");
       parts.push(
         `[${m}:a]aresample=48000,volume=${music.volume.toFixed(3)}[mraw];[mraw][key]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=350[mus]`,
       );
@@ -479,8 +481,9 @@ export function audioMix(
  * spans): narration audio written to disk at its place on the film clock (never the whole film in memory),
  * frame-exact holds from `timeGroup` (narration + breath, at least minHold) and subtitle cues. Pass 2: shots encoded
  * in parallel.
- * Then concat (video copied), AAC mux, ONE two-pass loudnorm over the whole film, and a duration check against
- * the source audio rather than the build log.
+ * While they encode, the soundtrack is mixed and measured (loudnorm's first pass). Then ONE pass joins the shots
+ * (video copied, or captions burnt in), normalises the soundtrack (loudnorm's second pass) and muxes; and a duration
+ * check against the source audio rather than the build log.
  */
 async function buildFilm<S extends Shot>(
   deps: WorkerDeps,
@@ -493,6 +496,14 @@ async function buildFilm<S extends Shot>(
   encodeShot: EncodeShot<S>,
 ) {
   const { branding } = film;
+  // Wall time of each phase, and the time spent encoding sections (shots and cards) summed: they run
+  // VIDEO_ENCODE_CONCURRENCY at once.
+  const clock = performance.now();
+  const timingsMs: Record<string, number> = {};
+  const lap = (phase: string) => {
+    timingsMs[phase] = Math.round(performance.now() - clock - Object.values(timingsMs).reduce((a, b) => a + b, 0));
+  };
+  let encodeMs = 0;
   const audioPath = join(dir, "narration.wav");
   const audioFile = await open(audioPath, "w");
   let audioBytes = 0;
@@ -618,6 +629,7 @@ async function buildFilm<S extends Shot>(
     throw e;
   }
 
+  lap("narration");
   // Clips in film order: the intro card, the shots, the outro card. Each is a section: its key hashes everything that
   // decides its pixels and length, and a clip a previous render stored under the same key is reused, not encoded.
   const clipPath = (n: number) => join(dir, `clip-${String(n).padStart(5, "0")}.mp4`);
@@ -672,6 +684,52 @@ async function buildFilm<S extends Shot>(
         )
     ).map((a) => [(a.metadata.renderSection as { key: string }).key, a]),
   );
+  lap("sectionLookup");
+  const header = pcmToWav(new Uint8Array(0), SAMPLE_RATE);
+  const hv = new DataView(header.buffer);
+  hv.setUint32(4, 36 + audioBytes, true);
+  hv.setUint32(40, audioBytes, true);
+  await audioFile.write(header, 0, 44, 0);
+  await audioFile.close();
+  const audioMs = Math.round((audioBytes / (SAMPLE_RATE * 2)) * 1000);
+  // Shots' own sound and the music bed, mixed under the narration (which runs the whole film, so it sets the length).
+  const shotAudio: { path: string; volume: number; startMs: number; durationMs: number }[] = [];
+  if (film.audioOf)
+    for (const [i, shot] of shots.entries()) {
+      const a = spans[i] ? await film.audioOf(shot) : null;
+      if (a) shotAudio.push({ ...a, startMs: spans[i]!.startMs, durationMs: spans[i]!.endMs - spans[i]!.startMs });
+    }
+  const mix = audioMix(shotAudio, film.music ?? null);
+  const target = "I=-14:TP=-1.5:LRA=11";
+  // The soundtrack needs no picture: mixed and measured while the shots encode. It is measured in the film's own
+  // layout (48 kHz stereo): mono narration spread over two channels peaks 3 dB lower at the same loudness, and
+  // measured as mono its peak left loudnorm no room to reach the target (a film came out at -16 LUFS, not -14).
+  const soundtrack = (async () => {
+    const path = join(dir, "soundtrack.wav");
+    const graph = mix.filter ? ["-filter_complex", mix.filter, "-map", "[aout]"] : [];
+    await run(
+      ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", audioPath, ...mix.inputs, ...graph].concat([
+        "-c:a",
+        "pcm_s16le",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        path,
+      ]),
+      "soundtrack",
+    );
+    const measure = await run(
+      ["ffmpeg", "-hide_banner", "-i", path, "-af", `loudnorm=${target}:print_format=json`, "-f", "null", "-"],
+      "loudness measure",
+    );
+    const m = JSON.parse(
+      measure.stderr.slice(measure.stderr.lastIndexOf("{"), measure.stderr.lastIndexOf("}") + 1),
+    ) as Record<string, string>;
+    return { path, m };
+  })();
+  // Its error, if any, surfaces where it is awaited; this only keeps it from being reported as unhandled first.
+  soundtrack.catch(() => {});
   let reused = 0;
   const limiter = new ConcurrencyLimiter(Math.max(1, opts.concurrency ?? 1));
   let failed: unknown = null;
@@ -686,7 +744,9 @@ async function buildFilm<S extends Shot>(
         return;
       }
     }
+    const started = performance.now();
     await job.encode(job.clip);
+    encodeMs += performance.now() - started;
     if (cached.has(job.key)) return;
     cached.set(
       job.key,
@@ -716,70 +776,16 @@ async function buildFilm<S extends Shot>(
     ),
   );
   if (failed) {
-    await audioFile.close().catch(() => {});
+    await soundtrack.catch(() => {});
     throw failed;
   }
-  const header = pcmToWav(new Uint8Array(0), SAMPLE_RATE);
-  const hv = new DataView(header.buffer);
-  hv.setUint32(4, 36 + audioBytes, true);
-  hv.setUint32(40, audioBytes, true);
-  await audioFile.write(header, 0, 44, 0);
-  await audioFile.close();
-  const audioMs = Math.round((audioBytes / (SAMPLE_RATE * 2)) * 1000);
+  lap("sections");
+  const { path: soundtrackPath, m } = await soundtrack;
+  lap("soundtrackWait");
   const listPath = join(dir, "clips.txt");
   await Bun.write(listPath, `${clips.map((c) => `file '${c}'`).join("\n")}\n`);
 
-  const rawPath = join(dir, "raw.mp4");
   const aac = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"];
-  // Shots' own sound and the music bed, mixed under the narration (which runs the whole film, so it sets the length).
-  const shotAudio: { path: string; volume: number; startMs: number; durationMs: number }[] = [];
-  if (film.audioOf)
-    for (const [i, shot] of shots.entries()) {
-      const a = spans[i] ? await film.audioOf(shot) : null;
-      if (a) shotAudio.push({ ...a, startMs: spans[i]!.startMs, durationMs: spans[i]!.endMs - spans[i]!.startMs });
-    }
-  const mix = audioMix(shotAudio, film.music ?? null);
-  await run(
-    [
-      "ffmpeg",
-      "-y",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      listPath,
-      "-i",
-      audioPath,
-      ...mix.inputs,
-      ...(mix.filter
-        ? ["-filter_complex", mix.filter, "-map", "0:v", "-map", "[aout]"]
-        : ["-map", "0:v", "-map", "1:a"]),
-      "-c:v",
-      "copy",
-      ...aac,
-      "-t",
-      (totalFrames / opts.fps).toFixed(3),
-      "-movflags",
-      "+faststart",
-      rawPath,
-    ],
-    "video mux",
-  );
-  await Promise.all([...clips, audioPath].map((f) => rm(f)));
-  await progress(0.75);
-
-  const target = "I=-14:TP=-1.5:LRA=11";
-  const measure = await run(
-    ["ffmpeg", "-hide_banner", "-i", rawPath, "-af", `loudnorm=${target}:print_format=json`, "-f", "null", "-"],
-    "loudness measure",
-  );
-  const m = JSON.parse(
-    measure.stderr.slice(measure.stderr.lastIndexOf("{"), measure.stderr.lastIndexOf("}") + 1),
-  ) as Record<string, string>;
   const outPath = join(dir, "video.mp4");
   // Captions are drawn over the joined film, so its cached sections stay caption-free; the video is encoded once more.
   // The filter names the file relative to the temp dir (ffmpeg runs there), so no character of its path can break the
@@ -803,8 +809,18 @@ async function buildFilm<S extends Shot>(
       "-hide_banner",
       "-loglevel",
       "error",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
       "-i",
-      rawPath,
+      listPath,
+      "-i",
+      soundtrackPath,
+      "-map",
+      "0:v",
+      "-map",
+      "1:a",
       ...videoOut,
       // A film with no narration is silence, which measures -inf: there is nothing to normalise, and the second
       // pass given -inf breaks.
@@ -815,16 +831,19 @@ async function buildFilm<S extends Shot>(
           ]
         : []),
       ...aac,
+      "-t",
+      (totalFrames / opts.fps).toFixed(3),
       "-movflags",
       "+faststart",
       outPath,
     ],
-    "loudness normalise",
+    "video mux",
     FFMPEG_TIMEOUT_MS,
     dir,
   );
-  await rm(rawPath);
+  await Promise.all([...clips, audioPath, soundtrackPath].map((f) => rm(f, { force: true })));
   await progress(0.92);
+  lap(burn ? "captionsAndMux" : "mux");
 
   const probe = await run(
     ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", outPath],
@@ -855,6 +874,7 @@ async function buildFilm<S extends Shot>(
       ...(shotAudio.length ? { shotAudio: shotAudio.length } : {}),
       ...(film.music ? { music: { volume: film.music.volume, duck: film.music.duck } } : {}),
       loudness: m,
+      timingsMs: { ...timingsMs, encodesSummed: Math.round(encodeMs) },
     },
   };
 }
@@ -1174,7 +1194,18 @@ export async function renderPanelCutVideo(
       const move = zoompanFor(motion, zoom, focus, frames, box.w, box.h, opts.fps);
       const filter = bgPath ? `[1:v]${move}[fg];[0:v][fg]overlay=(W-w)/2:(H-h)/2` : `[0:v]${move}`;
       const fade = fadeFilter(shot.fade, frames, opts.fps);
-      await encodeClip(bgPath, fgPath, filter + fade, frames, opts.fps, clip, shot.label, false, branding.watermark);
+      await encodeClip(
+        bgPath,
+        fgPath,
+        filter + fade,
+        frames,
+        opts.fps,
+        clip,
+        shot.label,
+        false,
+        branding.watermark,
+        true,
+      );
       await Promise.all([bgPath ? rm(bgPath) : null, rm(fgPath)]);
     },
   );
@@ -1203,6 +1234,8 @@ async function encodeClip(
   label: string,
   still = true,
   watermark: Watermark | null = null,
+  /** The filter makes every frame from the foreground's one frame (zoompan with d = frames): read it once. */
+  fgOnce = false,
 ) {
   const logo = bgPath ? 2 : 1;
   const graph = watermark
@@ -1216,10 +1249,7 @@ async function encodeClip(
       "-loglevel",
       "error",
       ...(bgPath ? ["-loop", "1", "-framerate", String(fps), "-i", bgPath] : []),
-      "-loop",
-      "1",
-      "-framerate",
-      String(fps),
+      ...(fgOnce ? [] : ["-loop", "1", "-framerate", String(fps)]),
       "-i",
       fgPath,
       ...(watermark ? ["-loop", "1", "-framerate", String(fps), "-i", watermark.path] : []),

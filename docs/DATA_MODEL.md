@@ -343,6 +343,11 @@ project; unique session token hash; unique `(provider, provider_subject)`; narra
 and unique `(queue, job_id)`; unique share-link token; production runs by `(project, created_at)` and by status;
 unique provider-batch idempotency key; every `*_versions` table unique on `(subject, version_number)`.
 
+Foreign keys on the large tables are indexed too (Postgres does not do it on its own): deleting an asset, segment,
+page or panel otherwise scans every row that could point at it. So are the lookups by them: usage, assets and a
+panel's artwork by generation job or asset; pages, narration lines and segments, and story beats by project;
+narration lines by page and panel; audio by segment and asset; panels by scene.
+
 ## Interchange format
 
 `ProjectInterchange` (`packages/schemas/src/interchange.ts`, `schemaVersion: 1`) is the stable export and import
