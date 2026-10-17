@@ -493,13 +493,14 @@ async function buildFilm<S extends Shot>(
   encodeShot: EncodeShot<S>,
 ) {
   const { branding } = film;
-  // Wall time of each phase, and the time spent in shots summed (shots run VIDEO_ENCODE_CONCURRENCY at once).
+  // Wall time of each phase, and the time spent encoding sections (shots and cards) summed: they run
+  // VIDEO_ENCODE_CONCURRENCY at once.
   const clock = performance.now();
   const timingsMs: Record<string, number> = {};
   const lap = (phase: string) => {
     timingsMs[phase] = Math.round(performance.now() - clock - Object.values(timingsMs).reduce((a, b) => a + b, 0));
   };
-  let shotsMs = 0;
+  let encodeMs = 0;
   const audioPath = join(dir, "narration.wav");
   const audioFile = await open(audioPath, "w");
   let audioBytes = 0;
@@ -697,7 +698,7 @@ async function buildFilm<S extends Shot>(
     }
     const started = performance.now();
     await job.encode(job.clip);
-    shotsMs += performance.now() - started;
+    encodeMs += performance.now() - started;
     if (cached.has(job.key)) return;
     cached.set(
       job.key,
@@ -870,7 +871,7 @@ async function buildFilm<S extends Shot>(
       ...(shotAudio.length ? { shotAudio: shotAudio.length } : {}),
       ...(film.music ? { music: { volume: film.music.volume, duck: film.music.duck } } : {}),
       loudness: m,
-      timingsMs: { ...timingsMs, shotsSummed: Math.round(shotsMs) },
+      timingsMs: { ...timingsMs, encodesSummed: Math.round(encodeMs) },
     },
   };
 }
