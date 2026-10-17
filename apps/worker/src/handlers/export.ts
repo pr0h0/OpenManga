@@ -681,6 +681,7 @@ async function buildExport(
             clipShots: ("panels" in out.report ? out.report.panels : []).filter((p) => p.source === "clip").length,
             onScreenTexts: out.report.onScreenTexts ?? 0,
             music: out.report.music ?? null,
+            timingsMs: out.report.timingsMs,
           })}::jsonb`,
         })
         .where(eq(exportJobs.id, job.id));

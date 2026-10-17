@@ -495,6 +495,14 @@ async function buildFilm<S extends Shot>(
   encodeShot: EncodeShot<S>,
 ) {
   const { branding } = film;
+  // Wall time of each phase, and the time spent encoding sections (shots and cards) summed: they run
+  // VIDEO_ENCODE_CONCURRENCY at once.
+  const clock = performance.now();
+  const timingsMs: Record<string, number> = {};
+  const lap = (phase: string) => {
+    timingsMs[phase] = Math.round(performance.now() - clock - Object.values(timingsMs).reduce((a, b) => a + b, 0));
+  };
+  let encodeMs = 0;
   const audioPath = join(dir, "narration.wav");
   const audioFile = await open(audioPath, "w");
   let audioBytes = 0;
@@ -620,6 +628,7 @@ async function buildFilm<S extends Shot>(
     throw e;
   }
 
+  lap("narration");
   // Clips in film order: the intro card, the shots, the outro card. Each is a section: its key hashes everything that
   // decides its pixels and length, and a clip a previous render stored under the same key is reused, not encoded.
   const clipPath = (n: number) => join(dir, `clip-${String(n).padStart(5, "0")}.mp4`);
@@ -674,6 +683,7 @@ async function buildFilm<S extends Shot>(
         )
     ).map((a) => [(a.metadata.renderSection as { key: string }).key, a]),
   );
+  lap("sectionLookup");
   let reused = 0;
   const limiter = new ConcurrencyLimiter(Math.max(1, opts.concurrency ?? 1));
   let failed: unknown = null;
@@ -688,7 +698,9 @@ async function buildFilm<S extends Shot>(
         return;
       }
     }
+    const started = performance.now();
     await job.encode(job.clip);
+    encodeMs += performance.now() - started;
     if (cached.has(job.key)) return;
     cached.set(
       job.key,
@@ -721,6 +733,7 @@ async function buildFilm<S extends Shot>(
     await audioFile.close().catch(() => {});
     throw failed;
   }
+  lap("sections");
   const header = pcmToWav(new Uint8Array(0), SAMPLE_RATE);
   const hv = new DataView(header.buffer);
   hv.setUint32(4, 36 + audioBytes, true);
@@ -773,15 +786,17 @@ async function buildFilm<S extends Shot>(
   );
   await Promise.all([...clips, audioPath].map((f) => rm(f)));
   await progress(0.75);
+  lap("mux");
 
   const target = "I=-14:TP=-1.5:LRA=11";
   const measure = await run(
-    ["ffmpeg", "-hide_banner", "-i", rawPath, "-af", `loudnorm=${target}:print_format=json`, "-f", "null", "-"],
+    ["ffmpeg", "-hide_banner", "-i", rawPath, "-vn", "-af", `loudnorm=${target}:print_format=json`, "-f", "null", "-"],
     "loudness measure",
   );
   const m = JSON.parse(
     measure.stderr.slice(measure.stderr.lastIndexOf("{"), measure.stderr.lastIndexOf("}") + 1),
   ) as Record<string, string>;
+  lap("loudnessMeasure");
   const outPath = join(dir, "video.mp4");
   // Captions are drawn over the joined film, so its cached sections stay caption-free; the video is encoded once more.
   // The filter names the file relative to the temp dir (ffmpeg runs there), so no character of its path can break the
@@ -827,6 +842,7 @@ async function buildFilm<S extends Shot>(
   );
   await rm(rawPath);
   await progress(0.92);
+  lap(burn ? "captionsAndLoudness" : "loudness");
 
   const probe = await run(
     ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", outPath],
@@ -857,6 +873,7 @@ async function buildFilm<S extends Shot>(
       ...(shotAudio.length ? { shotAudio: shotAudio.length } : {}),
       ...(film.music ? { music: { volume: film.music.volume, duck: film.music.duck } } : {}),
       loudness: m,
+      timingsMs: { ...timingsMs, encodesSummed: Math.round(encodeMs) },
     },
   };
 }

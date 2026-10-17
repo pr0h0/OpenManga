@@ -938,6 +938,13 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     const first = await runExport(projectId, opts);
     expect(await sectionsOf(first.id)).toEqual({ reused: 0, encoded: pages.length });
     expect(await cached()).toBe(pages.length);
+    // Each phase's wall time is kept with the result, to see where a slow render spent it.
+    const timings = (await u.get<{ job: { result: { timingsMs: Record<string, number> } } }>(`/api/jobs/${first.id}`))
+      .job.result.timingsMs;
+    expect(Object.keys(timings)).toEqual(
+      expect.arrayContaining(["narration", "sectionLookup", "sections", "mux", "loudnessMeasure", "encodesSummed"]),
+    );
+    expect(timings.sections).toBeGreaterThan(0);
     expect(await stale()).toMatchObject({ plan: 0, art: 0, narration: 0, audio: 0, render: 0 });
     const overview = await u.get<{ disk: { byCategory: { renderCache: number } } }>(`/api/projects/${projectId}`);
     expect(overview.disk.byCategory.renderCache).toBeGreaterThan(0);
