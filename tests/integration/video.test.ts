@@ -261,6 +261,10 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     expect(info.streams.some((s) => s.codec_type === "audio")).toBe(true);
     // At least all narration, plus minimum holds for any silent pages.
     expect(Number(info.format.duration) * 1000).toBeGreaterThanOrEqual(timeline.totalDurationMs * 0.9);
+    // Normalised to the -14 LUFS target, measured as the film plays (stereo).
+    const r128 = Bun.spawnSync(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af", "ebur128", "-f", "null", "-"]);
+    const lufs = Number(/^\s+I:\s+(-?[\d.]+) LUFS/m.exec(r128.stderr.toString().split("Summary:").at(-1)!)?.[1]);
+    expect(Math.abs(lufs + 14)).toBeLessThan(1);
 
     // A partial render in the continuous scroll framing: whole shots up to the first 10 s, shorter than the chapter.
     const part = await u.post<{ job: { id: string } }>(
