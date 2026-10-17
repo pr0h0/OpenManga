@@ -125,7 +125,8 @@ function move(motion: string | undefined, frames: number, w: number, h: number, 
               : motion === "static"
                 ? { z: "1", ...centre }
                 : { z: `1+${z - 1}*${t}`, ...centre };
-  return `zoompan=z='${m.z}':x='${m.x}':y='${m.y}':d=1:s=${w}x${h}:fps=${fps}`;
+  // Every frame from the one input frame: the image is decoded once, not once per frame.
+  return `zoompan=z='${m.z}':x='${m.x}':y='${m.y}':d=${Math.max(1, frames)}:s=${w}x${h}:fps=${fps}`;
 }
 
 /**
@@ -165,8 +166,6 @@ export class LocalVideoProvider implements VideoAIProvider {
           "-hide_banner",
           "-loglevel",
           "error",
-          "-loop",
-          "1",
           "-i",
           src,
           "-vf",
