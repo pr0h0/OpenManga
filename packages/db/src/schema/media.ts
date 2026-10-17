@@ -62,6 +62,8 @@ export const assets = pgTable(
   },
   (t) => [
     index("assets_project_type_idx").on(t.projectId, t.type),
+    index("assets_generation_job_idx").on(t.generationJobId),
+    index("assets_parent_idx").on(t.parentAssetId),
     uniqueIndex("assets_storage_key_uq").on(t.storageKey),
   ],
 );
@@ -169,7 +171,7 @@ export const pages = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("pages_chapter_order_idx").on(t.chapterId, t.order)],
+  (t) => [index("pages_chapter_order_idx").on(t.chapterId, t.order), index("pages_project_idx").on(t.projectId)],
 );
 
 /**
@@ -275,7 +277,12 @@ export const panels = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("panels_page_order_idx").on(t.pageId, t.order), index("panels_project_idx").on(t.projectId)],
+  (t) => [
+    index("panels_page_order_idx").on(t.pageId, t.order),
+    index("panels_project_idx").on(t.projectId),
+    index("panels_artwork_idx").on(t.activeArtworkAssetId),
+    index("panels_scene_idx").on(t.sceneId),
+  ],
 );
 
 export const panelSpecs = pgTable(
@@ -319,6 +326,7 @@ export const outfitAssignments = pgTable(
   (t) => [
     uniqueIndex("outfit_assignments_uq").on(t.characterId, t.panelId, t.scope),
     index("outfit_assignments_project_idx").on(t.projectId),
+    index("outfit_assignments_panel_idx").on(t.panelId),
   ],
 );
 
@@ -385,7 +393,12 @@ export const narrationLines = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("narration_lines_chapter_idx").on(t.chapterId, t.language, t.order)],
+  (t) => [
+    index("narration_lines_chapter_idx").on(t.chapterId, t.language, t.order),
+    index("narration_lines_project_idx").on(t.projectId),
+    index("narration_lines_page_idx").on(t.pageId),
+    index("narration_lines_panel_idx").on(t.panelId),
+  ],
 );
 
 /**
@@ -433,7 +446,11 @@ export const narrationSegments = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("narration_segments_line_idx").on(t.narrationLineId, t.order)],
+  (t) => [
+    index("narration_segments_line_idx").on(t.narrationLineId, t.order),
+    index("narration_segments_project_idx").on(t.projectId),
+    index("narration_segments_audio_idx").on(t.activeAudioAssetId),
+  ],
 );
 
 export const audioAssets = pgTable(
@@ -458,7 +475,11 @@ export const audioAssets = pgTable(
     format: text("format").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index("audio_assets_cache_idx").on(t.projectId, t.textSha256, t.voice, t.speed)],
+  (t) => [
+    index("audio_assets_cache_idx").on(t.projectId, t.textSha256, t.voice, t.speed),
+    index("audio_assets_asset_idx").on(t.assetId),
+    index("audio_assets_segment_idx").on(t.segmentId),
+  ],
 );
 
 /**

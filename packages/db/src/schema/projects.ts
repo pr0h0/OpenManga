@@ -322,7 +322,7 @@ export const storyBeats = pgTable(
     description: text("description").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index("story_beats_scene_idx").on(t.sceneId, t.order)],
+  (t) => [index("story_beats_scene_idx").on(t.sceneId, t.order), index("story_beats_project_idx").on(t.projectId)],
 );
 
 export const characters = pgTable(
