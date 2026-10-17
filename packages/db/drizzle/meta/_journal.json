@@ -372,6 +372,13 @@
       "when": 1791925326187,
       "tag": "0052_ai_video",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792245189827,
+      "tag": "0053_fk_and_lookup_indexes",
+      "breakpoints": true
     }
   ]
 }

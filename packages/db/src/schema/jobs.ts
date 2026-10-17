@@ -142,7 +142,7 @@ export const generationInputs = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [index("generation_inputs_job_idx").on(t.jobId)],
+  (t) => [index("generation_inputs_job_idx").on(t.jobId), index("generation_inputs_asset_idx").on(t.assetId)],
 );
 
 export const generationOutputs = pgTable(
@@ -160,7 +160,7 @@ export const generationOutputs = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [index("generation_outputs_job_idx").on(t.jobId)],
+  (t) => [index("generation_outputs_job_idx").on(t.jobId), index("generation_outputs_asset_idx").on(t.assetId)],
 );
 
 export const promptTemplates = pgTable("prompt_templates", {
@@ -236,7 +236,11 @@ export const audioJobs = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("audio_jobs_project_idx").on(t.projectId, t.createdAt), index("audio_jobs_status_idx").on(t.status)],
+  (t) => [
+    index("audio_jobs_project_idx").on(t.projectId, t.createdAt),
+    index("audio_jobs_status_idx").on(t.status),
+    index("audio_jobs_segment_idx").on(t.segmentId),
+  ],
 );
 
 export type ExportKind =
@@ -371,7 +375,12 @@ export const aiUsage = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [index("ai_usage_created_idx").on(t.createdAt), index("ai_usage_project_idx").on(t.projectId, t.createdAt)],
+  (t) => [
+    index("ai_usage_created_idx").on(t.createdAt),
+    index("ai_usage_project_idx").on(t.projectId, t.createdAt),
+    // Per-job cost: list endpoints sum it for every job they show.
+    index("ai_usage_job_idx").on(t.generationJobId),
+  ],
 );
 
 export const outbox = pgTable(
