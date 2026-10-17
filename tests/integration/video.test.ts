@@ -942,7 +942,7 @@ describe.skipIf(!hasFfmpeg)("video export (page cut)", () => {
     const timings = (await u.get<{ job: { result: { timingsMs: Record<string, number> } } }>(`/api/jobs/${first.id}`))
       .job.result.timingsMs;
     expect(Object.keys(timings)).toEqual(
-      expect.arrayContaining(["narration", "sectionLookup", "sections", "mux", "loudnessMeasure", "encodesSummed"]),
+      expect.arrayContaining(["narration", "sectionLookup", "sections", "soundtrackWait", "mux", "encodesSummed"]),
     );
     expect(timings.sections).toBeGreaterThan(0);
     expect(await stale()).toMatchObject({ plan: 0, art: 0, narration: 0, audio: 0, render: 0 });
