@@ -216,6 +216,8 @@ export function isPrivateAddress(ip: string): boolean {
     const v4 = () => `${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`;
     const zeroTo = (n: number) => g.slice(0, n).every((x) => x === 0);
     // ::/96 (unspecified, loopback, IPv4-compatible), ::ffff:0:0/96 (mapped), 64:ff9b::/96 (NAT64).
+    // 64:ff9b:1::/48 is local-use NAT64 (RFC 8215): it can translate to anything, so it is never public.
+    if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true;
     const nat64 = g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0);
     if (zeroTo(6) || (zeroTo(5) && g[5] === 0xffff) || nat64) return isPrivateAddress(v4());
     return (g[0]! & 0xfe00) === 0xfc00 || (g[0]! & 0xffc0) === 0xfe80 || (g[0]! & 0xff00) === 0xff00;

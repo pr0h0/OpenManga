@@ -193,12 +193,12 @@ authRoutes.post("/password", requireUser, passwordLimit, async (c) => {
   const input = await body(c, ChangePassword);
   // A stolen session must not be able to try passwords until it finds the current one.
   const guesses = await failureGuard(c, "current-password", 5, 900, u.id);
-  await deps.auth.changePassword(u.id, input.currentPassword, input.newPassword).catch(async (e) => {
-    if (e instanceof AuthError && e.code === "invalid_credentials") await guesses.fail();
-    throw e;
-  });
-  await deps.auth.revokeAllSessions(u.id);
-  await revokeUserAgentTokens(deps, u.id);
+  await deps.auth
+    .changePassword(u.id, input.currentPassword, input.newPassword, (tx) => revokeUserAgentTokens(tx, u.id))
+    .catch(async (e) => {
+      if (e instanceof AuthError && e.code === "invalid_credentials") await guesses.fail();
+      throw e;
+    });
   const s = await deps.auth.createSession(u.id, { ip: clientIp(c), userAgent: c.req.header("user-agent") });
   setSessionCookie(c, s.token, s.expiresAt);
   await recordAudit(deps.db, { userId: u.id, action: "auth.password_changed", requestId: c.get("requestId") });
@@ -248,11 +248,10 @@ authRoutes.post("/password-reset/confirm", authLimit, async (c) => {
   const deps = c.get("deps");
   const { token, password } = await body(c, ResetConfirm);
   const guesses = await failureGuard(c, "reset-token", 10, 3600);
-  const userId = await deps.auth.resetPassword(token, password).catch(async (e) => {
+  const userId = await deps.auth.resetPassword(token, password, revokeUserAgentTokens).catch(async (e) => {
     if (e instanceof AuthError && e.code === "invalid_token") await guesses.fail();
     throw e;
   });
-  await revokeUserAgentTokens(deps, userId);
   await recordAudit(deps.db, { userId, action: "auth.password_reset", ip: clientIp(c), requestId: c.get("requestId") });
   return c.json({ ok: true });
 });

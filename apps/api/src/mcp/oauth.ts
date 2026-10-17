@@ -5,6 +5,7 @@ import https from "node:https";
 import { isIP } from "node:net";
 import {
   and,
+  type DbOrTx,
   eq,
   gt,
   inArray,
@@ -427,18 +428,18 @@ export async function revokeTokens(deps: Deps, by: { serviceId?: string; familyI
  * and refresh tokens), so a token made with a stolen session does not outlive the password. The connections stay,
  * with their settings: an OAuth client signs in again, a personal token is made anew.
  */
-export async function revokeUserAgentTokens(deps: Deps, userId: string) {
+export async function revokeUserAgentTokens(db: DbOrTx, userId: string) {
   const now = new Date();
-  const mine = deps.db.select({ id: userServices.id }).from(userServices).where(eq(userServices.userId, userId));
-  await deps.db
+  const mine = db.select({ id: userServices.id }).from(userServices).where(eq(userServices.userId, userId));
+  await db
     .update(personalAccessTokens)
     .set({ revokedAt: now })
     .where(and(inArray(personalAccessTokens.serviceId, mine), isNull(personalAccessTokens.revokedAt)));
-  await deps.db
+  await db
     .update(oauthRefreshTokens)
     .set({ revokedAt: now })
     .where(and(inArray(oauthRefreshTokens.serviceId, mine), isNull(oauthRefreshTokens.revokedAt)));
-  await deps.db
+  await db
     .update(oauthAccessTokens)
     .set({ revokedAt: now })
     .where(and(inArray(oauthAccessTokens.serviceId, mine), isNull(oauthAccessTokens.revokedAt)));

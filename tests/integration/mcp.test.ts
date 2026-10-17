@@ -1219,6 +1219,11 @@ describe("credential lifecycle", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
       });
     expect((await list()).status).not.toBe(401);
+    // A failed revocation rolls the change back: the old password and the tokens stay as they were.
+    const me = await carol.get<{ user: { id: string } }>("/api/auth/me");
+    const boom = () => Promise.reject(new Error("revocation failed"));
+    await expect(h.deps.auth.changePassword(me.user.id, "carol pw 1234", "carol pw 9999", boom)).rejects.toThrow();
+    expect((await list()).status).not.toBe(401);
     await carol.post("/api/auth/password", { currentPassword: "carol pw 1234", newPassword: "carol pw 5678" });
     expect((await list()).status).toBe(401);
   });

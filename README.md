@@ -191,7 +191,7 @@ services:
   kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.19.1", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
-than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.15`). `!reset`
+than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.19`). `!reset`
 needs Compose v2.24 or newer; on older versions drop the `build:` keys and run `docker compose up -d --no-build`.
 
 ## Local development
