@@ -12,6 +12,7 @@ import {
   passwordCredentials,
   passwordResetTokens,
   sessions,
+  type Tx,
   users,
 } from "@openmanga/db";
 import { z } from "zod";
@@ -216,8 +217,8 @@ export class AuthService {
     return { user: toSessionUser(u), token };
   }
 
-  /** One-time, expiring. Revokes all sessions on success. */
-  async resetPassword(token: string, newPassword: string) {
+  /** One-time, expiring. Revokes all sessions on success; `alsoRevoke` runs in the same transaction. */
+  async resetPassword(token: string, newPassword: string, alsoRevoke?: (tx: Tx, userId: string) => Promise<void>) {
     const pw = RegisterInput.shape.password.parse(newPassword);
     const hash = await hashPassword(pw);
     return this.db.transaction(async (tx) => {
@@ -241,19 +242,26 @@ export class AuthService {
         .update(sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(sessions.userId, row.userId), isNull(sessions.revokedAt)));
+      await alsoRevoke?.(tx, row.userId);
       return row.userId;
     });
   }
 
-  async changePassword(userId: string, current: string, next: string) {
+  /** Revokes all sessions; `alsoRevoke` runs in the same transaction, so no old credential outlives the change. */
+  async changePassword(userId: string, current: string, next: string, alsoRevoke?: (tx: Tx) => Promise<void>) {
     const [row] = await this.db.select().from(passwordCredentials).where(eq(passwordCredentials.userId, userId));
     if (!row || !(await verifyPassword(current, row.passwordHash)))
       throw new AuthError("invalid_credentials", "Current password is incorrect");
     const pw = RegisterInput.shape.password.parse(next);
-    await this.db
-      .update(passwordCredentials)
-      .set({ passwordHash: await hashPassword(pw) })
-      .where(eq(passwordCredentials.userId, userId));
+    const hash = await hashPassword(pw);
+    await this.db.transaction(async (tx) => {
+      await tx.update(passwordCredentials).set({ passwordHash: hash }).where(eq(passwordCredentials.userId, userId));
+      await tx
+        .update(sessions)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+      await alsoRevoke?.(tx);
+    });
   }
 }
 
