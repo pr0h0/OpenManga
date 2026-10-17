@@ -439,7 +439,7 @@ type FilmSetup<S extends Shot> = {
 };
 
 /**
- * The audio graph mixing shots' own sound and a music bed under the narration (input 1). Each shot's sound starts at
+ * The audio graph mixing shots' own sound and a music bed under the narration (input 0). Each shot's sound starts at
  * its shot and stops with it; the music loops under the whole film and, with `duck`, is pressed down by the
  * narration (a sidechain compressor). Nothing extra: no filter, the narration is mapped as it is.
  */
@@ -451,7 +451,7 @@ export function audioMix(
   const inputs = shots.flatMap((s) => ["-i", s.path]);
   const parts: string[] = [];
   const mixed: string[] = [];
-  const first = 2;
+  const first = 1;
   shots.forEach((s, k) => {
     const d = Math.round(s.startMs);
     parts.push(
@@ -459,12 +459,12 @@ export function audioMix(
     );
     mixed.push(`[s${k}]`);
   });
-  const narration = music?.duck ? "[nar]" : "[1:a]";
+  const narration = music?.duck ? "[nar]" : "[0:a]";
   if (music) {
     const m = first + shots.length;
     inputs.push("-stream_loop", "-1", "-i", music.path);
     if (music.duck) {
-      parts.push("[1:a]asplit=2[nar][key]");
+      parts.push("[0:a]asplit=2[nar][key]");
       parts.push(
         `[${m}:a]aresample=48000,volume=${music.volume.toFixed(3)}[mraw];[mraw][key]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=350[mus]`,
       );
@@ -481,8 +481,9 @@ export function audioMix(
  * spans): narration audio written to disk at its place on the film clock (never the whole film in memory),
  * frame-exact holds from `timeGroup` (narration + breath, at least minHold) and subtitle cues. Pass 2: shots encoded
  * in parallel.
- * Then concat (video copied), AAC mux, ONE two-pass loudnorm over the whole film, and a duration check against
- * the source audio rather than the build log.
+ * While they encode, the soundtrack is mixed and measured (loudnorm's first pass). Then ONE pass joins the shots
+ * (video copied, or captions burnt in), normalises the soundtrack (loudnorm's second pass) and muxes; and a duration
+ * check against the source audio rather than the build log.
  */
 async function buildFilm<S extends Shot>(
   deps: WorkerDeps,
@@ -684,6 +685,51 @@ async function buildFilm<S extends Shot>(
     ).map((a) => [(a.metadata.renderSection as { key: string }).key, a]),
   );
   lap("sectionLookup");
+  const header = pcmToWav(new Uint8Array(0), SAMPLE_RATE);
+  const hv = new DataView(header.buffer);
+  hv.setUint32(4, 36 + audioBytes, true);
+  hv.setUint32(40, audioBytes, true);
+  await audioFile.write(header, 0, 44, 0);
+  await audioFile.close();
+  const audioMs = Math.round((audioBytes / (SAMPLE_RATE * 2)) * 1000);
+  // Shots' own sound and the music bed, mixed under the narration (which runs the whole film, so it sets the length).
+  const shotAudio: { path: string; volume: number; startMs: number; durationMs: number }[] = [];
+  if (film.audioOf)
+    for (const [i, shot] of shots.entries()) {
+      const a = spans[i] ? await film.audioOf(shot) : null;
+      if (a) shotAudio.push({ ...a, startMs: spans[i]!.startMs, durationMs: spans[i]!.endMs - spans[i]!.startMs });
+    }
+  const mix = audioMix(shotAudio, film.music ?? null);
+  const target = "I=-14:TP=-1.5:LRA=11";
+  // The soundtrack needs no picture: mixed and measured while the shots encode.
+  const soundtrack = (async () => {
+    const path = mix.filter ? join(dir, "soundtrack.wav") : audioPath;
+    if (mix.filter)
+      await run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", audioPath, ...mix.inputs].concat([
+          "-filter_complex",
+          mix.filter,
+          "-map",
+          "[aout]",
+          "-c:a",
+          "pcm_s16le",
+          "-ar",
+          "48000",
+          path,
+        ]),
+        "audio mix",
+      );
+    const measure = await run(
+      ["ffmpeg", "-hide_banner", "-i", path, "-af", `loudnorm=${target}:print_format=json`, "-f", "null", "-"],
+      "loudness measure",
+    );
+    const m = JSON.parse(
+      measure.stderr.slice(measure.stderr.lastIndexOf("{"), measure.stderr.lastIndexOf("}") + 1),
+    ) as Record<string, string>;
+    return { path, m };
+  })();
+  // Its error, if any, surfaces where it is awaited; this only keeps it from being reported as unhandled first.
+  soundtrack.catch(() => {});
   let reused = 0;
   const limiter = new ConcurrencyLimiter(Math.max(1, opts.concurrency ?? 1));
   let failed: unknown = null;
@@ -730,73 +776,16 @@ async function buildFilm<S extends Shot>(
     ),
   );
   if (failed) {
-    await audioFile.close().catch(() => {});
+    await soundtrack.catch(() => {});
     throw failed;
   }
   lap("sections");
-  const header = pcmToWav(new Uint8Array(0), SAMPLE_RATE);
-  const hv = new DataView(header.buffer);
-  hv.setUint32(4, 36 + audioBytes, true);
-  hv.setUint32(40, audioBytes, true);
-  await audioFile.write(header, 0, 44, 0);
-  await audioFile.close();
-  const audioMs = Math.round((audioBytes / (SAMPLE_RATE * 2)) * 1000);
+  const { path: soundtrackPath, m } = await soundtrack;
+  lap("soundtrackWait");
   const listPath = join(dir, "clips.txt");
   await Bun.write(listPath, `${clips.map((c) => `file '${c}'`).join("\n")}\n`);
 
-  const rawPath = join(dir, "raw.mp4");
   const aac = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"];
-  // Shots' own sound and the music bed, mixed under the narration (which runs the whole film, so it sets the length).
-  const shotAudio: { path: string; volume: number; startMs: number; durationMs: number }[] = [];
-  if (film.audioOf)
-    for (const [i, shot] of shots.entries()) {
-      const a = spans[i] ? await film.audioOf(shot) : null;
-      if (a) shotAudio.push({ ...a, startMs: spans[i]!.startMs, durationMs: spans[i]!.endMs - spans[i]!.startMs });
-    }
-  const mix = audioMix(shotAudio, film.music ?? null);
-  await run(
-    [
-      "ffmpeg",
-      "-y",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      listPath,
-      "-i",
-      audioPath,
-      ...mix.inputs,
-      ...(mix.filter
-        ? ["-filter_complex", mix.filter, "-map", "0:v", "-map", "[aout]"]
-        : ["-map", "0:v", "-map", "1:a"]),
-      "-c:v",
-      "copy",
-      ...aac,
-      "-t",
-      (totalFrames / opts.fps).toFixed(3),
-      "-movflags",
-      "+faststart",
-      rawPath,
-    ],
-    "video mux",
-  );
-  await Promise.all([...clips, audioPath].map((f) => rm(f)));
-  await progress(0.75);
-  lap("mux");
-
-  const target = "I=-14:TP=-1.5:LRA=11";
-  const measure = await run(
-    ["ffmpeg", "-hide_banner", "-i", rawPath, "-vn", "-af", `loudnorm=${target}:print_format=json`, "-f", "null", "-"],
-    "loudness measure",
-  );
-  const m = JSON.parse(
-    measure.stderr.slice(measure.stderr.lastIndexOf("{"), measure.stderr.lastIndexOf("}") + 1),
-  ) as Record<string, string>;
-  lap("loudnessMeasure");
   const outPath = join(dir, "video.mp4");
   // Captions are drawn over the joined film, so its cached sections stay caption-free; the video is encoded once more.
   // The filter names the file relative to the temp dir (ffmpeg runs there), so no character of its path can break the
@@ -820,8 +809,18 @@ async function buildFilm<S extends Shot>(
       "-hide_banner",
       "-loglevel",
       "error",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
       "-i",
-      rawPath,
+      listPath,
+      "-i",
+      soundtrackPath,
+      "-map",
+      "0:v",
+      "-map",
+      "1:a",
       ...videoOut,
       // A film with no narration is silence, which measures -inf: there is nothing to normalise, and the second
       // pass given -inf breaks.
@@ -832,17 +831,19 @@ async function buildFilm<S extends Shot>(
           ]
         : []),
       ...aac,
+      "-t",
+      (totalFrames / opts.fps).toFixed(3),
       "-movflags",
       "+faststart",
       outPath,
     ],
-    "loudness normalise",
+    "video mux",
     FFMPEG_TIMEOUT_MS,
     dir,
   );
-  await rm(rawPath);
+  await Promise.all([...clips, audioPath, soundtrackPath].map((f) => rm(f, { force: true })));
   await progress(0.92);
-  lap(burn ? "captionsAndLoudness" : "loudness");
+  lap(burn ? "captionsAndMux" : "mux");
 
   const probe = await run(
     ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", outPath],

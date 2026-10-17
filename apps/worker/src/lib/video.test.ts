@@ -129,13 +129,13 @@ test("the audio mix: nothing extra is no filter; clips start at their shot; musi
   });
   expect(m.inputs).toEqual(["-i", "a.mp4", "-stream_loop", "-1", "-i", "m.mp3"]);
   expect(m.filter).toContain(
-    "[2:a]atrim=0:4.000,asetpts=PTS-STARTPTS,aresample=48000,volume=0.600,adelay=2500|2500[s0]",
+    "[1:a]atrim=0:4.000,asetpts=PTS-STARTPTS,aresample=48000,volume=0.600,adelay=2500|2500[s0]",
   );
-  expect(m.filter).toContain("[1:a]asplit=2[nar][key]");
+  expect(m.filter).toContain("[0:a]asplit=2[nar][key]");
   expect(m.filter).toContain("[mraw][key]sidechaincompress");
   expect(m.filter).toEndWith("[nar][s0][mus]amix=inputs=3:duration=first:normalize=0[aout]");
   // Without ducking the narration goes straight into the mix.
   expect(audioMix([], { path: "m.mp3", volume: 0.2, duck: false }).filter).toBe(
-    "[2:a]aresample=48000,volume=0.200[mus];[1:a][mus]amix=inputs=2:duration=first:normalize=0[aout]",
+    "[1:a]aresample=48000,volume=0.200[mus];[0:a][mus]amix=inputs=2:duration=first:normalize=0[aout]",
   );
 });
