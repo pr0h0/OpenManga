@@ -5,17 +5,20 @@ import https from "node:https";
 import { isIP } from "node:net";
 import {
   and,
+  type DbOrTx,
   eq,
   gt,
+  inArray,
   isNull,
   oauthAccessTokens,
   oauthAuthorizationCodes,
   oauthAuthorizationRequests,
   oauthClients,
   oauthRefreshTokens,
+  personalAccessTokens,
   userServices,
 } from "@openmanga/db";
-import { recordAudit } from "@openmanga/services";
+import { isPrivateAddress, recordAudit } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "../context.ts";
@@ -119,36 +122,6 @@ function validRedirectUri(raw: unknown): raw is string {
   if (u.hash) return false;
   if (u.protocol === "https:") return true;
   return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
-}
-
-/** Whether an address is private, loopback, link-local or otherwise not a public destination. */
-export function isPrivateAddress(ip: string) {
-  const v = ip.replace(/^::ffff:/i, "");
-  if (isIP(v) === 4) {
-    const [a, b] = v.split(".").map(Number) as [number, number];
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      a >= 224
-    );
-  }
-  const l = v.toLowerCase();
-  return (
-    l === "::" ||
-    l === "::1" ||
-    l.startsWith("fc") ||
-    l.startsWith("fd") ||
-    l.startsWith("fe8") ||
-    l.startsWith("fe9") ||
-    l.startsWith("fea") ||
-    l.startsWith("feb")
-  );
 }
 
 /**
@@ -448,6 +421,28 @@ export async function revokeTokens(deps: Deps, by: { serviceId?: string; familyI
     .update(oauthAccessTokens)
     .set({ revokedAt: now })
     .where(and(accessWhere, isNull(oauthAccessTokens.revokedAt)));
+}
+
+/**
+ * After a password change or reset: every agent token of the user stops working (personal tokens and OAuth access
+ * and refresh tokens), so a token made with a stolen session does not outlive the password. The connections stay,
+ * with their settings: an OAuth client signs in again, a personal token is made anew.
+ */
+export async function revokeUserAgentTokens(db: DbOrTx, userId: string) {
+  const now = new Date();
+  const mine = db.select({ id: userServices.id }).from(userServices).where(eq(userServices.userId, userId));
+  await db
+    .update(personalAccessTokens)
+    .set({ revokedAt: now })
+    .where(and(inArray(personalAccessTokens.serviceId, mine), isNull(personalAccessTokens.revokedAt)));
+  await db
+    .update(oauthRefreshTokens)
+    .set({ revokedAt: now })
+    .where(and(inArray(oauthRefreshTokens.serviceId, mine), isNull(oauthRefreshTokens.revokedAt)));
+  await db
+    .update(oauthAccessTokens)
+    .set({ revokedAt: now })
+    .where(and(inArray(oauthAccessTokens.serviceId, mine), isNull(oauthAccessTokens.revokedAt)));
 }
 
 oauthRoutes.post(

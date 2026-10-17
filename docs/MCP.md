@@ -357,7 +357,8 @@ retryAfterSeconds? } }`, keeping OpenManga's own codes:
   connection management are ordinary session + CSRF endpoints under `/api/agents`.
 - Tokens, codes and PATs are opaque, stored only as HMACs, and never logged or written to audit metadata. Access
   tokens are bound to client, connection, resource, scopes and expiry. A disabled user or a revoked connection stops
-  working on the next call.
+  working on the next call. A password change or reset ends every token of the account (personal tokens, OAuth
+  access and refresh tokens); the connections stay, and sign in or get a new token again.
 - Refresh tokens rotate; presenting a used one revokes the whole family and its access tokens and records
   `oauth.refresh_reuse`. Presenting a used authorization code revokes what it produced.
 - Client ID Metadata Documents are fetched over HTTPS only, from public addresses only (every resolved address is

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { projectMembers, sql } from "@openmanga/db";
+import { eq, mcpApprovalRequests, projectMembers, sql } from "@openmanga/db";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 const STORY = `Chapter 1: Rooftop
@@ -104,6 +104,31 @@ test("a call that needs approval waits for it, then continues from the result", 
   const exported = done.steps.find((s) => s.tool === "create_export")!;
   expect(exported.status).toBe("completed");
   expect(JSON.stringify(exported.result)).toContain("project_json");
+});
+
+test("an approved call of a run still reaches only the run's project", async () => {
+  const other = (await u.post<{ project: { id: string } }>("/api/projects", { title: "Elsewhere" }, 201)).project.id;
+  const run = await start("Export once more [[mock:agent-export]]");
+  await until(run.id, ["awaiting_plan"]);
+  await approvePlan(run.id);
+  const waiting = await until(run.id, ["waiting_approval"]);
+  // The parked call, pointed at another of the user's projects while it waits.
+  const [req] = await h.deps.db
+    .select()
+    .from(mcpApprovalRequests)
+    .where(eq(mcpApprovalRequests.id, waiting.approval!.id));
+  await h.deps.db
+    .update(mcpApprovalRequests)
+    .set({ arguments: { ...req!.arguments, projectId: other } })
+    .where(eq(mcpApprovalRequests.id, req!.id));
+  const d = await u.post<{ approval: { status: string; error: { code: string } | null } }>(
+    `/api/agents/approvals/${req!.id}/decide`,
+    { decision: "approve" },
+  );
+  expect(d.approval.status).toBe("failed");
+  expect(d.approval.error?.code).toBe("project_not_granted");
+  const { jobs } = await u.get<{ jobs: unknown[] }>(`/api/projects/${other}/exports`);
+  expect(jobs).toHaveLength(0);
 });
 
 test("a denied call is recorded as denied and the agent stops short of it", async () => {

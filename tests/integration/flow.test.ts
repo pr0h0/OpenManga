@@ -1825,6 +1825,21 @@ describe("full production flow (mock AI)", () => {
     expect(recap.project.settings.targetRuntime?.minutes).toBe(30);
     expect((await alice.raw("POST", "/api/projects", { title: "x", preset: "nope" })).status).toBe(400);
 
+    // Its logo is one of its own files: a template carries the setup, not the file.
+    const png = await sharp({ create: { width: 64, height: 32, channels: 4, background: "#ff0000ff" } })
+      .png()
+      .toBuffer();
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(png)], "logo.png", { type: "image/png" }));
+    const logo = await alice.json<{ asset: { id: string } }>(
+      "POST",
+      `/api/projects/${recap.project.id}/video-logo`,
+      form,
+      201,
+    );
+    await alice.patch(`/api/projects/${recap.project.id}`, {
+      settings: { video: { fadeAtSceneBreaks: false, watermark: { assetId: logo.asset.id } } },
+    });
     // Save the recap's setup as a template, start another project from it, then delete the template.
     const { template } = await alice.post<{ template: { id: string } }>(
       `/api/projects/${recap.project.id}/template`,
@@ -1833,9 +1848,12 @@ describe("full production flow (mock AI)", () => {
     );
     expect((await alice.get<P>("/api/production-presets")).templates.map((t) => t.name)).toContain("My recap");
     const fromTemplate = await alice.post<{
-      project: { settings: { batchPolicy: string; targetRuntime?: { minutes: number } } };
+      project: {
+        settings: { batchPolicy: string; targetRuntime?: { minutes: number }; video?: { watermark?: unknown } };
+      };
     }>("/api/projects", { title: "From template", format: "film", preset: `template:${template.id}` }, 201);
     expect(fromTemplate.project.settings.batchPolicy).toBe("images");
+    expect(fromTemplate.project.settings.video?.watermark ?? null).toBeNull();
     expect(fromTemplate.project.settings.targetRuntime?.minutes).toBe(30);
     await alice.del(`/api/auth/templates/${template.id}`);
     expect((await alice.get<P>("/api/production-presets")).templates).toHaveLength(0);

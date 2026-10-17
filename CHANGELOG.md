@@ -7,6 +7,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.1] — 2026-10-17
+
+Upgrading: pull the new images and restart; no migrations, no new settings. A security patch from a full audit of the
+codebase. Upgrading revokes no tokens: if you suspect a stolen session, change your password afterwards, which now
+also ends its agent tokens.
+
+### Security
+
+- A project's thumbnail art, music bed and shot clips must be its own files: a settings update checked only the
+  watermark, and a project import kept the exporting instance's asset ids, so a project could render another
+  project's image or clip (or name its music in a provenance record) given that asset's id. Now checked when set and
+  when read; an import drops those ids, and a project made from a template no longer carries the template project's
+  thumbnail, logo or music.
+- A password change or reset now ends every agent token of the account (personal access tokens and OAuth access and
+  refresh tokens): a token made with a stolen session outlived the password. The password, sessions and tokens
+  change in one transaction, so a failed revocation leaves the old password in place.
+- MCP `asset_library`: an asset of one project can no longer carry an action into another (the approval named the
+  asset's project, the action ran in `projectId`).
+- An approved call of an in-app agent run reaches only the run's project; approving reloaded the connection with
+  access to every project.
+- One private-address check for custom AI endpoints and OAuth client metadata, in every IPv6 spelling: the client
+  metadata fetch let a mapped loopback written in hex (`::ffff:7f00:1`) through. Local-use NAT64
+  (`64:ff9b:1::/48`) counts as private.
+- Dependencies: sharp 0.35.5 (librsvg CVE-2026-96889), @modelcontextprotocol/client 2.2.0 (tests),
+  source-map-js 1.2.2 (build).
+
+### Changed
+
+- CodeRabbit reviews pull requests into `staging` too (`.coderabbit.yaml`).
+
 ## [0.19.0] — 2026-10-14
 
 Upgrading: pull the new images and restart. One migration runs on start through the migrate service

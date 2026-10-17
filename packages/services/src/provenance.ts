@@ -94,7 +94,7 @@ export async function buildProvenance(
         .select({ asset: assets, job: generationJobs })
         .from(assets)
         .leftJoin(generationJobs, eq(generationJobs.id, assets.generationJobId))
-        .where(and(inArray(assets.id, clipIds), isNull(assets.deletedAt)))
+        .where(and(inArray(assets.id, clipIds), eq(assets.projectId, projectId), isNull(assets.deletedAt)))
     : [];
   const clipOf = new Map(clipRows.map((c) => [c.asset.id, c]));
   const assetIds = new Set<string>();
@@ -264,7 +264,7 @@ export async function buildProvenance(
     ? await db
         .select()
         .from(assets)
-        .where(and(eq(assets.id, musicId), isNull(assets.deletedAt)))
+        .where(and(eq(assets.id, musicId), eq(assets.projectId, project.id), isNull(assets.deletedAt)))
     : [];
   if (musicAsset) {
     assetIds.add(musicAsset.id);

@@ -13,8 +13,8 @@ import {
   sql,
   users,
 } from "@openmanga/db";
+import { isPrivateAddress } from "@openmanga/services";
 import { mockStoryAnalysis } from "@openmanga/testing";
-import { isPrivateAddress } from "../../apps/api/src/mcp/oauth.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 let h: Awaited<ReturnType<typeof startHarness>>;
@@ -1196,6 +1196,39 @@ describe("expert output actions", () => {
 });
 
 describe("credential lifecycle", () => {
+  test("a password change ends every agent token of the account", async () => {
+    const carol = h.client();
+    await carol.post(
+      "/api/auth/register",
+      { username: "carol-pw", email: "carol-pw@example.com", password: "carol pw 1234" },
+      201,
+    );
+    const t = await carol.post<{ token: string }>(
+      "/api/agents/tokens",
+      { name: "Before", scopes: ["projects:read"], projectAccess: "all" },
+      201,
+    );
+    const list = () =>
+      req("http://test.local/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${t.token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      });
+    expect((await list()).status).toBe(200);
+    // A failed revocation rolls the change back: the old password and the tokens stay as they were.
+    const me = await carol.get<{ user: { id: string } }>("/api/auth/me");
+    const boom = () => Promise.reject(new Error("revocation failed"));
+    await expect(h.deps.auth.changePassword(me.user.id, "carol pw 1234", "carol pw 9999", boom)).rejects.toThrow();
+    expect((await list()).status).toBe(200);
+    // The old password still works, so the failed change left it in place.
+    await carol.post("/api/auth/password", { currentPassword: "carol pw 1234", newPassword: "carol pw 5678" });
+    expect((await list()).status).toBe(401);
+  });
+
   test("revoked and expired tokens stop working at once", async () => {
     const t = await pat({ name: "Temp", scopes: ["projects:read"], projectAccess: "all" });
     const ok = await req("http://test.local/mcp", {

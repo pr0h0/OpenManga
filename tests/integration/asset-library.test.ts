@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { sharp } from "@openmanga/image-utils";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -143,4 +144,36 @@ test("bulk actions; an active artwork is skipped when trashing, with the reason;
   const theirs = await u.get<Library>(`/api/projects/${copy.project.id}/assets?favourite=1`);
   expect(theirs.assets).toHaveLength(1);
   expect(theirs.assets[0]!.tags).toEqual(["rain", "night", "draft"]);
+});
+
+test("MCP asset_library: an asset of one project cannot carry a bulk action into another", async () => {
+  const other = (await u.post<{ project: { id: string } }>("/api/projects", { title: "Other" }, 201)).project.id;
+  const { token } = await u.post<{ token: string }>(
+    "/api/agents/tokens",
+    {
+      name: "library agent",
+      scopes: ["projects:read", "projects:write"],
+      projectAccess: "all",
+      approvalMode: "ALLOW_ALL",
+    },
+    201,
+  );
+  const client = new Client({ name: "library-agent", version: "1.0.0" });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL("http://test.local/mcp"), {
+      requestInit: { headers: { authorization: `Bearer ${token}` } },
+      fetch: (url, init) => {
+        const headers = new Headers((init as RequestInit).headers);
+        headers.set("host", "test.local");
+        return Promise.resolve(h.app.request(String(url), { ...(init as RequestInit), headers }));
+      },
+    }),
+  );
+  const r = await client.callTool({
+    name: "asset_library",
+    arguments: { action: "bulk", assetId: older, projectId: other, bulk: { action: "favourite", ids: [older] } },
+  });
+  expect(r.isError).toBe(true);
+  expect(JSON.stringify(r.content)).toContain("another project");
+  await client.close();
 });

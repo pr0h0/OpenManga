@@ -93,9 +93,19 @@ describe("custom endpoint safety", () => {
       "::1",
       "fd00::1",
       "::ffff:10.0.0.1",
+      "::ffff:7f00:1",
+      "::7f00:1",
+      "::127.0.0.1",
+      "64:ff9b::a00:1",
+      "64:ff9b:1::808:808",
+      "::",
+      "fe80::1",
+      "ff02::1",
+      "198.18.0.1",
     ])
       expect(isPrivateAddress(ip)).toBe(true);
-    for (const ip of ["8.8.8.8", "104.18.2.3", "2606:4700::1111"]) expect(isPrivateAddress(ip)).toBe(false);
+    for (const ip of ["8.8.8.8", "104.18.2.3", "2606:4700::1111", "::ffff:808:808", "64:ff9b::808:808"])
+      expect(isPrivateAddress(ip)).toBe(false);
     const resolve = async (h: string) => (h === "postgres" ? ["172.23.0.2"] : ["104.18.2.3"]);
     await expect(assertPublicHttpsUrl("http://api.example.com/v1", resolve)).rejects.toBeInstanceOf(CredentialError);
     await expect(assertPublicHttpsUrl("https://postgres:5432", resolve)).rejects.toThrow("public");
