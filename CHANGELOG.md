@@ -21,13 +21,15 @@ also ends its agent tokens.
   when read; an import drops those ids, and a project made from a template no longer carries the template project's
   thumbnail, logo or music.
 - A password change or reset now ends every agent token of the account (personal access tokens and OAuth access and
-  refresh tokens): a token made with a stolen session outlived the password.
+  refresh tokens): a token made with a stolen session outlived the password. The password, sessions and tokens
+  change in one transaction, so a failed revocation leaves the old password in place.
 - MCP `asset_library`: an asset of one project can no longer carry an action into another (the approval named the
   asset's project, the action ran in `projectId`).
 - An approved call of an in-app agent run reaches only the run's project; approving reloaded the connection with
   access to every project.
 - One private-address check for custom AI endpoints and OAuth client metadata, in every IPv6 spelling: the client
-  metadata fetch let a mapped loopback written in hex (`::ffff:7f00:1`) through.
+  metadata fetch let a mapped loopback written in hex (`::ffff:7f00:1`) through. Local-use NAT64
+  (`64:ff9b:1::/48`) counts as private.
 - Dependencies: sharp 0.35.5 (librsvg CVE-2026-96889), @modelcontextprotocol/client 2.2.0 (tests),
   source-map-js 1.2.2 (build).
 
