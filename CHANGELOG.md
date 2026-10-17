@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.2] — 2026-10-17
+
+Upgrading: pull the new images and restart. One migration runs on start through the migrate service
+(`0053_fk_and_lookup_indexes`, plain indexes, seconds on a large instance). No new settings. Faster video renders
+and database lookups; output is unchanged.
+
+### Changed
+
+- Video renders are about 4x faster per shot: each Ken Burns shot decodes its still once instead of once per frame
+  (the free still-motion clip model too). A 73-shot, 12-minute chapter went from about 26 s to 6 s per shot.
+- Video renders do the soundtrack during the shot encodes: it is mixed and its loudness measured while the shots
+  encode, then one final pass joins the shots and applies loudness, replacing three passes after the shots. The
+  loudness measure no longer decodes the video.
+- A finished video export records how long each render phase took (`result.timingsMs`).
+- 18 database indexes on foreign keys and per-job lookups of the large tables. A page of generations with costs went
+  from 595 ms to 7 ms, and deletes (trash and render-cache sweeps) no longer scan child tables.
+
 ## [0.19.1] — 2026-10-17
 
 Upgrading: pull the new images and restart; no migrations, no new settings. A security patch from a full audit of the
