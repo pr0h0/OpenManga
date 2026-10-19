@@ -344,6 +344,7 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
   }
 
   const byId = new Map(jobs.map((j) => [j.id, j]));
+  let ingestErrors = 0;
   for (const item of status.items ?? []) {
     const job = byId.get(item.key);
     if (!job) {
@@ -364,9 +365,14 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
         result.failed++;
       }
     } catch (e) {
+      ingestErrors++;
       deps.logger.error("batch ingest failed", { jobId: job.id, error: e instanceof Error ? e.message : String(e) });
     }
   }
+  // A result that came back but could not be stored (storage down, a deploy mid-ingest) is paid for: leave the batch
+  // open so the next poll retries it, as a text batch does. Ingested jobs are no longer `submitted` and are skipped;
+  // the caller abandons the batch once it is too old to keep trying.
+  if (ingestErrors) throw new Error(`${ingestErrors} batch result(s) could not be stored; retrying on the next poll`);
   // Whatever the batch did not answer for — an expired or cancelled batch still returns the requests that did
   // finish, so a non-empty item list is no proof every key came back.
   const stranded = await deps.db

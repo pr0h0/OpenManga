@@ -477,6 +477,83 @@ test("a batch that answers only some of its requests fails the rest instead of p
   expect(closed!.ingestedAt).not.toBeNull();
 });
 
+test("a result that cannot be stored keeps its batch open for the next poll instead of failing", async () => {
+  const png = await mockImagePng({ width: 32, height: 32, prompt: "s" });
+  const once = new FakeBatchProvider(png);
+  once.pollBatch = async (hd) => ({
+    state: "succeeded",
+    counts: { total: hd.keys.length, completed: hd.keys.length, failed: 0 },
+    items: hd.keys.map((key) => ({
+      key,
+      ok: true as const,
+      result: {
+        data: png,
+        mime: "image/png",
+        width: 32,
+        height: 32,
+        provider: "openai",
+        model: "gpt-image-2",
+        quality: "low",
+        requestId: null,
+        latencyMs: 0,
+        usage: { textInputTokens: 1, imageInputTokens: 1, imageOutputTokens: 1, cachedInputTokens: 0, raw: {} },
+        request: { endpoint: "/v1/batches", size: "32x32", referenceCount: 0 },
+      },
+    })),
+  });
+  h.workerDeps.resolver.imageBatch = (async () => once) as typeof h.workerDeps.resolver.imageBatch;
+  const [row] = await h.deps.db
+    .insert(providerBatches)
+    .values({
+      projectId,
+      capability: "image",
+      provider: "openai",
+      model: "gpt-image-2",
+      handle: "batch_store_fails",
+      idempotencyKey: `store-${crypto.randomUUID()}`,
+      state: "pending",
+      requestCount: 1,
+      submittedAt: new Date(),
+    })
+    .returning();
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({
+      projectId,
+      kind: "panel_generation",
+      queue: "image-generation",
+      status: "submitted",
+      priority: 5,
+      targetType: "panel",
+      targetId: panelIds[2]!,
+      templateName: "panel-generation",
+      templateVersion: 6,
+      compiledPrompt: "store fails once",
+      provider: "openai",
+      model: "gpt-image-2",
+      parameters: { batchMode: true, providerBatchId: row!.id },
+    })
+    .returning();
+  // Storage is down for the first ingest.
+  const store = h.workerDeps.assets.store.bind(h.workerDeps.assets);
+  h.workerDeps.assets.store = async () => {
+    throw new Error("storage unavailable");
+  };
+  await pollProviderBatches(h.workerDeps);
+  h.workerDeps.assets.store = store;
+  const [waiting] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(waiting!.status).toBe("submitted");
+  const [open] = await h.deps.db.select().from(providerBatches).where(eq(providerBatches.id, row!.id));
+  expect(open!.ingestedAt).toBeNull();
+  expect(once.released).toBe(0);
+
+  await pollProviderBatches(h.workerDeps);
+  const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(done!.status).toBe("completed");
+  const [closed] = await h.deps.db.select().from(providerBatches).where(eq(providerBatches.id, row!.id));
+  expect(closed!.ingestedAt).not.toBeNull();
+});
+
 test("replaying a text answer clears the batch marker, so no sweep can resubmit it", async () => {
   const jobs = await h.deps.db
     .select()

@@ -151,10 +151,20 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
   const opts = job.options as unknown as Opts;
   const publish = (status: string, progress: number, failureReason?: string | null) =>
     deps.events.publish(job.projectId, { type: "export.updated", exportJobId: id, status, progress, failureReason });
-  await deps.db
+  // Only from a state that may run: a cancel written after the read above (the worker had already taken the job off
+  // its queue, so the cancel could not remove it) must not be overwritten by "processing" and rendered anyway.
+  const [started] = await deps.db
     .update(exportJobs)
     .set({ status: "processing", startedAt: new Date(), attempts: sql`${exportJobs.attempts} + 1` })
-    .where(eq(exportJobs.id, id));
+    .where(and(eq(exportJobs.id, id), inArray(exportJobs.status, ["queued", "processing"])))
+    .returning({ id: exportJobs.id });
+  if (!started) {
+    await deps.db
+      .update(exportJobs)
+      .set({ status: "cancelled", finishedAt: new Date() })
+      .where(and(eq(exportJobs.id, id), eq(exportJobs.status, "cancel_requested")));
+    return;
+  }
   await publish("processing", 0);
   const progress = async (p: number) => {
     const [row] = await deps.db
