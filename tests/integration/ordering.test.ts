@@ -30,15 +30,15 @@ test("moving a chapter renumbers the others around it", async () => {
     `/api/projects/${projectId}/chapters`,
   );
   expect(chapters.map((c) => c.order)).toEqual([1, 2, 3]);
-  expect(chapters.map((c) => c.id)).toEqual([ids[2], ids[0], ids[1]]);
+  expect(chapters.map((c) => c.id)).toEqual([ids[2]!, ids[0]!, ids[1]!]);
   // An order past the end puts it last; an edit with no move leaves the order alone.
   await u.patch(`/api/chapters/${ids[2]}`, { order: 99 });
   await u.patch(`/api/chapters/${ids[0]}`, { title: "One again" });
   const after = await u.get<{ chapters: { id: string; order: number }[] }>(`/api/projects/${projectId}/chapters`);
   expect(after.chapters.map((c) => [c.id, c.order])).toEqual([
-    [ids[0], 1],
-    [ids[1], 2],
-    [ids[2], 3],
+    [ids[0]!, 1],
+    [ids[1]!, 2],
+    [ids[2]!, 3],
   ]);
 });
 
@@ -57,7 +57,7 @@ test("reordering some panels puts them first and keeps the rest after them, ever
   const after = await u.get<{ panels: { id: string; order: number }[] }>(`/api/pages/${pageId}`);
   const byOrder = [...after.panels].sort((x, y) => x.order - y.order);
   expect(byOrder.map((p) => p.order)).toEqual([1, 2, 3, 4]);
-  expect(byOrder.map((p) => p.id)).toEqual([d, c, a, b]);
+  expect(byOrder.map((p) => p.id)).toEqual([d!, c!, a!, b!]);
 });
 
 test("a page inserted after a page that is not in the chapter is refused, not put first", async () => {
