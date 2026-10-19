@@ -43,6 +43,10 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
     const el = stageRef.current?.container();
     if (el) el.style.cursor = aimTailFor ? "crosshair" : "";
   }, [aimTailFor]);
+  // A page that turns read-only (locked meanwhile) ends aim mode, rather than keeping it for a click once it is not.
+  useEffect(() => {
+    if (readOnly) useEditor.getState().setAimTail(null);
+  }, [readOnly]);
   const { zoom, x, y, fitTick } = useView();
   const setView = useView((s) => s.set);
   const W = data.page.width;

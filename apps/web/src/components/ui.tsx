@@ -569,13 +569,15 @@ export function useAutosave<T>(
       window.removeEventListener("beforeunload", warn);
       // Leaving inside the delay (a link, another version) would cancel the last edit's save: send it now.
       // After the save already on its way, so the older value cannot land last and overwrite this one.
-      if (enabled.current !== false && unsaved() && JSON.stringify(latest.current) !== inFlight.current) {
-        const [save, v] = [saveRef.current, latest.current];
+      if (enabled.current === false || !unsaved()) return;
+      const [save, v] = [saveRef.current, latest.current];
+      if (JSON.stringify(v) !== inFlight.current)
         void (sending.current ?? Promise.resolve())
           .catch(() => {})
           .then(() => save(v))
           .catch((e) => toast.error(e));
-      }
+      // This very value is on its way: if that save fails, nothing on the page is left to try it again, so try once.
+      else void sending.current?.catch(() => save(v).catch((e) => toast.error(e)));
     };
   }, []);
   return { state, markSaved: (v: T) => (lastSaved.current = v) };

@@ -232,7 +232,12 @@ export const useEditor = create<State>((set, get) => ({
     } catch (e) {
       toast.error(e);
       // Another page is open now: its queue and document are not where these edits belong.
-      if (get().pageId !== s.pageId) return set({ inFlight: false });
+      if (get().pageId !== s.pageId) {
+        set({ inFlight: false });
+        // Its own edits may have waited on this save (a flush finds one in flight and returns): send them now.
+        if (get().pending.size) schedule();
+        return;
+      }
       // Put keys back so the next edit retries them; never silently drop changes.
       set((st) => ({ inFlight: false, saveState: "error", pending: new Set([...st.pending, ...keys]) }));
       // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
