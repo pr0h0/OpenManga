@@ -1870,6 +1870,8 @@ describe("full production flow (mock AI)", () => {
     );
     const minor = cast.characters.find((c) => c.role !== "protagonist")!;
     await alice.patch(`/api/characters/${minor.id}`, { role: "minor" });
+    // A patch naming no field is invalid input, not a server error.
+    await alice.patch(`/api/characters/${minor.id}`, {}, 422);
     await alice.patch(`/api/projects/${projectId}`, { settings: { referencePolicy: "main" } });
     const main = await alice.post<{ count: number; skippedReasons: { minor: number } }>(
       `/api/projects/${projectId}/generations/bulk`,
