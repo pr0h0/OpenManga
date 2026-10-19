@@ -11,7 +11,18 @@
  */
 
 import type { BatchItemResult, BatchRequestSpec, ImageBatchProvider } from "@openmanga/ai-image";
-import { and, eq, generationJobs, inArray, isNull, lt, panels, providerBatches, sql } from "@openmanga/db";
+import {
+  and,
+  eq,
+  generationJobs,
+  generationOutputs,
+  inArray,
+  isNull,
+  lt,
+  panels,
+  providerBatches,
+  sql,
+} from "@openmanga/db";
 import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
@@ -365,8 +376,18 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
         result.failed++;
       }
     } catch (e) {
-      ingestErrors++;
       deps.logger.error("batch ingest failed", { jobId: job.id, error: e instanceof Error ? e.message : String(e) });
+      // Stored before the failure (attaching or recording it failed): finish from what is stored, as a restarted
+      // runner does, rather than storing and billing it a second time on the next poll.
+      const [stored] = await deps.db
+        .select()
+        .from(generationOutputs)
+        .where(eq(generationOutputs.jobId, job.id))
+        .limit(1)
+        .catch(() => []);
+      if (stored)
+        await finishIngested(deps, job, stored.assetId, item.ok ? item.result : { width: 0, height: 0 }, false);
+      else ingestErrors++;
     }
   }
   // A result that came back but could not be stored (storage down, a deploy mid-ingest) is paid for: leave the batch
@@ -451,9 +472,10 @@ async function ingestOne(deps: WorkerDeps, row: GenerationJob, item: Extract<Bat
   // Recorded against the ":batch" model so the discounted price is what the run is charged.
   const usage = () => recordImageUsage(deps, job, { ...item.result, model: batchModel(item.result.model) }, inputs);
   if (job.kind !== "panel_generation") {
-    // A reference: the same finishing step as a direct run, so it lands as a draft reference on its version.
-    await usage();
+    // A reference: the same finishing step as a direct run, so it lands as a draft reference on its version. Billed
+    // once it is stored, so a store that fails (and is retried on the next poll) is not billed twice.
     const { asset, cancelled } = await attachReference(deps, job, item.result);
+    await usage();
     return finishIngested(deps, job, asset.id, item.result, cancelled);
   }
   // The same panel metadata a direct run records: the Versions tab finds a panel's artwork by `panelId`, so without it

@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   generationJobs,
+  generationOutputs,
   inArray,
   panels,
   providerBatches,
@@ -552,6 +553,79 @@ test("a result that cannot be stored keeps its batch open for the next poll inst
   expect(done!.status).toBe("completed");
   const [closed] = await h.deps.db.select().from(providerBatches).where(eq(providerBatches.id, row!.id));
   expect(closed!.ingestedAt).not.toBeNull();
+});
+
+test("a result stored before its ingest failed is finished from what is stored, not stored again", async () => {
+  const png = await mockImagePng({ width: 32, height: 32, prompt: "t" });
+  const once = new FakeBatchProvider(png);
+  once.pollBatch = async (hd) => ({
+    state: "succeeded",
+    counts: { total: hd.keys.length, completed: hd.keys.length, failed: 0 },
+    items: hd.keys.map((key) => ({
+      key,
+      ok: true as const,
+      result: {
+        data: png,
+        mime: "image/png",
+        width: 32,
+        height: 32,
+        provider: "openai",
+        model: "gpt-image-2",
+        quality: "low",
+        requestId: null,
+        latencyMs: 0,
+        usage: { textInputTokens: 1, imageInputTokens: 1, imageOutputTokens: 1, cachedInputTokens: 0, raw: {} },
+        request: { endpoint: "/v1/batches", size: "32x32", referenceCount: 0 },
+      },
+    })),
+  });
+  h.workerDeps.resolver.imageBatch = (async () => once) as typeof h.workerDeps.resolver.imageBatch;
+  const [row] = await h.deps.db
+    .insert(providerBatches)
+    .values({
+      projectId,
+      capability: "image",
+      provider: "openai",
+      model: "gpt-image-2",
+      handle: "batch_usage_fails",
+      idempotencyKey: `usage-${crypto.randomUUID()}`,
+      state: "pending",
+      requestCount: 1,
+      submittedAt: new Date(),
+    })
+    .returning();
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({
+      projectId,
+      kind: "panel_generation",
+      queue: "image-generation",
+      status: "submitted",
+      priority: 5,
+      targetType: "panel",
+      targetId: panelIds[2]!,
+      templateName: "panel-generation",
+      templateVersion: 6,
+      compiledPrompt: "usage fails once",
+      provider: "openai",
+      model: "gpt-image-2",
+      parameters: { batchMode: true, providerBatchId: row!.id },
+    })
+    .returning();
+  // The image is stored, then recording what it cost fails.
+  const record = h.workerDeps.usage.record.bind(h.workerDeps.usage);
+  h.workerDeps.usage.record = async () => {
+    throw new Error("usage write failed");
+  };
+  await pollProviderBatches(h.workerDeps);
+  h.workerDeps.usage.record = record;
+  const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(done!.status).toBe("completed");
+  const outputs = await h.deps.db.select().from(generationOutputs).where(eq(generationOutputs.jobId, job!.id));
+  expect(outputs).toHaveLength(1);
+  // A later poll has nothing left to do for it: one image, not two.
+  await pollProviderBatches(h.workerDeps);
+  expect(await h.deps.db.select().from(generationOutputs).where(eq(generationOutputs.jobId, job!.id))).toHaveLength(1);
 });
 
 test("replaying a text answer clears the batch marker, so no sweep can resubmit it", async () => {
