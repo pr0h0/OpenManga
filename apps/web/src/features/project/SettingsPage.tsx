@@ -20,7 +20,15 @@ import { useEffect, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { qk, useAction, useMeta } from "../../api/hooks.ts";
 import type { ChapterListItem, TtsStatus } from "../../api/types.ts";
-import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
+import {
+  ConfirmDialog,
+  Field,
+  NumberInput,
+  PageHeader,
+  SaveIndicator,
+  toast,
+  useAutosave,
+} from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { EdgePicker } from "../pages/EdgePicker.tsx";
 import { LayoutLibrary } from "../pages/LayoutLibrary.tsx";
@@ -53,10 +61,23 @@ export function SettingsPage() {
   const tts = useQuery({ queryKey: ["tts-status"], queryFn: () => get<TtsStatus>("/tts/status"), staleTime: 60_000 });
   const [form, setForm] = useState<Form | null>(null);
   const [confirm, setConfirm] = useState<null | "archive" | "trash">(null);
+  const { state, markSaved } = useAutosave(
+    form,
+    async (v) => {
+      if (!v) return;
+      // The storage policy has its own save (and owner check), and the publishing text, repurpose plan and thumbnail
+      // are written by their own screens and by jobs while this page is open: a copy from when it opened must not
+      // put old values back. None is edited here.
+      const { storage: _s, youtubePackage: _y, repurpose: _r, thumbnail: _t, ...settings } = v.settings;
+      await patch(`/projects/${projectId}`, { ...v, settings });
+      await qc.invalidateQueries({ queryKey: qk.project(projectId) });
+    },
+    { enabled: Boolean(form) && data?.role !== "viewer" },
+  );
   useEffect(() => {
     if (data && !form) {
       const p = data.project;
-      setForm({
+      const loaded = {
         title: p.title,
         description: p.description,
         projectType: p.projectType,
@@ -64,20 +85,12 @@ export function SettingsPage() {
         readingDirection: p.readingDirection,
         colorMode: p.colorMode,
         settings: p.settings,
-      });
+      };
+      // What the server has is saved already: opening the page is not an edit.
+      markSaved(loaded);
+      setForm(loaded);
     }
   }, [data, form]);
-  const { state } = useAutosave(
-    form,
-    async (v) => {
-      if (!v) return;
-      // The storage policy has its own save (and owner check); a stale copy here must not overwrite it.
-      const { storage: _storage, ...settings } = v.settings;
-      await patch(`/projects/${projectId}`, { ...v, settings });
-      await qc.invalidateQueries({ queryKey: qk.project(projectId) });
-    },
-    { enabled: Boolean(form) },
-  );
   if (!form || !data) return null;
   const owner = data.role === "owner" || data.role === "admin";
   const s = form.settings;
@@ -452,15 +465,14 @@ export function LetteringSection({
     onChange({ ...cur, types: { ...cur.types, [t]: { ...cur.types?.[t], ...p } } });
   const setSfx = (p: Partial<SfxDefaults>) => onChange({ ...cur, sfx: { ...cur.sfx, ...p } });
   const n = (v: number, set: (v: number) => void, min: number, max: number, step = 1, label = "") => (
-    <input
+    <NumberInput
       className="input w-16 px-1 text-xs"
-      type="number"
       aria-label={label}
       min={min}
       max={max}
       step={step}
       value={v}
-      onChange={(e) => e.target.value !== "" && set(Math.min(max, Math.max(min, Number(e.target.value))))}
+      onChange={set}
     />
   );
   const font = (v: string, set: (v: string) => void, label: string) => (

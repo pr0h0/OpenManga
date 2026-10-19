@@ -6,7 +6,7 @@ import { Film, PenLine, Save, Share2, Trash2, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { assetUrl, get, patch, post } from "../../api/client.ts";
 import { qk, useAction } from "../../api/hooks.ts";
-import { clsx, EmptyState, ErrorBox, Field, PageHeader, Spinner } from "../../components/ui.tsx";
+import { clsx, EmptyState, ErrorBox, Field, NumberInput, PageHeader, Spinner } from "../../components/ui.tsx";
 import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { PreviewVideoButton } from "../video/VideoPreview.tsx";
@@ -38,11 +38,13 @@ const secs = (ms: number) => `${Math.round(ms / 1000)} s`;
 /** The export request that renders one item: a Shorts cut for the video kinds, images for the others. */
 function exportBody(it: RepurposeItem, language: string) {
   const social = { title: it.title, caption: it.caption };
+  // An export's label is at most 60 characters; a plan may hold a longer name saved before the field said so.
+  const label = (it.label.trim() || it.kind).slice(0, 60);
   if (VIDEO.has(it.kind))
     return {
       kind: "video_shorts",
       panelIds: it.panelIds,
-      label: it.label || it.kind,
+      label,
       social,
       video: {
         shortsSeconds: it.lengthSeconds ?? 60,
@@ -54,7 +56,7 @@ function exportBody(it: RepurposeItem, language: string) {
   return {
     kind: it.kind === "carousel" ? "carousel" : "quote_image",
     panelIds: it.kind === "quote" ? it.panelIds.slice(0, 1) : it.panelIds,
-    label: it.label || it.kind,
+    label,
     social,
     still: { aspect: it.aspect === "1:1" ? "1:1" : "4:5", text: it.text },
     // A carousel is checked against Instagram's limits (slides, size) once it is made.
@@ -274,7 +276,8 @@ function ItemCard({
           className="input min-w-0 flex-1 py-1"
           aria-label="Name"
           value={it.label}
-          maxLength={80}
+          // The export's label is at most 60 characters: a longer name saved, then failed every render.
+          maxLength={60}
           onChange={(e) => set({ label: e.target.value })}
         />
         <button type="button" className="btn-ghost" aria-label="Remove" title="Remove" onClick={onRemove}>
@@ -286,13 +289,12 @@ function ItemCard({
           <div className="flex flex-wrap gap-2">
             {video && (
               <Field label="Length (s)">
-                <input
+                <NumberInput
                   className="input w-24"
-                  type="number"
                   min={15}
                   max={600}
                   value={it.lengthSeconds ?? 60}
-                  onChange={(e) => set({ lengthSeconds: Math.min(600, Math.max(15, Number(e.target.value) || 60)) })}
+                  onChange={(v) => set({ lengthSeconds: v })}
                 />
               </Field>
             )}

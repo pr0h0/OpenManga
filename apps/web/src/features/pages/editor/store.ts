@@ -1,6 +1,6 @@
 import type { Bubble, Frame, ImageTransform, SfxStyle } from "@openmanga/schemas";
 import { create } from "zustand";
-import { patch } from "../../../api/client.ts";
+import { ApiError, patch } from "../../../api/client.ts";
 import type { PageDocument } from "../../../api/types.ts";
 import { toast } from "../../../components/ui.tsx";
 
@@ -90,6 +90,25 @@ type State = {
 };
 
 let timer: ReturnType<typeof setTimeout> | undefined;
+/** The save on its way, so a page switch can send the old page's queued edits after it rather than racing it. */
+let saving: Promise<unknown> | null = null;
+
+/** The document request for the edits under `keys`. */
+function bodyOf(doc: EditorDoc, keys: string[]) {
+  const has = (k: "panels" | "bubbles" | "sfx", id: string) => keys.includes(key(k, id));
+  return {
+    panels: doc.panels
+      .filter((p) => has("panels", p.id))
+      .map((p) => ({ id: p.id, frame: p.frame, imageTransform: p.imageTransform, order: p.order })),
+    dialogue: doc.bubbles
+      .filter((b) => b.kind === "dialogue" && has("bubbles", b.id))
+      .map((b) => ({ id: b.id, bubble: b.bubble, text: b.text })),
+    narration: doc.bubbles
+      .filter((b) => b.kind === "narration" && has("bubbles", b.id))
+      .map((b) => ({ id: b.id, box: b.bubble })),
+    sfx: doc.sfx.filter((x) => has("sfx", x.id)).map((x) => ({ id: x.id, style: x.style, text: x.text })),
+  };
+}
 
 export const useEditor = create<State>((set, get) => ({
   pageId: null,
@@ -113,6 +132,15 @@ export const useEditor = create<State>((set, get) => ({
     const s = get();
     const next = docFromServer(d);
     if (s.pageId !== pageId) {
+      // Edits still queued for the page being left (a save was on its way, so the leave-time flush skipped them):
+      // send them after that save instead of dropping them with the old document.
+      if (s.pageId && s.pending.size) {
+        const [old, body] = [s.pageId, bodyOf(s.doc, [...s.pending])];
+        void (saving ?? Promise.resolve())
+          .catch(() => {})
+          .then(() => patch(`/pages/${old}/document`, body))
+          .catch((e) => toast.error(e));
+      }
       // Open on the panel a link names (a comment, a storyboard card), else the first, so the Panel/Prompt/Versions
       // tabs have something to show.
       const first = next.panels.find((p) => p.id === panelId) ?? [...next.panels].sort((x, y) => x.order - y.order)[0];
@@ -196,27 +224,25 @@ export const useEditor = create<State>((set, get) => ({
     if (!s.pageId || !s.pending.size || s.inFlight) return;
     const keys = [...s.pending];
     set({ pending: new Set(), inFlight: true, saveState: "saving" });
-    const has = (k: "panels" | "bubbles" | "sfx", id: string) => keys.includes(key(k, id));
-    const body = {
-      panels: s.doc.panels
-        .filter((p) => has("panels", p.id))
-        .map((p) => ({ id: p.id, frame: p.frame, imageTransform: p.imageTransform, order: p.order })),
-      dialogue: s.doc.bubbles
-        .filter((b) => b.kind === "dialogue" && has("bubbles", b.id))
-        .map((b) => ({ id: b.id, bubble: b.bubble, text: b.text })),
-      narration: s.doc.bubbles
-        .filter((b) => b.kind === "narration" && has("bubbles", b.id))
-        .map((b) => ({ id: b.id, box: b.bubble })),
-      sfx: s.doc.sfx.filter((x) => has("sfx", x.id)).map((x) => ({ id: x.id, style: x.style, text: x.text })),
-    };
     try {
-      await patch(`/pages/${s.pageId}/document`, body);
+      saving = patch(`/pages/${s.pageId}/document`, bodyOf(s.doc, keys));
+      await saving;
       set({ inFlight: false, saveState: get().pending.size ? "saving" : "saved" });
       get().onSaved?.();
     } catch (e) {
       // Put keys back so the next edit retries them; never silently drop changes.
       set((st) => ({ inFlight: false, saveState: "error", pending: new Set([...st.pending, ...keys]) }));
       toast.error(e);
+      // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
+      // resending it three times a second. A network or server error is tried again after a pause.
+      const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
+      if (!refused) {
+        clearTimeout(timer);
+        timer = setTimeout(() => void useEditor.getState().flush(), 5000);
+      }
+      return;
+    } finally {
+      saving = null;
     }
     if (get().pending.size) schedule();
   },
