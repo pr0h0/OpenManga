@@ -151,6 +151,8 @@ pageRoutes.post("/chapters/:id/pages", async (c) => {
   const page = await db.transaction(async (tx) => {
     const existing = await tx.select().from(pages).where(eq(pages.chapterId, chapterId)).orderBy(asc(pages.order));
     const after = input.afterPageId ? existing.find((p) => p.id === input.afterPageId) : existing.at(-1);
+    // Not a page of this chapter: inserting it first instead would be a silent guess.
+    if (input.afterPageId && !after) throw notFound("Page to insert after");
     const order = (after?.order ?? 0) + 1;
     await tx
       .update(pages)
@@ -540,11 +542,20 @@ pageRoutes.post("/pages/:id/reorder-panels", async (c) => {
   const { panelIds } = await body(c, Reorder);
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
-    for (const [i, id] of panelIds.entries())
+    // The listed panels first, in that order, then the rest as they were: numbering only the listed ones left the
+    // others sharing their orders, and reading order and the video's shot order became a toss-up.
+    const all = await tx
+      .select({ id: panels.id })
+      .from(panels)
+      .where(eq(panels.pageId, page.id))
+      .orderBy(asc(panels.order), asc(panels.createdAt));
+    const listed = panelIds.filter((id, i) => panelIds.indexOf(id) === i && all.some((p) => p.id === id));
+    const ordered = [...listed, ...all.map((p) => p.id).filter((id) => !listed.includes(id))];
+    for (const [i, id] of ordered.entries())
       await tx
         .update(panels)
         .set({ order: i + 1 })
-        .where(and(eq(panels.id, id), eq(panels.pageId, page.id)));
+        .where(eq(panels.id, id));
   });
   return c.json({ ok: true });
 });
