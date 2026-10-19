@@ -273,6 +273,17 @@ export class JobService {
   }
 
   /**
+   * A draw cancelled before a worker saw it puts its panel back to what its art says. Nothing else would: the worker
+   * resets a panel only for a job it runs, and a panel left "queued" is skipped by every bulk run as in progress.
+   */
+  private async releasePanel(job: typeof generationJobs.$inferSelect) {
+    if (job.targetType !== "panel" || !job.targetId || !(job.kind === "panel_generation" || job.kind === "panel_edit"))
+      return;
+    await this.db.execute(sql`update panels set status = (case when active_artwork_asset_id is null then 'planned'
+      else 'ready' end)::panel_status where id = ${job.targetId} and status in ('queued', 'generating')`);
+  }
+
+  /**
    * Queued jobs are removed from Redis and cancelled. Running jobs are marked cancel_requested;
    * the worker discards/does not activate their output.
    */
@@ -300,6 +311,7 @@ export class JobService {
         targetId: job.targetId,
         batchId: job.batchId,
       });
+      await this.releasePanel(job);
       return "cancelled";
     }
     if (job.status === "queued") {
@@ -323,6 +335,7 @@ export class JobService {
           targetId: job.targetId,
           batchId: job.batchId,
         });
+        await this.releasePanel(job);
         return "cancelled";
       }
     }
