@@ -72,6 +72,11 @@ test("only aspects that exist are accepted, and the image must be one", async ()
   form2.set("aspects", JSON.stringify(["nonsense"]));
   const res = await alice.raw("POST", `/api/projects/${projectId}/images/describe`, form2);
   expect(res.status).toBe(400);
+
+  // A form field that is not JSON is a bad request, not a server error.
+  form2.set("aspects", "[style");
+  const garbled = await alice.raw("POST", `/api/projects/${projectId}/images/describe`, form2);
+  expect(garbled.status).toBe(400);
 });
 
 test("an image already in the project can be described without re-uploading", async () => {
