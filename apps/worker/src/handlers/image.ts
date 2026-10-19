@@ -350,19 +350,34 @@ export async function referenceGeneration(deps: WorkerDeps, job: ProjectJob) {
  * primary if it is the first — and tell the page. Shared by a direct run and a provider batch, so a reference that
  * came back in a batch is indistinguishable from one generated on the spot.
  */
-export async function attachReference(deps: WorkerDeps, job: ProjectJob, r: ImageResult) {
+export async function attachReference(
+  deps: WorkerDeps,
+  job: ProjectJob,
+  r: ImageResult,
+  /** Already stored by an earlier attempt that failed after storing it (a batch ingest retried). */
+  stored: Awaited<ReturnType<WorkerDeps["assets"]["get"]>> = null,
+) {
   const subject = String(job.input.subject) as "character" | "location" | "prop" | "style";
   const versionId = String(job.input.versionId);
   const kind = String(job.input.kind) as ReferenceKind;
-  const { asset, cancelled } = await finalizeOutput(
-    deps,
-    job,
-    r,
-    SUBJECT_ASSET[job.kind]!,
-    { subject, subjectVersionId: versionId, referenceKind: kind, canonical: true },
-    null,
-  );
+  const { asset, cancelled } = stored
+    ? { asset: stored, cancelled: await isCancelRequested(deps, job.id) }
+    : await finalizeOutput(
+        deps,
+        job,
+        r,
+        SUBJECT_ASSET[job.kind]!,
+        { subject, subjectVersionId: versionId, referenceKind: kind, canonical: true },
+        null,
+      );
   if (cancelled) return { asset, cancelled, referenceId: null };
+  const [attached] = stored
+    ? await deps.db
+        .select({ id: referenceAssets.id })
+        .from(referenceAssets)
+        .where(eq(referenceAssets.assetId, asset.id))
+    : [];
+  if (attached) return { asset, cancelled, referenceId: attached.id };
   const col =
     subject === "character"
       ? referenceAssets.characterVersionId

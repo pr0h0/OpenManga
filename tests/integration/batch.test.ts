@@ -555,7 +555,7 @@ test("a result that cannot be stored keeps its batch open for the next poll inst
   expect(closed!.ingestedAt).not.toBeNull();
 });
 
-test("a result stored before its ingest failed is finished from what is stored, not stored again", async () => {
+test("an ingest that failed after storing its image resumes on the next poll: stored once, billed once, activated", async () => {
   const png = await mockImagePng({ width: 32, height: 32, prompt: "t" });
   const once = new FakeBatchProvider(png);
   once.pollBatch = async (hd) => ({
@@ -619,13 +619,18 @@ test("a result stored before its ingest failed is finished from what is stored, 
   };
   await pollProviderBatches(h.workerDeps);
   h.workerDeps.usage.record = record;
+  const [waiting] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(waiting!.status).toBe("submitted");
+
+  await pollProviderBatches(h.workerDeps);
   const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
   expect(done!.status).toBe("completed");
   const outputs = await h.deps.db.select().from(generationOutputs).where(eq(generationOutputs.jobId, job!.id));
   expect(outputs).toHaveLength(1);
-  // A later poll has nothing left to do for it: one image, not two.
-  await pollProviderBatches(h.workerDeps);
-  expect(await h.deps.db.select().from(generationOutputs).where(eq(generationOutputs.jobId, job!.id))).toHaveLength(1);
+  expect(outputs[0]!.activated).toBe(true);
+  expect(await h.deps.db.select().from(aiUsage).where(eq(aiUsage.generationJobId, job!.id))).toHaveLength(1);
+  const [pn] = await h.deps.db.select().from(panels).where(eq(panels.id, panelIds[2]!));
+  expect(pn!.activeArtworkAssetId).toBe(outputs[0]!.assetId);
 });
 
 test("replaying a text answer clears the batch marker, so no sweep can resubmit it", async () => {
