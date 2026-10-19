@@ -48,7 +48,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { ApiError, badRequest, body, conflict, cursorTime, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
 export const generationRoutes = new Hono<AppEnv>();
@@ -98,6 +98,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
   const jobs = await db
     .select({
       job: generationJobs,
+      at: cursorTime(generationJobs.createdAt),
       costUsd: sql<number>`(select coalesce(sum(estimated_cost_usd),0)::float from ai_usage where generation_job_id = "generation_jobs"."id")`,
       // The latest output, and whether it has since been trashed: the job stays in the history, its image does not.
       output: sql<{
@@ -140,7 +141,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
     counts,
     total,
     /** Pass back as ?cursor= for the next page. Null on the last page. */
-    nextCursor: jobs.length === q.limit && last ? `${last.job.createdAt.toISOString()}|${last.job.id}` : null,
+    nextCursor: jobs.length === q.limit && last ? `${last.at}|${last.job.id}` : null,
   });
 });
 

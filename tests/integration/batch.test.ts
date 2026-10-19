@@ -535,3 +535,38 @@ test("two runners racing the same job run its handler once", async () => {
   await runGenerationJob(h.workerDeps, delivery, handler);
   expect(calls).toBe(1);
 });
+
+test("paging the job list returns every job once, even jobs created in the same millisecond", async () => {
+  // A bulk run writes its jobs in one transaction: one timestamp, to the microsecond, shared by all of them.
+  const at = "2020-01-01T00:00:00.123456Z";
+  const made = await h.deps.db
+    .insert(generationJobs)
+    .values(
+      [1, 2, 3, 4].map((n) => ({
+        projectId,
+        kind: "panel_check" as const,
+        queue: "text-ai",
+        status: "completed" as const,
+        priority: 5,
+        templateName: "panel-check",
+        templateVersion: 1,
+        compiledPrompt: `same instant ${n}`,
+        createdAt: new Date(at),
+      })),
+    )
+    .returning({ id: generationJobs.id });
+  await h.deps.db.execute(
+    sql`update generation_jobs set created_at = ${at}::timestamptz where id in ${sql.raw(`('${made.map((m) => m.id).join("','")}')`)}`,
+  );
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: { jobs: { id: string }[]; nextCursor: string | null } = await alice.get(
+      `/api/projects/${projectId}/generations?kind=panel_check&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    seen.push(...page.jobs.map((j) => j.id));
+    cursor = page.nextCursor;
+  } while (cursor);
+  expect(seen.filter((id) => made.some((m) => m.id === id)).sort()).toEqual(made.map((m) => m.id).sort());
+  expect(new Set(seen).size).toBe(seen.length);
+});
