@@ -1622,18 +1622,30 @@ doc({
   tag: "lettering",
   body: ApplyLettering,
 });
+/**
+ * The pages a lettering pass over `scope` may change: a locked page is final, as the document save already enforces.
+ * Asked for one locked page, that is a refusal; across a chapter or the project, locked pages are left as they are.
+ */
+function unlocked<P extends { status: string }>(scope: string, page: P, scoped: P[]) {
+  if (scope === "page" && page.status === "locked") throw conflict("Page is locked");
+  return scoped.filter((p) => p.status !== "locked");
+}
+
 pageRoutes.post("/pages/:id/lettering/apply-defaults", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const input = await body(c, ApplyLettering);
   const { db } = c.get("deps");
   const lettering = resolveLettering(project.settings);
   const wants = (t: string) => !input.types || input.types.includes(t as "normal");
-  const scopePages =
+  const scopePages = unlocked(
+    input.scope,
+    page,
     input.scope === "page"
       ? [page]
       : input.scope === "chapter"
         ? await db.select().from(pages).where(eq(pages.chapterId, page.chapterId))
-        : await db.select().from(pages).where(eq(pages.projectId, project.id));
+        : await db.select().from(pages).where(eq(pages.projectId, project.id)),
+  );
   const pageIds = scopePages.map((p) => p.id);
   const size = new Map(scopePages.map((p) => [p.id, { w: p.width, h: p.height }]));
   const counts = { bubbles: 0, narration: 0, sfx: 0 };
@@ -1686,12 +1698,15 @@ pageRoutes.post("/pages/:id/lettering/fit-faces", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const { scope } = await body(c, FitFaces);
   const { db } = c.get("deps");
-  const scopePages =
+  const scopePages = unlocked(
+    scope,
+    page,
     scope === "page"
       ? [page]
       : scope === "chapter"
         ? await db.select().from(pages).where(eq(pages.chapterId, page.chapterId))
-        : await db.select().from(pages).where(eq(pages.projectId, project.id));
+        : await db.select().from(pages).where(eq(pages.projectId, project.id)),
+  );
   const pageIds = scopePages.map((p) => p.id);
   const pnls = pageIds.length ? await db.select().from(panels).where(inArray(panels.pageId, pageIds)) : [];
   const artIds = pnls.map((p) => p.activeArtworkAssetId).filter((x): x is string => Boolean(x));
@@ -1792,7 +1807,7 @@ pageRoutes.post("/pages/:id/lettering/clear", async (c) => {
       : scope === "chapter"
         ? eq(pages.chapterId, page.chapterId)
         : eq(pages.projectId, project.id);
-  const pageIds = (await db.select({ id: pages.id }).from(pages).where(where)).map((r) => r.id);
+  const pageIds = unlocked(scope, page, await db.select().from(pages).where(where)).map((r) => r.id);
   if (!pageIds.length) return c.json({ ok: true, pages: 0, bubbles: 0, sfx: 0, captions: 0 });
   const result = await db.transaction(async (tx) => {
     const bubbles = await tx
