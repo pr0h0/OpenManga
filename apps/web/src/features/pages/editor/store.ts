@@ -230,9 +230,11 @@ export const useEditor = create<State>((set, get) => ({
       set({ inFlight: false, saveState: get().pending.size ? "saving" : "saved" });
       get().onSaved?.();
     } catch (e) {
+      toast.error(e);
+      // Another page is open now: its queue and document are not where these edits belong.
+      if (get().pageId !== s.pageId) return set({ inFlight: false });
       // Put keys back so the next edit retries them; never silently drop changes.
       set((st) => ({ inFlight: false, saveState: "error", pending: new Set([...st.pending, ...keys]) }));
-      toast.error(e);
       // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
       // resending it three times a second. A network or server error is tried again after a pause.
       const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;

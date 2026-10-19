@@ -526,8 +526,9 @@ export function useAutosave<T>(
   const latest = useRef(value);
   const lastSaved = useRef(value);
   const saveRef = useRef(save);
-  /** The value a save is sending right now, so leaving mid-save does not send it twice. */
+  /** The value a save is sending right now, so leaving mid-save does not send it twice, and that save itself. */
   const inFlight = useRef<string | null>(null);
+  const sending = useRef<Promise<void> | null>(null);
   saveRef.current = save;
   latest.current = value;
   useEffect(() => {
@@ -542,7 +543,8 @@ export function useAutosave<T>(
       setState("saving");
       inFlight.current = JSON.stringify(v);
       try {
-        await saveRef.current(v);
+        sending.current = saveRef.current(v);
+        await sending.current;
         lastSaved.current = v;
         setState("saved");
       } catch (e) {
@@ -550,6 +552,7 @@ export function useAutosave<T>(
         toast.error(e);
       } finally {
         inFlight.current = null;
+        sending.current = null;
       }
     }, opts.delay ?? 1200);
     return () => clearTimeout(t);
@@ -565,8 +568,14 @@ export function useAutosave<T>(
     return () => {
       window.removeEventListener("beforeunload", warn);
       // Leaving inside the delay (a link, another version) would cancel the last edit's save: send it now.
-      if (enabled.current !== false && unsaved() && JSON.stringify(latest.current) !== inFlight.current)
-        void saveRef.current(latest.current).catch((e) => toast.error(e));
+      // After the save already on its way, so the older value cannot land last and overwrite this one.
+      if (enabled.current !== false && unsaved() && JSON.stringify(latest.current) !== inFlight.current) {
+        const [save, v] = [saveRef.current, latest.current];
+        void (sending.current ?? Promise.resolve())
+          .catch(() => {})
+          .then(() => save(v))
+          .catch((e) => toast.error(e));
+      }
     };
   }, []);
   return { state, markSaved: (v: T) => (lastSaved.current = v) };

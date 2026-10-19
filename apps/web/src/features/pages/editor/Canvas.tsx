@@ -101,6 +101,11 @@ export function EditorCanvas({ data, readOnly = false }: { data: PageDocument; r
   const aimTail = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
     const st = useEditor.getState();
     if (!st.aimTailFor) return false;
+    // Aim mode started before the page became read-only (locked, or a viewer's view): end it without an edit.
+    if (readOnly) {
+      st.setAimTail(null);
+      return false;
+    }
     const id = st.aimTailFor;
     const p = e.target.getStage()?.getRelativePointerPosition();
     st.setAimTail(null);
