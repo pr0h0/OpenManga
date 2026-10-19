@@ -77,6 +77,10 @@ test("only aspects that exist are accepted, and the image must be one", async ()
   form2.set("aspects", "[style");
   const garbled = await alice.raw("POST", `/api/projects/${projectId}/images/describe`, form2);
   expect(garbled.status).toBe(400);
+  form2.set("aspects", JSON.stringify(["style"]));
+  form2.set("ai", "{manual");
+  const garbledAi = await alice.raw("POST", `/api/projects/${projectId}/images/describe`, form2);
+  expect(garbledAi.status).toBe(400);
 });
 
 test("an image already in the project can be described without re-uploading", async () => {

@@ -74,7 +74,12 @@ test("a keyless run parks with the prompt a provider would have been sent", asyn
 });
 
 test("an answer that does not fit the schema is rejected, with the reason, and can be pasted again", async () => {
-  await alice.post(`/api/generations/${jobId}/manual`, { text: '{"not": "a story analysis"}' }, 202);
+  // Sent twice at once (a double click, a client's retry): one is taken, the copy is refused rather than appended as
+  // the answer to the next question.
+  const twice = await Promise.all(
+    [1, 2].map(() => alice.raw("POST", `/api/generations/${jobId}/manual`, { text: '{"not": "a story analysis"}' })),
+  );
+  expect(twice.map((r) => r.status).sort()).toEqual([202, 409]);
   const reparked = await waitForStatus("awaiting_input", "job parked again after a bad answer");
   expect(reparked.failureReason).toContain("Invalid StoryAnalysis");
 
