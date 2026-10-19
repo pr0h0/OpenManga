@@ -365,11 +365,19 @@ generationRoutes.post("/generations/:id/manual", async (c) => {
       // answer per question, in order, and every earlier answer is replayed on the next run.
       parameters: sql`${generationJobs.parameters} || jsonb_build_object('manualAnswers', coalesce(${generationJobs.parameters}->'manualAnswers', '[]'::jsonb) || jsonb_build_array(${text}::text))`,
     })
-    // Only while it is still waiting: a double click or a client's retry sent the same answer twice, both appended,
-    // and the copy was then taken as the answer to the next question (a second scene planned as the first).
-    .where(and(eq(generationJobs.id, job.id), eq(generationJobs.status, "awaiting_input")))
+    // Only while it is still waiting, and never the answer just given again: a double click or a client's retry sent
+    // one answer twice, both were appended, and the copy was taken as the answer to the next question (a second scene
+    // planned as the first). The second check covers a copy that arrives after the job has moved on to that question;
+    // two questions in a row never share an answer.
+    .where(
+      and(
+        eq(generationJobs.id, job.id),
+        eq(generationJobs.status, "awaiting_input"),
+        sql`coalesce(${generationJobs.parameters}->'manualAnswers'->>-1, '') <> ${text}`,
+      ),
+    )
     .returning({ id: generationJobs.id });
-  if (!taken) throw conflict("This job already has an answer and is running it.");
+  if (!taken) throw conflict("This answer was already given, or the job is no longer waiting for one.");
   // Keyed by attempt, because this job has already been through the queue once: the queue dedupes by job id, so
   // handing it back under the same key would be dropped. Two clicks on the same answer still collapse into one.
   await deps.jobs.enqueueGeneration(job, `${job.id}:answer:${job.attempts}`);

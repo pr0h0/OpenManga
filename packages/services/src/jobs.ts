@@ -279,8 +279,12 @@ export class JobService {
   private async releasePanel(job: typeof generationJobs.$inferSelect) {
     if (job.targetType !== "panel" || !job.targetId || !(job.kind === "panel_generation" || job.kind === "panel_edit"))
       return;
+    // Not while another draw of the panel is still live: the panel is that one's to move.
     await this.db.execute(sql`update panels set status = (case when active_artwork_asset_id is null then 'planned'
-      else 'ready' end)::panel_status where id = ${job.targetId} and status in ('queued', 'generating')`);
+      else 'ready' end)::panel_status where id = ${job.targetId} and status in ('queued', 'generating')
+      and not exists (select 1 from generation_jobs j where j.target_id = ${job.targetId} and j.id <> ${job.id}
+        and j.kind in ('panel_generation', 'panel_edit')
+        and j.status in ('queued', 'submitted', 'processing', 'awaiting_input', 'cancel_requested', 'paused'))`);
   }
 
   /**
