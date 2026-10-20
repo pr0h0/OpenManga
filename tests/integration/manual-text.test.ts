@@ -210,6 +210,7 @@ test("a chapter planned scene by scene parks once per call, and each paste answe
   );
   jobId = plan.job.id;
   const asked: string[] = [];
+  let previous = "";
   for (let turn = 0; turn < 20; turn++) {
     const row = await waitFor(
       async () => {
@@ -222,7 +223,11 @@ test("a chapter planned scene by scene parks once per call, and each paste answe
     // Every park must be a fresh question, never a rejection of the previous answer.
     expect(row.failureReason).toBeNull();
     asked.push(row.compiledPrompt!.match(/\[template:([a-z-]+)-v\d+\]/)?.[1] ?? "?");
-    await alice.post(`/api/generations/${jobId}/manual`, { text: chat(row.compiledPrompt!) }, 202);
+    // The previous answer sent again (a double click, a client's retry) once the job has moved on: refused, not taken
+    // as the answer to this question.
+    if (previous) await alice.post(`/api/generations/${jobId}/manual`, { text: previous }, 409);
+    previous = chat(row.compiledPrompt!);
+    await alice.post(`/api/generations/${jobId}/manual`, { text: previous }, 202);
   }
 
   const done = await jobStatus();
@@ -313,8 +318,15 @@ test("a bad answer partway through a plan drops only itself, and the plan carrie
   );
   expect((scenePark.parameters as { manualAnswers: string[] }).manualAnswers).toHaveLength(1);
 
-  // Wrong answer for the scene: the outline again, which does not fit ScenePages.
-  await alice.post(`/api/generations/${jobId}/manual`, { text: chat(outlinePrompt) }, 202);
+  // The outline answer again is refused outright: the answer just given, sent a second time.
+  await alice.post(`/api/generations/${jobId}/manual`, { text: chat(outlinePrompt) }, 409);
+  // A wrong answer for the scene: an outline, which does not fit ScenePages.
+  const wrong = JSON.parse(chat(outlinePrompt)) as Record<string, unknown>;
+  await alice.post(
+    `/api/generations/${jobId}/manual`,
+    { text: JSON.stringify({ ...wrong, note: "pasted twice" }) },
+    202,
+  );
   const rejected = await waitFor(
     async () => {
       const r = await jobStatus();
