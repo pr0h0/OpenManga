@@ -16,7 +16,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, conflict, cursorTime, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -229,6 +229,7 @@ visionRoutes.get("/image-descriptions", async (c) => {
       projectTitle: projects.title,
       status: generationJobs.status,
       createdAt: generationJobs.createdAt,
+      at: cursorTime(generationJobs.createdAt),
       input: generationJobs.input,
       result: generationJobs.result,
       failureReason: generationJobs.failureReason,
@@ -259,8 +260,9 @@ visionRoutes.get("/image-descriptions", async (c) => {
       description: (r.result as { description?: unknown } | null)?.description ?? null,
       input: undefined,
       result: undefined,
+      at: undefined,
     })),
-    nextCursor: rows.length === q.limit && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
+    nextCursor: rows.length === q.limit && last ? `${last.at}|${last.id}` : null,
   });
 });
 
