@@ -355,6 +355,7 @@ pageRoutes.post("/pages/:id/layout", async (c) => {
   if (!frames) throw badRequest("Unknown layout template");
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
+    await lockPage(tx, page.id);
     const pns = await tx.select().from(panels).where(eq(panels.pageId, page.id)).orderBy(asc(panels.order));
     const { fitted, extra } = fitPanels(pns.length, frames, project.settings.pageMargin);
     for (const [i, p] of pns.entries()) await tx.update(panels).set({ frame: fitted[i]! }).where(eq(panels.id, p.id));
@@ -417,6 +418,7 @@ pageRoutes.patch("/pages/:id/document", async (c) => {
   const input = await body(c, DocumentPatch);
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
+    if (input.panels.some((p) => p.order)) await lockPage(tx, page.id);
     for (const p of input.panels) {
       const set: Partial<typeof panels.$inferInsert> = {};
       if (p.frame) set.frame = clampFrame(p.frame);
@@ -477,6 +479,7 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   const input = await body(c, AddPanel);
   const { db } = c.get("deps");
   const created = await db.transaction(async (tx) => {
+    await lockPage(tx, page.id);
     const [max] = await tx
       .select({ n: sql<number>`coalesce(max(${panels.order}),0)::int` })
       .from(panels)
@@ -530,7 +533,7 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   return c.json({ panel: created }, 201);
 });
 
-/** Panel numbering on a page changes one request at a time (reorder, split). */
+/** Panel numbering on a page changes one request at a time: every route that writes a panel's order takes this. */
 const lockPage = (tx: DbOrTx, pageId: string) =>
   tx.select({ id: pages.id }).from(pages).where(eq(pages.id, pageId)).for("update");
 
@@ -973,6 +976,7 @@ pageRoutes.delete("/panels/:id", async (c) => {
   const { panel } = await loadPanel(c, uuidParam(c, "id"), "delete");
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
+    await lockPage(tx, panel.pageId);
     await tx.delete(panels).where(eq(panels.id, panel.id));
     const rest = await tx.select().from(panels).where(eq(panels.pageId, panel.pageId)).orderBy(asc(panels.order));
     for (const [i, p] of rest.entries())
