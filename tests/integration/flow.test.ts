@@ -502,6 +502,15 @@ describe("full production flow (mock AI)", () => {
     const before = await alice.get<{ dialogue: unknown[]; sfx: unknown[] }>(`/api/pages/${pageId}`);
     expect(before.dialogue.length + before.sfx.length).toBeGreaterThan(0);
     await bob.post(`/api/pages/${pageId}/lettering/clear`, { scope: "page" }, 404);
+    // A locked page is final: refused on its own, left as it is in a chapter-wide pass.
+    await alice.patch(`/api/pages/${pageId}`, { status: "locked" });
+    await alice.post(`/api/pages/${pageId}/lettering/clear`, { scope: "page" }, 409);
+    const skipped = await alice.post<{ bubbles: number }>(`/api/pages/${pageId}/lettering/clear`, { scope: "chapter" });
+    expect((await alice.get<{ dialogue: unknown[] }>(`/api/pages/${pageId}`)).dialogue).toHaveLength(
+      before.dialogue.length,
+    );
+    expect(skipped.bubbles).toBe(0);
+    await alice.patch(`/api/pages/${pageId}`, { status: "draft" });
     const r = await alice.post<{ bubbles: number; sfx: number; pages: number }>(
       `/api/pages/${pageId}/lettering/clear`,
       {
