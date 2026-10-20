@@ -64,6 +64,7 @@ export async function processTts(deps: WorkerDeps, bullJob: Job) {
         finishedAt: new Date(),
       })
       .where(eq(audioJobs.id, id));
+    await publish("failed", "Segment was deleted");
     return;
   }
   await deps.db

@@ -1,4 +1,5 @@
 import { AuthError } from "@openmanga/auth";
+import { type SQLWrapper, sql } from "@openmanga/db";
 import { ProviderError } from "@openmanga/domain";
 import { PlanningError } from "@openmanga/services";
 import type { Context, MiddlewareHandler } from "hono";
@@ -63,6 +64,14 @@ export function handleError(err: Error, c: Context<AppEnv>) {
       rejected ? 422 : 503,
     );
   }
+  // Drizzle's refusal of an update with nothing in it: a PATCH whose body named no field (`{}`) or only unknown ones.
+  // One check here rather than a non-empty refinement on every patch schema.
+  if (err.message === "No values to set") {
+    return c.json(
+      { error: { code: "validation_error", message: "Nothing to update: name at least one field", requestId } },
+      422,
+    );
+  }
   if (err instanceof HTTPException) {
     return c.json({ error: { code: "http_error", message: err.message, requestId } }, err.status);
   }
@@ -94,6 +103,14 @@ export async function body<T extends z.ZodType>(c: Context<AppEnv>, schema: T): 
 export function query<T extends z.ZodType>(c: Context<AppEnv>, schema: T): z.infer<T> {
   return schema.parse(c.req.query());
 }
+
+/**
+ * A timestamp to the microsecond, as the database keeps it, for a page cursor. `Date.toISOString()` keeps
+ * milliseconds, so the next page asked for rows before `.123000` and skipped every row of the same millisecond after
+ * the boundary (a bulk run's jobs share one timestamp).
+ */
+export const cursorTime = (col: SQLWrapper) =>
+  sql<string>`to_char(${col} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 export const uuidParam = (c: Context<AppEnv>, name: string) => {
   const v = c.req.param(name);

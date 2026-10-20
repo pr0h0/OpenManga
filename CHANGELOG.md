@@ -7,6 +7,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.3] — 2026-10-20
+
+Upgrading: pull the new images and restart; no migrations, no new settings. Bug fixes from a full audit and QA pass.
+
+### Fixed
+
+- Provider batches: a result that could not be stored (a storage or database hiccup) failed its job and closed the
+  batch, losing a paid image. The batch now stays open and the next poll finishes it from where it stopped: the
+  stored image is reused, usage is billed once, and the panel art or reference is activated.
+- A cancelled export is no longer rendered when its job is picked up, and a cancel during a render can no longer be
+  overwritten by the render completing. A narration line deleted mid-synthesis reports the job as failed.
+- Cancelling a draw that no worker had picked up (paused or queued) now puts its panel back to planned or ready,
+  from every cancel path, unless another draw of that panel is still live. Retrying a comparison draw no longer marks
+  the panel as queued.
+- A pasted (manual) answer sent twice, for example by a double click, is refused with 409 instead of being taken as
+  the answer to the next question.
+- Job and image lists no longer skip or repeat items across pages when several were created in the same millisecond.
+- Moving a chapter renumbers the project's chapters 1..n, and reordering panels numbers every panel on the page, so
+  no two share an order (reading order and video shot order were a toss-up). Moves and splits on one page or project
+  take turns, and so do adding and deleting a panel. A page move after an unknown page is a 404.
+- Applying lettering defaults, fitting faces and clearing lettering skip locked pages (a single locked page is a 409).
+- Bad input gets a 4xx, not a 500: an empty update, malformed form fields on vision uploads, and a malformed video
+  chapter id.
+- Web: the page editor no longer loops on a refused save, keeps a page's unsaved edits when you switch pages (and
+  resends them once if that save fails), and is read-only for locked pages and viewers. Number fields clamp when you
+  leave them instead of on every keystroke. An autosaved field saves a change made just before you leave. Opening
+  Settings no longer saves the project, and viewers see it read-only. Delete on a narration caption explains how to
+  remove it instead of failing. The image description and YouTube package spinners stop when a job is waiting for a
+  pasted answer. Repurpose labels are capped at 60 characters. The series publish date saves when you leave the field
+  (in order with Publish now and Unpublish), and the adoptable list refreshes after adopting.
+
 ## [0.19.2] — 2026-10-17
 
 Upgrading: pull the new images and restart. One migration runs on start through the migrate service

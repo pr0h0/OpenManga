@@ -20,7 +20,15 @@ import { useEffect, useState } from "react";
 import { get, patch, post } from "../../api/client.ts";
 import { qk, useAction, useMeta } from "../../api/hooks.ts";
 import type { ChapterListItem, TtsStatus } from "../../api/types.ts";
-import { ConfirmDialog, Field, PageHeader, SaveIndicator, toast, useAutosave } from "../../components/ui.tsx";
+import {
+  ConfirmDialog,
+  Field,
+  NumberInput,
+  PageHeader,
+  SaveIndicator,
+  toast,
+  useAutosave,
+} from "../../components/ui.tsx";
 import { useAiOptions } from "../ai/AiPicker.tsx";
 import { EdgePicker } from "../pages/EdgePicker.tsx";
 import { LayoutLibrary } from "../pages/LayoutLibrary.tsx";
@@ -53,10 +61,23 @@ export function SettingsPage() {
   const tts = useQuery({ queryKey: ["tts-status"], queryFn: () => get<TtsStatus>("/tts/status"), staleTime: 60_000 });
   const [form, setForm] = useState<Form | null>(null);
   const [confirm, setConfirm] = useState<null | "archive" | "trash">(null);
+  const { state, markSaved } = useAutosave(
+    form,
+    async (v) => {
+      if (!v) return;
+      // The storage policy has its own save (and owner check), and the publishing text, repurpose plan and thumbnail
+      // are written by their own screens and by jobs while this page is open: a copy from when it opened must not
+      // put old values back. None is edited here.
+      const { storage: _s, youtubePackage: _y, repurpose: _r, thumbnail: _t, ...settings } = v.settings;
+      await patch(`/projects/${projectId}`, { ...v, settings });
+      await qc.invalidateQueries({ queryKey: qk.project(projectId) });
+    },
+    { enabled: Boolean(form) && data?.role !== "viewer" },
+  );
   useEffect(() => {
     if (data && !form) {
       const p = data.project;
-      setForm({
+      const loaded = {
         title: p.title,
         description: p.description,
         projectType: p.projectType,
@@ -64,22 +85,15 @@ export function SettingsPage() {
         readingDirection: p.readingDirection,
         colorMode: p.colorMode,
         settings: p.settings,
-      });
+      };
+      // What the server has is saved already: opening the page is not an edit.
+      markSaved(loaded);
+      setForm(loaded);
     }
   }, [data, form]);
-  const { state } = useAutosave(
-    form,
-    async (v) => {
-      if (!v) return;
-      // The storage policy has its own save (and owner check); a stale copy here must not overwrite it.
-      const { storage: _storage, ...settings } = v.settings;
-      await patch(`/projects/${projectId}`, { ...v, settings });
-      await qc.invalidateQueries({ queryKey: qk.project(projectId) });
-    },
-    { enabled: Boolean(form) },
-  );
   if (!form || !data) return null;
   const owner = data.role === "owner" || data.role === "admin";
+  const viewer = data.role === "viewer";
   const s = form.settings;
   const set = (k: keyof Form, v: string) => setForm({ ...form, [k]: v });
   const setS = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K]) =>
@@ -100,10 +114,11 @@ export function SettingsPage() {
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
       <PageHeader
         title="Project settings"
-        subtitle="Changes save automatically."
+        subtitle={viewer ? "View only: you can't change this project's settings." : "Changes save automatically."}
         actions={<SaveIndicator state={state} />}
       />
-      <div className="space-y-4">
+      {/* A viewer sees the settings but can't change them (nothing they type would be saved). */}
+      <fieldset disabled={viewer} className="min-w-0 space-y-4">
         <section className="card grid gap-3 p-4 sm:grid-cols-2">
           <h2 className="font-medium sm:col-span-2">General</h2>
           <Field label="Title">
@@ -401,7 +416,7 @@ export function SettingsPage() {
             </section>
           </>
         )}
-      </div>
+      </fieldset>
       <ConfirmDialog
         open={confirm !== null}
         danger={confirm === "trash"}
@@ -452,15 +467,14 @@ export function LetteringSection({
     onChange({ ...cur, types: { ...cur.types, [t]: { ...cur.types?.[t], ...p } } });
   const setSfx = (p: Partial<SfxDefaults>) => onChange({ ...cur, sfx: { ...cur.sfx, ...p } });
   const n = (v: number, set: (v: number) => void, min: number, max: number, step = 1, label = "") => (
-    <input
+    <NumberInput
       className="input w-16 px-1 text-xs"
-      type="number"
       aria-label={label}
       min={min}
       max={max}
       step={step}
       value={v}
-      onChange={(e) => e.target.value !== "" && set(Math.min(max, Math.max(min, Number(e.target.value))))}
+      onChange={set}
     />
   );
   const font = (v: string, set: (v: string) => void, label: string) => (

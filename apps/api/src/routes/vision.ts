@@ -16,7 +16,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { badRequest, body, conflict, cursorTime, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 
@@ -99,12 +99,19 @@ visionRoutes.post("/projects/:projectId/images/describe", async (c) => {
   const p = await projectAccess(c, uuidParam(c, "projectId"), "generate");
   const up = await readImageUpload(c);
   // The rest of the body rides along as form fields, since the image makes this multipart.
+  const json = (name: string, fallback: string) => {
+    try {
+      return JSON.parse(String(up.form.get(name) ?? fallback)) as unknown;
+    } catch {
+      throw badRequest(`${name}: must be valid JSON`);
+    }
+  };
   const raw = {
-    aspects: JSON.parse(String(up.form.get("aspects") ?? "[]")) as unknown,
+    aspects: json("aspects", "[]"),
     custom: String(up.form.get("custom") ?? ""),
     note: String(up.form.get("note") ?? ""),
     batch: String(up.form.get("batch") ?? "") === "true",
-    ai: up.form.get("ai") ? (JSON.parse(String(up.form.get("ai"))) as unknown) : null,
+    ai: up.form.get("ai") ? json("ai", "null") : null,
   };
   const parsed = DescribeInput.safeParse(raw);
   if (!parsed.success) throw badRequest(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
@@ -222,6 +229,7 @@ visionRoutes.get("/image-descriptions", async (c) => {
       projectTitle: projects.title,
       status: generationJobs.status,
       createdAt: generationJobs.createdAt,
+      at: cursorTime(generationJobs.createdAt),
       input: generationJobs.input,
       result: generationJobs.result,
       failureReason: generationJobs.failureReason,
@@ -252,8 +260,9 @@ visionRoutes.get("/image-descriptions", async (c) => {
       description: (r.result as { description?: unknown } | null)?.description ?? null,
       input: undefined,
       result: undefined,
+      at: undefined,
     })),
-    nextCursor: rows.length === q.limit && last ? `${last.createdAt.toISOString()}|${last.id}` : null,
+    nextCursor: rows.length === q.limit && last ? `${last.at}|${last.id}` : null,
   });
 });
 

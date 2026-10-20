@@ -7,6 +7,7 @@ import {
   characters,
   characterVersions,
   type Database,
+  type DbOrTx,
   desc,
   dialogueLines,
   eq,
@@ -151,6 +152,8 @@ pageRoutes.post("/chapters/:id/pages", async (c) => {
   const page = await db.transaction(async (tx) => {
     const existing = await tx.select().from(pages).where(eq(pages.chapterId, chapterId)).orderBy(asc(pages.order));
     const after = input.afterPageId ? existing.find((p) => p.id === input.afterPageId) : existing.at(-1);
+    // Not a page of this chapter: inserting it first instead would be a silent guess.
+    if (input.afterPageId && !after) throw notFound("Page to insert after");
     const order = (after?.order ?? 0) + 1;
     await tx
       .update(pages)
@@ -352,6 +355,7 @@ pageRoutes.post("/pages/:id/layout", async (c) => {
   if (!frames) throw badRequest("Unknown layout template");
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
+    await lockPage(tx, page.id);
     const pns = await tx.select().from(panels).where(eq(panels.pageId, page.id)).orderBy(asc(panels.order));
     const { fitted, extra } = fitPanels(pns.length, frames, project.settings.pageMargin);
     for (const [i, p] of pns.entries()) await tx.update(panels).set({ frame: fitted[i]! }).where(eq(panels.id, p.id));
@@ -414,6 +418,7 @@ pageRoutes.patch("/pages/:id/document", async (c) => {
   const input = await body(c, DocumentPatch);
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
+    if (input.panels.some((p) => p.order)) await lockPage(tx, page.id);
     for (const p of input.panels) {
       const set: Partial<typeof panels.$inferInsert> = {};
       if (p.frame) set.frame = clampFrame(p.frame);
@@ -474,6 +479,7 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   const input = await body(c, AddPanel);
   const { db } = c.get("deps");
   const created = await db.transaction(async (tx) => {
+    await lockPage(tx, page.id);
     const [max] = await tx
       .select({ n: sql<number>`coalesce(max(${panels.order}),0)::int` })
       .from(panels)
@@ -527,6 +533,10 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   return c.json({ panel: created }, 201);
 });
 
+/** Panel numbering on a page changes one request at a time: every route that writes a panel's order takes this. */
+const lockPage = (tx: DbOrTx, pageId: string) =>
+  tx.select({ id: pages.id }).from(pages).where(eq(pages.id, pageId)).for("update");
+
 const Reorder = z.object({ panelIds: z.array(z.string().uuid()).min(1).max(50) });
 doc({
   method: "POST",
@@ -540,11 +550,21 @@ pageRoutes.post("/pages/:id/reorder-panels", async (c) => {
   const { panelIds } = await body(c, Reorder);
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
-    for (const [i, id] of panelIds.entries())
+    // The listed panels first, in that order, then the rest as they were: numbering only the listed ones left the
+    // others sharing their orders, and reading order and the video's shot order became a toss-up.
+    await lockPage(tx, page.id);
+    const all = await tx
+      .select({ id: panels.id })
+      .from(panels)
+      .where(eq(panels.pageId, page.id))
+      .orderBy(asc(panels.order), asc(panels.createdAt));
+    const listed = panelIds.filter((id, i) => panelIds.indexOf(id) === i && all.some((p) => p.id === id));
+    const ordered = [...listed, ...all.map((p) => p.id).filter((id) => !listed.includes(id))];
+    for (const [i, id] of ordered.entries())
       await tx
         .update(panels)
         .set({ order: i + 1 })
-        .where(and(eq(panels.id, id), eq(panels.pageId, page.id)));
+        .where(eq(panels.id, id));
   });
   return c.json({ ok: true });
 });
@@ -956,6 +976,7 @@ pageRoutes.delete("/panels/:id", async (c) => {
   const { panel } = await loadPanel(c, uuidParam(c, "id"), "delete");
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
+    await lockPage(tx, panel.pageId);
     await tx.delete(panels).where(eq(panels.id, panel.id));
     const rest = await tx.select().from(panels).where(eq(panels.pageId, panel.pageId)).orderBy(asc(panels.order));
     for (const [i, p] of rest.entries())
@@ -976,10 +997,14 @@ pageRoutes.post("/panels/:id/split", async (c) => {
   const { db } = c.get("deps");
   const [a, b] = splitFrame(panel.frame, direction, project.settings.pageGutter);
   const created = await db.transaction(async (tx) => {
+    await lockPage(tx, panel.pageId);
+    // Read again under the lock: a reorder may have moved it since it was loaded.
+    const [now] = await tx.select({ order: panels.order }).from(panels).where(eq(panels.id, panel.id));
+    if (!now) throw notFound("Panel");
     await tx
       .update(panels)
       .set({ order: sql`${panels.order} + 1` })
-      .where(and(eq(panels.pageId, panel.pageId), sql`${panels.order} > ${panel.order}`));
+      .where(and(eq(panels.pageId, panel.pageId), sql`${panels.order} > ${now.order}`));
     await tx.update(panels).set({ frame: a }).where(eq(panels.id, panel.id));
     const [spec] = await tx
       .select()
@@ -993,7 +1018,7 @@ pageRoutes.post("/panels/:id/split", async (c) => {
         projectId: project.id,
         pageId: panel.pageId,
         sceneId: panel.sceneId,
-        order: panel.order + 1,
+        order: now.order + 1,
         frame: b,
         shotType: panel.shotType,
         cameraAngle: panel.cameraAngle,
@@ -1622,18 +1647,30 @@ doc({
   tag: "lettering",
   body: ApplyLettering,
 });
+/**
+ * The pages a lettering pass over `scope` may change: a locked page is final, as the document save already enforces.
+ * Asked for one locked page, that is a refusal; across a chapter or the project, locked pages are left as they are.
+ */
+function unlocked<P extends { status: string }>(scope: string, page: P, scoped: P[]) {
+  if (scope === "page" && page.status === "locked") throw conflict("Page is locked");
+  return scoped.filter((p) => p.status !== "locked");
+}
+
 pageRoutes.post("/pages/:id/lettering/apply-defaults", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const input = await body(c, ApplyLettering);
   const { db } = c.get("deps");
   const lettering = resolveLettering(project.settings);
   const wants = (t: string) => !input.types || input.types.includes(t as "normal");
-  const scopePages =
+  const scopePages = unlocked(
+    input.scope,
+    page,
     input.scope === "page"
       ? [page]
       : input.scope === "chapter"
         ? await db.select().from(pages).where(eq(pages.chapterId, page.chapterId))
-        : await db.select().from(pages).where(eq(pages.projectId, project.id));
+        : await db.select().from(pages).where(eq(pages.projectId, project.id)),
+  );
   const pageIds = scopePages.map((p) => p.id);
   const size = new Map(scopePages.map((p) => [p.id, { w: p.width, h: p.height }]));
   const counts = { bubbles: 0, narration: 0, sfx: 0 };
@@ -1686,12 +1723,15 @@ pageRoutes.post("/pages/:id/lettering/fit-faces", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const { scope } = await body(c, FitFaces);
   const { db } = c.get("deps");
-  const scopePages =
+  const scopePages = unlocked(
+    scope,
+    page,
     scope === "page"
       ? [page]
       : scope === "chapter"
         ? await db.select().from(pages).where(eq(pages.chapterId, page.chapterId))
-        : await db.select().from(pages).where(eq(pages.projectId, project.id));
+        : await db.select().from(pages).where(eq(pages.projectId, project.id)),
+  );
   const pageIds = scopePages.map((p) => p.id);
   const pnls = pageIds.length ? await db.select().from(panels).where(inArray(panels.pageId, pageIds)) : [];
   const artIds = pnls.map((p) => p.activeArtworkAssetId).filter((x): x is string => Boolean(x));
@@ -1792,7 +1832,7 @@ pageRoutes.post("/pages/:id/lettering/clear", async (c) => {
       : scope === "chapter"
         ? eq(pages.chapterId, page.chapterId)
         : eq(pages.projectId, project.id);
-  const pageIds = (await db.select({ id: pages.id }).from(pages).where(where)).map((r) => r.id);
+  const pageIds = unlocked(scope, page, await db.select().from(pages).where(where)).map((r) => r.id);
   if (!pageIds.length) return c.json({ ok: true, pages: 0, bubbles: 0, sfx: 0, captions: 0 });
   const result = await db.transaction(async (tx) => {
     const bubbles = await tx

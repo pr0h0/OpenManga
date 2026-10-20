@@ -48,7 +48,7 @@ import {
   queueTextBatchSubmit,
   textRun,
 } from "../lib/ai.ts";
-import { ApiError, badRequest, body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { ApiError, badRequest, body, conflict, cursorTime, notFound, query, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
 
 export const generationRoutes = new Hono<AppEnv>();
@@ -98,6 +98,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
   const jobs = await db
     .select({
       job: generationJobs,
+      at: cursorTime(generationJobs.createdAt),
       costUsd: sql<number>`(select coalesce(sum(estimated_cost_usd),0)::float from ai_usage where generation_job_id = "generation_jobs"."id")`,
       // The latest output, and whether it has since been trashed: the job stays in the history, its image does not.
       output: sql<{
@@ -140,7 +141,7 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
     counts,
     total,
     /** Pass back as ?cursor= for the next page. Null on the last page. */
-    nextCursor: jobs.length === q.limit && last ? `${last.job.createdAt.toISOString()}|${last.job.id}` : null,
+    nextCursor: jobs.length === q.limit && last ? `${last.at}|${last.job.id}` : null,
   });
 });
 
@@ -210,14 +211,6 @@ generationRoutes.post("/generations/:id/cancel", async (c) => {
   const deps = c.get("deps");
   const result = await deps.jobs.cancelGeneration(job.id);
   if (result === "not_cancellable") throw conflict(`Job is already ${job.status}`);
-  if (result === "cancelled" && job.targetType === "panel" && job.targetId) {
-    const [pn] = await deps.db.select().from(panels).where(eq(panels.id, job.targetId));
-    if (pn && (pn.status === "queued" || pn.status === "generating"))
-      await deps.db
-        .update(panels)
-        .set({ status: pn.activeArtworkAssetId ? "ready" : "planned" })
-        .where(eq(panels.id, pn.id));
-  }
   await recordAudit(deps.db, {
     userId: user(c).id,
     projectId: job.projectId,
@@ -255,7 +248,14 @@ generationRoutes.post("/generations/:id/retry", async (c) => {
         ? "This job was already retried; follow the replacement job instead."
         : "Only failed or cancelled jobs can be retried",
     );
-  if (created.targetType === "panel" && created.targetId)
+  // As when it was first queued: only a draw moves its panel, and a comparison run never does. The worker resets a
+  // panel only after those, so a retried check or clip marked it queued for good.
+  if (
+    created.targetType === "panel" &&
+    created.targetId &&
+    (created.kind === "panel_generation" || created.kind === "panel_edit") &&
+    typeof created.parameters.compare !== "string"
+  )
     await deps.db.update(panels).set({ status: "queued" }).where(eq(panels.id, created.targetId));
   return c.json({ job: created }, 202);
 });
@@ -356,7 +356,7 @@ generationRoutes.post("/generations/:id/manual", async (c) => {
   const deps = c.get("deps");
   // Stored on the job, then requeued: the handler runs exactly as it would for a provider's reply, so the schema
   // check, the appliers and the events are the same code. Nothing here decides whether the answer is any good.
-  await deps.db
+  const [taken] = await deps.db
     .update(generationJobs)
     .set({
       status: "queued",
@@ -366,7 +366,19 @@ generationRoutes.post("/generations/:id/manual", async (c) => {
       // answer per question, in order, and every earlier answer is replayed on the next run.
       parameters: sql`${generationJobs.parameters} || jsonb_build_object('manualAnswers', coalesce(${generationJobs.parameters}->'manualAnswers', '[]'::jsonb) || jsonb_build_array(${text}::text))`,
     })
-    .where(eq(generationJobs.id, job.id));
+    // Only while it is still waiting, and never the answer just given again: a double click or a client's retry sent
+    // one answer twice, both were appended, and the copy was taken as the answer to the next question (a second scene
+    // planned as the first). The second check covers a copy that arrives after the job has moved on to that question;
+    // two questions in a row never share an answer.
+    .where(
+      and(
+        eq(generationJobs.id, job.id),
+        eq(generationJobs.status, "awaiting_input"),
+        sql`coalesce(${generationJobs.parameters}->'manualAnswers'->>-1, '') <> ${text}`,
+      ),
+    )
+    .returning({ id: generationJobs.id });
+  if (!taken) throw conflict("This answer was already given, or the job is no longer waiting for one.");
   // Keyed by attempt, because this job has already been through the queue once: the queue dedupes by job id, so
   // handing it back under the same key would be dropped. Two clicks on the same answer still collapse into one.
   await deps.jobs.enqueueGeneration(job, `${job.id}:answer:${job.attempts}`);
@@ -1038,8 +1050,6 @@ generationRoutes.post("/generations/batches/:batchId/cancel", async (c) => {
   await jobAccess(c, jobs[0]!, "generate");
   let cancelled = 0;
   for (const j of jobs) if ((await deps.jobs.cancelGeneration(j.id)) !== "not_cancellable") cancelled++;
-  await deps.db.execute(sql`update panels set status = case when active_artwork_asset_id is null then 'planned'::panel_status else 'ready'::panel_status end
-    where id in (select target_id from generation_jobs where batch_id = ${batchId} and status = 'cancelled') and status = 'queued'`);
   return c.json({ cancelled });
 });
 

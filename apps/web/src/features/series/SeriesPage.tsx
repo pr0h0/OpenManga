@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { BookCopy, Link2Off, Plus, RefreshCw, Scissors, Search } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { del, get, patch, post } from "../../api/client.ts";
 import { useAction } from "../../api/hooks.ts";
 import {
@@ -426,6 +426,8 @@ function AdoptProject({ seriesId, onDone }: { seriesId: string; onDone: () => vo
         applyProfile,
       });
       setProjectId("");
+      // It is in the series now: offering it again would only fail.
+      void projects.refetch();
       onDone();
       toast.success(`Adopted: ${r.synced.linked} linked by name, ${r.synced.created} added from the library`);
     } catch (err) {
@@ -697,10 +699,16 @@ function EpisodeSchedule({ projectId }: { projectId: string }) {
         `/projects/${projectId}/chapters`,
       ),
   });
+  // One at a time, in the order made: leaving an edited date by clicking Unpublish sends the date, then null, and
+  // the click must land last.
+  const queue = useRef(Promise.resolve());
   const set = (id: string, publishAt: string | null) =>
-    patch(`/chapters/${id}`, { publishAt })
-      .then(() => q.refetch())
-      .catch(toast.error);
+    (queue.current = queue.current.then(() =>
+      patch(`/chapters/${id}`, { publishAt })
+        .then(() => q.refetch())
+        .then(() => {})
+        .catch(toast.error),
+    ));
   // datetime-local speaks the reader's local time, without a zone.
   const local = (iso: string | null) => {
     if (!iso) return "";
@@ -714,12 +722,18 @@ function EpisodeSchedule({ projectId }: { projectId: string }) {
           <span className="mr-auto">
             {ch.order}. {ch.title}
           </span>
+          {/* Saved when the field is left, not per change: typing a year digit by digit passes through valid dates in
+              the past (0002, 0020…), and each one published the chapter until the last digit landed. */}
           <input
+            key={ch.publishAt ?? ""}
             type="datetime-local"
             className="input w-auto py-0.5 text-xs"
             aria-label={`Publish ${ch.title} at`}
-            value={local(ch.publishAt)}
-            onChange={(e) => void set(ch.id, e.target.value ? new Date(e.target.value).toISOString() : null)}
+            defaultValue={local(ch.publishAt)}
+            onBlur={(e) => {
+              if (e.target.value !== local(ch.publishAt))
+                void set(ch.id, e.target.value ? new Date(e.target.value).toISOString() : null);
+            }}
           />
           {!ch.publishAt && (
             <button

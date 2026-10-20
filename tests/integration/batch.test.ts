@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   generationJobs,
+  generationOutputs,
   inArray,
   panels,
   providerBatches,
@@ -477,6 +478,186 @@ test("a batch that answers only some of its requests fails the rest instead of p
   expect(closed!.ingestedAt).not.toBeNull();
 });
 
+test("a result that cannot be stored keeps its batch open for the next poll instead of failing", async () => {
+  const png = await mockImagePng({ width: 32, height: 32, prompt: "s" });
+  const once = new FakeBatchProvider(png);
+  once.pollBatch = async (hd) => ({
+    state: "succeeded",
+    counts: { total: hd.keys.length, completed: hd.keys.length, failed: 0 },
+    items: hd.keys.map((key) => ({
+      key,
+      ok: true as const,
+      result: {
+        data: png,
+        mime: "image/png",
+        width: 32,
+        height: 32,
+        provider: "openai",
+        model: "gpt-image-2",
+        quality: "low",
+        requestId: null,
+        latencyMs: 0,
+        usage: { textInputTokens: 1, imageInputTokens: 1, imageOutputTokens: 1, cachedInputTokens: 0, raw: {} },
+        request: { endpoint: "/v1/batches", size: "32x32", referenceCount: 0 },
+      },
+    })),
+  });
+  h.workerDeps.resolver.imageBatch = (async () => once) as typeof h.workerDeps.resolver.imageBatch;
+  const [row] = await h.deps.db
+    .insert(providerBatches)
+    .values({
+      projectId,
+      capability: "image",
+      provider: "openai",
+      model: "gpt-image-2",
+      handle: "batch_store_fails",
+      idempotencyKey: `store-${crypto.randomUUID()}`,
+      state: "pending",
+      requestCount: 1,
+      submittedAt: new Date(),
+    })
+    .returning();
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({
+      projectId,
+      kind: "panel_generation",
+      queue: "image-generation",
+      status: "submitted",
+      priority: 5,
+      targetType: "panel",
+      targetId: panelIds[2]!,
+      templateName: "panel-generation",
+      templateVersion: 6,
+      compiledPrompt: "store fails once",
+      provider: "openai",
+      model: "gpt-image-2",
+      parameters: { batchMode: true, providerBatchId: row!.id },
+    })
+    .returning();
+  // Storage is down for the first ingest.
+  const store = h.workerDeps.assets.store.bind(h.workerDeps.assets);
+  h.workerDeps.assets.store = async () => {
+    throw new Error("storage unavailable");
+  };
+  await pollProviderBatches(h.workerDeps);
+  h.workerDeps.assets.store = store;
+  const [waiting] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(waiting!.status).toBe("submitted");
+  const [open] = await h.deps.db.select().from(providerBatches).where(eq(providerBatches.id, row!.id));
+  expect(open!.ingestedAt).toBeNull();
+  expect(once.released).toBe(0);
+
+  await pollProviderBatches(h.workerDeps);
+  const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(done!.status).toBe("completed");
+  const [closed] = await h.deps.db.select().from(providerBatches).where(eq(providerBatches.id, row!.id));
+  expect(closed!.ingestedAt).not.toBeNull();
+});
+
+test("an ingest that failed after storing its image resumes on the next poll: stored once, billed once, activated", async () => {
+  const png = await mockImagePng({ width: 32, height: 32, prompt: "t" });
+  const once = new FakeBatchProvider(png);
+  once.pollBatch = async (hd) => ({
+    state: "succeeded",
+    counts: { total: hd.keys.length, completed: hd.keys.length, failed: 0 },
+    items: hd.keys.map((key) => ({
+      key,
+      ok: true as const,
+      result: {
+        data: png,
+        mime: "image/png",
+        width: 32,
+        height: 32,
+        provider: "openai",
+        model: "gpt-image-2",
+        quality: "low",
+        requestId: null,
+        latencyMs: 0,
+        usage: { textInputTokens: 1, imageInputTokens: 1, imageOutputTokens: 1, cachedInputTokens: 0, raw: {} },
+        request: { endpoint: "/v1/batches", size: "32x32", referenceCount: 0 },
+      },
+    })),
+  });
+  h.workerDeps.resolver.imageBatch = (async () => once) as typeof h.workerDeps.resolver.imageBatch;
+  const [row] = await h.deps.db
+    .insert(providerBatches)
+    .values({
+      projectId,
+      capability: "image",
+      provider: "openai",
+      model: "gpt-image-2",
+      handle: "batch_usage_fails",
+      idempotencyKey: `usage-${crypto.randomUUID()}`,
+      state: "pending",
+      requestCount: 1,
+      submittedAt: new Date(),
+    })
+    .returning();
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({
+      projectId,
+      kind: "panel_generation",
+      queue: "image-generation",
+      status: "submitted",
+      priority: 5,
+      targetType: "panel",
+      targetId: panelIds[2]!,
+      templateName: "panel-generation",
+      templateVersion: 6,
+      compiledPrompt: "usage fails once",
+      provider: "openai",
+      model: "gpt-image-2",
+      parameters: { batchMode: true, providerBatchId: row!.id },
+    })
+    .returning();
+  // The image is stored, then recording what it cost fails.
+  const record = h.workerDeps.usage.record.bind(h.workerDeps.usage);
+  h.workerDeps.usage.record = async () => {
+    throw new Error("usage write failed");
+  };
+  await pollProviderBatches(h.workerDeps);
+  h.workerDeps.usage.record = record;
+  const [waiting] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(waiting!.status).toBe("submitted");
+
+  await pollProviderBatches(h.workerDeps);
+  const [done] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, job!.id));
+  expect(done!.status).toBe("completed");
+  const outputs = await h.deps.db.select().from(generationOutputs).where(eq(generationOutputs.jobId, job!.id));
+  expect(outputs).toHaveLength(1);
+  expect(outputs[0]!.activated).toBe(true);
+  expect(await h.deps.db.select().from(aiUsage).where(eq(aiUsage.generationJobId, job!.id))).toHaveLength(1);
+  const [pn] = await h.deps.db.select().from(panels).where(eq(panels.id, panelIds[2]!));
+  expect(pn!.activeArtworkAssetId).toBe(outputs[0]!.assetId);
+});
+
+test("cancelling a draw no worker has picked up puts its panel back", async () => {
+  // Paused on a budget: the job never reached a worker, which is what resets a panel for a job it runs.
+  const panelId = panelIds[0]!;
+  await h.deps.db.update(panels).set({ status: "queued" }).where(eq(panels.id, panelId));
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({
+      projectId,
+      kind: "panel_generation",
+      queue: "image-generation",
+      status: "paused",
+      priority: 5,
+      targetType: "panel",
+      targetId: panelId,
+      templateName: "panel-generation",
+      templateVersion: 6,
+      compiledPrompt: "paused draw",
+      parameters: {},
+    })
+    .returning();
+  expect(await h.deps.jobs.cancelGeneration(job!.id)).toBe("cancelled");
+  const [pn] = await h.deps.db.select().from(panels).where(eq(panels.id, panelId));
+  expect(pn!.status).toBe(pn!.activeArtworkAssetId ? "ready" : "planned");
+});
+
 test("replaying a text answer clears the batch marker, so no sweep can resubmit it", async () => {
   const jobs = await h.deps.db
     .select()
@@ -534,4 +715,39 @@ test("two runners racing the same job run its handler once", async () => {
   // And a redelivery after the work is done stays done instead of running again.
   await runGenerationJob(h.workerDeps, delivery, handler);
   expect(calls).toBe(1);
+});
+
+test("paging the job list returns every job once, even jobs created in the same millisecond", async () => {
+  // A bulk run writes its jobs in one transaction: one timestamp, to the microsecond, shared by all of them.
+  const at = "2020-01-01T00:00:00.123456Z";
+  const made = await h.deps.db
+    .insert(generationJobs)
+    .values(
+      [1, 2, 3, 4].map((n) => ({
+        projectId,
+        kind: "panel_check" as const,
+        queue: "text-ai",
+        status: "completed" as const,
+        priority: 5,
+        templateName: "panel-check",
+        templateVersion: 1,
+        compiledPrompt: `same instant ${n}`,
+        createdAt: new Date(at),
+      })),
+    )
+    .returning({ id: generationJobs.id });
+  await h.deps.db.execute(
+    sql`update generation_jobs set created_at = ${at}::timestamptz where id in ${sql.raw(`('${made.map((m) => m.id).join("','")}')`)}`,
+  );
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: { jobs: { id: string }[]; nextCursor: string | null } = await alice.get(
+      `/api/projects/${projectId}/generations?kind=panel_check&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    seen.push(...page.jobs.map((j) => j.id));
+    cursor = page.nextCursor;
+  } while (cursor);
+  expect(seen.filter((id) => made.some((m) => m.id === id)).sort()).toEqual(made.map((m) => m.id).sort());
+  expect(new Set(seen).size).toBe(seen.length);
 });

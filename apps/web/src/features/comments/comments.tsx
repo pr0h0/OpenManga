@@ -405,7 +405,6 @@ function PinBoard({
     </span>
   );
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: picking a spot is pointer-only; the comment works without one.
     <div
       className={`relative overflow-hidden rounded-lg border border-[var(--border)] ${picking ? "cursor-crosshair ring-2 ring-accent-500" : ""}`}
       onClick={(e) => {

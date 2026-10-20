@@ -350,19 +350,49 @@ export async function referenceGeneration(deps: WorkerDeps, job: ProjectJob) {
  * primary if it is the first — and tell the page. Shared by a direct run and a provider batch, so a reference that
  * came back in a batch is indistinguishable from one generated on the spot.
  */
-export async function attachReference(deps: WorkerDeps, job: ProjectJob, r: ImageResult) {
+export async function attachReference(
+  deps: WorkerDeps,
+  job: ProjectJob,
+  r: ImageResult,
+  /** Already stored by an earlier attempt that failed after storing it (a batch ingest retried). */
+  stored: Awaited<ReturnType<WorkerDeps["assets"]["get"]>> = null,
+) {
   const subject = String(job.input.subject) as "character" | "location" | "prop" | "style";
   const versionId = String(job.input.versionId);
   const kind = String(job.input.kind) as ReferenceKind;
-  const { asset, cancelled } = await finalizeOutput(
-    deps,
-    job,
-    r,
-    SUBJECT_ASSET[job.kind]!,
-    { subject, subjectVersionId: versionId, referenceKind: kind, canonical: true },
-    null,
-  );
+  const { asset, cancelled } = stored
+    ? { asset: stored, cancelled: await isCancelRequested(deps, job.id) }
+    : await finalizeOutput(
+        deps,
+        job,
+        r,
+        SUBJECT_ASSET[job.kind]!,
+        { subject, subjectVersionId: versionId, referenceKind: kind, canonical: true },
+        null,
+      );
   if (cancelled) return { asset, cancelled, referenceId: null };
+  const [attached] = stored
+    ? await deps.db
+        .select({ id: referenceAssets.id })
+        .from(referenceAssets)
+        .where(eq(referenceAssets.assetId, asset.id))
+    : [];
+  const referenceId = attached?.id ?? (await insertReference(deps, job, asset.id));
+  // Repeated on a retry too: a run that failed after the insert still marks the output active and tells the page.
+  await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));
+  await deps.events.publish(job.projectId, {
+    type: "reference.updated",
+    subjectType: subject,
+    subjectVersionId: versionId,
+    assetId: asset.id,
+  });
+  return { asset, cancelled, referenceId };
+}
+
+async function insertReference(deps: WorkerDeps, job: ProjectJob, assetId: string) {
+  const subject = String(job.input.subject) as "character" | "location" | "prop" | "style";
+  const versionId = String(job.input.versionId);
+  const kind = String(job.input.kind) as ReferenceKind;
   const col =
     subject === "character"
       ? referenceAssets.characterVersionId
@@ -387,19 +417,12 @@ export async function attachReference(deps: WorkerDeps, job: ProjectJob, r: Imag
       outfitId: (job.input.outfitId as string | null) ?? null,
       locationStateId: (job.input.locationStateId as string | null | undefined) ?? null,
       kind,
-      assetId: asset.id,
+      assetId,
       isPrimary: !primary && kind !== "expression_sheet",
       sourceFingerprint: (job.input.sourceFingerprint as string | null | undefined) ?? null,
     })
     .returning();
-  await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));
-  await deps.events.publish(job.projectId, {
-    type: "reference.updated",
-    subjectType: subject,
-    subjectVersionId: versionId,
-    assetId: asset.id,
-  });
-  return { asset, cancelled, referenceId: ref!.id };
+  return ref!.id;
 }
 
 export async function coverGeneration(deps: WorkerDeps, job: ProjectJob) {

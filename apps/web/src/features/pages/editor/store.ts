@@ -1,6 +1,6 @@
 import type { Bubble, Frame, ImageTransform, SfxStyle } from "@openmanga/schemas";
 import { create } from "zustand";
-import { patch } from "../../../api/client.ts";
+import { ApiError, patch } from "../../../api/client.ts";
 import type { PageDocument } from "../../../api/types.ts";
 import { toast } from "../../../components/ui.tsx";
 
@@ -90,6 +90,32 @@ type State = {
 };
 
 let timer: ReturnType<typeof setTimeout> | undefined;
+/** The save on its way, so a page switch can send the old page's queued edits after it rather than racing it. */
+let saving: Promise<unknown> | null = null;
+/** Each page left and its document as it was then, the newest copy of its edits (a few per session). */
+const left = new Map<string, EditorDoc>();
+/**
+ * Per page, the edits of a failed save that a delayed retry will resend: each key with the document holding its value
+ * when the save failed, less any key a newer save already sent.
+ */
+const retries = new Map<string, Map<string, EditorDoc>>();
+
+/** The document request for the edits under `keys`. */
+function bodyOf(doc: EditorDoc, keys: string[]) {
+  const has = (k: "panels" | "bubbles" | "sfx", id: string) => keys.includes(key(k, id));
+  return {
+    panels: doc.panels
+      .filter((p) => has("panels", p.id))
+      .map((p) => ({ id: p.id, frame: p.frame, imageTransform: p.imageTransform, order: p.order })),
+    dialogue: doc.bubbles
+      .filter((b) => b.kind === "dialogue" && has("bubbles", b.id))
+      .map((b) => ({ id: b.id, bubble: b.bubble, text: b.text })),
+    narration: doc.bubbles
+      .filter((b) => b.kind === "narration" && has("bubbles", b.id))
+      .map((b) => ({ id: b.id, box: b.bubble })),
+    sfx: doc.sfx.filter((x) => has("sfx", x.id)).map((x) => ({ id: x.id, style: x.style, text: x.text })),
+  };
+}
 
 export const useEditor = create<State>((set, get) => ({
   pageId: null,
@@ -113,6 +139,16 @@ export const useEditor = create<State>((set, get) => ({
     const s = get();
     const next = docFromServer(d);
     if (s.pageId !== pageId) {
+      if (s.pageId) left.set(s.pageId, s.doc);
+      // Edits still queued for the page being left (a save was on its way, so the leave-time flush skipped them):
+      // send them after that save instead of dropping them with the old document.
+      if (s.pageId && s.pending.size) {
+        const [old, body] = [s.pageId, bodyOf(s.doc, [...s.pending])];
+        void (saving ?? Promise.resolve())
+          .catch(() => {})
+          .then(() => patch(`/pages/${old}/document`, body))
+          .catch((e) => toast.error(e));
+      }
       // Open on the panel a link names (a comment, a storyboard card), else the first, so the Panel/Prompt/Versions
       // tabs have something to show.
       const first = next.panels.find((p) => p.id === panelId) ?? [...next.panels].sort((x, y) => x.order - y.order)[0];
@@ -196,27 +232,57 @@ export const useEditor = create<State>((set, get) => ({
     if (!s.pageId || !s.pending.size || s.inFlight) return;
     const keys = [...s.pending];
     set({ pending: new Set(), inFlight: true, saveState: "saving" });
-    const has = (k: "panels" | "bubbles" | "sfx", id: string) => keys.includes(key(k, id));
-    const body = {
-      panels: s.doc.panels
-        .filter((p) => has("panels", p.id))
-        .map((p) => ({ id: p.id, frame: p.frame, imageTransform: p.imageTransform, order: p.order })),
-      dialogue: s.doc.bubbles
-        .filter((b) => b.kind === "dialogue" && has("bubbles", b.id))
-        .map((b) => ({ id: b.id, bubble: b.bubble, text: b.text })),
-      narration: s.doc.bubbles
-        .filter((b) => b.kind === "narration" && has("bubbles", b.id))
-        .map((b) => ({ id: b.id, box: b.bubble })),
-      sfx: s.doc.sfx.filter((x) => has("sfx", x.id)).map((x) => ({ id: x.id, style: x.style, text: x.text })),
-    };
     try {
-      await patch(`/pages/${s.pageId}/document`, body);
+      saving = patch(`/pages/${s.pageId}/document`, bodyOf(s.doc, keys));
+      await saving;
+      for (const k of keys) retries.get(s.pageId)?.delete(k);
       set({ inFlight: false, saveState: get().pending.size ? "saving" : "saved" });
       get().onSaved?.();
     } catch (e) {
+      toast.error(e);
+      // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
+      // resending it three times a second. A network or server error is tried again after a pause.
+      const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
+      // Another page is open now: its queue and document are not where these edits belong, so they are resent once
+      // on their own.
+      if (get().pageId !== s.pageId) {
+        set({ inFlight: false });
+        const page = s.pageId;
+        // From the document as it was left, not as it was sent, so a later edit of the same panel isn't undone.
+        const doc = left.get(page) ?? s.doc;
+        const queued = retries.get(page);
+        if (!refused && queued) for (const k of keys) queued.set(k, doc);
+        else if (!refused) {
+          retries.set(page, new Map(keys.map((k) => [k, doc])));
+          setTimeout(async () => {
+            // After a save of this page already on its way, which may cover some of these.
+            await (saving ?? Promise.resolve()).catch(() => {});
+            const rest = [...(retries.get(page) ?? [])];
+            retries.delete(page);
+            if (!rest.length) return;
+            const parts = rest.map(([k, d]) => bodyOf(d, [k]));
+            const edits = {
+              panels: parts.flatMap((b) => b.panels),
+              dialogue: parts.flatMap((b) => b.dialogue),
+              narration: parts.flatMap((b) => b.narration),
+              sfx: parts.flatMap((b) => b.sfx),
+            };
+            patch(`/pages/${page}/document`, edits).catch((err) => toast.error(err));
+          }, 5000);
+        }
+        // Its own edits may have waited on this save (a flush finds one in flight and returns): send them now.
+        if (get().pending.size) schedule();
+        return;
+      }
       // Put keys back so the next edit retries them; never silently drop changes.
       set((st) => ({ inFlight: false, saveState: "error", pending: new Set([...st.pending, ...keys]) }));
-      toast.error(e);
+      if (!refused) {
+        clearTimeout(timer);
+        timer = setTimeout(() => void useEditor.getState().flush(), 5000);
+      }
+      return;
+    } finally {
+      saving = null;
     }
     if (get().pending.size) schedule();
   },
