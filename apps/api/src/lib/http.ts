@@ -63,6 +63,14 @@ export function handleError(err: Error, c: Context<AppEnv>) {
       rejected ? 422 : 503,
     );
   }
+  // Drizzle's refusal of an update with nothing in it: a PATCH whose body named no field (`{}`) or only unknown ones.
+  // One check here rather than a non-empty refinement on every patch schema.
+  if (err.message === "No values to set") {
+    return c.json(
+      { error: { code: "validation_error", message: "Nothing to update: name at least one field", requestId } },
+      422,
+    );
+  }
   if (err instanceof HTTPException) {
     return c.json({ error: { code: "http_error", message: err.message, requestId } }, err.status);
   }

@@ -633,6 +633,31 @@ test("an ingest that failed after storing its image resumes on the next poll: st
   expect(pn!.activeArtworkAssetId).toBe(outputs[0]!.assetId);
 });
 
+test("cancelling a draw no worker has picked up puts its panel back", async () => {
+  // Paused on a budget: the job never reached a worker, which is what resets a panel for a job it runs.
+  const panelId = panelIds[0]!;
+  await h.deps.db.update(panels).set({ status: "queued" }).where(eq(panels.id, panelId));
+  const [job] = await h.deps.db
+    .insert(generationJobs)
+    .values({
+      projectId,
+      kind: "panel_generation",
+      queue: "image-generation",
+      status: "paused",
+      priority: 5,
+      targetType: "panel",
+      targetId: panelId,
+      templateName: "panel-generation",
+      templateVersion: 6,
+      compiledPrompt: "paused draw",
+      parameters: {},
+    })
+    .returning();
+  expect(await h.deps.jobs.cancelGeneration(job!.id)).toBe("cancelled");
+  const [pn] = await h.deps.db.select().from(panels).where(eq(panels.id, panelId));
+  expect(pn!.status).toBe(pn!.activeArtworkAssetId ? "ready" : "planned");
+});
+
 test("replaying a text answer clears the batch marker, so no sweep can resubmit it", async () => {
   const jobs = await h.deps.db
     .select()

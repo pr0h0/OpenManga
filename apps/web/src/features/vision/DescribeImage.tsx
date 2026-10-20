@@ -227,6 +227,9 @@ export function DescribeImage({
         }
         if (["failed", "cancelled"].includes(d.job.status))
           throw new Error(d.job.failureReason ?? "The description job did not finish");
+        // Paste mode: the job waits for a person, so polling here only runs out the clock.
+        if (d.job.status === "awaiting_input")
+          throw new Error("The description is waiting for your pasted answer: answer it on the Generation page");
         if (Date.now() > deadline) throw new Error("Still running — check the Generation page for the result");
       }
       await qc.invalidateQueries({ queryKey: qk.assets(projectId) }).catch(() => {});

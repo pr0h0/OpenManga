@@ -400,7 +400,7 @@ export async function videoCardResponse(
   cacheControl: string,
   chapterOk: (chapterId: string) => boolean = () => true,
 ) {
-  const chapterId = /^chapter-([0-9a-f-]{36})$/.exec(which)?.[1];
+  const chapterId = /^chapter-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(which)?.[1];
   if (which !== "intro" && which !== "outro" && !(chapterId && chapterOk(chapterId))) throw notFound("Card");
   const { frameW, frameH } = frameSizeFor(q.height, q.aspect);
   const png = await renderProjectVideoCard(

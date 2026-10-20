@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { ChevronLeft, ChevronRight, Columns2, Rows3, Rss } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { get } from "../../api/client.ts";
-import { ErrorBox, fmt, Spinner } from "../../components/ui.tsx";
+import { ErrorBox, Spinner } from "../../components/ui.tsx";
 
 type Chapter = { id: string; order: number; title: string; summary: string; publishAt: string; available: boolean };
 type Series = {
