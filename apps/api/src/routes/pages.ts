@@ -477,6 +477,7 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   const input = await body(c, AddPanel);
   const { db } = c.get("deps");
   const created = await db.transaction(async (tx) => {
+    await lockPage(tx, page.id);
     const [max] = await tx
       .select({ n: sql<number>`coalesce(max(${panels.order}),0)::int` })
       .from(panels)
@@ -530,7 +531,7 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   return c.json({ panel: created }, 201);
 });
 
-/** Panel numbering on a page changes one request at a time (reorder, split). */
+/** Panel numbering on a page changes one request at a time (add, delete, reorder, split). */
 const lockPage = (tx: DbOrTx, pageId: string) =>
   tx.select({ id: pages.id }).from(pages).where(eq(pages.id, pageId)).for("update");
 
@@ -973,6 +974,7 @@ pageRoutes.delete("/panels/:id", async (c) => {
   const { panel } = await loadPanel(c, uuidParam(c, "id"), "delete");
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
+    await lockPage(tx, panel.pageId);
     await tx.delete(panels).where(eq(panels.id, panel.id));
     const rest = await tx.select().from(panels).where(eq(panels.pageId, panel.pageId)).orderBy(asc(panels.order));
     for (const [i, p] of rest.entries())
