@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { eq, exportJobs } from "@openmanga/db";
+import { processExport } from "../../apps/worker/src/handlers/export.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
 const STORY = `Chapter 1: Rooftop
@@ -117,3 +119,24 @@ test("an export with a target is checked against the files it made", async () =>
   );
   expect(t.result?.targetCheck?.issues.map((i) => i.code)).toContain("image_too_tall");
 }, 300_000);
+
+// A running export that is asked to stop and then redelivered (a restart) used to be set back to "processing".
+test("an export cancelled after the worker took it off the queue is not rendered", async () => {
+  const job = (status: "cancelled" | "cancel_requested") =>
+    h.deps.db
+      .insert(exportJobs)
+      .values({ projectId, kind: "pdf", options: { chapterId }, status })
+      .returning()
+      .then((r) => r[0]!);
+  const bull = (id: string) =>
+    ({ data: { exportJobId: id }, attemptsMade: 0, opts: { attempts: 1 } }) as unknown as Parameters<
+      typeof processExport
+    >[1];
+  for (const status of ["cancelled", "cancel_requested"] as const) {
+    const row = await job(status);
+    expect(await processExport(h.workerDeps, bull(row.id))).toBeUndefined();
+    const [after] = await h.deps.db.select().from(exportJobs).where(eq(exportJobs.id, row.id));
+    expect(after!.status).toBe("cancelled");
+    expect(after!.startedAt).toBeNull();
+  }
+});

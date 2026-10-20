@@ -151,10 +151,22 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
   const opts = job.options as unknown as Opts;
   const publish = (status: string, progress: number, failureReason?: string | null) =>
     deps.events.publish(job.projectId, { type: "export.updated", exportJobId: id, status, progress, failureReason });
-  await deps.db
+  // Only from a state that may run: a cancel written after the read above (the worker had already taken the job off
+  // its queue, so the cancel could not remove it) must not be overwritten by "processing" and rendered anyway.
+  const [started] = await deps.db
     .update(exportJobs)
     .set({ status: "processing", startedAt: new Date(), attempts: sql`${exportJobs.attempts} + 1` })
-    .where(eq(exportJobs.id, id));
+    .where(and(eq(exportJobs.id, id), inArray(exportJobs.status, ["queued", "processing"])))
+    .returning({ id: exportJobs.id });
+  if (!started) {
+    const [cancelled] = await deps.db
+      .update(exportJobs)
+      .set({ status: "cancelled", finishedAt: new Date() })
+      .where(and(eq(exportJobs.id, id), eq(exportJobs.status, "cancel_requested")))
+      .returning({ id: exportJobs.id });
+    if (cancelled) await publish("cancelled", job.progress);
+    return;
+  }
   await publish("processing", 0);
   const progress = async (p: number) => {
     const [row] = await deps.db
@@ -162,7 +174,8 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
       .set({ progress: p })
       .where(eq(exportJobs.id, id))
       .returning({ status: exportJobs.status });
-    if (row?.status === "cancel_requested") throw new ExportCancelled();
+    // "cancelled" too: a redelivery that found the cancel request (this runner looked dead) has already closed it.
+    if (row?.status === "cancel_requested" || row?.status === "cancelled") throw new ExportCancelled();
     await publish("processing", p);
   };
   try {
@@ -250,10 +263,13 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
             expiresAt: new Date(Date.now() + 30 * 86400_000),
           });
         }
-        await tx
+        // Only a job still running is completed; one cancelled meanwhile rolls back its files with this transaction.
+        const [done] = await tx
           .update(exportJobs)
           .set({ status: "completed", progress: 1, finishedAt: new Date(), failureReason: null })
-          .where(eq(exportJobs.id, id));
+          .where(and(eq(exportJobs.id, id), eq(exportJobs.status, "processing")))
+          .returning({ id: exportJobs.id });
+        if (!done) throw new ExportCancelled();
       });
       return files;
     });

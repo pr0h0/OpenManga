@@ -11,7 +11,19 @@
  */
 
 import type { BatchItemResult, BatchRequestSpec, ImageBatchProvider } from "@openmanga/ai-image";
-import { and, eq, generationJobs, inArray, isNull, lt, panels, providerBatches, sql } from "@openmanga/db";
+import {
+  aiUsage,
+  and,
+  eq,
+  generationJobs,
+  generationOutputs,
+  inArray,
+  isNull,
+  lt,
+  panels,
+  providerBatches,
+  sql,
+} from "@openmanga/db";
 import { batchModel, hashOf } from "@openmanga/domain";
 import type { AiChoice } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
@@ -24,7 +36,7 @@ import {
   roundSuffix,
   waitForBatchRoom,
 } from "../lib/batch-wait.ts";
-import { type GenerationJob, inProject, pausedByBudget } from "../lib/runner.ts";
+import { type GenerationJob, inProject, isCancelRequested, pausedByBudget } from "../lib/runner.ts";
 import {
   activatePanelArt,
   attachReference,
@@ -344,6 +356,7 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
   }
 
   const byId = new Map(jobs.map((j) => [j.id, j]));
+  let ingestErrors = 0;
   for (const item of status.items ?? []) {
     const job = byId.get(item.key);
     if (!job) {
@@ -365,8 +378,13 @@ async function pollOne(deps: WorkerDeps, row: BatchRow, result: { ingested: numb
       }
     } catch (e) {
       deps.logger.error("batch ingest failed", { jobId: job.id, error: e instanceof Error ? e.message : String(e) });
+      ingestErrors++;
     }
   }
+  // A result that came back but could not be stored (storage down, a deploy mid-ingest) is paid for: leave the batch
+  // open so the next poll retries it, as a text batch does. Ingested jobs are no longer `submitted` and are skipped;
+  // the caller abandons the batch once it is too old to keep trying.
+  if (ingestErrors) throw new Error(`${ingestErrors} batch result(s) could not be stored; retrying on the next poll`);
   // Whatever the batch did not answer for — an expired or cancelled batch still returns the requests that did
   // finish, so a non-empty item list is no proof every key came back.
   const stranded = await deps.db
@@ -442,12 +460,24 @@ async function finishCancelledBatchJob(deps: WorkerDeps, job: GenerationJob) {
 async function ingestOne(deps: WorkerDeps, row: GenerationJob, item: Extract<BatchItemResult, { ok: true }>) {
   const job = inProject(row);
   const inputs = await inputsOf(deps, job.id);
+  // A retry of an ingest that failed part-way (the next poll after storage, a deploy or a write failed): what was
+  // stored and billed then is reused, and only the steps still missing run. One provider result per job, so one
+  // usage row and one output per job.
+  const [stored] = await deps.db.select().from(generationOutputs).where(eq(generationOutputs.jobId, job.id)).limit(1);
+  const kept = stored ? await deps.assets.get(stored.assetId) : null;
+  const [billed] = await deps.db
+    .select({ id: aiUsage.id })
+    .from(aiUsage)
+    .where(eq(aiUsage.generationJobId, job.id))
+    .limit(1);
   // Recorded against the ":batch" model so the discounted price is what the run is charged.
-  const usage = () => recordImageUsage(deps, job, { ...item.result, model: batchModel(item.result.model) }, inputs);
+  const usage = async () => {
+    if (!billed) await recordImageUsage(deps, job, { ...item.result, model: batchModel(item.result.model) }, inputs);
+  };
   if (job.kind !== "panel_generation") {
     // A reference: the same finishing step as a direct run, so it lands as a draft reference on its version.
+    const { asset, cancelled } = await attachReference(deps, job, item.result, kept);
     await usage();
-    const { asset, cancelled } = await attachReference(deps, job, item.result);
     return finishIngested(deps, job, asset.id, item.result, cancelled);
   }
   // The same panel metadata a direct run records: the Versions tab finds a panel's artwork by `panelId`, so without it
@@ -455,28 +485,30 @@ async function ingestOne(deps: WorkerDeps, row: GenerationJob, item: Extract<Bat
   const [panel] = job.targetId
     ? await deps.db.select({ pageId: panels.pageId }).from(panels).where(eq(panels.id, job.targetId))
     : [];
-  const { asset, cancelled } = await finalizeOutput(
-    deps,
-    job,
-    item.result,
-    "panel_art",
-    {
-      batch: true,
-      panelId: job.targetId,
-      pageId: panel?.pageId ?? null,
-      operation: job.parameters.operation ?? null,
-      referenceInputs: inputs.map((i) => ({
-        role: i.role,
-        assetId: i.assetId,
-        variantId: i.variantId,
-        width: i.width,
-        height: i.height,
-      })),
-    },
-    (job.parameters.parentAssetId as string | null) ?? null,
-  );
+  const { asset, cancelled } = kept
+    ? { asset: kept, cancelled: await isCancelRequested(deps, job.id) }
+    : await finalizeOutput(
+        deps,
+        job,
+        item.result,
+        "panel_art",
+        {
+          batch: true,
+          panelId: job.targetId,
+          pageId: panel?.pageId ?? null,
+          operation: job.parameters.operation ?? null,
+          referenceInputs: inputs.map((i) => ({
+            role: i.role,
+            assetId: i.assetId,
+            variantId: i.variantId,
+            width: i.width,
+            height: i.height,
+          })),
+        },
+        (job.parameters.parentAssetId as string | null) ?? null,
+      );
   await usage();
-  if (!cancelled && job.targetId) {
+  if (!cancelled && job.targetId && !stored?.activated) {
     await activatePanelArt(deps, job, job.targetId, asset.id, null);
     // Same follow-up as the synchronous handler: without this a batched project silently loses its vision QA.
     await maybeQueuePanelCheck(deps, job, job.targetId, asset.id).catch((e) =>
