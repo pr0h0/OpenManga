@@ -377,7 +377,22 @@ export async function attachReference(
         .from(referenceAssets)
         .where(eq(referenceAssets.assetId, asset.id))
     : [];
-  if (attached) return { asset, cancelled, referenceId: attached.id };
+  const referenceId = attached?.id ?? (await insertReference(deps, job, asset.id));
+  // Repeated on a retry too: a run that failed after the insert still marks the output active and tells the page.
+  await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));
+  await deps.events.publish(job.projectId, {
+    type: "reference.updated",
+    subjectType: subject,
+    subjectVersionId: versionId,
+    assetId: asset.id,
+  });
+  return { asset, cancelled, referenceId };
+}
+
+async function insertReference(deps: WorkerDeps, job: ProjectJob, assetId: string) {
+  const subject = String(job.input.subject) as "character" | "location" | "prop" | "style";
+  const versionId = String(job.input.versionId);
+  const kind = String(job.input.kind) as ReferenceKind;
   const col =
     subject === "character"
       ? referenceAssets.characterVersionId
@@ -402,19 +417,12 @@ export async function attachReference(
       outfitId: (job.input.outfitId as string | null) ?? null,
       locationStateId: (job.input.locationStateId as string | null | undefined) ?? null,
       kind,
-      assetId: asset.id,
+      assetId,
       isPrimary: !primary && kind !== "expression_sheet",
       sourceFingerprint: (job.input.sourceFingerprint as string | null | undefined) ?? null,
     })
     .returning();
-  await deps.db.update(generationOutputs).set({ activated: true }).where(eq(generationOutputs.assetId, asset.id));
-  await deps.events.publish(job.projectId, {
-    type: "reference.updated",
-    subjectType: subject,
-    subjectVersionId: versionId,
-    assetId: asset.id,
-  });
-  return { asset, cancelled, referenceId: ref!.id };
+  return ref!.id;
 }
 
 export async function coverGeneration(deps: WorkerDeps, job: ProjectJob) {
