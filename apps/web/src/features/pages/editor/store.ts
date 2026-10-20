@@ -92,6 +92,8 @@ type State = {
 let timer: ReturnType<typeof setTimeout> | undefined;
 /** The save on its way, so a page switch can send the old page's queued edits after it rather than racing it. */
 let saving: Promise<unknown> | null = null;
+/** The page last left and its document as it was then, the newest copy of its edits. */
+let left: { pageId: string; doc: EditorDoc } | null = null;
 
 /** The document request for the edits under `keys`. */
 function bodyOf(doc: EditorDoc, keys: string[]) {
@@ -132,6 +134,7 @@ export const useEditor = create<State>((set, get) => ({
     const s = get();
     const next = docFromServer(d);
     if (s.pageId !== pageId) {
+      if (s.pageId) left = { pageId: s.pageId, doc: s.doc };
       // Edits still queued for the page being left (a save was on its way, so the leave-time flush skipped them):
       // send them after that save instead of dropping them with the old document.
       if (s.pageId && s.pending.size) {
@@ -231,18 +234,24 @@ export const useEditor = create<State>((set, get) => ({
       get().onSaved?.();
     } catch (e) {
       toast.error(e);
-      // Another page is open now: its queue and document are not where these edits belong.
+      // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
+      // resending it three times a second. A network or server error is tried again after a pause.
+      const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
+      // Another page is open now: its queue and document are not where these edits belong, so they are resent once
+      // on their own.
       if (get().pageId !== s.pageId) {
         set({ inFlight: false });
+        const url = `/pages/${s.pageId}/document`;
+        // From the document as it was left, not as it was sent: a later edit of the same panel then goes out again
+        // with it rather than being overwritten by this older copy.
+        const edits = bodyOf(left?.pageId === s.pageId ? left.doc : s.doc, keys);
+        if (!refused) setTimeout(() => patch(url, edits).catch((err) => toast.error(err)), 5000);
         // Its own edits may have waited on this save (a flush finds one in flight and returns): send them now.
         if (get().pending.size) schedule();
         return;
       }
       // Put keys back so the next edit retries them; never silently drop changes.
       set((st) => ({ inFlight: false, saveState: "error", pending: new Set([...st.pending, ...keys]) }));
-      // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
-      // resending it three times a second. A network or server error is tried again after a pause.
-      const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
       if (!refused) {
         clearTimeout(timer);
         timer = setTimeout(() => void useEditor.getState().flush(), 5000);
