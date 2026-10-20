@@ -48,11 +48,12 @@ export function YoutubePackageCard() {
         if (
           e.type === "job.updated" &&
           e.kind === "youtube_package" &&
-          (e.status === "completed" || e.status === "failed")
+          (["completed", "failed", "cancelled", "awaiting_input"] as unknown[]).includes(e.status)
         ) {
           setWriting(false);
           void qc.invalidateQueries({ queryKey: qk.project(projectId), exact: true });
           if (e.status === "failed") toast.error("The YouTube package could not be written");
+          if (e.status === "awaiting_input") toast.info("Waiting for your pasted answer on the Generation page");
         }
       }),
     [projectId, qc],
@@ -78,9 +79,13 @@ export function YoutubePackageCard() {
   const applyHeadline = async (h: string) => {
     const t = data?.project.settings.thumbnail;
     if (!t) return toast.info("Generate a thumbnail on the overview first");
-    await patch(`/projects/${projectId}`, { settings: { thumbnail: { ...t, title: h } } });
-    await qc.invalidateQueries({ queryKey: qk.project(projectId), exact: true });
-    toast.success("Thumbnail headline updated");
+    try {
+      await patch(`/projects/${projectId}`, { settings: { thumbnail: { ...t, title: h } } });
+      await qc.invalidateQueries({ queryKey: qk.project(projectId), exact: true });
+      toast.success("Thumbnail headline updated");
+    } catch (e) {
+      toast.error(e);
+    }
   };
   const split = (v: string, sep: string) =>
     v

@@ -426,6 +426,8 @@ function AdoptProject({ seriesId, onDone }: { seriesId: string; onDone: () => vo
         applyProfile,
       });
       setProjectId("");
+      // It is in the series now: offering it again would only fail.
+      void projects.refetch();
       onDone();
       toast.success(`Adopted: ${r.synced.linked} linked by name, ${r.synced.created} added from the library`);
     } catch (err) {
@@ -714,12 +716,18 @@ function EpisodeSchedule({ projectId }: { projectId: string }) {
           <span className="mr-auto">
             {ch.order}. {ch.title}
           </span>
+          {/* Saved when the field is left, not per change: typing a year digit by digit passes through valid dates in
+              the past (0002, 0020…), and each one published the chapter until the last digit landed. */}
           <input
+            key={ch.publishAt ?? ""}
             type="datetime-local"
             className="input w-auto py-0.5 text-xs"
             aria-label={`Publish ${ch.title} at`}
-            value={local(ch.publishAt)}
-            onChange={(e) => void set(ch.id, e.target.value ? new Date(e.target.value).toISOString() : null)}
+            defaultValue={local(ch.publishAt)}
+            onBlur={(e) => {
+              if (e.target.value !== local(ch.publishAt))
+                void set(ch.id, e.target.value ? new Date(e.target.value).toISOString() : null);
+            }}
           />
           {!ch.publishAt && (
             <button

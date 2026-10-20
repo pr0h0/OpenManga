@@ -10,7 +10,16 @@ import {
   Loader2,
   X,
 } from "lucide-react";
-import { type ReactNode, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  type InputHTMLAttributes,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { create } from "zustand";
 import { assetUrl, errorMessage } from "../api/client.ts";
@@ -465,6 +474,48 @@ export function SaveIndicator({ state }: { state: "idle" | "saving" | "saved" | 
   );
 }
 
+/**
+ * A number field that clamps to its range when it is left (or on Enter), not on every keystroke: per keystroke,
+ * typing 24 into a field with a minimum of 8 gave 8 and then 84.
+ */
+export function NumberInput({
+  value,
+  onChange,
+  min,
+  max,
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "min" | "max" | "type"> & {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+}) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const commit = () => {
+    const n = Number(text);
+    if (text.trim() === "" || !Number.isFinite(n)) return setText(String(value));
+    const v = Math.min(max, Math.max(min, n));
+    setText(String(v));
+    if (v !== value) onChange(v);
+  };
+  return (
+    <input
+      {...rest}
+      type="number"
+      min={min}
+      max={max}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        rest.onKeyDown?.(e);
+      }}
+    />
+  );
+}
+
 /** Debounced autosave with Saving/Saved/Error states. Never drops the latest value. */
 export function useAutosave<T>(
   value: T,
@@ -475,6 +526,9 @@ export function useAutosave<T>(
   const latest = useRef(value);
   const lastSaved = useRef(value);
   const saveRef = useRef(save);
+  /** The value a save is sending right now, so leaving mid-save does not send it twice, and that save itself. */
+  const inFlight = useRef<string | null>(null);
+  const sending = useRef<Promise<void> | null>(null);
   saveRef.current = save;
   latest.current = value;
   useEffect(() => {
@@ -487,23 +541,44 @@ export function useAutosave<T>(
     const t = setTimeout(async () => {
       const v = latest.current;
       setState("saving");
+      inFlight.current = JSON.stringify(v);
       try {
-        await saveRef.current(v);
+        sending.current = saveRef.current(v);
+        await sending.current;
         lastSaved.current = v;
         setState("saved");
       } catch (e) {
         setState("error");
         toast.error(e);
+      } finally {
+        inFlight.current = null;
+        sending.current = null;
       }
     }, opts.delay ?? 1200);
     return () => clearTimeout(t);
   }, [value, opts.delay, opts.enabled]);
+  const enabled = useRef(opts.enabled);
+  enabled.current = opts.enabled;
   useEffect(() => {
+    const unsaved = () => JSON.stringify(latest.current) !== JSON.stringify(lastSaved.current);
     const warn = (e: BeforeUnloadEvent) => {
-      if (JSON.stringify(latest.current) !== JSON.stringify(lastSaved.current)) e.preventDefault();
+      if (unsaved()) e.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      // Leaving inside the delay (a link, another version) would cancel the last edit's save: send it now.
+      // After the save already on its way, so the older value cannot land last and overwrite this one.
+      if (enabled.current === false || !unsaved()) return;
+      const [save, v] = [saveRef.current, latest.current];
+      if (JSON.stringify(v) !== inFlight.current)
+        void (sending.current ?? Promise.resolve())
+          .catch(() => {})
+          .then(() => save(v))
+          .catch((e) => toast.error(e));
+      // This very value is on its way: if that save fails, nothing on the page is left to try it again, so try once.
+      else void sending.current?.catch(() => save(v).catch((e) => toast.error(e)));
+    };
   }, []);
   return { state, markSaved: (v: T) => (lastSaved.current = v) };
 }

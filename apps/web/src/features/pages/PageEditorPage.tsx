@@ -32,7 +32,8 @@ function useWide() {
 export function PageEditorPage() {
   const projectId = useProjectId();
   // Only the owner deletes panels; an editor turns one off under Video shot instead.
-  const canDeletePanels = useProject().data?.role === "owner";
+  const role = useProject().data?.role;
+  const canDeletePanels = role === "owner";
   const { pageId } = useParams({ strict: false }) as { pageId: string };
   const search = useSearch({ strict: false }) as { panelId?: string; tab?: "comments" };
   const qc = useQueryClient();
@@ -47,6 +48,8 @@ export function PageEditorPage() {
   const counts = useCommentCounts(projectId).data;
   const [narrowPanelId, setNarrowPanelId] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // The server refuses every edit to a locked page or from a viewer; the canvas does not offer them.
+  const readOnly = q.data?.page.status === "locked" || role === "viewer";
 
   useEffect(() => {
     if (q.data) hydrate(pageId, q.data, search.panelId);
@@ -94,6 +97,7 @@ export function PageEditorPage() {
       if (t.closest("input, textarea, select, [contenteditable=true]") || document.querySelector("[role=dialog]"))
         return;
       const mod = e.ctrlKey || e.metaKey;
+      if (readOnly && !["Escape", "+", "=", "-", "0"].includes(e.key)) return;
       const st = useEditor.getState();
       const sel = st.selection;
       if (mod && e.key.toLowerCase() === "z") {
@@ -123,6 +127,10 @@ export function PageEditorPage() {
           if (canDeletePanels) setConfirmDelete(sel.ids[0]!);
           else toast.info("Only the project owner can delete panels. Turn it off under Video shot instead.");
         } else {
+          // A narration box is the narration line shown on the page: it is hidden from Narration, not deleted here.
+          const narration = new Set(st.doc.bubbles.filter((b) => b.kind === "narration").map((b) => b.id));
+          if (sel.ids.some((id) => narration.has(id)))
+            return toast.info("A narration caption is removed on the Narration page: untick “Caption on page”.");
           try {
             await Promise.all(sel.ids.map((id) => del(sel.type === "sfx" ? `/sfx/${id}` : `/dialogue/${id}`)));
             st.select(null);
@@ -166,7 +174,7 @@ export function PageEditorPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pageId, refresh, canDeletePanels]);
+  }, [pageId, refresh, canDeletePanels, readOnly]);
 
   if (q.isLoading)
     return (
@@ -294,7 +302,7 @@ export function PageEditorPage() {
       {header}
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
-          <EditorCanvas data={data} />
+          <EditorCanvas data={data} readOnly={readOnly} />
         </div>
         <aside
           className="flex w-[23rem] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--panel)]"
