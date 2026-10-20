@@ -7,6 +7,7 @@ import {
   characters,
   characterVersions,
   type Database,
+  type DbOrTx,
   desc,
   dialogueLines,
   eq,
@@ -529,6 +530,10 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   return c.json({ panel: created }, 201);
 });
 
+/** Panel numbering on a page changes one request at a time (reorder, split). */
+const lockPage = (tx: DbOrTx, pageId: string) =>
+  tx.select({ id: pages.id }).from(pages).where(eq(pages.id, pageId)).for("update");
+
 const Reorder = z.object({ panelIds: z.array(z.string().uuid()).min(1).max(50) });
 doc({
   method: "POST",
@@ -544,6 +549,7 @@ pageRoutes.post("/pages/:id/reorder-panels", async (c) => {
   await db.transaction(async (tx) => {
     // The listed panels first, in that order, then the rest as they were: numbering only the listed ones left the
     // others sharing their orders, and reading order and the video's shot order became a toss-up.
+    await lockPage(tx, page.id);
     const all = await tx
       .select({ id: panels.id })
       .from(panels)
@@ -987,10 +993,14 @@ pageRoutes.post("/panels/:id/split", async (c) => {
   const { db } = c.get("deps");
   const [a, b] = splitFrame(panel.frame, direction, project.settings.pageGutter);
   const created = await db.transaction(async (tx) => {
+    await lockPage(tx, panel.pageId);
+    // Read again under the lock: a reorder may have moved it since it was loaded.
+    const [now] = await tx.select({ order: panels.order }).from(panels).where(eq(panels.id, panel.id));
+    if (!now) throw notFound("Panel");
     await tx
       .update(panels)
       .set({ order: sql`${panels.order} + 1` })
-      .where(and(eq(panels.pageId, panel.pageId), sql`${panels.order} > ${panel.order}`));
+      .where(and(eq(panels.pageId, panel.pageId), sql`${panels.order} > ${now.order}`));
     await tx.update(panels).set({ frame: a }).where(eq(panels.id, panel.id));
     const [spec] = await tx
       .select()
@@ -1004,7 +1014,7 @@ pageRoutes.post("/panels/:id/split", async (c) => {
         projectId: project.id,
         pageId: panel.pageId,
         sceneId: panel.sceneId,
-        order: panel.order + 1,
+        order: now.order + 1,
         frame: b,
         shotType: panel.shotType,
         cameraAngle: panel.cameraAngle,

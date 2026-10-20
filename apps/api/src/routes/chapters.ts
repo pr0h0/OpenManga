@@ -9,6 +9,7 @@ import {
   locationStates,
   pages,
   panels,
+  projects,
   scenes,
   sql,
   storyBeats,
@@ -205,15 +206,19 @@ chapterRoutes.patch("/chapters/:id", async (c) => {
     // A move renumbers the project's chapters 1..n around it, as a page move does. Written onto the one row, it left
     // two chapters with one order, which every chapter list, export and run then put in either sequence.
     if (order !== undefined) {
-      const [me] = await tx.select().from(chapters).where(eq(chapters.id, id));
-      const others = (
-        await tx
-          .select({ id: chapters.id, order: chapters.order })
-          .from(chapters)
-          .where(eq(chapters.projectId, me!.projectId))
-          .orderBy(asc(chapters.order), asc(chapters.createdAt))
-      ).filter((ch) => ch.id !== id);
-      others.splice(Math.min(order - 1, others.length), 0, { id, order: me!.order });
+      const [me] = await tx.select({ projectId: chapters.projectId }).from(chapters).where(eq(chapters.id, id));
+      if (!me) throw notFound("Chapter");
+      // Moves in one project take turns, so two at once can't both number from the same list.
+      await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, me.projectId)).for("update");
+      const all = await tx
+        .select({ id: chapters.id, order: chapters.order })
+        .from(chapters)
+        .where(eq(chapters.projectId, me.projectId))
+        .orderBy(asc(chapters.order), asc(chapters.createdAt));
+      const mine = all.find((ch) => ch.id === id);
+      if (!mine) throw notFound("Chapter");
+      const others = all.filter((ch) => ch.id !== id);
+      others.splice(Math.min(order - 1, others.length), 0, mine);
       for (const [i, ch] of others.entries())
         if (ch.order !== i + 1 || ch.id === id)
           await tx
