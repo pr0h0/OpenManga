@@ -9,6 +9,7 @@ import {
   locationStates,
   pages,
   panels,
+  projects,
   scenes,
   sql,
   storyBeats,
@@ -200,13 +201,42 @@ doc({
 chapterRoutes.patch("/chapters/:id", async (c) => {
   const id = uuidParam(c, "id");
   await entityAccess(c, "chapter", id, "write");
-  const { publishAt, ...input } = await body(c, PatchChapter);
-  const [row] = await c
-    .get("deps")
-    .db.update(chapters)
-    .set({ ...input, ...(publishAt !== undefined ? { publishAt: publishAt ? new Date(publishAt) : null } : {}) })
-    .where(eq(chapters.id, id))
-    .returning();
+  const { publishAt, order, ...input } = await body(c, PatchChapter);
+  const row = await c.get("deps").db.transaction(async (tx) => {
+    // A move renumbers the project's chapters 1..n around it, as a page move does. Written onto the one row, it left
+    // two chapters with one order, which every chapter list, export and run then put in either sequence.
+    if (order !== undefined) {
+      const [me] = await tx.select({ projectId: chapters.projectId }).from(chapters).where(eq(chapters.id, id));
+      if (!me) throw notFound("Chapter");
+      // Moves in one project take turns, so two at once can't both number from the same list.
+      await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, me.projectId)).for("update");
+      const all = await tx
+        .select({ id: chapters.id, order: chapters.order })
+        .from(chapters)
+        .where(eq(chapters.projectId, me.projectId))
+        .orderBy(asc(chapters.order), asc(chapters.createdAt));
+      const mine = all.find((ch) => ch.id === id);
+      if (!mine) throw notFound("Chapter");
+      const others = all.filter((ch) => ch.id !== id);
+      others.splice(Math.min(order - 1, others.length), 0, mine);
+      for (const [i, ch] of others.entries())
+        if (ch.order !== i + 1 || ch.id === id)
+          await tx
+            .update(chapters)
+            .set({ order: i + 1 })
+            .where(eq(chapters.id, ch.id));
+    }
+    const [r] = await tx
+      .update(chapters)
+      .set({
+        ...input,
+        ...(publishAt !== undefined ? { publishAt: publishAt ? new Date(publishAt) : null } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(chapters.id, id))
+      .returning();
+    return r;
+  });
   return c.json({ chapter: row });
 });
 

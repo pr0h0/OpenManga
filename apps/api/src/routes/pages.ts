@@ -7,6 +7,7 @@ import {
   characters,
   characterVersions,
   type Database,
+  type DbOrTx,
   desc,
   dialogueLines,
   eq,
@@ -151,6 +152,8 @@ pageRoutes.post("/chapters/:id/pages", async (c) => {
   const page = await db.transaction(async (tx) => {
     const existing = await tx.select().from(pages).where(eq(pages.chapterId, chapterId)).orderBy(asc(pages.order));
     const after = input.afterPageId ? existing.find((p) => p.id === input.afterPageId) : existing.at(-1);
+    // Not a page of this chapter: inserting it first instead would be a silent guess.
+    if (input.afterPageId && !after) throw notFound("Page to insert after");
     const order = (after?.order ?? 0) + 1;
     await tx
       .update(pages)
@@ -527,6 +530,10 @@ pageRoutes.post("/pages/:id/panels", async (c) => {
   return c.json({ panel: created }, 201);
 });
 
+/** Panel numbering on a page changes one request at a time (reorder, split). */
+const lockPage = (tx: DbOrTx, pageId: string) =>
+  tx.select({ id: pages.id }).from(pages).where(eq(pages.id, pageId)).for("update");
+
 const Reorder = z.object({ panelIds: z.array(z.string().uuid()).min(1).max(50) });
 doc({
   method: "POST",
@@ -540,11 +547,21 @@ pageRoutes.post("/pages/:id/reorder-panels", async (c) => {
   const { panelIds } = await body(c, Reorder);
   const { db } = c.get("deps");
   await db.transaction(async (tx) => {
-    for (const [i, id] of panelIds.entries())
+    // The listed panels first, in that order, then the rest as they were: numbering only the listed ones left the
+    // others sharing their orders, and reading order and the video's shot order became a toss-up.
+    await lockPage(tx, page.id);
+    const all = await tx
+      .select({ id: panels.id })
+      .from(panels)
+      .where(eq(panels.pageId, page.id))
+      .orderBy(asc(panels.order), asc(panels.createdAt));
+    const listed = panelIds.filter((id, i) => panelIds.indexOf(id) === i && all.some((p) => p.id === id));
+    const ordered = [...listed, ...all.map((p) => p.id).filter((id) => !listed.includes(id))];
+    for (const [i, id] of ordered.entries())
       await tx
         .update(panels)
         .set({ order: i + 1 })
-        .where(and(eq(panels.id, id), eq(panels.pageId, page.id)));
+        .where(eq(panels.id, id));
   });
   return c.json({ ok: true });
 });
@@ -976,10 +993,14 @@ pageRoutes.post("/panels/:id/split", async (c) => {
   const { db } = c.get("deps");
   const [a, b] = splitFrame(panel.frame, direction, project.settings.pageGutter);
   const created = await db.transaction(async (tx) => {
+    await lockPage(tx, panel.pageId);
+    // Read again under the lock: a reorder may have moved it since it was loaded.
+    const [now] = await tx.select({ order: panels.order }).from(panels).where(eq(panels.id, panel.id));
+    if (!now) throw notFound("Panel");
     await tx
       .update(panels)
       .set({ order: sql`${panels.order} + 1` })
-      .where(and(eq(panels.pageId, panel.pageId), sql`${panels.order} > ${panel.order}`));
+      .where(and(eq(panels.pageId, panel.pageId), sql`${panels.order} > ${now.order}`));
     await tx.update(panels).set({ frame: a }).where(eq(panels.id, panel.id));
     const [spec] = await tx
       .select()
@@ -993,7 +1014,7 @@ pageRoutes.post("/panels/:id/split", async (c) => {
         projectId: project.id,
         pageId: panel.pageId,
         sceneId: panel.sceneId,
-        order: panel.order + 1,
+        order: now.order + 1,
         frame: b,
         shotType: panel.shotType,
         cameraAngle: panel.cameraAngle,
