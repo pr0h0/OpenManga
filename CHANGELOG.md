@@ -26,17 +26,17 @@ Upgrading: pull the new images and restart; no migrations, no new settings. Bug 
 - Job and image lists no longer skip or repeat items across pages when several were created in the same millisecond.
 - Moving a chapter renumbers the project's chapters 1..n, and reordering panels numbers every panel on the page, so
   no two share an order (reading order and video shot order were a toss-up). Moves and splits on one page or project
-  take turns. A page move after an unknown page is a 404.
+  take turns, and so do adding and deleting a panel. A page move after an unknown page is a 404.
 - Applying lettering defaults, fitting faces and clearing lettering skip locked pages (a single locked page is a 409).
 - Bad input gets a 4xx, not a 500: an empty update, malformed form fields on vision uploads, and a malformed video
   chapter id.
-- Web: the page editor no longer loops on a refused save, keeps a page's unsaved edits when you switch pages, and
-  is read-only for locked pages and viewers. Number fields clamp when you leave them instead of on every keystroke.
-  An autosaved field saves a change made just before you leave. Opening Settings no longer saves the project, and
-  viewers can't edit it. Delete on a narration caption explains how to remove it instead of failing. The image description and
-  YouTube package spinners stop when a job is waiting for a pasted answer. Repurpose labels are capped at 60
-  characters. The series publish date saves when you leave the field, and the adoptable list refreshes after
-  adopting.
+- Web: the page editor no longer loops on a refused save, keeps a page's unsaved edits when you switch pages (and
+  resends them once if that save fails), and is read-only for locked pages and viewers. Number fields clamp when you
+  leave them instead of on every keystroke. An autosaved field saves a change made just before you leave. Opening
+  Settings no longer saves the project, and viewers see it read-only. Delete on a narration caption explains how to
+  remove it instead of failing. The image description and YouTube package spinners stop when a job is waiting for a
+  pasted answer. Repurpose labels are capped at 60 characters. The series publish date saves when you leave the field
+  (in order with Publish now and Unpublish), and the adoptable list refreshes after adopting.
 
 ## [0.19.2] — 2026-10-17
 
