@@ -705,7 +705,8 @@ function EpisodeSchedule({ projectId }: { projectId: string }) {
   const set = (id: string, publishAt: string | null) =>
     (queue.current = queue.current.then(() =>
       patch(`/chapters/${id}`, { publishAt })
-        .then(() => void q.refetch())
+        .then(() => q.refetch())
+        .then(() => {})
         .catch(toast.error),
     ));
   // datetime-local speaks the reader's local time, without a zone.

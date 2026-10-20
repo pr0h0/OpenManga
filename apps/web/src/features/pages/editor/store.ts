@@ -92,6 +92,8 @@ type State = {
 let timer: ReturnType<typeof setTimeout> | undefined;
 /** The save on its way, so a page switch can send the old page's queued edits after it rather than racing it. */
 let saving: Promise<unknown> | null = null;
+/** The page last left and its document as it was then, the newest copy of its edits. */
+let left: { pageId: string; doc: EditorDoc } | null = null;
 
 /** The document request for the edits under `keys`. */
 function bodyOf(doc: EditorDoc, keys: string[]) {
@@ -132,6 +134,7 @@ export const useEditor = create<State>((set, get) => ({
     const s = get();
     const next = docFromServer(d);
     if (s.pageId !== pageId) {
+      if (s.pageId) left = { pageId: s.pageId, doc: s.doc };
       // Edits still queued for the page being left (a save was on its way, so the leave-time flush skipped them):
       // send them after that save instead of dropping them with the old document.
       if (s.pageId && s.pending.size) {
@@ -239,7 +242,9 @@ export const useEditor = create<State>((set, get) => ({
       if (get().pageId !== s.pageId) {
         set({ inFlight: false });
         const url = `/pages/${s.pageId}/document`;
-        const edits = bodyOf(s.doc, keys);
+        // From the document as it was left, not as it was sent: a later edit of the same panel then goes out again
+        // with it rather than being overwritten by this older copy.
+        const edits = bodyOf(left?.pageId === s.pageId ? left.doc : s.doc, keys);
         if (!refused) setTimeout(() => patch(url, edits).catch((err) => toast.error(err)), 5000);
         // Its own edits may have waited on this save (a flush finds one in flight and returns): send them now.
         if (get().pending.size) schedule();
