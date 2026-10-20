@@ -231,18 +231,22 @@ export const useEditor = create<State>((set, get) => ({
       get().onSaved?.();
     } catch (e) {
       toast.error(e);
-      // Another page is open now: its queue and document are not where these edits belong.
+      // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
+      // resending it three times a second. A network or server error is tried again after a pause.
+      const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
+      // Another page is open now: its queue and document are not where these edits belong, so they are resent once
+      // on their own.
       if (get().pageId !== s.pageId) {
         set({ inFlight: false });
+        const url = `/pages/${s.pageId}/document`;
+        const edits = bodyOf(s.doc, keys);
+        if (!refused) setTimeout(() => patch(url, edits).catch((err) => toast.error(err)), 5000);
         // Its own edits may have waited on this save (a flush finds one in flight and returns): send them now.
         if (get().pending.size) schedule();
         return;
       }
       // Put keys back so the next edit retries them; never silently drop changes.
       set((st) => ({ inFlight: false, saveState: "error", pending: new Set([...st.pending, ...keys]) }));
-      // A refusal (a locked page, a viewer's edit) fails the same way every time: wait for the next edit rather than
-      // resending it three times a second. A network or server error is tried again after a pause.
-      const refused = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
       if (!refused) {
         clearTimeout(timer);
         timer = setTimeout(() => void useEditor.getState().flush(), 5000);

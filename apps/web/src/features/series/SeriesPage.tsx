@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { BookCopy, Link2Off, Plus, RefreshCw, Scissors, Search } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { del, get, patch, post } from "../../api/client.ts";
 import { useAction } from "../../api/hooks.ts";
 import {
@@ -699,10 +699,15 @@ function EpisodeSchedule({ projectId }: { projectId: string }) {
         `/projects/${projectId}/chapters`,
       ),
   });
+  // One at a time, in the order made: leaving an edited date by clicking Unpublish sends the date, then null, and
+  // the click must land last.
+  const queue = useRef(Promise.resolve());
   const set = (id: string, publishAt: string | null) =>
-    patch(`/chapters/${id}`, { publishAt })
-      .then(() => q.refetch())
-      .catch(toast.error);
+    (queue.current = queue.current.then(() =>
+      patch(`/chapters/${id}`, { publishAt })
+        .then(() => void q.refetch())
+        .catch(toast.error),
+    ));
   // datetime-local speaks the reader's local time, without a zone.
   const local = (iso: string | null) => {
     if (!iso) return "";

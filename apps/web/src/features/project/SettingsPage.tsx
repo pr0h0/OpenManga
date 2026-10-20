@@ -93,6 +93,7 @@ export function SettingsPage() {
   }, [data, form]);
   if (!form || !data) return null;
   const owner = data.role === "owner" || data.role === "admin";
+  const viewer = data.role === "viewer";
   const s = form.settings;
   const set = (k: keyof Form, v: string) => setForm({ ...form, [k]: v });
   const setS = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K]) =>
@@ -113,10 +114,11 @@ export function SettingsPage() {
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
       <PageHeader
         title="Project settings"
-        subtitle="Changes save automatically."
+        subtitle={viewer ? "View only: you can't change this project's settings." : "Changes save automatically."}
         actions={<SaveIndicator state={state} />}
       />
-      <div className="space-y-4">
+      {/* A viewer sees the settings but can't change them (nothing they type would be saved). */}
+      <fieldset disabled={viewer} className="min-w-0 space-y-4">
         <section className="card grid gap-3 p-4 sm:grid-cols-2">
           <h2 className="font-medium sm:col-span-2">General</h2>
           <Field label="Title">
@@ -414,7 +416,7 @@ export function SettingsPage() {
             </section>
           </>
         )}
-      </div>
+      </fieldset>
       <ConfirmDialog
         open={confirm !== null}
         danger={confirm === "trash"}
