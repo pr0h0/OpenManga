@@ -94,6 +94,11 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let saving: Promise<unknown> | null = null;
 /** Each page left and its document as it was then, the newest copy of its edits (a few per session). */
 const left = new Map<string, EditorDoc>();
+/**
+ * Per page, the edits of a failed save that a delayed retry will resend: each key with the document holding its value
+ * when the save failed, less any key a newer save already sent.
+ */
+const retries = new Map<string, Map<string, EditorDoc>>();
 
 /** The document request for the edits under `keys`. */
 function bodyOf(doc: EditorDoc, keys: string[]) {
@@ -230,6 +235,7 @@ export const useEditor = create<State>((set, get) => ({
     try {
       saving = patch(`/pages/${s.pageId}/document`, bodyOf(s.doc, keys));
       await saving;
+      for (const k of keys) retries.get(s.pageId)?.delete(k);
       set({ inFlight: false, saveState: get().pending.size ? "saving" : "saved" });
       get().onSaved?.();
     } catch (e) {
@@ -241,11 +247,29 @@ export const useEditor = create<State>((set, get) => ({
       // on their own.
       if (get().pageId !== s.pageId) {
         set({ inFlight: false });
-        const url = `/pages/${s.pageId}/document`;
-        // From the document as it was left, not as it was sent: a later edit of the same panel then goes out again
-        // with it rather than being overwritten by this older copy.
-        const edits = bodyOf(left.get(s.pageId) ?? s.doc, keys);
-        if (!refused) setTimeout(() => patch(url, edits).catch((err) => toast.error(err)), 5000);
+        const page = s.pageId;
+        // From the document as it was left, not as it was sent, so a later edit of the same panel isn't undone.
+        const doc = left.get(page) ?? s.doc;
+        const queued = retries.get(page);
+        if (!refused && queued) for (const k of keys) queued.set(k, doc);
+        else if (!refused) {
+          retries.set(page, new Map(keys.map((k) => [k, doc])));
+          setTimeout(async () => {
+            // After a save of this page already on its way, which may cover some of these.
+            await (saving ?? Promise.resolve()).catch(() => {});
+            const rest = [...(retries.get(page) ?? [])];
+            retries.delete(page);
+            if (!rest.length) return;
+            const parts = rest.map(([k, d]) => bodyOf(d, [k]));
+            const edits = {
+              panels: parts.flatMap((b) => b.panels),
+              dialogue: parts.flatMap((b) => b.dialogue),
+              narration: parts.flatMap((b) => b.narration),
+              sfx: parts.flatMap((b) => b.sfx),
+            };
+            patch(`/pages/${page}/document`, edits).catch((err) => toast.error(err));
+          }, 5000);
+        }
         // Its own edits may have waited on this save (a flush finds one in flight and returns): send them now.
         if (get().pending.size) schedule();
         return;
