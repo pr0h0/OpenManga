@@ -11,6 +11,10 @@ type Row = typeof activityStats.$inferInsert;
 /** Per database (one in production; tests run several apps in one process). */
 const buffers = new Map<Database, { rows: Map<string, Row>; timer: ReturnType<typeof setTimeout> }>();
 const FLUSH_MS = 15_000;
+/** A buffer this big is written at once, keeping one upsert well under Postgres' bind-parameter limit. */
+const MAX_ROWS = 1_000;
+/** The write in flight per database, so a delete or read waits for totals already taken out of the buffer. */
+const writing = new Map<Database, Promise<void>>();
 /** A daily counter's ceiling, under Postgres' integer limit. */
 const MAX = 2_000_000_000;
 
@@ -46,19 +50,29 @@ export function recordActivity(
   row.errors = add(row.errors, r.errors ?? 0);
   row.ms = add(row.ms, r.ms ?? 0);
   b.rows.set(id, row);
+  if (b.rows.size >= MAX_ROWS) void flushActivity(db);
 }
 
 /** Write what is buffered for one database, or all of them. Called on a timer, at shutdown, and before a read. */
 export async function flushActivity(db?: Database) {
   if (!db) {
-    await Promise.all([...buffers.keys()].map((d) => flushActivity(d)));
+    await Promise.all([...new Set([...buffers.keys(), ...writing.keys()])].map((d) => flushActivity(d)));
     return;
   }
   const b = buffers.get(db);
-  if (!b) return;
-  clearTimeout(b.timer);
-  buffers.delete(db);
-  const rows = [...b.rows.values()];
+  if (b) {
+    clearTimeout(b.timer);
+    buffers.delete(db);
+    const rows = [...b.rows.values()];
+    // Chained, so writes land in order and the last one awaited covers every earlier one.
+    const w = (writing.get(db) ?? Promise.resolve()).then(() => write(db, rows));
+    writing.set(db, w);
+    void w.finally(() => writing.get(db) === w && writing.delete(db));
+  }
+  await writing.get(db);
+}
+
+async function write(db: Database, rows: Row[]) {
   if (!rows.length) return;
   await db
     .insert(activityStats)
