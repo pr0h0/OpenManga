@@ -142,3 +142,22 @@ test("counters near the integer limit are capped, the batch still lands, and all
   expect(series.visits).toBe(2_000_000_000 + big);
   expect(series.ms).toBe(2_000_000_000 + big);
 });
+
+test("a flood of distinct screens is written in batches, and a delete waits for a write already under way", async () => {
+  const name = (i: number) =>
+    `/flood${String.fromCharCode(97 + (i % 26), 97 + (Math.floor(i / 26) % 26), 97 + Math.floor(i / 676))}`;
+  for (let r = 0; r < 30; r++)
+    await a.post("/api/me/activity", {
+      pages: Array.from({ length: 50 }, (_, i) => ({ route: name(r * 50 + i), visits: 1, ms: 1 })),
+    });
+  const s = await a.get<Stats>("/api/me/activity");
+  expect(s.pages.filter((p) => p.route.startsWith("/flood"))).toHaveLength(1_500);
+  // 1,000 distinct keys start a write on their own; the delete right after must not be undone by it.
+  await a.post("/api/me/activity", { pages: [{ route: "/agents", visits: 1, ms: 1 }] });
+  for (let r = 0; r < 20; r++)
+    await a.post("/api/me/activity", {
+      pages: Array.from({ length: 50 }, (_, i) => ({ route: name(r * 50 + i), visits: 1, ms: 1 })),
+    });
+  await a.del("/api/me/activity");
+  expect((await a.get<Stats>("/api/me/activity")).pages).toHaveLength(0);
+});
