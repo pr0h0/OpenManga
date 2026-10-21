@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.4] — 2026-10-21
+
+Upgrading: pull the new images and restart; the migrate service applies one migration (`0054_activity_stats`). No
+new settings.
+
 ### Added
 
 - Local usage stats: which screens you spend time on and which actions you use, kept on this server only and never
