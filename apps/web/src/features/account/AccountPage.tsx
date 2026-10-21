@@ -7,6 +7,7 @@ import type { TtsStatus } from "../../api/types.ts";
 import { ErrorBox, Field, fmt, PageHeader, Spinner, toast } from "../../components/ui.tsx";
 import { ProviderKeys } from "../ai/AiPicker.tsx";
 import { YoutubeChannels } from "../youtube/YoutubePage.tsx";
+import { MyActivity } from "./ActivityStats.tsx";
 
 type Session = {
   id: string;
@@ -96,6 +97,7 @@ export function AccountPage() {
       <ProjectTemplates />
       <ProviderKeys />
       <YoutubeChannels returnTo="/account" />
+      <MyActivity />
       <form onSubmit={change} className="card space-y-3 p-4">
         <h2 className="font-medium">Change password</h2>
         <Field label="Current password">

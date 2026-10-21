@@ -15,6 +15,7 @@ import { qk } from "./api/hooks.ts";
 import type { ProjectOverview, SessionUser } from "./api/types.ts";
 import { AppShell } from "./components/AppShell.tsx";
 import { Toaster } from "./components/ui.tsx";
+import { ActivityTracker } from "./lib/activity.ts";
 import { queryClient } from "./lib/query.ts";
 import { documentTitle } from "./lib/title.ts";
 
@@ -57,6 +58,7 @@ const rootRoute = createRootRoute({
   component: () => (
     <>
       <DocumentTitle />
+      <ActivityTracker />
       <Outlet />
       <Toaster />
     </>
@@ -201,7 +203,9 @@ const admin = createRoute({
   getParentRoute: () => shell,
   path: "/admin",
   staticData: { title: "Admin" },
-  validateSearch: z.object({ tab: z.enum(["overview", "users", "jobs", "usage", "rates", "storage"]).optional() }),
+  validateSearch: z.object({
+    tab: z.enum(["overview", "users", "jobs", "usage", "rates", "storage", "activity"]).optional(),
+  }),
   component: lazyRouteComponent(() => import("./features/admin/AdminPage.tsx"), "AdminPage"),
 });
 const account = createRoute({

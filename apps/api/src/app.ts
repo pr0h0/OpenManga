@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import type { AppEnv, Deps } from "./context.ts";
+import { trackActions } from "./lib/activity.ts";
 import { handleError, notFound, requireUser } from "./lib/http.ts";
 import { csrf, loadSession, rateLimit, securityHeaders, withDeps } from "./lib/middleware.ts";
 import { oauthRoutes } from "./mcp/oauth.ts";
 import { mcpRoutes } from "./mcp/server.ts";
+import { activityRoutes } from "./routes/activity.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { agentRunRoutes } from "./routes/agent-runs.ts";
 import { agentRoutes } from "./routes/agents.ts";
@@ -58,6 +60,8 @@ import { youtubeAccountRoutes, youtubeRoutes } from "./routes/youtube.ts";
  * exactly the handler a browser's does.
  */
 export function mountApiRoutes(api: Hono<AppEnv>) {
+  // Every caller of the routes (the browser, MCP tools, production runs) counts toward the user's local stats.
+  api.use("*", trackActions);
   api.route("/auth", authRoutes);
   api.route("/dev", devMailRoutes);
   api.route("/admin", adminRoutes);
@@ -155,6 +159,8 @@ export function createApp(deps: Deps) {
   api.route("/public", publicSeriesRoutes);
   // Managing agent access is for the signed-in user only: never mounted on the router MCP tools call.
   api.route("/agents", agentRoutes);
+  // Your own usage stats, and an administrator's totals: the browser's alone, like agent access.
+  api.route("/", activityRoutes);
   api.route("/", agentRunRoutes);
   // Connecting YouTube channels (an OAuth round trip in the browser) is likewise the signed-in user's alone.
   api.route("/youtube", youtubeAccountRoutes);

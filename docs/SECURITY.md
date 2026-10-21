@@ -79,6 +79,24 @@ before retention was built (October 2026). What they say, and what the app does:
 
 What is stored, per table, is in [DATA_MODEL](DATA_MODEL.md#youtube-stats-youtubets).
 
+## Usage stats
+
+Each user's activity (which screens they spend time on, which actions they use) is kept in this instance's own
+database (`activity_stats`) and is never sent anywhere else: the browser reports only to the app's own API, and
+nothing calls out. What is recorded is chosen so it can't identify what someone works on:
+
+- screens by the web router's route template (`/projects/$projectId/story`), never the path that was open; the API
+  refuses a path segment containing a digit, so a client can't store a real id
+- write requests by method and API route pattern (`POST /api/pages/:id/panels`), with a count, failures and server
+  time; never the ids, body, query or response. Reads are not counted
+- time on a screen only while the tab is visible and was used in the last minute, reported about once a minute
+- daily totals only: no timestamps of individual visits, no IP or user agent
+
+A user sees, exports (CSV or JSON, without their name) and deletes their own stats under Account, and can turn
+recording off there (`settings.activityTracking: false`); off, the API drops both kinds. An administrator sees
+only totals across users with how many people used each screen or action, never per-user rows. Deleting an account
+deletes its stats. These endpoints are not on the router MCP tools call.
+
 ## Operational notes
 
 - Rotating `SESSION_SECRET` invalidates all sessions and reset tokens, every MCP token when `MCP_TOKEN_SECRET` is

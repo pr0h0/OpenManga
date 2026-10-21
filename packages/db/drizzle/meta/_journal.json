@@ -379,6 +379,13 @@
       "when": 1792245189827,
       "tag": "0053_fk_and_lookup_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792596337991,
+      "tag": "0054_activity_stats",
+      "breakpoints": true
     }
   ]
 }
