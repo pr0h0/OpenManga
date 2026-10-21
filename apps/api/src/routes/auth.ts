@@ -120,11 +120,13 @@ authRoutes.get("/me", (c) => c.json({ user: c.get("user") }));
 const PatchSettings = z.object({
   /** Empty string clears the preference, so new projects fall back to the server default again. */
   narrationVoice: z.string().trim().max(64).optional(),
+  /** Local usage stats on or off (they never leave this instance). */
+  activityTracking: z.boolean().optional(),
 });
 doc({
   method: "PATCH",
   path: "/api/auth/settings",
-  summary: "Account preferences that seed new projects (narration voice)",
+  summary: "Account preferences: the narration voice new projects start with, and local usage stats on or off",
   tag: "auth",
   body: PatchSettings,
 });

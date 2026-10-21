@@ -18,11 +18,12 @@ import {
   StatusChip,
   Tabs,
 } from "../../components/ui.tsx";
+import { AdminActivity } from "../account/ActivityStats.tsx";
 import { JOB_STATUSES, JsonBlock, kindLabel } from "../generation/shared.tsx";
 import { UsageDashboard } from "../usage/UsageDashboard.tsx";
 import { StorageTab } from "./StorageTab.tsx";
 
-type Tab = "overview" | "users" | "jobs" | "usage" | "rates" | "storage";
+type Tab = "overview" | "users" | "jobs" | "usage" | "rates" | "storage" | "activity";
 type Overview = {
   counts: Record<string, number>;
   queues: Record<string, Record<string, number>> | null;
@@ -76,6 +77,7 @@ export function AdminPage() {
           { value: "usage", label: "Usage" },
           { value: "rates", label: "Rates" },
           { value: "storage", label: "Storage" },
+          { value: "activity", label: "Activity" },
         ]}
       />
       {tab === "overview" && <OverviewTab />}
@@ -84,6 +86,7 @@ export function AdminPage() {
       {tab === "usage" && <AdminUsage />}
       {tab === "rates" && <RatesTab />}
       {tab === "storage" && <StorageTab />}
+      {tab === "activity" && <AdminActivity />}
     </div>
   );
 }
