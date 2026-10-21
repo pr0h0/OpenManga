@@ -11,6 +11,8 @@ type Row = typeof activityStats.$inferInsert;
 /** Per database (one in production; tests run several apps in one process). */
 const buffers = new Map<Database, { rows: Map<string, Row>; timer: ReturnType<typeof setTimeout> }>();
 const FLUSH_MS = 15_000;
+/** A daily counter's ceiling, under Postgres' integer limit. */
+const MAX = 2_000_000_000;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -37,10 +39,12 @@ export function recordActivity(
     errors: 0,
     ms: 0,
   };
-  row.count! += r.count ?? 1;
-  row.errors! += r.errors ?? 0;
-  // A day holds at most 86.4M ms per key; clamped so a bad client value can't overflow the column.
-  row.ms = Math.min(row.ms! + Math.max(0, Math.round(r.ms ?? 0)), 2_000_000_000);
+  // Clamped so a bad or hostile client can't overflow a column (a day holds at most 86.4M ms per key), which would
+  // fail the whole batch's upsert and lose everyone's totals with it.
+  const add = (a: number | undefined, b: number) => Math.min((a ?? 0) + Math.max(0, Math.round(b)), MAX);
+  row.count = add(row.count, r.count ?? 1);
+  row.errors = add(row.errors, r.errors ?? 0);
+  row.ms = add(row.ms, r.ms ?? 0);
   b.rows.set(id, row);
 }
 
@@ -62,9 +66,9 @@ export async function flushActivity(db?: Database) {
     .onConflictDoUpdate({
       target: [activityStats.userId, activityStats.day, activityStats.kind, activityStats.source, activityStats.key],
       set: {
-        count: sql`${activityStats.count} + excluded.count`,
-        errors: sql`${activityStats.errors} + excluded.errors`,
-        ms: sql`least(${activityStats.ms}::bigint + excluded.ms, 2000000000)::int`,
+        count: sql`least(${activityStats.count}::bigint + excluded.count, ${MAX})::int`,
+        errors: sql`least(${activityStats.errors}::bigint + excluded.errors, ${MAX})::int`,
+        ms: sql`least(${activityStats.ms}::bigint + excluded.ms, ${MAX})::int`,
       },
     })
     // Stats are best effort: a failed write drops these totals rather than failing anything the user did.

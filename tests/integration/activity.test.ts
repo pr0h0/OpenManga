@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { eq, users } from "@openmanga/db";
+import { activityStats, eq, users } from "@openmanga/db";
 import type { McpActor } from "../../apps/api/src/mcp/context.ts";
 import { startHarness, type TestClient } from "./harness.ts";
 
@@ -120,4 +120,25 @@ test("a call an agent makes through MCP counts as an agent action", async () => 
     source: "agent",
     count: 1,
   });
+});
+
+test("counters near the integer limit are capped, the batch still lands, and all-time sums don't overflow", async () => {
+  const [boss] = await h.deps.db.select({ id: users.id }).from(users).where(eq(users.username, "boss2"));
+  const today = new Date().toISOString().slice(0, 10);
+  const big = 1_999_999_000;
+  await h.deps.db.insert(activityStats).values([
+    { userId: boss!.id, day: today, kind: "page", source: "web", key: "/series", count: big, ms: big },
+    { userId: boss!.id, day: "2026-01-01", kind: "page", source: "web", key: "/series", count: big, ms: big },
+  ]);
+  // Pushes today's row past the cap, flushed in one batch with another user's report.
+  await b.post("/api/me/activity", {
+    pages: Array.from({ length: 50 }, () => ({ route: "/series", visits: 1000, ms: 3_600_000 })),
+  });
+  await a.post("/api/me/activity", { pages: [{ route: "/agents", visits: 1, ms: 7_000 }] });
+  const mine = await a.get<Stats>("/api/me/activity");
+  expect(mine.pages.find((p) => p.route === "/agents")?.ms).toBe(7_000);
+  const all = await b.get<Stats>("/api/admin/activity");
+  const series = all.pages.find((p) => p.route === "/series")!;
+  expect(series.visits).toBe(2_000_000_000 + big);
+  expect(series.ms).toBe(2_000_000_000 + big);
 });

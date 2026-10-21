@@ -29,7 +29,7 @@ const PostActivity = z.object({
     .array(
       z.object({
         route: RouteTemplate,
-        visits: z.number().int().min(0).max(10_000),
+        visits: z.number().int().min(0).max(1_000),
         /** Active time on the screen since the last report; a report covers about a minute. */
         ms: z.number().int().min(0).max(3_600_000),
       }),
@@ -80,9 +80,9 @@ activityRoutes.get("/me/activity", async (c) => {
       kind: activityStats.kind,
       source: activityStats.source,
       key: activityStats.key,
-      count: sql<number>`sum(${activityStats.count})::int`,
-      errors: sql<number>`sum(${activityStats.errors})::int`,
-      ms: sql<number>`sum(${activityStats.ms})::bigint`,
+      count: sql<string>`sum(${activityStats.count})::bigint`,
+      errors: sql<string>`sum(${activityStats.errors})::bigint`,
+      ms: sql<string>`sum(${activityStats.ms})::bigint`,
       days: sql<number>`count(distinct ${activityStats.day})::int`,
     })
     .from(activityStats)
@@ -115,9 +115,9 @@ activityRoutes.get("/admin/activity", requireAdmin, async (c) => {
       kind: activityStats.kind,
       source: activityStats.source,
       key: activityStats.key,
-      count: sql<number>`sum(${activityStats.count})::int`,
-      errors: sql<number>`sum(${activityStats.errors})::int`,
-      ms: sql<number>`sum(${activityStats.ms})::bigint`,
+      count: sql<string>`sum(${activityStats.count})::bigint`,
+      errors: sql<string>`sum(${activityStats.errors})::bigint`,
+      ms: sql<string>`sum(${activityStats.ms})::bigint`,
       users: sql<number>`count(distinct ${activityStats.userId})::int`,
       days: sql<number>`count(distinct ${activityStats.day})::int`,
     })
@@ -136,9 +136,10 @@ type Agg = {
   kind: string;
   source: string;
   key: string;
-  count: number;
-  errors: number;
-  ms: number | string;
+  /** Sums come back as bigint strings: a long range can pass the integer limit. */
+  count: string;
+  errors: string;
+  ms: string;
   days: number;
   users?: number;
 };
@@ -148,15 +149,15 @@ function split(rows: Agg[]) {
   return {
     pages: rows
       .filter((r) => r.kind === "page")
-      .map((r) => ({ route: r.key, visits: r.count, ms: Number(r.ms), days: r.days, users: r.users }))
+      .map((r) => ({ route: r.key, visits: Number(r.count), ms: Number(r.ms), days: r.days, users: r.users }))
       .sort((a, b) => b.ms - a.ms),
     actions: rows
       .filter((r) => r.kind === "action")
       .map((r) => ({
         action: r.key,
         source: r.source,
-        count: r.count,
-        errors: r.errors,
+        count: Number(r.count),
+        errors: Number(r.errors),
         ms: Number(r.ms),
         days: r.days,
         users: r.users,
