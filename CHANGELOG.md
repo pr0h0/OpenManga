@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.4] — 2026-10-21
+
+Upgrading: pull the new images and restart; the migrate service applies one migration (`0054_activity_stats`). No
+new settings.
+
+### Added
+
+- Local usage stats: which screens you spend time on and which actions you use, kept on this server only and never
+  sent anywhere. Screens are recorded by route template and actions by API route pattern, never ids or content. See,
+  export (CSV or JSON) and delete your own under Account, or turn recording off there; administrators get totals
+  across users (with how many people used each) under Admin → Activity, for feature reviews. One migration
+  (`0054_activity_stats`).
+
 ## [0.19.3] — 2026-10-20
 
 Upgrading: pull the new images and restart; no migrations, no new settings. Bug fixes from a full audit and QA pass.

@@ -36,6 +36,11 @@ slot).
   (AES-256-GCM, see `docs/SECURITY.md`), `key_hint` (the last four characters — the only part ever returned),
   `last_used_at`.
 - `audit_events` — actor, action, target, metadata, optional project.
+- `activity_stats` — local usage stats, daily totals per `(user, day, kind, source, key)`: `kind` `page` (active
+  time on a screen, `key` the web route template such as `/projects/$projectId/pages/$pageId`) or `action` (a write
+  request, `key` its method and API route pattern such as `PATCH /api/pages/:id/document`), `source` `web`, `agent`
+  (MCP) or `run` (production run), with `count`, `errors` and `ms`. No ids, text or addresses; see
+  [SECURITY](SECURITY.md#usage-stats).
 
 ## Projects & story (`projects.ts`)
 

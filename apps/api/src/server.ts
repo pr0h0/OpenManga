@@ -2,6 +2,7 @@ import { getConfig } from "@openmanga/config";
 import { S3AssetStorage } from "@openmanga/storage";
 import { createApp } from "./app.ts";
 import { buildDeps } from "./deps.ts";
+import { flushActivity } from "./lib/activity.ts";
 import { tickAgentRuns } from "./lib/agent.ts";
 import { tickProductionRuns } from "./lib/production.ts";
 
@@ -39,6 +40,7 @@ const shutdown = async (signal: string) => {
   deps.logger.info("api shutting down", { signal });
   clearInterval(runTicker);
   server.stop();
+  await flushActivity();
   await deps.close();
   process.exit(0);
 };

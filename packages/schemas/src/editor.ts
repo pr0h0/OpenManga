@@ -753,6 +753,8 @@ export const UserSettings = z.object({
   channelProfiles: z.array(ChannelProfile).max(50).optional(),
   /** The user's saved page layouts, for any of their projects. */
   layouts: z.array(CustomLayout).max(100).optional(),
+  /** Local usage stats (time per screen, actions used); on unless set to false. Never leaves this instance. */
+  activityTracking: z.boolean().optional(),
 });
 export type UserSettings = z.infer<typeof UserSettings>;
 

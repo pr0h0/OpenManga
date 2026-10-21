@@ -1,5 +1,16 @@
 import type { UserSettings } from "@openmanga/schemas";
-import { boolean, index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { createdAt, id, ts, updatedAt, userRole, userStatus } from "./common.ts";
 
 export const users = pgTable(
@@ -134,4 +145,33 @@ export const providerCredentials = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("provider_credentials_user_idx").on(t.userId)],
+);
+
+/**
+ * Local usage stats: how a user spends their time in the app, kept on this instance only and never sent anywhere.
+ * Daily totals per route template (`/projects/$projectId/pages/$pageId`) or API action (`PATCH /api/pages/:id`),
+ * so no project, page or other id, text or address is ever stored. The user sees, exports and clears their own; an
+ * administrator sees only totals across users.
+ */
+export const activityStats = pgTable(
+  "activity_stats",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    /** `page`: time on a screen, from the browser. `action`: a write request, counted by the API. */
+    kind: text("kind").$type<"page" | "action">().notNull(),
+    /** Who made it: `web` (the browser), `agent` (MCP), `run` (a production run acting for the user). */
+    source: text("source").$type<"web" | "agent" | "run">().notNull(),
+    key: text("key").notNull(),
+    count: integer("count").notNull().default(0),
+    errors: integer("errors").notNull().default(0),
+    /** Active time on a page, or total server time of an action. */
+    ms: integer("ms").notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.day, t.kind, t.source, t.key] }),
+    index("activity_stats_day_idx").on(t.day),
+  ],
 );
