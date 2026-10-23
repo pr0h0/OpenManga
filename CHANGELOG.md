@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.5] — 2026-10-23
+
+Upgrading: pull the new images and restart; no migrations, no new settings.
+
+### Fixed
+
+- Hardening from a CodeQL scan: parsing an AI reply's code fence, splitting narration and chapter text into
+  sentences, reading a provider's policy message, trimming an expert's image prompt, and the S3 prefix and IPv6
+  checks now run in linear time, so a long crafted input can't stall the server. The translated-lettering preview
+  link encodes its parameters.
+- Usage stats: deleting your stats right after a background write can no longer bring them back, and a flood of
+  distinct screens is written in batches instead of failing everyone's buffered totals.
+
 ## [0.19.4] — 2026-10-21
 
 Upgrading: pull the new images and restart; the migrate service applies one migration (`0054_activity_stats`). No
