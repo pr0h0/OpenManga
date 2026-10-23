@@ -33,7 +33,7 @@ export function segmentNarration(
 }
 
 export function splitSentences(text: string): string[] {
-  const parts = text.match(/[^.!?…]+(?:[.!?…]+["'”’)\]]*|$)/g) ?? [text];
+  const parts = text.match(/[^.!?…]+[.!?…]*["'”’)\]]*/g) ?? [text];
   return parts.map((s) => s.trim()).filter(Boolean);
 }
 

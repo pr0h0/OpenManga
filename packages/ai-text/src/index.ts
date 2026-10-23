@@ -113,9 +113,21 @@ export function scanJsonValue(text: string): string | null {
   return candidates[0]!;
 }
 
+/** The body of the first ``` fence (a `json` tag dropped), found by index so a long unclosed fence stays linear. */
+function fenced(text: string) {
+  const open = text.indexOf("```");
+  const close = open < 0 ? -1 : text.indexOf("```", open + 3);
+  return close < 0
+    ? undefined
+    : text
+        .slice(open + 3, close)
+        .replace(/^json/i, "")
+        .trim();
+}
+
 export function extractJson(text: string): unknown {
   const trimmed = text.trim();
-  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+  const fence = fenced(trimmed);
   const scanned = scanJsonValue(fence ?? trimmed);
   for (const candidate of [trimmed, fence, scanned]) {
     if (!candidate) continue;

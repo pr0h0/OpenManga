@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { lintCharacter, lintText, panelDistressRisk, policyCategories, softenText } from "./content-lint.ts";
-import { segmentNarration } from "./narration.ts";
+import { segmentNarration, splitSentences } from "./narration.ts";
 
 test("lints the harm vocabulary from the production run, once per span", () => {
   const found = lintText(
@@ -70,4 +70,13 @@ test("a named safety category is a verdict; an unnamed refusal is the probabilis
     ),
   ).toEqual([]);
   expect(policyCategories(null)).toEqual([]);
+});
+
+test("sentence splitting and policy parsing stay fast on long crafted input", () => {
+  const t = performance.now();
+  splitSentences(`${" ".repeat(50_000)}x`);
+  policyCategories("safety_violations=[".repeat(20_000));
+  expect(performance.now() - t).toBeLessThan(500);
+  expect(splitSentences('He ran. "Stop!" she said… Then')).toEqual(["He ran.", '"Stop!"', "she said…", "Then"]);
+  expect(policyCategories("blocked: safety_violations = ['violence', \"sexual\"]")).toEqual(["violence", "sexual"]);
 });

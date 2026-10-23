@@ -47,3 +47,9 @@ test("the built-in experts carry the audit's fixes", () => {
   expect(prompt("channel-strategist")).not.toContain("Verify current platform information");
   expect(BUILTIN_EXPERTS).toHaveLength(10);
 });
+
+test("splitImagePrompt stays fast on a long run of trimmed characters", () => {
+  const t = performance.now();
+  splitImagePrompt(`IMAGE PROMPT: a${"\t".repeat(50_000)}x`);
+  expect(performance.now() - t).toBeLessThan(500);
+});

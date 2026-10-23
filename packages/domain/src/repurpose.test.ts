@@ -41,3 +41,10 @@ test("quotes pick the most quotable sentence, one per panel", () => {
   expect(new Set(q.map((x) => x.panelId)).size).toBe(3);
   expect(q.every((x) => x.text === "The tower is on fire!")).toBe(true);
 });
+
+test("bestSentence stays fast on long crafted input", () => {
+  const t = performance.now();
+  bestSentence(`${" ".repeat(50_000)}x`);
+  expect(performance.now() - t).toBeLessThan(500);
+  expect(bestSentence("Short. He finally drew the sword!” And then nothing")).toBe("He finally drew the sword!”");
+});
