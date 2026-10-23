@@ -78,5 +78,6 @@ test("sentence splitting and policy parsing stay fast on long crafted input", ()
   policyCategories("safety_violations=[".repeat(20_000));
   expect(performance.now() - t).toBeLessThan(500);
   expect(splitSentences('He ran. "Stop!" she said… Then')).toEqual(["He ran.", '"Stop!"', "she said…", "Then"]);
+  expect(policyCategories("safety_violations=[ safety_violations=[violence]")).toEqual(["violence"]);
   expect(policyCategories("blocked: safety_violations = ['violence', \"sexual\"]")).toEqual(["violence", "sexual"]);
 });

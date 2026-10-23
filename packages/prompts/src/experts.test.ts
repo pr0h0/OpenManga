@@ -50,6 +50,7 @@ test("the built-in experts carry the audit's fixes", () => {
 
 test("splitImagePrompt stays fast on a long run of trimmed characters", () => {
   const t = performance.now();
-  splitImagePrompt(`IMAGE PROMPT: a${"\t".repeat(50_000)}x`);
+  const r = splitImagePrompt(`IMAGE PROMPT: ${"\t".repeat(50_000)}a city${"*".repeat(50_000)}`);
   expect(performance.now() - t).toBeLessThan(500);
+  expect(r.imagePrompt).toBe("a city");
 });

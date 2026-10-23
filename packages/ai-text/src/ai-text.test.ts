@@ -448,4 +448,5 @@ test("extractJson stays fast on a long unclosed fence", () => {
   expect(() => extractJson(`\`\`\`${" ".repeat(50_000)}x`)).toThrow();
   expect(performance.now() - t).toBeLessThan(500);
   expect(extractJson('Here:\n```JSON\n{"a": 1,}\n```')).toEqual({ a: 1 });
+  expect(extractJson("``` json\n42\n```")).toBe(42);
 });

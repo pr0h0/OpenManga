@@ -121,7 +121,7 @@ function fenced(text: string) {
     ? undefined
     : text
         .slice(open + 3, close)
-        .replace(/^json/i, "")
+        .replace(/^\s*json/i, "")
         .trim();
 }
 
