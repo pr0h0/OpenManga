@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.6] — 2026-10-24
+
+Upgrading: pull the new images and restart; no migrations, no new settings. The Kokoro image is rebuilt.
+
+### Security
+
+- MCP TypeScript SDK 2.3.0 (server; the client used in tests too): fixes for a request that could exhaust server memory
+  within the default size limit and for bearer tokens issued for another service being accepted, among others.
+- Kokoro narration service: transformers 5.20.2 and torch 2.11.0, past the published code-execution and path
+  traversal advisories. The service only ever loads the fixed Kokoro-82M weights, so exposure was low. Voices sound
+  the same: identical durations and loudness on the same text.
+
 ## [0.19.5] — 2026-10-23
 
 Upgrading: pull the new images and restart; no migrations, no new settings.
