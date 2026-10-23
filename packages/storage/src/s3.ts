@@ -48,7 +48,9 @@ export class S3AssetStorage implements AssetStorage {
       });
     this.client = client(o.endpoint);
     this.publicClient = client(o.publicEndpoint || o.endpoint);
-    this.prefix = o.prefix ? `${o.prefix.replace(/^\/+|\/+$/g, "")}/` : "";
+    let prefix = (o.prefix ?? "").replace(/^\/+/, "");
+    while (prefix.endsWith("/")) prefix = prefix.slice(0, -1);
+    this.prefix = prefix ? `${prefix}/` : "";
     if (this.prefix) assertSafeKey(this.prefix.slice(0, -1));
   }
 

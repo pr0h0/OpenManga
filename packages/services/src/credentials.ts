@@ -177,7 +177,7 @@ export async function credentialKeyStatus(db: Database, ring: KeyRing) {
 /** An IPv6 address as its eight 16-bit groups (an embedded dotted IPv4 tail included), or null. */
 function ipv6Groups(ip: string): number[] | null {
   let s = ip.toLowerCase();
-  const v4 = s.match(/(\d+\.\d+\.\d+\.\d+)$/);
+  const v4 = s.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
   if (v4) {
     const [a, b, c, d] = v4[1]!.split(".").map(Number) as [number, number, number, number];
     s = `${s.slice(0, -v4[1]!.length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;

@@ -166,9 +166,14 @@ export function panelDistressRisk(i: PanelRiskInput): string[] {
  * retrying is worth anything.
  */
 export function policyCategories(providerMessage: string | null | undefined): string[] {
-  const listed = /safety_violations\s*=\s*\[([^\]]*)\]/i.exec(providerMessage ?? "");
-  if (!listed) return [];
-  return listed[1]!
+  const msg = providerMessage ?? "";
+  const open = /safety_violations\s*=\s*\[/i.exec(msg);
+  const close = open ? msg.indexOf("]", open.index + open[0].length) : -1;
+  if (!open || close < 0) return [];
+  const inside = msg.slice(open.index + open[0].length, close);
+  // An unclosed marker before a complete one: the categories are those after the last bracket.
+  return inside
+    .slice(inside.lastIndexOf("[") + 1)
     .split(",")
     .map((c) => c.trim().replace(/^['"]|['"]$/g, ""))
     .filter(Boolean);
