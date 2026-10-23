@@ -114,7 +114,7 @@ export function TranslatedLettering({
           {pageForPreview && (
             <a
               className="btn-ghost text-xs"
-              href={`/api/pages/${pageForPreview}/render.png?language=${language}`}
+              href={`/api/pages/${encodeURIComponent(pageForPreview)}/render.png?${new URLSearchParams({ language })}`}
               target="_blank"
               rel="noreferrer"
             >

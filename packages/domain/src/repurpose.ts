@@ -42,7 +42,7 @@ export function pickCarousel(cands: ShortsCandidate[], n = CAROUSEL_SLIDES) {
 
 /** The most quotable sentence of a text: dramatic, and short enough to read on an image. */
 export function bestSentence(text: string, maxChars = 160) {
-  const sentences = (text.match(/[^.!?…]+[.!?…]+["”’]?|[^.!?…]+$/g) ?? [])
+  const sentences = (text.match(/[^.!?…]+(?:[.!?…]+["”’]?)?/g) ?? [])
     .map((s) => s.trim())
     .filter((s) => s.length >= 12 && s.length <= maxChars);
   return sentences.sort((a, b) => lineDrama(b) - lineDrama(a))[0] ?? null;

@@ -168,7 +168,15 @@ export const expertChatV2 = defineTextTemplate<ExpertChatInput>({
 export function splitImagePrompt(reply: string): { text: string; imagePrompt: string | null } {
   const at = reply.lastIndexOf(EXPERT_IMAGE_MARKER);
   if (at < 0) return { text: reply.trim(), imagePrompt: null };
-  const clean = (s: string) => s.replace(/^[\s*_`"]+|[\s*_`"]+$/g, "").trim();
+  // Trimmed by index rather than a `[…]+$` regex, which is quadratic on a long run of those characters.
+  const clean = (s: string) => {
+    const junk = (c: string | undefined) => c !== undefined && /[\s*_`"]/.test(c);
+    let a = 0;
+    let b = s.length;
+    while (a < b && junk(s[a])) a++;
+    while (b > a && junk(s[b - 1])) b--;
+    return s.slice(a, b);
+  };
   const after = reply.slice(at + EXPERT_IMAGE_MARKER.length);
   const nl = after.indexOf("\n");
   let prompt = clean(nl < 0 ? after : after.slice(0, nl));
