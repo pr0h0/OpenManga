@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends espeak-ng libsn
 WORKDIR /srv
 COPY requirements.txt .
 # CPU-only torch keeps the image far smaller than the CUDA default.
-RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.5.1" \
+RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.9.1" \
  && pip install -r requirements.txt \
  && python -m spacy download en_core_web_sm || true
 
