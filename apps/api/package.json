@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@modelcontextprotocol/server": "2.1.0",
+    "@modelcontextprotocol/server": "2.3.0",
     "@openmanga/ai-text": "workspace:*",
     "@openmanga/audio": "workspace:*",
     "@openmanga/auth": "workspace:*",
