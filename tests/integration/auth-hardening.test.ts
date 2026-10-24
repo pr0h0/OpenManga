@@ -58,6 +58,12 @@ test("an email invitation is not claimable in the app by whoever registered that
   expect((await squatter.get<{ invites: unknown[] }>("/api/invites")).invites).toHaveLength(0);
   const [inv] = await h.deps.db.execute<{ id: string }>(sql`select id from project_invites where project_id = ${pid}`);
   await squatter.post(`/api/invites/${inv!.id}/accept`, {}, 404);
+  // An invitation made before this rule, still naming the account, is not answerable in the app either.
+  const [sq] = await h.deps.db.execute<{ id: string }>(sql`select id from users where username = 'ahsquat'`);
+  await h.deps.db.execute(sql`update project_invites set user_id = ${sq!.id} where id = ${inv!.id}`);
+  expect((await squatter.get<{ invites: unknown[] }>("/api/invites")).invites).toHaveLength(0);
+  await squatter.post(`/api/invites/${inv!.id}/decline`, {}, 404);
+  await squatter.post(`/api/invites/${inv!.id}/accept`, {}, 404);
   await squatter.get(`/api/projects/${pid}`, 404);
 });
 

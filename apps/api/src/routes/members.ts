@@ -346,10 +346,16 @@ memberRoutes.get("/invites", async (c) => {
     })
     .from(projectInvites)
     .innerJoin(projects, eq(projects.id, projectInvites.projectId))
-    .where(and(eq(projectInvites.userId, me.id), pending(), isNull(projects.deletedAt)))
+    .where(and(inApp(me.id), pending(), isNull(projects.deletedAt)))
     .orderBy(desc(projectInvites.createdAt));
   return c.json({ invites: rows });
 });
+
+/**
+ * The invitations someone answers in the app: those made to their username. An email invitation is answered through
+ * its emailed link only, including ones made before that rule that still name an account.
+ */
+const inApp = (userId: string) => and(eq(projectInvites.userId, userId), isNull(projectInvites.email));
 
 /** Claims one pending invitation (atomically, so it is used once) and joins its project. */
 async function accept(c: Context<AppEnv>, where: SQL | undefined, userId: string) {
@@ -380,11 +386,7 @@ async function accept(c: Context<AppEnv>, where: SQL | undefined, userId: string
 doc({ method: "POST", path: "/api/invites/:id/accept", summary: "Accept an invitation to a project", tag: "members" });
 memberRoutes.post("/invites/:id/accept", async (c) => {
   const me = user(c);
-  const invite = await accept(
-    c,
-    and(eq(projectInvites.id, uuidParam(c, "id")), eq(projectInvites.userId, me.id)),
-    me.id,
-  );
+  const invite = await accept(c, and(eq(projectInvites.id, uuidParam(c, "id")), inApp(me.id)), me.id);
   if (!invite) throw notFound("Invitation");
   return c.json({ projectId: invite.projectId, role: invite.role });
 });
@@ -401,7 +403,7 @@ memberRoutes.post("/invites/:id/decline", async (c) => {
   const [invite] = await db
     .update(projectInvites)
     .set({ declinedAt: new Date() })
-    .where(and(eq(projectInvites.id, uuidParam(c, "id")), eq(projectInvites.userId, me.id), pending()))
+    .where(and(eq(projectInvites.id, uuidParam(c, "id")), inApp(me.id), pending()))
     .returning();
   if (!invite) throw notFound("Invitation");
   await recordAudit(db, {
