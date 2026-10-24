@@ -339,8 +339,9 @@ describe("invitations by email", () => {
       (await h.client().get<{ invite: { accountExists: boolean } }>(`/api/public/invites/${token}`)).invite
         .accountExists,
     ).toBe(true);
-    // It is also in dave's invitations in the app.
-    expect((await dave.get<{ invites: unknown[] }>("/api/invites")).invites).toHaveLength(1);
+    // Only the emailed link redeems it: an account's registered address is not proof of owning it, so the invitation
+    // is not offered in the app to whoever registered that address.
+    expect((await dave.get<{ invites: unknown[] }>("/api/invites")).invites).toHaveLength(0);
     const wrong = await bob.raw("POST", "/api/invites/accept-link", { token });
     expect(wrong.status).toBe(403);
     await dave.post<{ projectId: string }>("/api/invites/accept-link", { token }, 200);
