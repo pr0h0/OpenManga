@@ -242,6 +242,7 @@ export class AuthService {
         .update(sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(sessions.userId, row.userId), isNull(sessions.revokedAt)));
+      await usedUpResets(tx, row.userId);
       await alsoRevoke?.(tx, row.userId);
       return row.userId;
     });
@@ -260,9 +261,18 @@ export class AuthService {
         .update(sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+      await usedUpResets(tx, userId);
       await alsoRevoke?.(tx);
     });
   }
+}
+
+/** Every other reset link of theirs dies with a new password, so one sent earlier cannot take the account back. */
+async function usedUpResets(tx: Tx, userId: string) {
+  await tx
+    .update(passwordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(and(eq(passwordResetTokens.userId, userId), isNull(passwordResetTokens.usedAt)));
 }
 
 export function toSessionUser(u: typeof users.$inferSelect): SessionUser {

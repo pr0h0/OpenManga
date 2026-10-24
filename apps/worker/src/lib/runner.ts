@@ -1,7 +1,7 @@
 import { StructuredOutputError, type TextCallRecord } from "@openmanga/ai-text";
-import { and, asc, eq, generationJobs, generationOutputs, panels, sql } from "@openmanga/db";
+import { and, asc, eq, generationJobs, generationOutputs, panels, projectMembers, projects, sql } from "@openmanga/db";
 import { ProviderError, policyCategories } from "@openmanga/domain";
-import { type Job, UnrecoverableError } from "@openmanga/queue";
+import { DelayedError, type Job, UnrecoverableError } from "@openmanga/queue";
 import { instanceBudget, instanceBudgetReason, projectBudget, recordError } from "@openmanga/services";
 import type { WorkerDeps } from "../context.ts";
 import {
@@ -95,6 +95,7 @@ export async function runGenerationJob(
   deps: WorkerDeps,
   bullJob: Job,
   handler: (job: GenerationJob) => Promise<Record<string, unknown>>,
+  token?: string,
 ) {
   const jobId = String(bullJob.data.jobId);
   const log = deps.logger.child({ jobId, queue: bullJob.queueName });
@@ -158,7 +159,17 @@ export async function runGenerationJob(
     }
   }
 
+  if (await noLongerAllowed(deps, job)) {
+    log.info("job's project was trashed or its requester lost access; cancelling it", { kind: job.kind });
+    await finishCancelled(deps, job);
+    return;
+  }
   if (await pausedByBudget(deps, job)) return;
+  if (token && (await overFairShare(deps, job, bullJob.queueName))) {
+    // Back in line for a moment: it runs once a slot is free that nobody else is waiting for.
+    await bullJob.moveToDelayed(Date.now() + FAIR_SHARE_RETRY_MS, token);
+    throw new DelayedError();
+  }
 
   // Claim the job, rather than simply announcing that we are running it. Everything above this line was read
   // from a row that any other runner could also have read: a batch poller republishing a parked job, a stalled-job
@@ -294,8 +305,11 @@ export async function runGenerationJob(
     // prompt, not a sampling accident: it repeats identically on every attempt, so retrying only spends the
     // budget and the money three times over to arrive at the same refusal.
     const categories = code === "content_policy" ? policyCategories(e instanceof Error ? e.message : String(e)) : [];
+    // A timeout was already retried by the provider client: running the job again would hold a slot for that many
+    // more full timeouts.
     const retryable =
-      (e instanceof ProviderError && e.retryable) || (RETRY_ANYWAY.includes(code) && categories.length === 0);
+      code !== "timeout" &&
+      ((e instanceof ProviderError && e.retryable) || (RETRY_ANYWAY.includes(code) && categories.length === 0));
     const attemptsLeft = bullJob.attemptsMade + 1 < (bullJob.opts.attempts ?? 1);
     const requestId = e instanceof ProviderError ? e.requestId : undefined;
     log.error("generation failed", {
@@ -397,6 +411,49 @@ export async function pausedByBudget(deps: WorkerDeps, job: GenerationJob) {
   await deps.jobs.pauseBatch(job.batchId, reason);
   deps.logger.warn("batch paused by budget", { batchId: job.batchId, jobId: job.id, ...budget });
   return true;
+}
+
+const FAIR_SHARE_RETRY_MS = 10_000;
+
+/**
+ * The text and image queues are shared by everyone on the instance with a few slots each, and a provider (a custom
+ * endpoint above all) may take its full timeout to answer. One user may fill every slot but the last while someone
+ * else's job waits, so no single account can hold the whole pool.
+ */
+async function overFairShare(deps: WorkerDeps, job: GenerationJob, queue: string) {
+  const slots =
+    queue === "text-ai"
+      ? deps.config.TEXT_WORKER_CONCURRENCY
+      : queue === "image-generation"
+        ? deps.config.IMAGE_WORKER_CONCURRENCY
+        : 0;
+  if (slots < 2 || !job.userId) return false;
+  const [r] = await deps.db.execute<{ mine: number; others: number }>(sql`
+    select
+      (select count(*)::int from generation_jobs where queue = ${queue} and status = 'processing'
+        and user_id = ${job.userId}) as mine,
+      (select count(*)::int from generation_jobs where queue = ${queue} and status = 'queued'
+        and user_id is distinct from ${job.userId}) as others`);
+  return (r?.mine ?? 0) >= slots - 1 && (r?.others ?? 0) > 0;
+}
+
+/**
+ * Jobs are authorized when queued and still have to be when they run: a trashed project is frozen, and someone
+ * removed from it (or made a viewer) no longer acts in it, however long their job waited.
+ */
+async function noLongerAllowed(deps: WorkerDeps, job: GenerationJob) {
+  if (!job.projectId) return false;
+  const [p] = await deps.db
+    .select({ deletedAt: projects.deletedAt, ownerUserId: projects.ownerUserId })
+    .from(projects)
+    .where(eq(projects.id, job.projectId));
+  if (!p || p.deletedAt) return true;
+  if (!job.userId || job.userId === p.ownerUserId) return false;
+  const [m] = await deps.db
+    .select({ role: projectMembers.role })
+    .from(projectMembers)
+    .where(and(eq(projectMembers.projectId, job.projectId), eq(projectMembers.userId, job.userId)));
+  return !m || m.role === "viewer";
 }
 
 async function finishCancelled(deps: WorkerDeps, job: GenerationJob) {

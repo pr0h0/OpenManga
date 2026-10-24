@@ -55,6 +55,10 @@ export async function duplicateProject(db: Database, assetSvc: AssetService, pro
         id: undefined,
         title: `${src.title} (copy)`,
         ownerUserId: userId,
+        // A copy is a project of its own; only the series owner adds episodes to a series (adopt).
+        seriesId: null,
+        seriesRole: null,
+        episodeNumber: null,
         status: "active",
         deletedAt: null,
         currentStyleId: null,

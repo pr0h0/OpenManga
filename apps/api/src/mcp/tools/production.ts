@@ -7,12 +7,38 @@ import { AiInput, cls, ImageAiInput, projectOf, restAi, Uuid } from "./common.ts
 /** The project a run belongs to, for classifying a call on it. */
 async function runProject(ctx: ToolContext, id: string) {
   const [run] = await ctx.deps.db
-    .select({ projectId: productionRuns.projectId, status: productionRuns.status })
+    .select({
+      projectId: productionRuns.projectId,
+      status: productionRuns.status,
+      steps: productionRuns.steps,
+      updatedAt: productionRuns.updatedAt,
+    })
     .from(productionRuns)
     .where(eq(productionRuns.id, id));
   if (!run) throw toolError(404, "not_found", "Production run not found");
   return run;
 }
+
+/**
+ * A run does every step of the pipeline as the user: it applies the analysis, approves references, plans chapters,
+ * prepares panels and writes narration, and renders when asked. So it needs each scope those steps need on their own,
+ * not just the right to start generation work.
+ */
+const PIPELINE_SCOPES = [
+  "generations:run",
+  "story:write",
+  "library:write",
+  "chapters:write",
+  "panels:write",
+  "narration:write",
+] as const;
+const runScopes = (a: { render?: boolean; youtube?: boolean }) => [
+  ...PIPELINE_SCOPES,
+  // youtube left out turns on for film projects (the route decides), so only an explicit false skips the export.
+  ...(a.render !== false || a.youtube !== false ? (["exports:create"] as const) : []),
+];
+const SCOPES_NOTE =
+  " Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to start one that renders or prepares a YouTube package), since the run does each of those steps.";
 
 const RunOptions = {
   projectId: Uuid,
@@ -201,10 +227,12 @@ export const productionTools = [
     name: "start_production_run",
     title: "Start a production run",
     description:
-      "Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Price it first with estimate_production_run. Follow it with get_production_run, and continue_production_run at each review.",
+      "Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Price it first with estimate_production_run. Follow it with get_production_run, and continue_production_run at each review." +
+      SCOPES_NOTE,
     input: z.object(RunOptions),
     output: z.object({ run: Passthrough }).passthrough(),
     scopes: ["generations:run"],
+    scopesFor: runScopes,
     sensitivity: "spend",
     idempotent: false,
     routes: ["POST /api/projects/:projectId/production-runs"],
@@ -223,10 +251,12 @@ export const productionTools = [
     name: "update_production",
     title: "Update production",
     description:
-      "Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work); chapters whose text changed after they were planned (or after their narration was written) are never redone on their own: the run waits at a review listing them (get_staleness stalePlans / staleNarration) until each is kept (keep_stale_chapter) or redone (run_chapter_plan / run_narration_generation with replace=true) and the run is continued; then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.",
+      "Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work); chapters whose text changed after they were planned (or after their narration was written) are never redone on their own: the run waits at a review listing them (get_staleness stalePlans / staleNarration) until each is kept (keep_stale_chapter) or redone (run_chapter_plan / run_narration_generation with replace=true) and the run is continued; then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going." +
+      SCOPES_NOTE,
     input: z.object(RunOptions),
     output: z.object({ run: Passthrough }).passthrough(),
     scopes: ["generations:run"],
+    scopesFor: runScopes,
     sensitivity: "spend",
     idempotent: false,
     routes: ["POST /api/projects/:projectId/production-runs (update=true)"],
@@ -261,22 +291,28 @@ export const productionTools = [
     name: "continue_production_run",
     title: "Continue a production run",
     description:
-      "Continue a run: past the review step it is waiting at (only after the user has reviewed what it asks for), after the budget cap was raised, or to retry the step that failed. The run then spends the user's provider credits again: always a spend action (may need approval).",
+      "Continue a run: past the review step it is waiting at (only after the user has reviewed what it asks for), after the budget cap was raised, or to retry the step that failed. The run then spends the user's provider credits again: always a spend action (may need approval)." +
+      SCOPES_NOTE,
     input: z.object({ runId: Uuid, idempotencyKey: IdempotencyKey }),
     output: Passthrough,
     scopes: ["generations:run"],
+    // The export it may render was chosen when the run started, under that caller's scopes; continuing it needs the
+    // pipeline's own.
+    scopesFor: () => [...PIPELINE_SCOPES],
     sensitivity: "spend",
     idempotent: false,
     routes: ["POST /api/production-runs/:id/continue"],
     actionKeys: ["production.continue"],
     classify: async ({ runId }, ctx) => {
       const run = await runProject(ctx, runId);
+      // The step under review is part of what is approved: once the run waits at a later one, the request is stale.
+      const review = run.steps.find((st) => st.status === "review")?.key ?? null;
       return cls(
         "spend",
         "production.continue",
         run.projectId,
-        run.status === "waiting" ? "Continue the production run past its review step" : "Resume the production run",
-        { target: { runId, status: run.status } },
+        review ? `Continue the production run past its ${review} review` : "Resume the production run",
+        { target: { runId, status: run.status, review, updatedAt: run.updatedAt.toISOString() } },
       );
     },
     handler: async ({ runId }, ctx) => ({

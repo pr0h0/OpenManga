@@ -6,6 +6,7 @@ import {
   type DbOrTx,
   desc,
   eq,
+  generationJobs,
   gt,
   inArray,
   isNull,
@@ -174,7 +175,9 @@ memberRoutes.post("/projects/:projectId/invites", inviteLimit, async (c) => {
       .values({
         projectId: p.id,
         role,
-        userId: account?.id ?? null,
+        // An email invite is redeemed with its emailed link only: the address an account registered with is not proof
+        // that whoever holds the account owns it. Inviting by username is the in-app way.
+        userId: byEmail ? null : account!.id,
         email: byEmail ? identifier : null,
         tokenHash: token ? tokenHash(c, token) : null,
         invitedByUserId: me.id,
@@ -313,6 +316,25 @@ memberRoutes.delete("/projects/:projectId/members/:userId", async (c) => {
     .update(youtubeLinks)
     .set({ connectionId: null })
     .where(and(eq(youtubeLinks.projectId, p.id), eq(youtubeLinks.createdBy, target)));
+  // Work they queued here stops too: jobs parked in a provider batch never pass the worker's own check.
+  const queued = await db
+    .select({ id: generationJobs.id })
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.projectId, p.id),
+        eq(generationJobs.userId, target),
+        inArray(generationJobs.status, ["queued", "paused", "submitted", "processing", "awaiting_input"]),
+      ),
+    );
+  // Each on its own: the membership is already gone, so a retry could not reach the ones a failure skipped.
+  for (const j of queued)
+    await c
+      .get("deps")
+      .jobs.cancelGeneration(j.id)
+      .catch((e) =>
+        c.get("deps").logger.warn("cancelling a removed member's job failed", { jobId: j.id, error: String(e) }),
+      );
   await recordAudit(db, {
     userId: me.id,
     projectId: p.id,
@@ -344,10 +366,16 @@ memberRoutes.get("/invites", async (c) => {
     })
     .from(projectInvites)
     .innerJoin(projects, eq(projects.id, projectInvites.projectId))
-    .where(and(eq(projectInvites.userId, me.id), pending(), isNull(projects.deletedAt)))
+    .where(and(inApp(me.id), pending(), isNull(projects.deletedAt)))
     .orderBy(desc(projectInvites.createdAt));
   return c.json({ invites: rows });
 });
+
+/**
+ * The invitations someone answers in the app: those made to their username. An email invitation is answered through
+ * its emailed link only, including ones made before that rule that still name an account.
+ */
+const inApp = (userId: string) => and(eq(projectInvites.userId, userId), isNull(projectInvites.email));
 
 /** Claims one pending invitation (atomically, so it is used once) and joins its project. */
 async function accept(c: Context<AppEnv>, where: SQL | undefined, userId: string) {
@@ -378,11 +406,7 @@ async function accept(c: Context<AppEnv>, where: SQL | undefined, userId: string
 doc({ method: "POST", path: "/api/invites/:id/accept", summary: "Accept an invitation to a project", tag: "members" });
 memberRoutes.post("/invites/:id/accept", async (c) => {
   const me = user(c);
-  const invite = await accept(
-    c,
-    and(eq(projectInvites.id, uuidParam(c, "id")), eq(projectInvites.userId, me.id)),
-    me.id,
-  );
+  const invite = await accept(c, and(eq(projectInvites.id, uuidParam(c, "id")), inApp(me.id)), me.id);
   if (!invite) throw notFound("Invitation");
   return c.json({ projectId: invite.projectId, role: invite.role });
 });
@@ -399,7 +423,7 @@ memberRoutes.post("/invites/:id/decline", async (c) => {
   const [invite] = await db
     .update(projectInvites)
     .set({ declinedAt: new Date() })
-    .where(and(eq(projectInvites.id, uuidParam(c, "id")), eq(projectInvites.userId, me.id), pending()))
+    .where(and(eq(projectInvites.id, uuidParam(c, "id")), inApp(me.id), pending()))
     .returning();
   if (!invite) throw notFound("Invitation");
   await recordAudit(db, {

@@ -708,7 +708,12 @@ export async function pagePrompts(deps: WorkerDeps, job: ProjectJob) {
       sql`, `,
     )}) order by panel_id, version_number desc`,
   );
-  const [scene] = page.sceneId ? await deps.db.select().from(scenes).where(eq(scenes.id, page.sceneId)) : [];
+  const [scene] = page.sceneId
+    ? await deps.db
+        .select()
+        .from(scenes)
+        .where(and(eq(scenes.id, page.sceneId), eq(scenes.projectId, page.projectId)))
+    : [];
   const charIds = [...new Set(pns.flatMap((p) => p.characterVersionIds))];
   const chars = charIds.length
     ? await deps.db

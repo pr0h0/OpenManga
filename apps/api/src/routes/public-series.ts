@@ -61,7 +61,15 @@ async function contents(c: Ctx, s: typeof series.$inferSelect) {
       language: projects.language,
     })
     .from(projects)
-    .where(and(eq(projects.seriesId, s.id), eq(projects.seriesRole, "episode"), isNull(projects.deletedAt)))
+    // Only the series owner's projects: nobody else can put chapters on this reader page.
+    .where(
+      and(
+        eq(projects.seriesId, s.id),
+        eq(projects.seriesRole, "episode"),
+        eq(projects.ownerUserId, s.ownerUserId),
+        isNull(projects.deletedAt),
+      ),
+    )
     .orderBy(asc(projects.episodeNumber));
   const chs = eps.length
     ? await db
@@ -242,7 +250,18 @@ publicSeriesRoutes.get("/series/:slug/pages/:file", async (c) => {
   if (!page) throw notFound("Page");
   await openChapter(c, s, page.chapterId);
   const bucket = Math.min(1600, Math.ceil(q.width / 200) * 200);
-  const language = q.language && q.language !== page.lang ? q.language : null;
+  // Only an edition this project has: any other value would render and store one more copy per string anyone sends.
+  const [edition] =
+    q.language && q.language !== page.lang
+      ? await db
+          .select({ language: letteringTranslations.language })
+          .from(letteringTranslations)
+          .where(
+            and(eq(letteringTranslations.projectId, page.projectId), eq(letteringTranslations.language, q.language)),
+          )
+          .limit(1)
+      : [];
+  const language = edition?.language ?? null;
   const { asset } = await cachedPageRender(db, assetSvc, page.projectId, pageId, page.rd, bucket, false, language);
   return sendAsset(c, asset, { cacheControl: "public, max-age=300", variants: false });
 });

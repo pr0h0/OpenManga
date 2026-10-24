@@ -77,13 +77,18 @@ const GENERATION_HANDLERS: Record<Exclude<GenerationKind, "expert_extract">, Pro
 };
 
 export function generationProcessor(deps: WorkerDeps) {
-  return (job: Job) =>
-    runGenerationJob(deps, job, (g) => {
-      if (g.kind === "expert_extract") return expertExtract(deps, g);
-      const handler = GENERATION_HANDLERS[g.kind];
-      if (!handler) throw new Error(`No handler for ${g.kind}`);
-      return handler(deps, inProject(g));
-    });
+  return (job: Job, token?: string) =>
+    runGenerationJob(
+      deps,
+      job,
+      (g) => {
+        if (g.kind === "expert_extract") return expertExtract(deps, g);
+        const handler = GENERATION_HANDLERS[g.kind];
+        if (!handler) throw new Error(`No handler for ${g.kind}`);
+        return handler(deps, inProject(g));
+      },
+      token,
+    );
 }
 
 export const ttsProcessor = (deps: WorkerDeps) => (job: Job) => processTts(deps, job);

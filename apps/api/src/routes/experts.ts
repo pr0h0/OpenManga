@@ -466,6 +466,8 @@ expertRoutes.post("/expert-messages/:id/answer", async (c) => {
   const [m] = await deps.db.select().from(expertMessages).where(eq(expertMessages.id, id));
   if (!m) throw notFound("Message");
   const chat = await ownChat(c, m.chatId);
+  // As on send and retry: the reply draws with the project's references, so a member who left or lost the role stops.
+  if (chat.projectId) await projectAccess(c, chat.projectId, "generate");
   if (m.status !== "awaiting_input") throw conflict("This reply is not waiting for an answer");
   const input = await body(c, Answer);
   if (input.images.length) {

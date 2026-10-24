@@ -1,7 +1,7 @@
-import { projects } from "@openmanga/db";
+import { eq, projects } from "@openmanga/db";
 import { ProjectStorage } from "@openmanga/schemas";
 import { z } from "zod";
-import { CreateProject, UpdateProject } from "../../routes/projects.ts";
+import { CreateProject, OWNER_SETTINGS, UpdateProject } from "../../routes/projects.ts";
 import { defineMcpTool, IdempotencyKey, Passthrough } from "../registry.ts";
 import { toolError } from "../runtime.ts";
 import { cls, grantProject, links, Paging, page, requireCreate, stamp, Uuid } from "./common.ts";
@@ -122,15 +122,32 @@ export const projectTools = [
     sensitivity: "sensitive-write",
     idempotent: true,
     routes: ["PATCH /api/projects/:projectId"],
-    actionKeys: ["project.update", "project.budget"],
+    actionKeys: ["project.update", "project.budget", "project.storage_policy", "project.owner_settings"],
+    // Every owner-only setting (spend, unattended re-rolls, the fallback key, file deletion) waits for approval like
+    // the budget does, under the same action as the tool that sets it alone (project_storage set for storage).
     classify: async ({ projectId, settings }, ctx) => {
-      const budget = settings && "budgetUsd" in settings;
+      // Only what would change: sending the current budget back along with an ordinary edit needs no approval.
+      const [current] = settings
+        ? await ctx.deps.db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, projectId))
+        : [];
+      const was = (current?.settings ?? {}) as Record<string, unknown>;
+      const owner = settings
+        ? OWNER_SETTINGS.filter((k) => k in settings && JSON.stringify(settings[k]) !== JSON.stringify(was[k]))
+        : [];
+      if (!owner.length) return cls("write", "project.update", projectId, "Update project settings");
+      const only = owner.length === 1 ? owner[0] : null;
       return cls(
-        budget ? "sensitive-write" : "write",
-        budget ? "project.budget" : "project.update",
+        "sensitive-write",
+        only === "budgetUsd"
+          ? "project.budget"
+          : only === "storage"
+            ? "project.storage_policy"
+            : "project.owner_settings",
         projectId,
-        budget ? `Change the project budget cap to ${String(settings.budgetUsd ?? "none")}` : "Update project settings",
-        { target: budget ? await stamp(ctx, projects, projectId) : undefined },
+        only === "budgetUsd"
+          ? `Change the project budget cap to ${String(settings?.budgetUsd ?? "none")}`
+          : `Change owner-only settings: ${owner.join(", ")}`,
+        { target: await stamp(ctx, projects, projectId) },
       );
     },
     handler: async ({ projectId, ...body }, ctx) => ({
