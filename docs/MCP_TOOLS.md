@@ -804,7 +804,7 @@ Change a project's title, description, type, language, reading direction, colour
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** yes
 - **Annotations:** readOnly=false, destructive=true, idempotent=true, openWorld=false
-- **Approval action keys:** `project.update`, `project.budget`
+- **Approval action keys:** `project.update`, `project.budget`, `project.storage_policy`, `project.owner_settings`
 - **Wraps:** `PATCH /api/projects/:projectId`
 
 <details><summary>Input schema</summary>
@@ -14969,9 +14969,9 @@ Keep a chapter's current plan (stage=plan) or narration (stage=narration) althou
 
 ### start_production_run
 
-Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Price it first with estimate_production_run. Follow it with get_production_run, and continue_production_run at each review.
+Run the whole pipeline for a project (analysis, references, chapter plans, prompts, artwork, narration, audio, thumbnail, the video and its YouTube package), reusing whatever exists and pausing at review steps. Spends the user's provider credits, up to the project's budget cap, unattended between reviews: always a spend action (may need approval). Needs a budget cap on the project; one run at a time per project. Price it first with estimate_production_run. Follow it with get_production_run, and continue_production_run at each review. Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to render), since the run does each of those steps.
 
-- **Scopes:** `generations:run`
+- **Scopes:** `generations:run` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** no — accepts `idempotencyKey`
 - **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
@@ -15100,9 +15100,9 @@ Run the whole pipeline for a project (analysis, references, chapter plans, promp
 
 ### update_production
 
-Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work); chapters whose text changed after they were planned (or after their narration was written) are never redone on their own: the run waits at a review listing them (get_staleness stalePlans / staleNarration) until each is kept (keep_stale_chapter) or redone (run_chapter_plan / run_narration_generation with replace=true) and the run is continued; then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going.
+Run only what is out of date (see get_staleness), from the first stale stage on: a revised story is analysed again and the run then waits for the user to review the changes (get_story_analysis diff=true shows them; continue_production_run applies them keeping all existing work); chapters whose text changed after they were planned (or after their narration was written) are never redone on their own: the run waits at a review listing them (get_staleness stalePlans / staleNarration) until each is kept (keep_stale_chapter) or redone (run_chapter_plan / run_narration_generation with replace=true) and the run is continued; then missing plans, prompts and artwork, artwork whose panel was edited after it was drawn, narration, audio and the video, which re-encodes only the shots that changed. Spends the user's provider credits up to the project's budget cap: always a spend action (may need approval). Refused with 409 when nothing is out of date or a run is already going. Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to render), since the run does each of those steps.
 
-- **Scopes:** `generations:run`
+- **Scopes:** `generations:run` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** no — accepts `idempotencyKey`
 - **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
@@ -15278,9 +15278,9 @@ A project's recent production runs (newest first), or one run by runId: its stat
 
 ### continue_production_run
 
-Continue a run: past the review step it is waiting at (only after the user has reviewed what it asks for), after the budget cap was raised, or to retry the step that failed. The run then spends the user's provider credits again: always a spend action (may need approval).
+Continue a run: past the review step it is waiting at (only after the user has reviewed what it asks for), after the budget cap was raised, or to retry the step that failed. The run then spends the user's provider credits again: always a spend action (may need approval). Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to render), since the run does each of those steps.
 
-- **Scopes:** `generations:run`
+- **Scopes:** `generations:run` — per action, see description
 - **Sensitivity:** spend (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** no — accepts `idempotencyKey`
 - **Annotations:** readOnly=false, destructive=false, idempotent=false, openWorld=false
