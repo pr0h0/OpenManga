@@ -34,7 +34,8 @@ const PIPELINE_SCOPES = [
 ] as const;
 const runScopes = (a: { render?: boolean; youtube?: boolean }) => [
   ...PIPELINE_SCOPES,
-  ...(a.render !== false || a.youtube ? (["exports:create"] as const) : []),
+  // youtube left out turns on for film projects (the route decides), so only an explicit false skips the export.
+  ...(a.render !== false || a.youtube !== false ? (["exports:create"] as const) : []),
 ];
 const SCOPES_NOTE =
   " Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to start one that renders or prepares a YouTube package), since the run does each of those steps.";
