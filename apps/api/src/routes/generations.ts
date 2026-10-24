@@ -36,7 +36,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
-import { entityAccess, jobAccess, projectAccess } from "../lib/access.ts";
+import { entityAccess, jobAccess, OWNER_ONLY_KINDS, projectAccess } from "../lib/access.ts";
 import {
   AiChoiceInput,
   assertBatchable,
@@ -131,8 +131,8 @@ generationRoutes.get("/projects/:projectId/generations", async (c) => {
       ...j.job,
       compiledPrompt: undefined,
       input: undefined,
-      // Another member's agent run: listed (it is the project's spend) but not what it thought (see jobAccess).
-      ...(j.job.kind === "agent_step" && j.job.userId !== user(c).id ? { result: null, parameters: {} } : {}),
+      // Another member's agent run or expert extraction: listed (it is the project's spend), not what it holds.
+      ...(OWNER_ONLY_KINDS.has(j.job.kind) && j.job.userId !== user(c).id ? { result: null, parameters: {} } : {}),
       costUsd: j.costUsd,
       outputAssetId: j.output && !j.output.deleted ? j.output.id : null,
       /** Trashed since; restorable from the job's page until the trash is emptied. */

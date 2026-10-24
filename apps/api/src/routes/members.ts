@@ -6,6 +6,7 @@ import {
   type DbOrTx,
   desc,
   eq,
+  generationJobs,
   gt,
   inArray,
   isNull,
@@ -313,6 +314,18 @@ memberRoutes.delete("/projects/:projectId/members/:userId", async (c) => {
     .update(youtubeLinks)
     .set({ connectionId: null })
     .where(and(eq(youtubeLinks.projectId, p.id), eq(youtubeLinks.createdBy, target)));
+  // Work they queued here stops too: jobs parked in a provider batch never pass the worker's own check.
+  const pending = await db
+    .select({ id: generationJobs.id })
+    .from(generationJobs)
+    .where(
+      and(
+        eq(generationJobs.projectId, p.id),
+        eq(generationJobs.userId, target),
+        inArray(generationJobs.status, ["queued", "paused", "submitted", "processing", "awaiting_input"]),
+      ),
+    );
+  for (const j of pending) await c.get("deps").jobs.cancelGeneration(j.id);
   await recordAudit(db, {
     userId: me.id,
     projectId: p.id,
