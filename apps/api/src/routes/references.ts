@@ -9,6 +9,7 @@ import {
   isNull,
   locationStates,
   locationVersions,
+  ne,
   or,
   REFERENCE_KINDS,
   type ReferenceKind,
@@ -62,6 +63,8 @@ export async function listReferences(
       and(
         inArray(versionColumn[subject], versionIds),
         or(isNull(assets.deletedAt), trashedAt ? eq(assets.deletedAt, trashedAt) : undefined),
+        // A library image removed from an episode stays live in the library; the episode's retired link is not shown.
+        or(ne(referenceAssets.status, "superseded"), eq(assets.projectId, referenceAssets.projectId)),
       ),
     )
     .orderBy(desc(referenceAssets.createdAt));

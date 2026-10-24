@@ -139,6 +139,13 @@ test("removing a shared library image from an episode leaves the library's file 
   );
   expect(a!.deleted_at).toBeNull();
   expect(a!.status).toBe("approved");
+  // Gone from the episode, still in the library.
+  const [epChar] = await h.deps.db.execute<{ id: string }>(sql`select v.character_id as id from reference_assets r
+    join character_versions v on v.id = r.character_version_id where r.id = ${epRef!.id}`);
+  const refsOf = async (c: TestClient, id: string) =>
+    (await c.get<{ references: { assetId: string }[] }>(`/api/characters/${id}`)).references.map((r) => r.assetId);
+  expect(await refsOf(mallory, epChar!.id)).not.toContain(libRef!.asset_id);
+  expect(await refsOf(alice, character.id)).toContain(libRef!.asset_id);
 });
 
 test("a video linked by someone else shows only counters read without the channel owner's authorization", async () => {
