@@ -53,8 +53,11 @@ type ExportJob = typeof exportJobs.$inferSelect;
 export type ImportResult = { projectId: string; warnings: string[]; counts: Record<string, number> };
 
 const MAX_WARNINGS = 200;
-/** Enough for a project.json at the schema's array limits; it is read into memory, unlike the assets. */
-const MAX_MANIFEST_BYTES = 256 * 1024 * 1024;
+/**
+ * project.json is parsed whole in memory, unlike the assets, and JSON of tiny objects costs up to ~30x its size there:
+ * 64 MB keeps even that under the worker's memory, and is far above what a real project's manifest needs.
+ */
+const MAX_MANIFEST_BYTES = 64 * 1024 * 1024;
 
 const limitsFrom = (config: WorkerDeps["config"]): ExtractLimits => ({
   maxEntryBytes: config.IMPORT_MAX_ENTRY_MB * 1024 * 1024,
@@ -81,7 +84,11 @@ const date = (v: string | null | undefined) => {
 async function readManifest(uploadPath: string, dir: string, config: WorkerDeps["config"]) {
   const head = new Uint8Array(await Bun.file(uploadPath).slice(0, 4).arrayBuffer());
   const isZip = head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;
-  if (!isZip) return { json: await Bun.file(uploadPath).text(), isZip, prefix: "", otherManifests: [] };
+  if (!isZip) {
+    if (Bun.file(uploadPath).size > MAX_MANIFEST_BYTES)
+      throw new UnrecoverableError(`project.json is over ${MAX_MANIFEST_BYTES / 1024 / 1024} MB`);
+    return { json: await Bun.file(uploadPath).text(), isZip, prefix: "", otherManifests: [] };
+  }
   const names: string[] = [];
   let found: ExtractedFiles;
   try {

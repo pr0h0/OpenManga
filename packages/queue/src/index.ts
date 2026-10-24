@@ -1,9 +1,10 @@
 import { type Database, type DbOrTx, outbox, sql } from "@openmanga/db";
 import type { Logger } from "@openmanga/logger";
-import { type Job, Queue, type QueueEvents, Worker, type WorkerOptions } from "bullmq";
+import { DelayedError, type Job, Queue, type QueueEvents, Worker, type WorkerOptions } from "bullmq";
 import IORedis, { type Redis } from "ioredis";
 
 /** BullMQ key namespace. Everything that touches these queues must use it, including schedulers. */
+export { DelayedError };
 export const QUEUE_PREFIX = "om";
 
 export const QUEUES = [
@@ -127,7 +128,7 @@ export class BullJobQueue implements JobQueue {
 export function createWorker(
   name: QueueName,
   connection: Redis,
-  processor: (job: Job) => Promise<unknown>,
+  processor: (job: Job, token?: string) => Promise<unknown>,
   opts: Partial<WorkerOptions> = {},
 ) {
   return new Worker(name, processor, { connection, prefix: QUEUE_PREFIX, concurrency: 1, ...opts });
