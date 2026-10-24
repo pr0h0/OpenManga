@@ -1,5 +1,5 @@
 import { StructuredOutputError, type TextCallRecord } from "@openmanga/ai-text";
-import { and, asc, eq, generationJobs, generationOutputs, panels, sql } from "@openmanga/db";
+import { and, asc, eq, generationJobs, generationOutputs, panels, projectMembers, projects, sql } from "@openmanga/db";
 import { ProviderError, policyCategories } from "@openmanga/domain";
 import { DelayedError, type Job, UnrecoverableError } from "@openmanga/queue";
 import { instanceBudget, instanceBudgetReason, projectBudget, recordError } from "@openmanga/services";
@@ -159,6 +159,11 @@ export async function runGenerationJob(
     }
   }
 
+  if (await noLongerAllowed(deps, job)) {
+    log.info("job's project was trashed or its requester lost access; cancelling it", { kind: job.kind });
+    await finishCancelled(deps, job);
+    return;
+  }
   if (await pausedByBudget(deps, job)) return;
   if (token && (await overFairShare(deps, job, bullJob.queueName))) {
     // Back in line for a moment: it runs once a slot is free that nobody else is waiting for.
@@ -430,6 +435,25 @@ async function overFairShare(deps: WorkerDeps, job: GenerationJob, queue: string
       (select count(*)::int from generation_jobs where queue = ${queue} and status = 'queued'
         and user_id is distinct from ${job.userId}) as others`);
   return (r?.mine ?? 0) >= slots - 1 && (r?.others ?? 0) > 0;
+}
+
+/**
+ * Jobs are authorized when queued and still have to be when they run: a trashed project is frozen, and someone
+ * removed from it (or made a viewer) no longer acts in it, however long their job waited.
+ */
+async function noLongerAllowed(deps: WorkerDeps, job: GenerationJob) {
+  if (!job.projectId) return false;
+  const [p] = await deps.db
+    .select({ deletedAt: projects.deletedAt, ownerUserId: projects.ownerUserId })
+    .from(projects)
+    .where(eq(projects.id, job.projectId));
+  if (!p || p.deletedAt) return true;
+  if (!job.userId || job.userId === p.ownerUserId) return false;
+  const [m] = await deps.db
+    .select({ role: projectMembers.role })
+    .from(projectMembers)
+    .where(and(eq(projectMembers.projectId, job.projectId), eq(projectMembers.userId, job.userId)));
+  return !m || m.role === "viewer";
 }
 
 async function finishCancelled(deps: WorkerDeps, job: GenerationJob) {
