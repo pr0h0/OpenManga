@@ -327,15 +327,19 @@ describe("snapshots and retention", () => {
     const yt = h.workerDeps.youtube;
     await h.deps.db.execute(sql`delete from youtube_snapshots`);
     const at = (ms: number) => new Date(Date.now() + ms);
+    // Each video is read once per way it is linked: with its own channel's token, and with the API key for links
+    // made without that connection.
+    const groups = sql`(select distinct l.video_id, c.id as conn, l.published_at from youtube_links l
+      left join youtube_channels c on c.id = l.connection_id and c.status = 'active') g`;
     const fresh = await count(
-      sql`select count(distinct video_id)::int as n from youtube_links where published_at > now() - interval '47 hours'`,
+      sql`select count(distinct (video_id, conn))::int as n from ${groups} where published_at > now() - interval '47 hours'`,
     );
-    const unconnectedOld = await count(sql`
-      select count(distinct l.video_id)::int as n from youtube_links l
-      where l.published_at < now() - interval '47 hours'
-        and not exists (select 1 from youtube_links c where c.video_id = l.video_id and c.connection_id is not null)`);
+    const unconnectedOld = await count(
+      sql`select count(distinct video_id)::int as n from ${groups} where conn is null and published_at < now() - interval '47 hours'`,
+    );
     expect(fresh).toBe(1);
-    expect(unconnectedOld).toBe(1);
+    // The pasted video, and a connected one someone else linked without that connection.
+    expect(unconnectedOld).toBe(2);
     // Fresh uploads and videos on channels nobody connected; an older connected video has Analytics instead.
     expect(await yt.takeSnapshots(at(0))).toBe(fresh + unconnectedOld);
     // 30 minutes later: nothing is due.

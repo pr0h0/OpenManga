@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Security
+
+Fixes from a source security audit (all found and reproduced locally with dummy accounts; none known to be exploited).
+
+- A page, panel, speech bubble or sound effect could be pointed at another project's scene, panel or character by id.
+  The other project's scene notes then showed up in the caller's prompt preview, and the caller's continuity notes in
+  theirs. These ids are now checked against the project, and the planner only reads the project's own scenes.
+- A copy of a series episode stayed an episode of the original series, so a collaborator's copy could publish chapters
+  on the owner's public series page and receive the series library after they were removed. Copies are now
+  standalone, and series pages and syncs only include the series owner's projects.
+- Removing or changing a series library image from inside an episode trashed (and after 30 days deleted) the library's
+  own file. It now only affects the episode's link to it.
+- A video linked by someone who has not connected its channel showed the counters read with the channel owner's
+  token, beyond the 30-day limit. Each link now sees only its own connection's data, and each is read its own way.
+
 ## [0.19.6] — 2026-10-24
 
 Upgrading: pull the new images and restart; no migrations, no new settings. The Kokoro image is rebuilt.

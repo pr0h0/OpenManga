@@ -9,6 +9,7 @@ import {
   isNull,
   locationStates,
   locationVersions,
+  ne,
   or,
   REFERENCE_KINDS,
   type ReferenceKind,
@@ -62,6 +63,8 @@ export async function listReferences(
       and(
         inArray(versionColumn[subject], versionIds),
         or(isNull(assets.deletedAt), trashedAt ? eq(assets.deletedAt, trashedAt) : undefined),
+        // A library image removed from an episode stays live in the library; the episode's retired link is not shown.
+        or(ne(referenceAssets.status, "superseded"), eq(assets.projectId, referenceAssets.projectId)),
       ),
     )
     .orderBy(desc(referenceAssets.createdAt));
@@ -130,8 +133,10 @@ export async function trashSubjectImages(
   trashedAt?: Date | null,
 ) {
   const t = SUBJECT_TABLES[subject];
+  // Only this project's own files: an episode's references can point at its series library's images, which belong
+  // to the library and stay with it.
   const mine = sql`id in (select r.asset_id from reference_assets r join ${sql.raw(t.versions)} v on v.id = r.${sql.raw(t.ref)}
-    where v.${sql.raw(t.owner)} = ${id})`;
+    where v.${sql.raw(t.owner)} = ${id} and r.project_id = assets.project_id)`;
   if (at)
     await db.execute(
       sql`update assets set deleted_at = ${at.toISOString()}::timestamptz where deleted_at is null and ${mine}`,
@@ -300,7 +305,11 @@ referenceRoutes.post("/references/:id/status", async (c) => {
   if (!canTransition(ref.status, status)) throw conflict(`Cannot change a ${ref.status} reference to ${status}`);
   const deps = c.get("deps");
   const [row] = await deps.db.update(referenceAssets).set({ status }).where(eq(referenceAssets.id, ref.id)).returning();
-  await deps.db.update(assets).set({ status }).where(eq(assets.id, ref.assetId));
+  // A library image shared into an episode keeps the library's own status.
+  await deps.db
+    .update(assets)
+    .set({ status })
+    .where(and(eq(assets.id, ref.assetId), eq(assets.projectId, ref.projectId)));
   let derivative = null;
   if (status === "approved" || status === "locked") {
     const asset = await deps.assets.get(ref.assetId);
@@ -357,7 +366,11 @@ referenceRoutes.delete("/references/:id", async (c) => {
   const ref = await refWithAccess(c, uuidParam(c, "id"));
   if (ref.status === "locked") throw conflict("Locked references cannot be deleted");
   const deps = c.get("deps");
-  await deps.db.update(assets).set({ deletedAt: new Date() }).where(eq(assets.id, ref.assetId));
+  // Removing a shared library image from an episode only retires the episode's link; the library keeps the file.
+  await deps.db
+    .update(assets)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(assets.id, ref.assetId), eq(assets.projectId, ref.projectId)));
   await deps.db
     .update(referenceAssets)
     .set({ status: "superseded", isPrimary: false })

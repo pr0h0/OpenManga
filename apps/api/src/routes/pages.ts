@@ -24,6 +24,7 @@ import {
   panels,
   props,
   propVersions,
+  scenes,
   soundEffects,
   sql,
 } from "@openmanga/db";
@@ -102,6 +103,43 @@ export const pageRoutes = new Hono<AppEnv>();
 const emptySpec = (beat = ""): PanelSpec =>
   PanelSpec.parse({ beat: beat || "New panel", shotType: "medium", cameraAngle: "eye-level" });
 
+/**
+ * Ids a request names must belong where it says: a panel on this page, a character or scene of this project. A foreign
+ * id would pull another project's text into prompts, alt text and exports, and push this one's into theirs.
+ */
+async function checkRefs(
+  db: DbOrTx,
+  scope: { projectId: string; pageId?: string },
+  ids: { panelId?: string | null; characterId?: string | null; sceneId?: string | null },
+) {
+  if (ids.panelId) {
+    const [p] = await db
+      .select({ id: panels.id })
+      .from(panels)
+      .where(
+        and(
+          eq(panels.id, ids.panelId),
+          scope.pageId ? eq(panels.pageId, scope.pageId) : eq(panels.projectId, scope.projectId),
+        ),
+      );
+    if (!p) throw badRequest("That panel is not on this page");
+  }
+  if (ids.characterId) {
+    const [ch] = await db
+      .select({ id: characters.id })
+      .from(characters)
+      .where(and(eq(characters.id, ids.characterId), eq(characters.projectId, scope.projectId)));
+    if (!ch) throw badRequest("That character is not in this project");
+  }
+  if (ids.sceneId) {
+    const [sc] = await db
+      .select({ id: scenes.id })
+      .from(scenes)
+      .where(and(eq(scenes.id, ids.sceneId), eq(scenes.projectId, scope.projectId)));
+    if (!sc) throw badRequest("That scene is not in this project");
+  }
+}
+
 async function loadPageProject(
   c: Parameters<typeof projectAccess>[0],
   pageId: string,
@@ -145,6 +183,7 @@ pageRoutes.post("/chapters/:id/pages", async (c) => {
   const chapterId = uuidParam(c, "id");
   const project = await entityAccess(c, "chapter", chapterId, "write");
   const input = await body(c, CreatePage);
+  await checkRefs(c.get("deps").db, { projectId: project.id }, { sceneId: input.sceneId });
   const layoutFramesNew = layoutFrames(input.layoutTemplate, project, user(c), project.readingDirection);
   if (!layoutFramesNew) throw badRequest("Unknown layout template");
   const { db } = c.get("deps");
@@ -294,6 +333,7 @@ doc({
 pageRoutes.patch("/pages/:id", async (c) => {
   const { page } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const input = await body(c, PatchPage);
+  await checkRefs(c.get("deps").db, { projectId: page.projectId }, { sceneId: input.sceneId });
   if (page.status === "locked" && input.status !== "superseded" && Object.keys(input).some((k) => k !== "status"))
     throw conflict("Page is locked");
   const { db } = c.get("deps");
@@ -434,7 +474,10 @@ pageRoutes.patch("/pages/:id/document", async (c) => {
       const set: Partial<typeof dialogueLines.$inferInsert> = {};
       if (d.bubble) set.bubble = d.bubble;
       if (d.text !== undefined) set.text = d.text;
-      if (d.panelId !== undefined) set.panelId = d.panelId;
+      if (d.panelId !== undefined) {
+        await checkRefs(tx, { projectId: page.projectId, pageId: page.id }, { panelId: d.panelId });
+        set.panelId = d.panelId;
+      }
       if (Object.keys(set).length)
         await tx
           .update(dialogueLines)
@@ -738,6 +781,7 @@ doc({
 pageRoutes.patch("/panels/:id", async (c) => {
   const { panel, project } = await loadPanel(c, uuidParam(c, "id"), "write");
   const input = await body(c, PatchPanel);
+  await checkRefs(c.get("deps").db, { projectId: project.id }, { sceneId: input.sceneId });
   // Describing a finished panel is not changing it: alt text stays editable when the panel is locked.
   const changes = Object.keys(input).filter((k) => k !== "altText");
   if (panel.approvalStatus === "locked" && changes.length && (input.approvalStatus === undefined || changes.length > 1))
@@ -1414,6 +1458,7 @@ pageRoutes.post("/pages/:id/dialogue", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const input = await body(c, NewDialogue);
   const { db } = c.get("deps");
+  await checkRefs(db, { projectId: project.id, pageId: page.id }, input);
   let bubble = input.bubble;
   if (!bubble) {
     const [pn] = input.panelId
@@ -1558,6 +1603,7 @@ pageRoutes.patch("/dialogue/:id", async (c) => {
   if (!d) throw notFound("Dialogue");
   await projectAccess(c, d.projectId, "write");
   const input = await body(c, PatchDialogue);
+  await checkRefs(db, { projectId: d.projectId, pageId: d.pageId }, input);
   const [row] = await db.update(dialogueLines).set(input).where(eq(dialogueLines.id, id)).returning();
   return c.json({ dialogue: row });
 });
@@ -1587,6 +1633,7 @@ pageRoutes.post("/pages/:id/sfx", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
   const input = await body(c, NewSfx);
   const { db } = c.get("deps");
+  await checkRefs(db, { projectId: project.id, pageId: page.id }, input);
   const [pn] = input.panelId
     ? await db
         .select()
@@ -1618,6 +1665,7 @@ pageRoutes.patch("/sfx/:id", async (c) => {
   if (!s) throw notFound("SFX");
   await projectAccess(c, s.projectId, "write");
   const input = await body(c, PatchSfx);
+  await checkRefs(db, { projectId: s.projectId, pageId: s.pageId }, input);
   const [row] = await db.update(soundEffects).set(input).where(eq(soundEffects.id, id)).returning();
   return c.json({ sfx: row });
 });

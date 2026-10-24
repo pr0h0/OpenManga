@@ -7,6 +7,8 @@ import {
   exportsTable,
   gte,
   inArray,
+  isNull,
+  or,
   sql,
   youtubeChannels,
   youtubeLinks,
@@ -26,6 +28,15 @@ import { doc } from "../lib/openapi.ts";
 
 type Deps = AppEnv["Variables"]["deps"];
 type Link = typeof youtubeLinks.$inferSelect;
+
+/**
+ * The snapshots a link may show: those read without anyone's authorization (kept 30 days), and those its own
+ * connection authorized. Another user's Authorized Data of the same video stays theirs.
+ */
+const visibleSnapshots = (l: Pick<Link, "connectionId">) =>
+  l.connectionId
+    ? or(isNull(youtubeSnapshots.connectionId), eq(youtubeSnapshots.connectionId, l.connectionId))
+    : isNull(youtubeSnapshots.connectionId);
 
 /** Live counters are re-read at most this often per project; Analytics answers are cached a little longer. */
 const LIVE_TTL_S = 300;
@@ -278,6 +289,9 @@ async function liveCounts(deps: Deps, projectId: string, links: Link[]): Promise
   }
   const missing = links.filter((l) => !out[l.videoId]).map((l) => l.videoId);
   if (missing.length) {
+    const own = links
+      .filter((l) => l.connectionId && missing.includes(l.videoId))
+      .map((l) => sql`(${l.videoId}, ${l.connectionId}::uuid)`);
     const snaps = await deps.db.execute<{
       video_id: string;
       views: number;
@@ -286,7 +300,9 @@ async function liveCounts(deps: Deps, projectId: string, links: Link[]): Promise
       taken_at: Date | string;
     }>(sql`
       select distinct on (video_id) video_id, views, likes, comments, taken_at from youtube_snapshots
-      where video_id in ${missing} order by video_id, taken_at desc`);
+      where video_id in ${missing}
+        and (connection_id is null${own.length ? sql` or (video_id, connection_id) in (${sql.join(own, sql`, `)})` : sql``})
+      order by video_id, taken_at desc`);
     for (const s of snaps)
       out[s.video_id] = {
         views: Number(s.views),
@@ -323,7 +339,12 @@ async function curves(deps: Deps, links: Link[]) {
   const withPub = links.filter((l) => l.publishedAt);
   if (!withPub.length) return new Map<string, (number | null)[]>();
   const snaps = await deps.db
-    .select({ videoId: youtubeSnapshots.videoId, takenAt: youtubeSnapshots.takenAt, views: youtubeSnapshots.views })
+    .select({
+      videoId: youtubeSnapshots.videoId,
+      takenAt: youtubeSnapshots.takenAt,
+      views: youtubeSnapshots.views,
+      connectionId: youtubeSnapshots.connectionId,
+    })
     .from(youtubeSnapshots)
     .where(
       inArray(
@@ -334,7 +355,10 @@ async function curves(deps: Deps, links: Link[]) {
   const out = new Map<string, (number | null)[]>();
   for (const l of withPub) {
     const mine = snaps.filter(
-      (s) => s.videoId === l.videoId && s.takenAt.getTime() - l.publishedAt!.getTime() <= 49 * 3600_000,
+      (s) =>
+        s.videoId === l.videoId &&
+        (s.connectionId === null || s.connectionId === l.connectionId) &&
+        s.takenAt.getTime() - l.publishedAt!.getTime() <= 49 * 3600_000,
     );
     if (mine.length) out.set(l.videoId, first48Curve(l.publishedAt!, mine));
   }
@@ -664,7 +688,7 @@ youtubeRoutes.get("/projects/:projectId/youtube/links/:linkId/history", googleLi
       comments: youtubeSnapshots.comments,
     })
     .from(youtubeSnapshots)
-    .where(eq(youtubeSnapshots.videoId, link.videoId))
+    .where(and(eq(youtubeSnapshots.videoId, link.videoId), visibleSnapshots(link)))
     .orderBy(asc(youtubeSnapshots.takenAt));
 
   let daily: Record<string, unknown>[];
