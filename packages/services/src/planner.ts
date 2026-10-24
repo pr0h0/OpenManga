@@ -442,7 +442,12 @@ export class GenerationPlanner {
     }
 
     const scene = panel.sceneId
-      ? ((await this.db.select().from(scenes).where(eq(scenes.id, panel.sceneId)))[0] ?? null)
+      ? ((
+          await this.db
+            .select()
+            .from(scenes)
+            .where(and(eq(scenes.id, panel.sceneId), eq(scenes.projectId, panel.projectId)))
+        )[0] ?? null)
       : null;
     const continuity: string[] = [];
     if (scene) {
@@ -481,7 +486,7 @@ export class GenerationPlanner {
         .from(panels)
         .innerJoin(pages, eq(pages.id, panels.pageId))
         .innerJoin(panelSpecs, eq(panelSpecs.panelId, panels.id))
-        .where(eq(panels.sceneId, scene.id));
+        .where(and(eq(panels.sceneId, scene.id), eq(panels.projectId, panel.projectId)));
       for (const e of earlier) {
         if (e.pageOrder > page.order || (e.pageOrder === page.order && e.order >= panel.order)) continue;
         continuity.push(...(e.spec.continuityRequirements ?? []).filter(relevant));
@@ -510,8 +515,8 @@ export class GenerationPlanner {
       : [];
 
     let previousPanelImageIndex: number | undefined;
-    if (opts.includePreviousPanel !== false && panel.sceneId && refs.length < MAX_REFERENCES) {
-      const prev = await this.previousPanelArtwork(panel.sceneId, page.order, panel.order);
+    if (opts.includePreviousPanel !== false && scene && refs.length < MAX_REFERENCES) {
+      const prev = await this.previousPanelArtwork(scene.id, panel.projectId, page.order, panel.order);
       if (prev) {
         refs.push({
           asset: prev,
@@ -576,12 +581,12 @@ export class GenerationPlanner {
     return Boolean(r?.has);
   }
 
-  private async previousPanelArtwork(sceneId: string, pageOrder: number, panelOrder: number) {
+  private async previousPanelArtwork(sceneId: string, projectId: string, pageOrder: number, panelOrder: number) {
     const rows = await this.db
       .select({ panel: panels, pageOrder: pages.order })
       .from(panels)
       .innerJoin(pages, eq(pages.id, panels.pageId))
-      .where(eq(panels.sceneId, sceneId))
+      .where(and(eq(panels.sceneId, sceneId), eq(panels.projectId, projectId)))
       .orderBy(desc(pages.order), desc(panels.order));
     const prev = rows.find(
       (r) =>

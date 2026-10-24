@@ -259,6 +259,8 @@ export class YouTubeService {
   /**
    * Snapshots the public counters of every linked video that is due one (see `snapshotDue`), reading each with its
    * channel's token when that channel is connected (stored as Authorized Data) and otherwise with the API key.
+   * Each link is read with its own connection, never another user's: a video linked both by its channel's owner and by
+   * someone else is read twice, once each way.
    */
   async takeSnapshots(now = new Date()) {
     const rows = await this.db.execute<{
@@ -267,11 +269,11 @@ export class YouTubeService {
       conn_id: string | null;
       last: Date | string | null;
     }>(sql`
-      select l.video_id, min(l.published_at) as published_at,
-        (array_agg(c.id) filter (where c.status = 'active'))[1] as conn_id,
-        (select max(s.taken_at) from youtube_snapshots s where s.video_id = l.video_id) as last
-      from youtube_links l left join youtube_channels c on c.id = l.connection_id
-      group by l.video_id`);
+      select l.video_id, min(l.published_at) as published_at, c.id as conn_id,
+        (select max(s.taken_at) from youtube_snapshots s
+          where s.video_id = l.video_id and s.connection_id is not distinct from c.id) as last
+      from youtube_links l left join youtube_channels c on c.id = l.connection_id and c.status = 'active'
+      group by l.video_id, c.id`);
     const d = (v: Date | string | null) => (v ? new Date(v) : null);
     const due = [...rows].filter((r) =>
       snapshotDue({ publishedAt: d(r.published_at), connected: Boolean(r.conn_id), lastSnapshotAt: d(r.last) }, now),
@@ -313,7 +315,15 @@ export class YouTubeService {
         await this.db
           .update(youtubeLinks)
           .set({ title: v.title, thumbnailUrl: v.thumbnailUrl, channelTitle: v.channelTitle })
-          .where(eq(youtubeLinks.videoId, v.id));
+          .where(
+            and(
+              eq(youtubeLinks.videoId, v.id),
+              connId
+                ? eq(youtubeLinks.connectionId, connId)
+                : sql`(${youtubeLinks.connectionId} is null or ${youtubeLinks.connectionId} not in
+                    (select id from youtube_channels where status = 'active'))`,
+            ),
+          );
       taken += vids.length;
     }
     return taken;

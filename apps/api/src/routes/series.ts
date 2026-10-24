@@ -105,7 +105,15 @@ async function episodesOf(c: Ctx, seriesId: string) {
     .get("deps")
     .db.select()
     .from(projects)
-    .where(and(eq(projects.seriesId, seriesId), eq(projects.seriesRole, "episode"), isNull(projects.deletedAt)))
+    .where(
+      and(
+        eq(projects.seriesId, seriesId),
+        eq(projects.seriesRole, "episode"),
+        // Only the series owner's projects are its episodes, so a copy someone else made never receives the library.
+        sql`${projects.ownerUserId} = (select ${series.ownerUserId} from ${series} where ${series.id} = ${seriesId})`,
+        isNull(projects.deletedAt),
+      ),
+    )
     .orderBy(asc(projects.episodeNumber));
 }
 

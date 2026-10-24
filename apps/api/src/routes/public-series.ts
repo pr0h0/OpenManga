@@ -61,7 +61,15 @@ async function contents(c: Ctx, s: typeof series.$inferSelect) {
       language: projects.language,
     })
     .from(projects)
-    .where(and(eq(projects.seriesId, s.id), eq(projects.seriesRole, "episode"), isNull(projects.deletedAt)))
+    // Only the series owner's projects: nobody else can put chapters on this reader page.
+    .where(
+      and(
+        eq(projects.seriesId, s.id),
+        eq(projects.seriesRole, "episode"),
+        eq(projects.ownerUserId, s.ownerUserId),
+        isNull(projects.deletedAt),
+      ),
+    )
     .orderBy(asc(projects.episodeNumber));
   const chs = eps.length
     ? await db
