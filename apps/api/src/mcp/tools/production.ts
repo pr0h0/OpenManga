@@ -37,7 +37,7 @@ const runScopes = (a: { render?: boolean; youtube?: boolean }) => [
   ...(a.render !== false || a.youtube ? (["exports:create"] as const) : []),
 ];
 const SCOPES_NOTE =
-  " Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to start one that renders), since the run does each of those steps.";
+  " Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to start one that renders or prepares a YouTube package), since the run does each of those steps.";
 
 const RunOptions = {
   projectId: Uuid,
