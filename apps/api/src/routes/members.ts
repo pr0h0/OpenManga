@@ -174,7 +174,9 @@ memberRoutes.post("/projects/:projectId/invites", inviteLimit, async (c) => {
       .values({
         projectId: p.id,
         role,
-        userId: account?.id ?? null,
+        // An email invite is redeemed with its emailed link only: the address an account registered with is not proof
+        // that whoever holds the account owns it. Inviting by username is the in-app way.
+        userId: byEmail ? null : account!.id,
         email: byEmail ? identifier : null,
         tokenHash: token ? tokenHash(c, token) : null,
         invitedByUserId: me.id,

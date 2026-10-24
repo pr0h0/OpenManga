@@ -19,6 +19,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { body, conflict, notFound, query, user, uuidParam } from "../lib/http.ts";
+import { failureGuard } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 import { CallError, callAs } from "../lib/production.ts";
 import { episodeStaleness, syncEpisode } from "../lib/series.ts";
@@ -222,6 +223,8 @@ seriesRoutes.patch("/series/:id", async (c) => {
       .toString("base64url")
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "x");
+  // Telling a taken address from a free one is as good as trying it on the public page: throttled the same way.
+  const guard = input.publicSlug ? await failureGuard(c, "series-slug", 30, 900, user(c).id) : null;
   const [taken] = input.publicSlug
     ? await c
         .get("deps")
@@ -229,7 +232,10 @@ seriesRoutes.patch("/series/:id", async (c) => {
         .from(series)
         .where(and(eq(series.publicSlug, input.publicSlug), ne(series.id, s.id)))
     : [];
-  if (taken) throw conflict("That address is taken");
+  if (taken) {
+    await guard?.fail();
+    throw conflict("That address is taken");
+  }
   const [row] = await c.get("deps").db.update(series).set(input).where(eq(series.id, s.id)).returning();
   return c.json({ series: row });
 });

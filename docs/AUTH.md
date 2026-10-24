@@ -171,8 +171,10 @@ trashed asset is not served outside the trash views; see `docs/STORAGE.md`.
 - **Invite** (`POST /api/projects/:id/invites`, owner only) takes a username or an email address and a role, `editor`
   or `viewer`. A username must belong to an account; the invitation appears in that account's list
   (`GET /api/invites`, shown on the dashboard) to accept or decline. An email address gets an email with a one-time
-  link (`/app/invite?token=…`); if an account already has that address it is also invited in the app. The response is
-  the same either way, and the owner's list of pending invitations shows the address, never the account behind it.
+  link (`/app/invite?token=…`), and only that link redeems it, even when an account already has that address: an
+  account's registered address is not proof that whoever holds it owns the mailbox. To invite someone in the app,
+  use their username. The response is the same either way, and the owner's list of pending invitations shows the
+  address, never the account behind it.
   Inviting the same person again replaces the open invitation.
 - **The link token** is 256 bits from `randomBytes`, stored only as `HMAC-SHA256(token, SESSION_SECRET)`
   (`project_invites.token_hash`, unique), expires with the invitation, and is claimed atomically
