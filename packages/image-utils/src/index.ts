@@ -431,9 +431,11 @@ export const PALETTE_MAX_PIXELS = 12_000_000;
 export async function paletteTransfer(data: Uint8Array, palette: Uint8Array, strength = 1) {
   // The transfer runs per pixel on the calling thread (the API's): bounded so one request cannot stall or exhaust it.
   // ponytail: rejects past 12 MP; tile it or move it to the worker if bigger artwork needs a palette.
-  const meta = await sharp(data, { limitInputPixels: false }).metadata();
-  if ((meta.width ?? 0) * (meta.height ?? 0) > PALETTE_MAX_PIXELS)
-    throw new InvalidImageError("This image is too large for the palette tool (12 megapixels at most)");
+  for (const img of [data, palette]) {
+    const meta = await sharp(img, { limitInputPixels: false }).metadata();
+    if ((meta.width ?? 0) * (meta.height ?? 0) > PALETTE_MAX_PIXELS)
+      throw new InvalidImageError("This image is too large for the palette tool (12 megapixels at most)");
+  }
   const src = await labPixels(data);
   const ref = await labPixels(palette, 512);
   const s = stats(src.lab);
