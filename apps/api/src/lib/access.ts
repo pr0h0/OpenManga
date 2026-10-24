@@ -55,14 +55,18 @@ export async function projectAccess(
  * Access to a generation job: its project's. A job of no project (an expert extraction from a chat about none) is
  * its owner's alone, like the chat it came from.
  */
+/** Job kinds whose input is one member's private material (see jobAccess). */
+export const OWNER_ONLY_KINDS = new Set(["agent_step", "expert_extract"]);
+
 export async function jobAccess(
   c: Context<AppEnv>,
   job: { projectId: string | null; userId: string | null; kind?: string },
   action: ProjectAction,
 ): Promise<ProjectRecord | null> {
   // An in-app agent's thinking carries what its tools returned to the user who started it (their own connections,
-  // profiles and private notes included): like the run itself, it is theirs alone, not the project's.
-  if (job.kind === "agent_step" && job.userId !== user(c).id) throw notFound("Job");
+  // profiles and private notes included), and an expert extraction carries their private chat: like the run and the
+  // chat, these are theirs alone, not the project's.
+  if (job.kind && OWNER_ONLY_KINDS.has(job.kind) && job.userId !== user(c).id) throw notFound("Job");
   if (job.projectId) return projectAccess(c, job.projectId, action);
   if (job.userId !== user(c).id) throw notFound("Job");
   return null;
