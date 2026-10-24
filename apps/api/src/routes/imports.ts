@@ -108,11 +108,20 @@ importRoutes.post("/projects/import", async (c) => {
 
     // Title from the start of a JSON export only; the worker reads and checks the whole document. Parsing it all
     // here cost the API up to ~30x the upload in memory, so one upload could exhaust it for everyone.
-    if (isJson) {
+    if (isJson && bytes <= 1024 * 1024) {
+      // Small enough to check whole, so a broken file is refused now rather than after a project exists.
+      try {
+        const t = (JSON.parse(await Bun.file(uploadPath).text()) as { project?: { title?: unknown } }).project?.title;
+        if (typeof t === "string" && t.trim()) title = t.trim().slice(0, 200);
+      } catch {
+        throw badRequest("The .json file is not valid JSON");
+      }
+    } else if (isJson) {
+      // The project's own title, when it comes before any nested object of the project; otherwise the worker sets it.
       const start = await Bun.file(uploadPath)
         .slice(0, 64 * 1024)
         .text();
-      const m = /"title"\s*:\s*("(?:[^"\\]|\\.){0,800}")/.exec(start);
+      const m = /"project"\s*:\s*\{[^{}]*?"title"\s*:\s*("(?:[^"\\]|\\.){0,800}")/.exec(start);
       try {
         const t = m ? (JSON.parse(m[1]!) as unknown) : null;
         if (typeof t === "string" && t.trim()) title = t.trim().slice(0, 200);

@@ -125,6 +125,15 @@ test("update_project waits for approval for every owner-only setting, like proje
   );
   const { project: p } = await u.get<{ project: { settings: Record<string, unknown> } }>(`/api/projects/${pid}`);
   expect(p.settings.storage).toBeUndefined();
+  // Sending the current budget back with an ordinary edit changes nothing owner-only.
+  expect(
+    (
+      await call(token, "update_project", {
+        projectId: pid,
+        settings: { budgetUsd: p.settings.budgetUsd, imageQuality: "low" },
+      })
+    ).status,
+  ).toBe("completed");
 }, 60_000);
 
 test("a production run needs the scopes of the steps it does, not just generations:run", async () => {
