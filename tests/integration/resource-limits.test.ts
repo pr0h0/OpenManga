@@ -104,6 +104,19 @@ test("importing a large JSON export does not parse it in the API", async () => {
   expect(peak - before).toBeLessThan(250 * 1024 * 1024);
 }, 120_000);
 
+test("a small broken JSON export is refused at once; the title is the project's own", async () => {
+  const bad = await u.raw(
+    "POST",
+    "/api/projects/import?name=bad.json",
+    new Blob(['{"project":'], { type: "application/json" }),
+  );
+  expect(bad.status).toBe(400);
+  const body = `{"meta":{"title":"Not this"},"project":{"title":"This one","x":[${"{},".repeat(400_000)}{}]}}`;
+  const r = await u.raw("POST", "/api/projects/import?name=t.json", new Blob([body], { type: "application/json" }));
+  expect(r.status).toBe(202);
+  expect(((await r.json()) as { project: { title: string } }).project.title).toBe("This one");
+}, 60_000);
+
 test("the palette tool refuses artwork too large to recolour on the API thread", async () => {
   const projectId = (await u.post<{ project: { id: string } }>("/api/projects", { title: "Big art" }, 201)).project.id;
   const chapterId = (

@@ -317,7 +317,7 @@ memberRoutes.delete("/projects/:projectId/members/:userId", async (c) => {
     .set({ connectionId: null })
     .where(and(eq(youtubeLinks.projectId, p.id), eq(youtubeLinks.createdBy, target)));
   // Work they queued here stops too: jobs parked in a provider batch never pass the worker's own check.
-  const pending = await db
+  const queued = await db
     .select({ id: generationJobs.id })
     .from(generationJobs)
     .where(
@@ -327,7 +327,14 @@ memberRoutes.delete("/projects/:projectId/members/:userId", async (c) => {
         inArray(generationJobs.status, ["queued", "paused", "submitted", "processing", "awaiting_input"]),
       ),
     );
-  for (const j of pending) await c.get("deps").jobs.cancelGeneration(j.id);
+  // Each on its own: the membership is already gone, so a retry could not reach the ones a failure skipped.
+  for (const j of queued)
+    await c
+      .get("deps")
+      .jobs.cancelGeneration(j.id)
+      .catch((e) =>
+        c.get("deps").logger.warn("cancelling a removed member's job failed", { jobId: j.id, error: String(e) }),
+      );
   await recordAudit(db, {
     userId: me.id,
     projectId: p.id,

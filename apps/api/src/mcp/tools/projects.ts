@@ -1,4 +1,4 @@
-import { projects } from "@openmanga/db";
+import { eq, projects } from "@openmanga/db";
 import { ProjectStorage } from "@openmanga/schemas";
 import { z } from "zod";
 import { CreateProject, OWNER_SETTINGS, UpdateProject } from "../../routes/projects.ts";
@@ -126,7 +126,14 @@ export const projectTools = [
     // Every owner-only setting (spend, unattended re-rolls, the fallback key, file deletion) waits for approval like
     // the budget does, under the same action as the tool that sets it alone (project_storage set for storage).
     classify: async ({ projectId, settings }, ctx) => {
-      const owner = settings ? OWNER_SETTINGS.filter((k) => k in settings) : [];
+      // Only what would change: sending the current budget back along with an ordinary edit needs no approval.
+      const [current] = settings
+        ? await ctx.deps.db.select({ settings: projects.settings }).from(projects).where(eq(projects.id, projectId))
+        : [];
+      const was = (current?.settings ?? {}) as Record<string, unknown>;
+      const owner = settings
+        ? OWNER_SETTINGS.filter((k) => k in settings && JSON.stringify(settings[k]) !== JSON.stringify(was[k]))
+        : [];
       if (!owner.length) return cls("write", "project.update", projectId, "Update project settings");
       const only = owner.length === 1 ? owner[0] : null;
       return cls(

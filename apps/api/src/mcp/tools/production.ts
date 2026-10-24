@@ -37,7 +37,7 @@ const runScopes = (a: { render?: boolean; youtube?: boolean }) => [
   ...(a.render !== false || a.youtube ? (["exports:create"] as const) : []),
 ];
 const SCOPES_NOTE =
-  " Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to render), since the run does each of those steps.";
+  " Needs generations:run, story:write, library:write, chapters:write, panels:write and narration:write (and exports:create to start one that renders or prepares a YouTube package), since the run does each of those steps.";
 
 const RunOptions = {
   projectId: Uuid,
@@ -295,7 +295,9 @@ export const productionTools = [
     input: z.object({ runId: Uuid, idempotencyKey: IdempotencyKey }),
     output: Passthrough,
     scopes: ["generations:run"],
-    scopesFor: () => runScopes({}),
+    // The export it may render was chosen when the run started, under that caller's scopes; continuing it needs the
+    // pipeline's own.
+    scopesFor: () => [...PIPELINE_SCOPES],
     sensitivity: "spend",
     idempotent: false,
     routes: ["POST /api/production-runs/:id/continue"],
