@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.7] — 2026-10-24
+
+Upgrading: pull the new images and restart; no migrations, no new settings. An email invitation is now answered
+only through its emailed link; invite by username to have it appear in the app.
+
 ### Security
 
 Fixes from a source security audit (all found and reproduced locally with dummy accounts; none known to be exploited).
@@ -21,6 +26,31 @@ Fixes from a source security audit (all found and reproduced locally with dummy 
   own file. It now only affects the episode's link to it.
 - A video linked by someone who has not connected its channel showed the counters read with the channel owner's
   token, beyond the 30-day limit. Each link now sees only its own connection's data, and each is read its own way.
+- A pasted answer to an expert chat could still draw with a project's reference images after the person left the
+  project or became a viewer. It now needs current access, like sending and retrying.
+- Another member's expert extraction (their private chat question and reply) was readable by everyone in the project
+  through the job list and job details. It is now theirs alone, like an in-app agent's thinking.
+- Work someone queued kept running after they were removed from the project, or after the project was trashed.
+  The worker now checks before running and cancels it, and removing a member cancels their pending jobs.
+- An agent on a connection that asks for approval could change the storage policy, the automatic consistency fixes'
+  budget or the content-policy fallback through `update_project` without asking. Every owner-only setting now waits
+  for approval, as the budget did.
+- A connection granted only `generations:run` could apply analyses, approve references and plan chapters through a
+  production run. Starting, updating or continuing a run now needs the scopes of the steps it does.
+- An approval asked for at one review step of a production run could pass a later one. It is now tied to the step.
+- Anyone could make a public series page render and store a new copy for each `?language=` value they sent. Only
+  editions the project has are rendered now.
+- Importing a large JSON export could exhaust the API's memory, because it was parsed whole only to read the title.
+  The title is now read from the start of the file, and the worker caps project.json at 64 MB.
+- The palette tool refuses artwork over 12 megapixels, which could otherwise stall the API for seconds.
+- One account could hold every shared text or image worker slot (a custom endpoint that never answers held one for
+  hours). A user now cannot take the last free slot while someone else's job waits, and a provider timeout is not
+  run again after the provider's own retries.
+- A password change or reset now ends every earlier reset link.
+- An email invitation is redeemed only with its emailed link, not claimed in the app by whoever registered that
+  address. Invite by username for an in-app invitation.
+- Checking whether a series address is taken is now throttled like the public page, so unlisted addresses cannot be
+  probed through it.
 
 ## [0.19.6] — 2026-10-24
 
