@@ -16,7 +16,7 @@ export type ProviderErrorCode =
   /** The provider refused a batch because the account already has as much batch work queued as it allows. */
   | "batch_queue_full";
 
-const RETRYABLE: ProviderErrorCode[] = [
+export const RETRYABLE: ProviderErrorCode[] = [
   "timeout",
   "rate_limited",
   "server_error",
