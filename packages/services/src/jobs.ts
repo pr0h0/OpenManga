@@ -546,20 +546,21 @@ export class JobService {
     const [job] = await this.db.select().from(generationJobs).where(eq(generationJobs.id, jobId));
     if (!job || !["failed", "cancelled"].includes(job.status)) return null;
     if (job.retriedByJobId) return null;
-    // Claim the job before doing any work: reading the pointer and writing it afterwards is a check-then-set, so
-    // two clicks on "retry all failed" could both pass the read and both pay for the same image.
-    const claimed = await this.db
-      .update(generationJobs)
-      .set({ retriedByJobId: RETRY_CLAIMED })
-      .where(and(eq(generationJobs.id, jobId), isNull(generationJobs.retriedByJobId)))
-      .returning({ id: generationJobs.id });
-    if (!claimed.length) return null;
     const inputs = await this.db
       .select()
       .from(generationInputs)
       .where(inArray(generationInputs.jobId, [jobId]));
-    const created = await this.db.transaction((tx) =>
-      this.createGenerationJob(tx, {
+    // Claim, replacement and pointer commit together. The claim is still what stops two clicks on "retry all failed"
+    // paying for the same image twice (the second waits on the row lock, then matches nothing), and a replacement
+    // that cannot be created rolls the claim back with it, so the job stays retryable.
+    const created = await this.db.transaction(async (tx) => {
+      const claimed = await tx
+        .update(generationJobs)
+        .set({ retriedByJobId: RETRY_CLAIMED })
+        .where(and(eq(generationJobs.id, jobId), isNull(generationJobs.retriedByJobId)))
+        .returning({ id: generationJobs.id });
+      if (!claimed.length) return null;
+      const row = await this.createGenerationJob(tx, {
         projectId: job.projectId,
         userId,
         kind: job.kind,
@@ -588,10 +589,11 @@ export class JobService {
             height: i.height,
             metadata: i.metadata,
           })),
-      }),
-    );
-    // Replace the claim marker with the real replacement id.
-    await this.db.update(generationJobs).set({ retriedByJobId: created.id }).where(eq(generationJobs.id, jobId));
+      });
+      await tx.update(generationJobs).set({ retriedByJobId: row.id }).where(eq(generationJobs.id, jobId));
+      return row;
+    });
+    if (!created) return null;
     await this.kick();
     return created;
   }
