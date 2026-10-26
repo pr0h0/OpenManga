@@ -554,42 +554,52 @@ export class JobService {
       .where(and(eq(generationJobs.id, jobId), isNull(generationJobs.retriedByJobId)))
       .returning({ id: generationJobs.id });
     if (!claimed.length) return null;
+    // A replacement that could not be created gives the claim back, or the job could never be retried again.
+    const release = (e: unknown) =>
+      this.db
+        .update(generationJobs)
+        .set({ retriedByJobId: null })
+        .where(and(eq(generationJobs.id, jobId), eq(generationJobs.retriedByJobId, RETRY_CLAIMED)))
+        .then(() => Promise.reject(e));
     const inputs = await this.db
       .select()
       .from(generationInputs)
-      .where(inArray(generationInputs.jobId, [jobId]));
-    const created = await this.db.transaction((tx) =>
-      this.createGenerationJob(tx, {
-        projectId: job.projectId,
-        userId,
-        kind: job.kind,
-        priority: job.priority,
-        targetType: job.targetType,
-        targetId: job.targetId,
-        batchId: job.batchId,
-        templateName: job.templateName,
-        templateVersion: job.templateVersion,
-        compiledPrompt: job.compiledPrompt,
-        provider: job.provider,
-        model: job.model,
-        // A retry is a fresh run, so answers pasted into the old one do not come with it: replaying them would
-        // re-apply exactly what the user may have cancelled to get away from.
-        parameters: { ...withoutKey(job.parameters, "manualAnswers"), retryOf: job.id },
-        input: job.input,
-        inputs: inputs
-          .sort((a, b) => a.order - b.order)
-          .map((i) => ({
-            role: i.role,
-            assetId: i.assetId,
-            variantId: i.variantId,
-            subjectVersionId: i.subjectVersionId,
-            label: i.label,
-            width: i.width,
-            height: i.height,
-            metadata: i.metadata,
-          })),
-      }),
-    );
+      .where(inArray(generationInputs.jobId, [jobId]))
+      .catch(release);
+    const created = await this.db
+      .transaction((tx) =>
+        this.createGenerationJob(tx, {
+          projectId: job.projectId,
+          userId,
+          kind: job.kind,
+          priority: job.priority,
+          targetType: job.targetType,
+          targetId: job.targetId,
+          batchId: job.batchId,
+          templateName: job.templateName,
+          templateVersion: job.templateVersion,
+          compiledPrompt: job.compiledPrompt,
+          provider: job.provider,
+          model: job.model,
+          // A retry is a fresh run, so answers pasted into the old one do not come with it: replaying them would
+          // re-apply exactly what the user may have cancelled to get away from.
+          parameters: { ...withoutKey(job.parameters, "manualAnswers"), retryOf: job.id },
+          input: job.input,
+          inputs: inputs
+            .sort((a, b) => a.order - b.order)
+            .map((i) => ({
+              role: i.role,
+              assetId: i.assetId,
+              variantId: i.variantId,
+              subjectVersionId: i.subjectVersionId,
+              label: i.label,
+              width: i.width,
+              height: i.height,
+              metadata: i.metadata,
+            })),
+        }),
+      )
+      .catch(release);
     // Replace the claim marker with the real replacement id.
     await this.db.update(generationJobs).set({ retriedByJobId: created.id }).where(eq(generationJobs.id, jobId));
     await this.kick();
