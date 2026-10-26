@@ -546,62 +546,54 @@ export class JobService {
     const [job] = await this.db.select().from(generationJobs).where(eq(generationJobs.id, jobId));
     if (!job || !["failed", "cancelled"].includes(job.status)) return null;
     if (job.retriedByJobId) return null;
-    // Claim the job before doing any work: reading the pointer and writing it afterwards is a check-then-set, so
-    // two clicks on "retry all failed" could both pass the read and both pay for the same image.
-    const claimed = await this.db
-      .update(generationJobs)
-      .set({ retriedByJobId: RETRY_CLAIMED })
-      .where(and(eq(generationJobs.id, jobId), isNull(generationJobs.retriedByJobId)))
-      .returning({ id: generationJobs.id });
-    if (!claimed.length) return null;
-    // A replacement that could not be created gives the claim back, or the job could never be retried again.
-    const release = (e: unknown) =>
-      this.db
-        .update(generationJobs)
-        .set({ retriedByJobId: null })
-        .where(and(eq(generationJobs.id, jobId), eq(generationJobs.retriedByJobId, RETRY_CLAIMED)))
-        .then(() => Promise.reject(e));
     const inputs = await this.db
       .select()
       .from(generationInputs)
-      .where(inArray(generationInputs.jobId, [jobId]))
-      .catch(release);
-    const created = await this.db
-      .transaction((tx) =>
-        this.createGenerationJob(tx, {
-          projectId: job.projectId,
-          userId,
-          kind: job.kind,
-          priority: job.priority,
-          targetType: job.targetType,
-          targetId: job.targetId,
-          batchId: job.batchId,
-          templateName: job.templateName,
-          templateVersion: job.templateVersion,
-          compiledPrompt: job.compiledPrompt,
-          provider: job.provider,
-          model: job.model,
-          // A retry is a fresh run, so answers pasted into the old one do not come with it: replaying them would
-          // re-apply exactly what the user may have cancelled to get away from.
-          parameters: { ...withoutKey(job.parameters, "manualAnswers"), retryOf: job.id },
-          input: job.input,
-          inputs: inputs
-            .sort((a, b) => a.order - b.order)
-            .map((i) => ({
-              role: i.role,
-              assetId: i.assetId,
-              variantId: i.variantId,
-              subjectVersionId: i.subjectVersionId,
-              label: i.label,
-              width: i.width,
-              height: i.height,
-              metadata: i.metadata,
-            })),
-        }),
-      )
-      .catch(release);
-    // Replace the claim marker with the real replacement id.
-    await this.db.update(generationJobs).set({ retriedByJobId: created.id }).where(eq(generationJobs.id, jobId));
+      .where(inArray(generationInputs.jobId, [jobId]));
+    // Claim, replacement and pointer commit together. The claim is still what stops two clicks on "retry all failed"
+    // paying for the same image twice (the second waits on the row lock, then matches nothing), and a replacement
+    // that cannot be created rolls the claim back with it, so the job stays retryable.
+    const created = await this.db.transaction(async (tx) => {
+      const claimed = await tx
+        .update(generationJobs)
+        .set({ retriedByJobId: RETRY_CLAIMED })
+        .where(and(eq(generationJobs.id, jobId), isNull(generationJobs.retriedByJobId)))
+        .returning({ id: generationJobs.id });
+      if (!claimed.length) return null;
+      const row = await this.createGenerationJob(tx, {
+        projectId: job.projectId,
+        userId,
+        kind: job.kind,
+        priority: job.priority,
+        targetType: job.targetType,
+        targetId: job.targetId,
+        batchId: job.batchId,
+        templateName: job.templateName,
+        templateVersion: job.templateVersion,
+        compiledPrompt: job.compiledPrompt,
+        provider: job.provider,
+        model: job.model,
+        // A retry is a fresh run, so answers pasted into the old one do not come with it: replaying them would
+        // re-apply exactly what the user may have cancelled to get away from.
+        parameters: { ...withoutKey(job.parameters, "manualAnswers"), retryOf: job.id },
+        input: job.input,
+        inputs: inputs
+          .sort((a, b) => a.order - b.order)
+          .map((i) => ({
+            role: i.role,
+            assetId: i.assetId,
+            variantId: i.variantId,
+            subjectVersionId: i.subjectVersionId,
+            label: i.label,
+            width: i.width,
+            height: i.height,
+            metadata: i.metadata,
+          })),
+      });
+      await tx.update(generationJobs).set({ retriedByJobId: row.id }).where(eq(generationJobs.id, jobId));
+      return row;
+    });
+    if (!created) return null;
     await this.kick();
     return created;
   }
