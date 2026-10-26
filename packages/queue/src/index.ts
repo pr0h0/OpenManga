@@ -75,7 +75,9 @@ export class BullJobQueue implements JobQueue {
     await this.queue(queue).add(name, payload, {
       jobId: opts.jobId,
       priority: opts.priority,
-      attempts: opts.attempts ?? 3,
+      // A batch submit carries a whole run's panels and fails them all when it gives up. Provider outages seen in
+      // production last 30-60s, past three tries 5s apart; six (5s..80s, ~2.5 min) ride them out.
+      attempts: opts.attempts ?? (queue === "image-batch" ? 6 : 3),
       delay: opts.delayMs,
       backoff: { type: "exponential", delay: 5000, jitter: 0.5 },
       removeOnComplete: { age: 7 * 24 * 3600, count: 5000 },
