@@ -1,5 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { assets, assetVariants, eq, exportJobs, generationJobs, generationOutputs, inArray, sql } from "@openmanga/db";
+import {
+  and,
+  assets,
+  assetVariants,
+  eq,
+  exportJobs,
+  generationJobs,
+  generationOutputs,
+  inArray,
+  sql,
+} from "@openmanga/db";
 import { runMaintenance } from "../../apps/worker/src/handlers/maintenance.ts";
 import { runGenerationJob } from "../../apps/worker/src/lib/runner.ts";
 import { startHarness, type TestClient } from "./harness.ts";
@@ -243,7 +253,7 @@ describe("render queue", () => {
 describe("batch submitter died", () => {
   // Seen in production: three submit jobs failed on an unretryable error and 143 panels sat at `queued` with
   // nothing left to hand them to a provider. The batch looked idle rather than broken.
-  const insertBatch = async (submitStatus: "failed" | "queued") => {
+  const insertBatch = async (submitStatus: "failed" | "queued", failureCode?: string) => {
     const batchId = crypto.randomUUID();
     const mk = async (
       kind: "panel_generation" | "image_batch_submit",
@@ -261,6 +271,7 @@ describe("batch submitter died", () => {
           targetType: "panel",
           parameters: batchMode ? { batchMode: true } : {},
           input: {},
+          failureCode: kind === "image_batch_submit" ? failureCode : undefined,
         })
         .returning();
       return row!.id;
@@ -283,6 +294,32 @@ describe("batch submitter died", () => {
     expect(failed.status).toBe("failed");
     expect(failed.failureCode).toBe("batch_submit_failed");
     expect(rows.find((r) => r.id === pending.panel)!.status).toBe("queued");
+  });
+
+  test("a submitter that failed on a provider outage is run once more before its panels are failed", async () => {
+    const outage = await insertBatch("failed", "server_error");
+    const [batch] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, outage.panel));
+    const submits = () =>
+      h.deps.db
+        .select()
+        .from(generationJobs)
+        .where(and(eq(generationJobs.batchId, batch!.batchId!), eq(generationJobs.kind, "image_batch_submit")));
+    await runMaintenance(h.workerDeps);
+    const again = (await submits()).find((r) => r.id !== outage.submit)!;
+    expect(again.parameters.retryOf).toBe(outage.submit);
+    const [panel] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, outage.panel));
+    expect(panel!.failureCode).not.toBe("batch_submit_failed");
+
+    // The second submitter fails too: that is a lasting outage, and the panels are failed rather than retried forever.
+    await h.deps.db
+      .update(generationJobs)
+      .set({ status: "failed", failureCode: "server_error" })
+      .where(eq(generationJobs.id, again.id));
+    await h.deps.db.update(generationJobs).set({ status: "queued" }).where(eq(generationJobs.id, outage.panel));
+    await runMaintenance(h.workerDeps);
+    expect(await submits()).toHaveLength(2);
+    const [failed] = await h.deps.db.select().from(generationJobs).where(eq(generationJobs.id, outage.panel));
+    expect(failed!.failureCode).toBe("batch_submit_failed");
   });
 });
 
