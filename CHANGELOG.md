@@ -16,6 +16,10 @@ Upgrading: pull the new images and restart; no migrations, no new settings.
 - A batch run (provider batch API) whose submit job ran out of retries on a temporary provider error, such as an
   OpenAI 503, no longer fails every panel in the batch at the next maintenance sweep. Maintenance submits the batch
   once more; only a second failure fails the panels.
+- A batch submit job now retries for about 2.5 minutes before giving up, instead of about 20 seconds, so a brief
+  provider outage no longer stops the run at all.
+- A retry that failed partway (the database unavailable while the new job was being created) no longer leaves the
+  original job marked as retried, which made it impossible to retry again.
 
 ## [0.19.7] — 2026-10-24
 
