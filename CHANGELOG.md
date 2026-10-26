@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.19.8] — 2026-10-26
+
+Upgrading: pull the new images and restart; no migrations, no new settings.
+
+### Fixed
+
+- A batch run (provider batch API) whose submit job ran out of retries on a temporary provider error, such as an
+  OpenAI 503, no longer fails every panel in the batch at the next maintenance sweep. Maintenance submits the batch
+  once more; only a second failure fails the panels.
+
 ## [0.19.7] — 2026-10-24
 
 Upgrading: pull the new images and restart; no migrations, no new settings. An email invitation is now answered
