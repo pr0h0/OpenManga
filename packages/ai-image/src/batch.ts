@@ -203,10 +203,14 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
     const form = new FormData();
     form.set("file", new Blob([data.slice()], { type: mime }), name);
     form.set("purpose", purpose);
+    // Deleted after ingest, but a file this side never learnt the id of (an upload retried after it had in fact
+    // landed) would otherwise stay: OpenAI keeps vision files until deleted. A week outlives the 24h batch window.
+    form.set("expires_after[anchor]", "created_at");
+    form.set("expires_after[seconds]", String(7 * 24 * 3600));
     // Retried on its own: a submit makes one upload per distinct reference, and one 5xx among them used to throw
     // the whole submit away (and with it every upload so far). Seen in production as OpenAI 503s on /files that
-    // outlasted every attempt of the submit job. At worst a retried upload that had in fact landed leaves one
-    // unowned file, which OpenAI expires.
+    // outlasted every attempt of the submit job. A retried upload that had in fact landed leaves one unowned file,
+    // which the expiry above removes.
     const r = await withRetry(() => this.api<{ id: string }>("/files", { method: "POST", form }), {
       retries: 4,
       baseMs: this.opts.retryBaseMs ?? 2000,
