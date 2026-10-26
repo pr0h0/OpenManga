@@ -15,6 +15,7 @@ import {
   classifyHttpStatus,
   isBatchQueueFull,
   ProviderError,
+  parseRetryAfter,
   refuseRedirect,
   withRetry,
 } from "@openmanga/domain/browser";
@@ -193,6 +194,7 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
       const code = isBatchQueueFull(text) ? "batch_queue_full" : classifyHttpStatus(res.status);
       throw new ProviderError(this.provider, code, `OpenAI HTTP ${res.status} on ${path.split("?")[0]}: ${msg}`, {
         status: res.status,
+        retryAfterMs: parseRetryAfter(res.headers.get("retry-after")),
         requestId: res.headers.get("x-request-id") ?? undefined,
       });
     }
