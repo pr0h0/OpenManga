@@ -16,6 +16,8 @@ Upgrading: pull the new images and restart; no migrations, no new settings.
 - A batch run's submit no longer starts over when one reference image upload to OpenAI fails with a temporary
   error: that upload is retried on its own. Before, a batch with many references could fail every attempt.
 - OpenAI batch errors name the endpoint that failed.
+- Provider retries wait at least as long as the provider's `Retry-After` asks, and a wait longer than 30 seconds is
+  left to the job's own retry instead of holding the request open.
 - Files uploaded to OpenAI for a batch expire after a week, so one this side lost track of is not kept forever.
 
 ## [0.19.8] — 2026-10-26
