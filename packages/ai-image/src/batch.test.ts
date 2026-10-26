@@ -45,6 +45,7 @@ const openai = (fetchFn: typeof fetch, maxEnqueuedTokens = 1_000_000) =>
     sizes: [{ width: 1024, height: 1024 }],
     maxEnqueuedTokens,
     fetch: fetchFn,
+    retryBaseMs: 1,
   });
 
 test("chunkByBudget cuts on whichever budget binds first", () => {
@@ -149,6 +150,43 @@ test("OpenAI submit deletes its uploads when creating the batch fails", async ()
   ]);
   await expect(openai(fn).submitBatch([spec("panel-a", 2)], "idem-2")).rejects.toThrow(/nope/);
   expect(calls.filter((c) => c.init.method === "DELETE")).toHaveLength(3);
+});
+
+test("a failed upload is retried on its own instead of failing the submit", async () => {
+  let n = 0;
+  let flaky = 2;
+  const { fn, calls } = fakeFetch([
+    ["/files", () => (flaky-- > 0 ? new Response("upstream connect error", { status: 503 }) : { id: `file-${++n}` })],
+    ["/batches", () => ({ id: "batch_1" })],
+  ]);
+  const handle = await openai(fn).submitBatch([spec("panel-a", 2)], "idem-flaky");
+  expect(handle.handle).toBe("batch_1");
+  expect(handle.ownedFileIds).toHaveLength(3);
+  expect(calls.filter((c) => c.init.method === "DELETE")).toHaveLength(0);
+  expect(calls.filter((c) => c.url.endsWith("/files"))).toHaveLength(5);
+  // An upload this side lost track of still goes away: OpenAI keeps vision files until deleted otherwise.
+  const form = calls[0]!.init.body as FormData;
+  expect(form.get("expires_after[anchor]")).toBe("created_at");
+  expect(Number(form.get("expires_after[seconds]"))).toBeGreaterThan(24 * 3600);
+});
+
+test("a retried upload waits at least as long as Retry-After says", async () => {
+  let first = true;
+  const { fn, calls } = fakeFetch([
+    [
+      "/files",
+      () => {
+        if (!first) return { id: "file-1" };
+        first = false;
+        return new Response("slow down", { status: 429, headers: { "retry-after": "0.2" } });
+      },
+    ],
+    ["/batches", () => ({ id: "batch_1" })],
+  ]);
+  const t0 = performance.now();
+  await openai(fn).submitBatch([spec("panel-a", 1)], "idem-after");
+  expect(performance.now() - t0).toBeGreaterThanOrEqual(190);
+  expect(calls.filter((c) => c.url.endsWith("/files"))).toHaveLength(3);
 });
 
 test("a mixed batch is refused: one OpenAI batch names a single endpoint", async () => {

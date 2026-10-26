@@ -15,7 +15,9 @@ import {
   classifyHttpStatus,
   isBatchQueueFull,
   ProviderError,
+  parseRetryAfter,
   refuseRedirect,
+  withRetry,
 } from "@openmanga/domain/browser";
 import { chooseImageDimensions, probeImage, type SizeOption } from "@openmanga/image-utils";
 import type { Logger } from "@openmanga/logger";
@@ -135,6 +137,8 @@ type OpenAIBatchOpts = {
   maxEnqueuedTokens: number;
   logger?: Logger;
   fetch?: typeof fetch;
+  /** First backoff of a retried upload; tests shorten it. */
+  retryBaseMs?: number;
 };
 
 /** OpenAI Batch API. Reference images are uploaded first: a batch line is JSON, and multipart is refused. */
@@ -188,8 +192,9 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
       } catch {}
       // A full batch queue is waited out, not failed: earlier batches finishing make room for this one.
       const code = isBatchQueueFull(text) ? "batch_queue_full" : classifyHttpStatus(res.status);
-      throw new ProviderError(this.provider, code, `OpenAI HTTP ${res.status}: ${msg}`, {
+      throw new ProviderError(this.provider, code, `OpenAI HTTP ${res.status} on ${path.split("?")[0]}: ${msg}`, {
         status: res.status,
+        retryAfterMs: parseRetryAfter(res.headers.get("retry-after")),
         requestId: res.headers.get("x-request-id") ?? undefined,
       });
     }
@@ -200,7 +205,20 @@ export class OpenAIImageBatchProvider implements ImageBatchProvider {
     const form = new FormData();
     form.set("file", new Blob([data.slice()], { type: mime }), name);
     form.set("purpose", purpose);
-    const r = await this.api<{ id: string }>("/files", { method: "POST", form });
+    // Deleted after ingest, but a file this side never learnt the id of (an upload retried after it had in fact
+    // landed) would otherwise stay: OpenAI keeps vision files until deleted. A week outlives the 24h batch window.
+    form.set("expires_after[anchor]", "created_at");
+    form.set("expires_after[seconds]", String(7 * 24 * 3600));
+    // Retried on its own: a submit makes one upload per distinct reference, and one 5xx among them used to throw
+    // the whole submit away (and with it every upload so far). Seen in production as OpenAI 503s on /files that
+    // outlasted every attempt of the submit job. A retried upload that had in fact landed leaves one unowned file,
+    // which the expiry above removes.
+    const r = await withRetry(() => this.api<{ id: string }>("/files", { method: "POST", form }), {
+      retries: 4,
+      baseMs: this.opts.retryBaseMs ?? 2000,
+      onRetry: (e, attempt, delay) =>
+        this.opts.logger?.warn("batch upload retry", { attempt: attempt + 1, delayMs: delay, error: e.message }),
+    });
     return r.id;
   }
 
