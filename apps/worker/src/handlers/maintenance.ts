@@ -247,7 +247,8 @@ export async function runMaintenance(deps: WorkerDeps) {
 
   // A submitter that failed on a temporary provider error (an outage outlasting its own retries) is run once more
   // before its panels are failed: the provider is usually back by the next sweep, and failing 150 panels for a
-  // 503 leaves the user to notice and retry each. Only a first submitter, so a lasting outage still ends.
+  // 503 leaves the user to notice and retry each. Only a first submitter, so a lasting outage still ends. Unlimited:
+  // a batch left out here would have its panels failed by the sweep below before it was ever retried.
   const resubmit = await deps.db.execute<{ id: string; user_id: string | null }>(sql`
     select s.id, s.user_id from generation_jobs s
     where s.kind in ('image_batch_submit', 'text_batch_submit') and s.status = 'failed'
@@ -260,8 +261,7 @@ export async function runMaintenance(deps: WorkerDeps) {
         select 1 from generation_jobs j
         where j.batch_id = s.batch_id and j.status = 'queued' and (j.parameters->>'batchMode')::boolean is true
           and j.kind not in ('image_batch_submit', 'text_batch_submit')
-      )
-    limit 100`);
+      )`);
   let resubmitted = 0;
   for (const s of resubmit) if (await deps.jobs.retryGeneration(s.id, s.user_id)) resubmitted++;
   if (resubmitted) await deps.jobs.kick();
