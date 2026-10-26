@@ -158,6 +158,9 @@ export async function withRetry<T>(
       return await fn(attempt);
     } catch (e) {
       if (!(e instanceof ProviderError) || !e.retryable || attempt >= opts.retries) throw e;
+      // A server asking for longer than the ceiling is handed back to the job's own retry rather than held open:
+      // `Retry-After: 86400` would otherwise park the caller for a day.
+      if ((e.retryAfterMs ?? 0) > (opts.maxMs ?? 30_000)) throw e;
       const delay = Math.max(e.retryAfterMs ?? 0, backoffMs(attempt, opts.baseMs, opts.maxMs));
       opts.onRetry?.(e, attempt, delay);
       await sleep(delay);

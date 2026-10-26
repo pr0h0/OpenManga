@@ -44,6 +44,19 @@ describe("retry policy", () => {
     expect(delays).toHaveLength(2);
     expect(delays.every((d) => d >= 5000)).toBe(true);
   });
+  test("a retry-after past the ceiling is thrown rather than waited out", async () => {
+    let n = 0;
+    await expect(
+      withRetry(
+        async () => {
+          n++;
+          throw new ProviderError("x", "rate_limited", "t", { retryAfterMs: 86_400_000 });
+        },
+        { retries: 3, maxMs: 30_000, sleep: async () => {} },
+      ),
+    ).rejects.toBeInstanceOf(ProviderError);
+    expect(n).toBe(1);
+  });
   test("status classification and retry-after parsing", () => {
     expect(classifyHttpStatus(429)).toBe("rate_limited");
     expect(classifyHttpStatus(502)).toBe("server_error");
