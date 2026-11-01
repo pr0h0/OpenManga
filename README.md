@@ -183,16 +183,16 @@ Prebuilt images are published to GHCR on tagged releases only, linux/amd64 (no b
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
 services:
-  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9", build: !reset null }
-  api: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9" }
-  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9" }
-  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9" }
-  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.19.9", build: !reset null }
-  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.19.9", build: !reset null }
-  whisper: { image: "ghcr.io/pr0h0/openmanga-whisper:0.19.9", build: !reset null }
+  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0", build: !reset null }
+  api: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0" }
+  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0" }
+  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0" }
+  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.20.0", build: !reset null }
+  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.20.0", build: !reset null }
+  whisper: { image: "ghcr.io/pr0h0/openmanga-whisper:0.20.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
-than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.19`). `!reset`
+than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.20`). `!reset`
 needs Compose v2.24 or newer; on older versions drop the `build:` keys and run `docker compose up -d --no-build`.
 
 ## Local development
