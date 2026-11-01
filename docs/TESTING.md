@@ -266,6 +266,6 @@ the app and nginx images. A second job checks every non-merge commit in a pull r
 `Signed-off-by` line (bot commits are exempt, and so are GitHub's own squash commits in a `staging` → `master` release
 pull request). The smoke script is not run in CI; E2E runs in its own workflow (above).
 
-`.github/workflows/release.yml` builds and pushes `openmanga-app`, `openmanga-nginx` and `openmanga-kokoro` to
-`ghcr.io/pr0h0/` on a `v*` tag, or by hand for an existing tag (linux/amd64 only; arm64 is a self-build — see
-`docs/REQUIREMENTS.md`).
+`.github/workflows/release.yml` builds and pushes `openmanga-app`, `openmanga-nginx`, `openmanga-kokoro` and
+`openmanga-whisper` to `ghcr.io/pr0h0/` on a `v*` tag, or by hand for an existing tag (linux/amd64 only; arm64 is a
+self-build — see `docs/REQUIREMENTS.md`).

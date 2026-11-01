@@ -177,8 +177,8 @@ to be able to sign up. New projects start with a $5 spend cap that asks for conf
 change or clear it in project settings.
 
 Prebuilt images are published to GHCR on tagged releases only, linux/amd64 (no branch is published):
-`ghcr.io/pr0h0/openmanga-app`, `ghcr.io/pr0h0/openmanga-nginx`, `ghcr.io/pr0h0/openmanga-kokoro`. To run them
-instead of building locally, pin a tag in a compose override:
+`ghcr.io/pr0h0/openmanga-app`, `ghcr.io/pr0h0/openmanga-nginx`, `ghcr.io/pr0h0/openmanga-kokoro`,
+`ghcr.io/pr0h0/openmanga-whisper`. To run them instead of building locally, pin a tag in a compose override:
 
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
@@ -189,6 +189,7 @@ services:
   mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9" }
   nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.19.9", build: !reset null }
   kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.19.9", build: !reset null }
+  whisper: { image: "ghcr.io/pr0h0/openmanga-whisper:0.19.9", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
 than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.19`). `!reset`
