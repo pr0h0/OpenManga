@@ -95,7 +95,8 @@ async def transcribe(request: Request, language: str | None = None):
                 yield json.dumps({"done": True}) + "\n"
         except Exception as e:
             log.exception("transcription failed")
-            yield json.dumps({"error": str(e)[:500]}) + "\n"
+            # The detail stays in this service's log; the caller (and the user it shows the job to) gets the kind only.
+            yield json.dumps({"error": f"{type(e).__name__} (see the whisper service log)"}) + "\n"
         finally:
             os.unlink(path)
 
