@@ -2,11 +2,11 @@
 
 Target: one Linux VPS, Docker Compose, nginx as the only public entrypoint. The compose project is named `openmanga`,
 so the networks are `openmanga_internal` and `openmanga_edge` and the locally built images are `openmanga-app:1`,
-`openmanga-nginx:1` and `openmanga-kokoro:1`.
+`openmanga-nginx:1`, `openmanga-kokoro:1` and `openmanga-whisper:1`.
 
-Tagged releases are also published to GHCR as `ghcr.io/pr0h0/openmanga-app`, `-nginx` and `-kokoro` (linux/amd64).
-Building locally is the default and always works; to run a published image instead, pin its tag with a compose
-override as shown in the README. Either way the `image:` names in `docker-compose.yml` stay as they are.
+Tagged releases are also published to GHCR as `ghcr.io/pr0h0/openmanga-app`, `-nginx`, `-kokoro` and `-whisper`
+(linux/amd64). Building locally is the default and always works; to run a published image instead, pin its tag with a
+compose override as shown in the README. Either way the `image:` names in `docker-compose.yml` stay as they are.
 
 ## First deploy
 
@@ -40,6 +40,7 @@ Profiles (set `COMPOSE_PROFILES` in `.env`):
 | Profile | Service | Notes |
 | --- | --- | --- |
 | `tts` | `kokoro` | Local narration voices. The `kokoro-cache` volume holds the model; the first start downloads it once. |
+| `stt` | `whisper` | Local speech recognition (faster-whisper, `WHISPER_MODEL`, default `large-v3-turbo`) for *Import recording* on the Narration page: a narration recorded elsewhere is cut into the segments it reads. The `whisper-cache` volume holds the model (~1.6 GB, downloaded on first start). About 0.55× real time on 8 CPU cores, so a 30-minute recording takes ~15 minutes. |
 | `mock` | `mock-ai` | HTTP mock of the OpenAI-compatible chat and images APIs, for zero-cost testing of the real provider code. |
 | `tunnel` | `cloudflared` | Public hostname without opening a port (see below). |
 

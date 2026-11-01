@@ -9,7 +9,9 @@ import {
   KokoroTTSProvider,
   OpenAITTSProvider,
   parseWav,
+  pauseMs,
   pcmToWav,
+  quietestMs,
   trimSilenceWav,
 } from "./index.ts";
 
@@ -274,4 +276,19 @@ test("analyseWav: an empty take and a stereo one", () => {
   expect(stereo.durationMs).toBe(3600);
   expect(Math.abs(stereo.longestGapMs - 1600)).toBeLessThanOrEqual(10);
   expect(stereo.clippedMs).toBe(0);
+});
+
+test("pauseMs cuts in a pause, not a gap between words, and keeps a stray sound out of both sides", () => {
+  const rate = 1000;
+  // Speech 0-400 ms, a 50 ms gap between words, speech to 600, a pause, a cough at 900-1000, a pause, speech from 1300.
+  const pcm = Int16Array.from({ length: 1600 }, (_, i) =>
+    i < 400 || (i >= 450 && i < 600) || (i >= 900 && i < 1000) || i >= 1300 ? 8000 : i % 2 ? 3 : -3,
+  );
+  // After the first line: the pause 600-900, not the word gap at 400-450.
+  expect(pauseMs(pcm, rate, 300, 1400, "first")).toBe(750);
+  // Before the second line: the pause 1000-1300, so the cough stays out of it.
+  expect(pauseMs(pcm, rate, 300, 1400, "last")).toBe(1150);
+  // Lines run together: no pause; the quietest spot near the boundary instead.
+  expect(pauseMs(pcm, rate, 350, 500, "first")).toBeNull();
+  expect(quietestMs(pcm, rate, 350, 500)).toBe(405);
 });

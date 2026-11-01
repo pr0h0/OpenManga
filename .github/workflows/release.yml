@@ -32,6 +32,9 @@ jobs:
           - image: openmanga-kokoro
             context: services/kokoro
             dockerfile: services/kokoro/Dockerfile
+          - image: openmanga-whisper
+            context: services/whisper
+            dockerfile: services/whisper/Dockerfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
