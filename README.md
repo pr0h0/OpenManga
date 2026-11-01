@@ -34,7 +34,7 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 
 - **Your own provider keys** (BYOK) own text reasoning (analysis, planning, prompt prep, narration) and raster
   generation — pick a provider and model per run; see [AI providers](#ai-providers-bring-your-own-key).
-- **Kokoro-82M (local)** owns speech synthesis ($0 external API), or use a cloud voice provider.
+- **Kokoro-82M (local)** owns speech synthesis ($0 external API), or use a cloud voice provider. Narration recorded elsewhere can be imported instead: local Whisper matches the recording to the narration and cuts it into each segment's take.
 - The application owns everything else.
 - **No telemetry, no analytics, no phone-home.** Outbound requests go only to the AI providers you configure,
   plus a one-time model download from HuggingFace for local TTS on first boot, and, if you set up YouTube stats,
@@ -177,21 +177,22 @@ to be able to sign up. New projects start with a $5 spend cap that asks for conf
 change or clear it in project settings.
 
 Prebuilt images are published to GHCR on tagged releases only, linux/amd64 (no branch is published):
-`ghcr.io/pr0h0/openmanga-app`, `ghcr.io/pr0h0/openmanga-nginx`, `ghcr.io/pr0h0/openmanga-kokoro`. To run them
-instead of building locally, pin a tag in a compose override:
+`ghcr.io/pr0h0/openmanga-app`, `ghcr.io/pr0h0/openmanga-nginx`, `ghcr.io/pr0h0/openmanga-kokoro`,
+`ghcr.io/pr0h0/openmanga-whisper`. To run them instead of building locally, pin a tag in a compose override:
 
 ```yaml
 # docker-compose.override.yml — compose merges this automatically
 services:
-  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9", build: !reset null }
-  api: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9" }
-  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9" }
-  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.19.9" }
-  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.19.9", build: !reset null }
-  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.19.9", build: !reset null }
+  migrate: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0", build: !reset null }
+  api: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0" }
+  worker: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0" }
+  mock-ai: { image: "ghcr.io/pr0h0/openmanga-app:0.20.0" }
+  nginx: { image: "ghcr.io/pr0h0/openmanga-nginx:0.20.0", build: !reset null }
+  kokoro: { image: "ghcr.io/pr0h0/openmanga-kokoro:0.20.0", build: !reset null }
+  whisper: { image: "ghcr.io/pr0h0/openmanga-whisper:0.20.0", build: !reset null }
 ```
 Then `docker compose pull && docker compose up -d`. Use a version that exists as a release tag, and pin it rather
-than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.19`). `!reset`
+than `latest` so an upgrade is something you choose (each release also carries its minor tag, here `0.20`). `!reset`
 needs Compose v2.24 or newer; on older versions drop the `build:` keys and run `docker compose up -d --no-build`.
 
 ## Local development

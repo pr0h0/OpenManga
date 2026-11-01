@@ -94,6 +94,8 @@ const EnvSchema = z.object({
   TTS_ENABLED: bool.default(true),
   TTS_PROVIDER: z.enum(["kokoro", "fake"]).default("kokoro"),
   KOKORO_URL: z.string().default("http://kokoro:8000"),
+  /** Local speech recognition (services/whisper) for importing narration recorded elsewhere; empty turns it off. */
+  WHISPER_URL: z.string().default("http://whisper:8000"),
   KOKORO_DEFAULT_VOICE: z.string().default("af_heart"),
   KOKORO_DEFAULT_SPEED: z.coerce.number().default(1.0),
   NARRATION_SEGMENT_MAX_CHARS: int(400),

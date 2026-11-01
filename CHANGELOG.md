@@ -7,6 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-11-01
+
+Upgrading: pull the new images and restart; no migrations. To import recordings, add `stt` to `COMPOSE_PROFILES`
+(new image `openmanga-whisper`; optional `WHISPER_URL`, `WHISPER_MODEL`, `WHISPER_THREADS`).
+
+### Added
+
+- **Import recorded narration.** Narration voiced outside OpenManga (another TTS, a voice actor) can now be used in place
+  of synthesis. *Import recording* on the Narration page takes one file for a chapter or the whole project: a new local
+  Whisper service transcribes it with word timings, the words are matched to the narration's segments, and each
+  segment found gets its stretch of the recording, cut at the pauses around it. Segments that could not be found keep
+  their audio and are listed. One segment's take can also be uploaded on its own. Imported audio stays current until
+  its text changes, whatever voice the project names, and "Synthesize all missing" leaves it alone.
+  Enable it with the new `stt` compose profile (`COMPOSE_PROFILES=...,stt`); the model (~1.6 GB) downloads on first
+  start, and a 30-minute recording takes about 15 minutes on 8 CPU cores.
+
+### Fixed
+
+- The retention tests no longer fail once their fixed date is a month old.
+
 ## [0.19.9] — 2026-10-26
 
 Upgrading: pull the new images and restart; no migrations, no new settings.

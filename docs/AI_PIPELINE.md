@@ -20,6 +20,7 @@
 | Social copy | `social_copy` / text-ai | `social-copy` v1 | `SocialCopy`: a title and caption per repurposing item, written into `settings.repurpose.items` by id (only the items asked for) |
 | Narration QA | `narration_lint` / text-ai | `narration-lint` v1 | `NarrationLintReport` stored as `narration_findings` (source `ai`) for the chapter |
 | Audio check | `audio_check` / text-ai | — (no model) | Measured takes and chapter loudness, stored as `narration_findings` (source `audio`) |
+| Narration import | `narration_import` / text-ai | — (local Whisper) | A recording made elsewhere cut into the segments it reads, each a take with provider `import` (see *Imported narration*) |
 | Narration fixes | `narration_fix` / text-ai | `narration-fix` v1 | `NarrationFix` checked against the flagged lines, returned as before/after proposals in the job result; applied only when the user confirms |
 | Story coverage | `story_coverage` / text-ai | `story-coverage` v1 | one `StoryCoverageMap` per part of the source; the findings and shares are computed from them and kept in the job result |
 | YouTube package | `youtube_package` / text-ai | `youtube-package` v2 | `YoutubePackage` (titles, description, tags, pinned comment, thumbnail headlines) saved to `settings.youtubePackage`, editable there |
@@ -464,6 +465,34 @@ chapter's share of the story, the panels and the narration words, and the paragr
 `GET /api/projects/:projectId/story/coverage` returns the newest report with an excerpt of each span, whether the
 applied story or the plan (chapters, scenes, pages, panels) changed since, and any check still running. Paste mode asks
 one question per part.
+
+## Imported narration
+
+A narration recorded outside OpenManga (another TTS, a voice actor) can replace synthesis. *Import recording* on the
+Narration page sends one file for the chapter or the whole project (`POST /api/chapters/:id/narration/import` or
+`/api/projects/:projectId/narration/import`, the file as the raw body, up to `IMPORT_MAX_UPLOAD_MB`) and queues one
+`narration_import` job (one at a time per project, one attempt; the upload is deleted when it ends):
+
+1. ffmpeg decodes the recording to 24 kHz mono, the narration's format.
+2. The local Whisper service (`services/whisper`, compose profile `stt`, `WHISPER_URL`) transcribes it with word
+   timings, streamed back as NDJSON. Measured on 8 CPU cores, `large-v3-turbo` int8 runs at ~0.55× real time and
+   transcribes Bosnian almost word-perfectly.
+3. The words are aligned to the segments' text in order (`alignSegments`, `packages/domain/src/narration-align.ts`):
+   accents, case and punctuation are ignored, three-word phrases found once in both are anchors, and the words between
+   anchors are aligned by edit distance with near misses, and two words heard as one (or one as two), counted as found.
+4. Each segment with at least half its words found is cut from the recording (`pauseMs`, `packages/audio`): its end
+   in the first pause (≥150 ms below -50 dBFS or near the quietest level) after its last word, its start in the last
+   pause before its first word, so a breath or a stray word between two lines belongs to neither. The windows reach
+   from the middle of one line's edge word to the middle of the next one's, because a recogniser often stretches a
+   word over the silence beside it. Where the narrator ran two lines together there is no pause, and the cut takes the
+   quietest 10 ms within 0.1 s of the word boundary (`quietestMs`). The take is trimmed like a synthesized one and
+   becomes the segment's audio. A segment rewritten while the job ran is left alone. On a 25-minute Bosnian recording
+   every word of the 14 written lines was found and every cut landed in silence or at a word boundary.
+
+Segments not found keep their audio and are listed in the job result. An imported take (`audio_assets.provider =
+'import'`, voice `imported`) is current while its text is: staleness ignores voice and speed for it, and "synthesize
+missing" skips it; an explicit re-synthesis replaces it. One segment's take can also be uploaded directly
+(`POST /api/narration-segments/:id/audio`, converted and trimmed, no recognition).
 
 ## Narration languages
 

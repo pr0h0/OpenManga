@@ -1,5 +1,5 @@
 import { type Database, sql } from "@openmanga/db";
-import { splitParagraphs, stableStringify } from "@openmanga/domain";
+import { IMPORTED_AUDIO_PROVIDER, splitParagraphs, stableStringify } from "@openmanga/domain";
 import { type PipelineStage, pipelineStaleness, revisedStory } from "./staleness.ts";
 import { chapterTrace } from "./trace.ts";
 
@@ -186,9 +186,9 @@ export async function whyStale(
         count(*) filter (where a.asset_id is null)::int as none,
         count(*) filter (where a.asset_id is not null and a.text_sha256 <> s.text_sha256)::int as text,
         count(*) filter (where a.asset_id is not null and a.text_sha256 = s.text_sha256
-          and a.voice <> coalesce(s.voice, ${voice}))::int as voice,
+          and a.provider <> ${IMPORTED_AUDIO_PROVIDER} and a.voice <> coalesce(s.voice, ${voice}))::int as voice,
         count(*) filter (where a.asset_id is not null and a.text_sha256 = s.text_sha256
-          and a.voice = coalesce(s.voice, ${voice})
+          and a.provider <> ${IMPORTED_AUDIO_PROVIDER} and a.voice = coalesce(s.voice, ${voice})
           and abs(a.speed - coalesce(s.speed, ${speed})) > 0.001)::int as speed
       from narration_segments s
         join narration_lines nl on nl.id = s.narration_line_id

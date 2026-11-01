@@ -20,6 +20,7 @@ import {
   buildTimeline,
   DEFAULT_NARRATION_PAUSE_MS,
   draftBubble,
+  IMPORTED_AUDIO_PROVIDER,
   PRIORITY,
   placeBubble,
   resolveLettering,
@@ -173,7 +174,11 @@ audioRoutes.get("/chapters/:id/narration", async (c) => {
           return {
             ...s,
             audio: a ?? null,
-            stale: a ? a.textSha256 !== s.textSha256 || a.voice !== voice || Math.abs(a.speed - speed) > 0.001 : false,
+            // An imported take is current while its text is: no voice setting made it.
+            stale: a
+              ? a.textSha256 !== s.textSha256 ||
+                (a.provider !== IMPORTED_AUDIO_PROVIDER && (a.voice !== voice || Math.abs(a.speed - speed) > 0.001))
+              : false,
             job: j
               ? { id: j.id, status: j.status, failureReason: j.failure_reason, failureCode: j.failure_code }
               : null,
@@ -853,12 +858,12 @@ audioRoutes.post("/chapters/:id/narration/synthesize", async (c) => {
       if (busy.has(s.id)) continue;
       const voice = voiceRun.voice ?? s.voice ?? project.settings.narrationVoice;
       const speed = s.speed ?? project.settings.narrationSpeed;
+      // An imported take counts as current while its text is; replacing it needs onlyMissing=false or a per-segment run.
       const fresh =
         a &&
-        a.provider === voiceRun.provider &&
         a.textSha256 === s.textSha256 &&
-        a.voice === voice &&
-        Math.abs(a.speed - speed) < 0.001;
+        (a.provider === IMPORTED_AUDIO_PROVIDER ||
+          (a.provider === voiceRun.provider && a.voice === voice && Math.abs(a.speed - speed) < 0.001));
       if (onlyMissing && fresh) continue;
       await deps.jobs.createAudioJob(tx, {
         projectId: project.id,

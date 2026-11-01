@@ -247,6 +247,71 @@ export function analyseWav(wav: Uint8Array, opts: { silenceDb?: number } = {}): 
   };
 }
 
+/** 10 ms frames of 16-bit mono PCM between two sample indexes: mean absolute level of each. */
+function frameLevels(pcm: Int16Array, a: number, b: number, frame: number) {
+  const n = Math.floor((b - a) / frame);
+  const level = new Float64Array(n);
+  for (let f = 0; f < n; f++) {
+    let e = 0;
+    for (let i = a + f * frame; i < a + (f + 1) * frame; i++) e += Math.abs(pcm[i]!);
+    level[f] = e / frame;
+  }
+  return level;
+}
+
+const window = (pcm: Int16Array, sampleRate: number, fromMs: number, toMs: number) => {
+  const a = Math.min(pcm.length, Math.max(0, Math.round((fromMs / 1000) * sampleRate)));
+  const b = Math.min(pcm.length, Math.max(a, Math.round((toMs / 1000) * sampleRate)));
+  const frame = Math.max(1, Math.round(sampleRate / 100));
+  return { a, b, frame, level: frameLevels(pcm, a, b, frame) };
+};
+
+/**
+ * Where to cut 16-bit mono PCM between two times, in ms: the middle of a pause (at least `minPauseMs` below `quietDb`
+ * or within 6 dB of the quietest 10 ms there) — the first pause when cutting after a stretch of speech, the last when cutting before
+ * one, so a breath or a stray word between two lines belongs to neither. Gaps between words and the stops inside
+ * them are shorter than a pause. Null when there is no pause that long: the speaker ran the two lines together.
+ */
+export function pauseMs(
+  pcm: Int16Array,
+  sampleRate: number,
+  fromMs: number,
+  toMs: number,
+  prefer: "first" | "last",
+  minPauseMs = 150,
+  quietDb = -50,
+) {
+  const { a, frame, level } = window(pcm, sampleRate, fromMs, toMs);
+  if (!level.length) return null;
+  let floor = 0;
+  for (let f = 1; f < level.length; f++) if (level[f]! < level[floor]!) floor = f;
+  // Room noise in a real pause wanders more than 6 dB, so anything below `quietDb` is quiet too; the stops inside a
+  // word can be that quiet as well, but not for `minPauseMs`.
+  const quiet = Math.max(level[floor]! * 2 + 1, 32768 * 10 ** (quietDb / 20));
+  const need = Math.max(1, Math.round(minPauseMs / 10));
+  let chosen: [number, number] | null = null;
+  for (let f = 0; f < level.length; ) {
+    if (level[f]! > quiet) {
+      f++;
+      continue;
+    }
+    let g = f;
+    while (g < level.length && level[g]! <= quiet) g++;
+    if (g - f >= need && (prefer === "last" || !chosen)) chosen = [f, g];
+    f = g;
+  }
+  return chosen ? Math.round(((a + ((chosen[0] + chosen[1]) / 2) * frame) / sampleRate) * 1000) : null;
+}
+
+/** The middle of the quietest 10 ms of 16-bit mono PCM between two times, in ms (ties: the earliest). */
+export function quietestMs(pcm: Int16Array, sampleRate: number, fromMs: number, toMs: number) {
+  const { a, b, frame, level } = window(pcm, sampleRate, fromMs, toMs);
+  if (!level.length) return Math.round(((a + b) / 2 / sampleRate) * 1000);
+  let best = 0;
+  for (let f = 1; f < level.length; f++) if (level[f]! < level[best]!) best = f;
+  return Math.round(((a + (best + 0.5) * frame) / sampleRate) * 1000);
+}
+
 /** Concatenate PCM WAVs (same format) with silence gaps. Deterministic, no external tools. */
 /**
  * Trims leading/trailing silence from a 16-bit PCM WAV. TTS voices (Kokoro measured ~0.31s leading, ~0.69s
