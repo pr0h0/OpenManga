@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { GB, type RetentionCandidate, selectForRetention } from "./retention.ts";
 
-const now = new Date("2026-10-07T00:00:00Z");
+// Ages are relative to the real clock, which selectForRetention reads by default.
+const now = new Date();
 const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
 const c = (id: string, age: number, gb: number): RetentionCandidate => ({
   id,
