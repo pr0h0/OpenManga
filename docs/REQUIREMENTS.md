@@ -70,7 +70,7 @@ The exceptions are video export and local TTS.
 ## Kokoro TTS (`TTS_ENABLED=true`)
 
 Local TTS is opt-in twice: `TTS_ENABLED=true` (the default) and the `tts` compose profile
-(`COMPOSE_PROFILES=...,tts`). It is the only Python service and the only component with a real memory footprint.
+(`COMPOSE_PROFILES=...,tts`). With Whisper (below) it is one of the two Python services and the components with a real memory footprint.
 
 - The container runs **`KOKORO_WORKERS` uvicorn processes** (default 4). Each process loads **its own copy** of
   Kokoro-82M and its own torch runtime, which is why memory scales linearly with the worker count: measured 3.8 GiB
@@ -87,6 +87,12 @@ Local TTS is opt-in twice: `TTS_ENABLED=true` (the default) and the `tts` compos
 
 To skip it entirely, set `TTS_ENABLED=false` and leave `tts` out of `COMPOSE_PROFILES`. Narration audio can then come
 from a BYOK cloud voice provider (OpenAI, Gemini or ElevenLabs) instead.
+
+## Whisper speech recognition (profile `stt`)
+
+Optional, for importing narration recorded elsewhere. One process with `large-v3-turbo` (int8, CPU) holds ~1.5 GB once
+loaded (`mem_limit: 4g`); the model is ~1.6 GB in the `whisper-cache` volume. A transcription uses every core
+(`WHISPER_THREADS=0`) and they run one at a time: ~0.55× real time on 8 cores, so a 30-minute recording takes ~15 minutes.
 
 ## Disk
 

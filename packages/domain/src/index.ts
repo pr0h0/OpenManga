@@ -1,4 +1,5 @@
 export * from "./browser.ts";
+export * from "./narration-align.ts";
 
 import { createHash } from "node:crypto";
 import { type Pronunciation, spokenText } from "./narration.ts";

@@ -48,6 +48,8 @@ x-app-env: &app-env
   TTS_ENABLED: ${TTS_ENABLED:-true}
   TTS_PROVIDER: ${TTS_PROVIDER:-kokoro}
   KOKORO_URL: http://kokoro:8000
+  # Speech recognition for importing narration recorded elsewhere (compose profile `stt`).
+  WHISPER_URL: ${WHISPER_URL:-http://whisper:8000}
   KOKORO_DEFAULT_VOICE: ${KOKORO_DEFAULT_VOICE:-af_heart}
   KOKORO_DEFAULT_SPEED: ${KOKORO_DEFAULT_SPEED:-1.0}
   NARRATION_SEGMENT_MAX_CHARS: ${NARRATION_SEGMENT_MAX_CHARS:-400}
@@ -170,6 +172,28 @@ services:
       start_period: 120s
     networks: [internal]
     profiles: ["tts"]
+
+  whisper:
+    <<: *hardened
+    mem_limit: 4g
+    build: ./services/whisper
+    image: openmanga-whisper:1
+    restart: unless-stopped
+    environment:
+      HF_HOME: /cache/huggingface
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      # 0 = every core; an import runs one transcription at a time.
+      WHISPER_THREADS: ${WHISPER_THREADS:-0}
+    volumes:
+      - whisper-cache:/cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 180s
+    networks: [internal]
+    profiles: ["stt"]
 
   mock-ai:
     <<: *hardened
@@ -336,6 +360,7 @@ volumes:
   assets-data:
   tmp-data:
   kokoro-cache:
+  whisper-cache:
 
 networks:
   internal:

@@ -11,6 +11,7 @@ import { AiChip, useAiBody } from "../ai/AiPicker.tsx";
 import { JsonBlock } from "../generation/shared.tsx";
 import { useProject, useProjectId } from "../project/ProjectLayout.tsx";
 import { ChapterPlayer } from "./ChapterPlayer.tsx";
+import { ImportRecording } from "./ImportRecording.tsx";
 import { LineEditor } from "./LineEditor.tsx";
 import { SynthesisProgress } from "./SynthesisProgress.tsx";
 
@@ -329,6 +330,7 @@ export function NarrationPage() {
             >
               <Mic className="size-4" /> Synthesize all missing
             </button>
+            {allSegments.length > 0 && <ImportRecording projectId={projectId} chapterId={chapterId} language={lang} />}
             {allSegments.some((sg) => sg.job?.status === "queued") && (
               <button
                 type="button"

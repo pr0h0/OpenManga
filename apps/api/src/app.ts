@@ -33,6 +33,7 @@ import { layoutRoutes } from "./routes/layouts.ts";
 import { letteringTranslationRoutes } from "./routes/lettering-translations.ts";
 import { locationStateRoutes } from "./routes/location-states.ts";
 import { memberRoutes, publicInviteRoutes } from "./routes/members.ts";
+import { narrationImportRoutes } from "./routes/narration-import.ts";
 import { narrationQaRoutes } from "./routes/narration-qa.ts";
 import { pageRoutes } from "./routes/pages.ts";
 import { productionRoutes } from "./routes/production.ts";
@@ -79,6 +80,7 @@ export function mountApiRoutes(api: Hono<AppEnv>) {
     assetRoutes,
     audioRoutes,
     narrationQaRoutes,
+    narrationImportRoutes,
     exportRoutes,
     videoRoutes,
     repurposeRoutes,

@@ -10,7 +10,13 @@ import {
   propVersions,
   sql,
 } from "@openmanga/db";
-import { hashOf, type Pronunciation, promptVisibleCharacter, segmentTextSha } from "@openmanga/domain";
+import {
+  hashOf,
+  IMPORTED_AUDIO_PROVIDER,
+  type Pronunciation,
+  promptVisibleCharacter,
+  segmentTextSha,
+} from "@openmanga/domain";
 
 export type ReferenceSubject = "character" | "location" | "prop" | "style";
 
@@ -70,6 +76,7 @@ export async function revisedStory(db: Database, projectId: string) {
 /**
  * `from … where …` over the project's narration segments (alias `s`) in its own language that have no audio, or audio
  * made from other text, voice or speed: what the audio stage counts and a production run's audio step waits for.
+ * An imported take (provider 'import') is current while its text is: no voice setting made it.
  */
 export const staleAudioFrom = (project: {
   id: string;
@@ -80,8 +87,8 @@ export const staleAudioFrom = (project: {
   left join audio_assets a on a.asset_id = s.active_audio_asset_id
   where nl.project_id = ${project.id} and nl.language = ${project.language}
     and (a.asset_id is null or a.text_sha256 <> s.text_sha256
-      or a.voice <> coalesce(s.voice, ${project.settings.narrationVoice})
-      or abs(a.speed - coalesce(s.speed, ${project.settings.narrationSpeed})) > 0.001)`;
+      or (a.provider <> ${IMPORTED_AUDIO_PROVIDER} and (a.voice <> coalesce(s.voice, ${project.settings.narrationVoice})
+        or abs(a.speed - coalesce(s.speed, ${project.settings.narrationSpeed})) > 0.001)))`;
 
 /**
  * Re-hashes the project's narration segments after its pronunciation dictionary changed. A segment's hash is of what

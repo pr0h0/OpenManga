@@ -34,7 +34,7 @@ A self-hosted production tool for consistent AI-generated manhwa, manga, webtoon
 
 - **Your own provider keys** (BYOK) own text reasoning (analysis, planning, prompt prep, narration) and raster
   generation — pick a provider and model per run; see [AI providers](#ai-providers-bring-your-own-key).
-- **Kokoro-82M (local)** owns speech synthesis ($0 external API), or use a cloud voice provider.
+- **Kokoro-82M (local)** owns speech synthesis ($0 external API), or use a cloud voice provider. Narration recorded elsewhere can be imported instead: local Whisper matches the recording to the narration and cuts it into each segment's take.
 - The application owns everything else.
 - **No telemetry, no analytics, no phone-home.** Outbound requests go only to the AI providers you configure,
   plus a one-time model download from HuggingFace for local TTS on first boot, and, if you set up YouTube stats,

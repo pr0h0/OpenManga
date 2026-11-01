@@ -5,7 +5,7 @@ Self-hosted AI manhwa/webtoon/video studio: story → analysis → cast/world �
 ## Stack & package manager
 - **Bun only** (never npm/pnpm/yarn). Bun workspace: `apps/*`, `packages/*`. TypeScript strict.
 - API: Hono + Zod + Drizzle (PostgreSQL). Queue: BullMQ on Redis with a transactional outbox. Web: React + Vite (`base=/app/`) + TanStack Router/Query + Tailwind v4 + Zustand + react-konva.
-- Kokoro TTS is the only Python service (`services/kokoro`).
+- Kokoro TTS (`services/kokoro`) and Whisper speech recognition (`services/whisper`, for importing recorded narration) are the only Python services.
 - Everything runs in Docker; nginx is the only public entrypoint (`/app`, `/api`, `/cdn`, `/mcp` + `/oauth/` + `/.well-known/oauth-*`, `/healthz`, `/readyz`).
 
 ## Commands (run inside a container to keep the host clean: `./scripts/bunx.sh <cmd>`)

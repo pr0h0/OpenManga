@@ -1,7 +1,7 @@
 import { NarrationLineVideo } from "@openmanga/schemas";
-import { Merge, Play, RefreshCw, Scissors, Split, Trash2, Wand2 } from "lucide-react";
+import { Merge, Play, RefreshCw, Scissors, Split, Trash2, Upload, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { assetUrl, del, patch, post } from "../../api/client.ts";
+import { api, assetUrl, del, patch, post } from "../../api/client.ts";
 import { useAction } from "../../api/hooks.ts";
 import type { NarrationDoc, NarrationSegment, Voice } from "../../api/types.ts";
 import { clsx, fmt, SaveIndicator, StatusChip, useAutosave } from "../../components/ui.tsx";
@@ -205,6 +205,11 @@ function SegmentRow({
   const synth = useAction(() => post(`/narration-segments/${seg.id}/synthesize`, aiTts()), { invalidate });
   const split = useAction((at: number) => post(`/narration-segments/${seg.id}/split`, { at }), { invalidate });
   const merge = useAction(() => post(`/narration-segments/${seg.id}/merge-next`), { invalidate });
+  const upload = useAction(
+    (f: File) =>
+      api(`/narration-segments/${seg.id}/audio?name=${encodeURIComponent(f.name)}`, { method: "POST", body: f }),
+    { invalidate, success: "Take uploaded" },
+  );
   const status = segmentStatus(seg);
 
   return (
@@ -230,7 +235,12 @@ function SegmentRow({
         {seg.job?.status === "failed" && seg.job.failureReason && (
           <span className="text-red-500">{seg.job.failureReason}</span>
         )}
-        {seg.audio && <span className="muted">{fmt.ms(seg.audio.durationMs)}</span>}
+        {seg.audio && (
+          <span className="muted">
+            {fmt.ms(seg.audio.durationMs)}
+            {seg.audio.provider === "import" && " · imported"}
+          </span>
+        )}
         <select
           className="input w-auto py-0.5 text-xs"
           value={seg.voice ?? ""}
@@ -294,6 +304,22 @@ function SegmentRow({
             {seg.audio ? <RefreshCw className="size-3.5" /> : <Wand2 className="size-3.5" />}{" "}
             {seg.audio ? "Regenerate" : "Synthesize"}
           </button>
+          <label
+            className={clsx("btn-ghost cursor-pointer py-0.5", upload.isPending && "pointer-events-none opacity-50")}
+            title="Upload this segment's audio, recorded elsewhere"
+          >
+            <Upload className="size-3.5" />
+            <input
+              type="file"
+              accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.opus"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) upload.mutate(f);
+              }}
+            />
+          </label>
           <button
             type="button"
             className="btn-ghost py-0.5"

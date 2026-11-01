@@ -40,6 +40,7 @@ Profiles (set `COMPOSE_PROFILES` in `.env`):
 | Profile | Service | Notes |
 | --- | --- | --- |
 | `tts` | `kokoro` | Local narration voices. The `kokoro-cache` volume holds the model; the first start downloads it once. |
+| `stt` | `whisper` | Local speech recognition (faster-whisper, `WHISPER_MODEL`, default `large-v3-turbo`) for *Import recording* on the Narration page: a narration recorded elsewhere is cut into the segments it reads. The `whisper-cache` volume holds the model (~1.6 GB, downloaded on first start). About 0.55× real time on 8 CPU cores, so a 30-minute recording takes ~15 minutes. |
 | `mock` | `mock-ai` | HTTP mock of the OpenAI-compatible chat and images APIs, for zero-cost testing of the real provider code. |
 | `tunnel` | `cloudflared` | Public hostname without opening a port (see below). |
 

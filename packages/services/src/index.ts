@@ -10,6 +10,7 @@ export * from "./credentials.ts";
 export * from "./jobs.ts";
 export * from "./lettering-translations.ts";
 export * from "./location-states.ts";
+export * from "./narration-import.ts";
 export * from "./narration-lint.ts";
 export * from "./narration-pauses.ts";
 export * from "./outfits.ts";
