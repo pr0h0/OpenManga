@@ -204,6 +204,9 @@ describe("DeepSeekTextProvider over HTTP", () => {
     const err = await p.generateText({ messages: [] }).catch((e) => e);
     expect(err).toBeInstanceOf(ProviderError);
     expect(err.code).toBe("network");
+    // The socket's own error stays in the logs, out of a message users read.
+    expect(err.message).not.toContain("ECONNRESET");
+    expect(err.opts.raw).toMatchObject({ code: "ECONNRESET" });
   });
 
   test("timeout maps to timeout error", async () => {
