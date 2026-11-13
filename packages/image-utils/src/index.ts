@@ -75,9 +75,14 @@ export async function probeImage(data: Uint8Array) {
   }
 }
 
+/**
+ * The largest image the app takes in, by upload or by import. 40 MP: a legitimate reference upload is far smaller, and
+ * each decode is ~4 bytes a pixel of resident memory.
+ */
+export const MAX_IMAGE_PIXELS = 40_000_000;
+
 /** Re-encode an upload: applies EXIF orientation, strips metadata (GPS etc.), bounds pixel count. */
-/** 40 MP: a legitimate reference upload is far smaller, and each decode is ~4 bytes a pixel of resident memory. */
-export async function sanitizeUpload(data: Uint8Array, maxPixels = 40_000_000) {
+export async function sanitizeUpload(data: Uint8Array, maxPixels = MAX_IMAGE_PIXELS) {
   const { mime } = await probeImage(data);
   const img = sharp(data, { limitInputPixels: maxPixels }).rotate();
   try {
@@ -144,7 +149,9 @@ export async function createPromptReference(canonical: Uint8Array, p: ReferenceP
 }
 
 export async function createThumbnail(data: Uint8Array, maxSize = 384, quality = 80) {
-  const { data: out, info } = await sharp(data, { limitInputPixels: false })
+  // sharp's default pixel ceiling (~268 MP) stays on: thumbnails are drawn in the API process on request, and a long
+  // webtoon export strip is well under it while a decompression bomb is not.
+  const { data: out, info } = await sharp(data)
     .rotate()
     .resize({ width: maxSize, height: maxSize, fit: "inside", withoutEnlargement: true })
     .webp({ quality })
