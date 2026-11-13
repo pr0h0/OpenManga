@@ -324,7 +324,8 @@ services:
       # With STORAGE_DRIVER=s3 the app loads images and media from the bucket: its origin must be in the CSP.
       ASSET_CSP_ORIGIN: ${ASSET_CSP_ORIGIN:-}
     ports:
-      - "${NGINX_BIND:-127.0.0.1}:${NGINX_PORT:-3480}:80"
+      # 8080, not 80: the published listener never trusts a client-supplied CF-Connecting-IP (see default.conf).
+      - "${NGINX_BIND:-127.0.0.1}:${NGINX_PORT:-3480}:8080"
     volumes:
       - assets-data:/data/assets:ro
     depends_on:

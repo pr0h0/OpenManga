@@ -62,7 +62,8 @@ Profiles (set `COMPOSE_PROFILES` in `.env`):
 
 Security headers (CSP, nosniff, frame options, referrer policy, permissions policy, HSTS) are set by nginx;
 `absolute_redirect off` keeps redirects scheme-correct behind a TLS proxy. nginx trusts `CF-Connecting-IP` for the
-client address, which is what the API's rate limiters key on.
+client address on the tunnel's listener only (see "Who is allowed to declare the client IP" below), which is what the
+API's rate limiters key on.
 
 ## Using real providers (BYOK)
 
@@ -172,17 +173,23 @@ not touch other tunnels on the host.
 
 ### Who is allowed to declare the client IP
 
-Rate limiting and the login lockout key on the client address, so it matters where that address comes from. nginx
-uses `real_ip` (`deploy/nginx/nginx.conf`): a `CF-Connecting-IP` header is honoured **only** when the request
-arrives from a private address — the tunnel or a reverse proxy beside it — and is ignored when it arrives straight
-off the internet. The app reads nothing but the `X-Real-IP` that nginx sets itself.
+Rate limiting, the login lockout and the IPs recorded on sessions and in the audit log key on the client address, so
+it matters where that address comes from. nginx has two listeners (`deploy/nginx/default.conf`):
+
+- **Port 80, inside Docker only.** cloudflared and any other container on `openmanga_edge` or `openmanga_internal`
+  talk to this one. Here a `CF-Connecting-IP` header is honoured when the request comes from a private address,
+  i.e. from a proxy beside nginx.
+- **Port 8080, the one published on the host** as `NGINX_BIND:NGINX_PORT`. It never trusts the header. Connections
+  through a published port arrive from the Docker bridge gateway, a private address, so trusting the header there
+  would let anyone who can reach the port choose their own IP.
+
+The app reads nothing but the `X-Real-IP` that nginx sets itself.
 
 Two consequences worth knowing:
 
-- **Do not publish nginx directly on a public interface** (`NGINX_BIND=0.0.0.0`) without a proxy in front. Docker's
-  port forwarding can make an external client appear to come from the bridge network, which is inside the trusted
-  range, and then a client-supplied header would be believed again. Keep the default loopback bind and put the
-  tunnel (or your own TLS terminator) in front.
+- **A reverse proxy on the host** (a TLS terminator in front of `127.0.0.1:3480`) reaches the published port, so
+  every request looks like it comes from that proxy. To have its client address believed, run it as a container
+  on the `openmanga_edge` network and point it at `http://nginx:80`, as the tunnel does.
 - Behind a proxy that does not send `CF-Connecting-IP`, every request looks like it comes from that proxy, so
   per-IP limits apply to all users together. The login lockout also counts per account, independent of address, so
   password guessing stays bounded either way, and nginx applies its own burst limit on the login, register and
