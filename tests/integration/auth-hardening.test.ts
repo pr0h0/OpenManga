@@ -83,3 +83,29 @@ test("probing other series' addresses is throttled like the public page", async 
   expect(statuses.slice(0, 30).every((s) => s === 409)).toBe(true);
   expect(statuses[30]).toBe(429);
 });
+
+test("an open event stream ends once its session is revoked (logout everywhere, password change)", async () => {
+  const victim = h.client();
+  await victim.post(
+    "/api/auth/register",
+    { username: "streamvictim", email: "sv@example.com", password: "stream-victim-1" },
+    201,
+  );
+  const pid = (await victim.post<{ project: { id: string } }>("/api/projects", { title: "Streamed" }, 201)).project.id;
+  // A copy of the cookie, as a thief would hold it.
+  const thief = h.client();
+  thief.cookies = new Map(victim.cookies);
+  const res = await thief.raw("GET", `/api/projects/${pid}/events`);
+  expect(res.status).toBe(200);
+  const reader = res.body!.getReader();
+  const first = new TextDecoder().decode((await reader.read()).value);
+  expect(first).toContain("event: ready");
+
+  await victim.post("/api/auth/logout-all", {});
+  // The stream re-checks its session at every ping (about 15 s) and closes; it never runs on.
+  const ended = (async () => {
+    for (;;) if ((await reader.read()).done) return true;
+  })();
+  const timeout = new Promise<boolean>((r) => setTimeout(() => r(false), 40_000));
+  expect(await Promise.race([ended, timeout])).toBe(true);
+}, 60_000);
