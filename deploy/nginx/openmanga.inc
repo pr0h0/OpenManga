@@ -1,0 +1,216 @@
+# The site, shared by both listeners in default.conf. A template: ASSET_CSP_ORIGIN is filled in at start.
+server_name _;
+# Behind TLS-terminating proxies: never emit http:// absolute redirects.
+absolute_redirect off;
+
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+# Ignored by browsers over plain HTTP, so it is safe when this sits behind a TLS terminator or on localhost.
+add_header Strict-Transport-Security "max-age=31536000" always;
+
+location = / {
+  return 302 /app/;
+}
+
+location = /app {
+  return 301 /app/;
+}
+
+# SPA with fallback; hashed build assets are immutable.
+location /app/ {
+  root /usr/share/nginx/html;
+  add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: ${ASSET_CSP_ORIGIN}; media-src 'self' blob: ${ASSET_CSP_ORIGIN}; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header Strict-Transport-Security "max-age=31536000" always;
+  try_files $uri $uri/ /app/index.html;
+  location /app/assets/ {
+    root /usr/share/nginx/html;
+    expires 1y;
+    # add_header does not inherit once a level declares one of its own, so the security headers are repeated.
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+  }
+  location = /app/index.html {
+    root /usr/share/nginx/html;
+    add_header Cache-Control "no-cache";
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: ${ASSET_CSP_ORIGIN}; media-src 'self' blob: ${ASSET_CSP_ORIGIN}; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+  }
+}
+
+location = /healthz {
+  proxy_pass http://api_upstream/healthz;
+  access_log off;
+}
+
+location = /readyz {
+  proxy_pass http://api_upstream/readyz;
+}
+
+# Server-sent events (project events, an expert's reply as it is written): no buffering, long read timeout.
+location ~ ^/api/(projects/[0-9a-fA-F-]+/events|expert-chats/[0-9a-fA-F-]+/stream)$ {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  proxy_buffering off;
+  proxy_cache off;
+  gzip off;
+  proxy_read_timeout 3600s;
+  chunked_transfer_encoding on;
+}
+
+# MCP for AI agents (Streamable HTTP, Bearer auth): a reply can be upgraded to an SSE stream, so no buffering.
+location = /mcp {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  proxy_buffering off;
+  proxy_cache off;
+  gzip off;
+  proxy_read_timeout 300s;
+  client_max_body_size 8m;
+}
+
+# The MCP's OAuth authorization server and its discovery documents (RFC 8414 / RFC 9728, with the path-inserted
+# "/.well-known/…/mcp" forms).
+location ~ ^/(oauth/|\.well-known/oauth-) {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  client_max_body_size 64k;
+}
+
+# Credential endpoints: same proxying as /api/, plus the Redis-independent burst limit.
+location ~ ^/api/auth/(login|register|password-reset/request)$ {
+  limit_req zone=auth_burst burst=20 nodelay;
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  client_max_body_size 20m;
+}
+
+# Project import. This must stay in step with IMPORT_MAX_UPLOAD_MB (packages/config): nginx rejects the upload
+# before the app can report its own limit, so a mismatch reads as an unexplained 413.
+location = /api/projects/import {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  proxy_read_timeout 120s;
+  proxy_send_timeout 120s;
+  client_max_body_size 4096m;
+}
+
+# A narration recording to cut into segments (chapter or whole project); same ceiling as a project import.
+location ~ ^/api/(chapters|projects)/[0-9a-fA-F-]+/narration/import$ {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  proxy_read_timeout 120s;
+  proxy_send_timeout 120s;
+  client_max_body_size 4096m;
+}
+
+# A series' reader page as social crawlers see it (title, description, cover); it sends people on to /app/s/.
+location /s/ {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  proxy_read_timeout 30s;
+}
+
+location /api/ {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Accel-Enabled "";
+  proxy_read_timeout 120s;
+  proxy_send_timeout 120s;
+  client_max_body_size 20m;
+}
+
+# Assets: API authorizes, then nginx streams the file via X-Accel-Redirect (local storage) or the API redirects
+# to a short-lived signed bucket URL (STORAGE_DRIVER=s3).
+location /cdn/ {
+  proxy_pass http://api_upstream;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Request-Id $request_id;
+  proxy_set_header CF-Connecting-IP "";
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Accel-Enabled "1";
+  proxy_read_timeout 60s;
+}
+
+location /_protected_assets/ {
+  internal;
+  alias /data/assets/;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Content-Security-Policy "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'" always;
+  add_header Cache-Control $upstream_http_cache_control;
+  add_header ETag $upstream_http_etag;
+  add_header Content-Disposition $upstream_http_content_disposition;
+  types {}
+  default_type $upstream_http_content_type;
+}
+
+location / {
+  return 404;
+}
