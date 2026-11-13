@@ -324,8 +324,9 @@ oauthRoutes.get(
     if (!redirectUri || !client.redirectUris.includes(redirectUri))
       return errorPage(c, "The app asked to return to an address it did not register.");
     const state = q.state ?? null;
-    const fail = (error: string, description: string) =>
-      c.redirect(redirectBack(deps, redirectUri, { error, error_description: description }, state), 302);
+    // Every client here registered itself anonymously (DCR or CIMD), so a redirect on a bad request would be an open
+    // redirect from this origin to any https address (RFC 9700 4.11.2). Errors before sign-in and consent stay here.
+    const fail = (error: string, description: string) => errorPage(c, `${description} (${error}).`);
     if (q.response_type !== "code") return fail("unsupported_response_type", "Only response_type=code is supported");
     if (q.code_challenge_method !== "S256" || !PKCE_CHALLENGE.test(q.code_challenge ?? ""))
       return fail("invalid_request", "PKCE with code_challenge_method=S256 is required");
