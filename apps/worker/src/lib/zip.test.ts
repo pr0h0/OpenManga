@@ -83,7 +83,7 @@ test("entries the caller skips still count: a skipped bomb is refused, not infla
   const dir = await mkdtemp(join(tmpdir(), "om-unzip-skipped-"));
   try {
     const archive = zipSync(
-      { "project.json": new TextEncoder().encode('{"project":{}}'), "junk.bin": new Uint8Array(64 * 1024 * 1024) },
+      { "project.json": new TextEncoder().encode('{"project":{}}'), "junk.bin": new Uint8Array(16 * 1024 * 1024) },
       { level: 6 },
     );
     const path = join(dir, "skipped.zip");
