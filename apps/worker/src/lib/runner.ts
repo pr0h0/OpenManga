@@ -319,6 +319,8 @@ export async function runGenerationJob(
       attemptsLeft,
       ...(categories.length ? { policyCategories: categories } : {}),
       error: e instanceof Error ? e.message : String(e),
+      // What the socket said, kept out of the user-facing message (see classifyFetchError).
+      ...(e instanceof ProviderError && e.code === "network" ? { network: e.opts.raw } : {}),
       providerRequestId: requestId,
     });
     if (retryable && attemptsLeft) {
