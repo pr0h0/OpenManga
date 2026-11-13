@@ -200,8 +200,13 @@ doc({
 });
 chapterRoutes.patch("/chapters/:id", async (c) => {
   const id = uuidParam(c, "id");
-  await entityAccess(c, "chapter", id, "write");
+  const project = await entityAccess(c, "chapter", id, "write");
   const { publishAt, order, ...input } = await body(c, PatchChapter);
+  // As for pages and panels: only the owner reopens a locked plan (an editor could then replan it).
+  if (input.planStatus !== undefined && input.planStatus !== "locked" && input.planStatus !== "superseded") {
+    const [ch] = await c.get("deps").db.select({ s: chapters.planStatus }).from(chapters).where(eq(chapters.id, id));
+    if (ch?.s === "locked") await projectAccess(c, project.id, "manage");
+  }
   const row = await c.get("deps").db.transaction(async (tx) => {
     // A move renumbers the project's chapters 1..n around it, as a page move does. Written onto the one row, it left
     // two chapters with one order, which every chapter list, export and run then put in either sequence.

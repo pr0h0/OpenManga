@@ -241,6 +241,11 @@ generationRoutes.post("/generations/:id/retry", async (c) => {
     );
   // A retry is a fresh paid call, so it goes through the same budget gate as the route that queued the original.
   if (job.projectId) await assertBudget(c, job.projectId);
+  // A panel locked since the job failed is final: a retried draw would replace its artwork.
+  if (job.targetType === "panel" && job.targetId && (job.kind === "panel_generation" || job.kind === "panel_edit")) {
+    const [pn] = await deps.db.select({ s: panels.approvalStatus }).from(panels).where(eq(panels.id, job.targetId));
+    if (pn?.s === "locked") throw conflict("Panel is locked");
+  }
   const created = await deps.jobs.retryGeneration(job.id, user(c).id);
   if (!created)
     throw conflict(
