@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { sql } from "@openmanga/db";
 import { advanceRun } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -134,6 +135,45 @@ test("update_project waits for approval for every owner-only setting, like proje
       })
     ).status,
   ).toBe("completed");
+}, 60_000);
+
+test("publishing a chapter or a series' reader page, and deleting a clip with dryRun, wait for approval", async () => {
+  const pid = await project("Publishing");
+  const token = await pat(ALL, "REQUIRE_APPROVAL");
+  const chapterId = (await u.post<{ chapter: { id: string } }>(`/api/projects/${pid}/chapters`, { title: "One" }, 201))
+    .chapter.id;
+  const seriesId = (await u.post<{ series: { id: string } }>("/api/series", { title: "Public?" }, 201)).series.id;
+  const publish = { publishAt: new Date(Date.now() - 60_000).toISOString() };
+  expect((await call(token, "manage_chapter", { action: "update", chapterId, fields: publish })).status).toBe(
+    "pending_approval",
+  );
+  expect(
+    (await call(token, "manage_chapter", { action: "update", chapterId, fields: { title: "Renamed" } })).status,
+  ).toBe("completed");
+  expect((await call(token, "manage_series", { action: "update", seriesId, visibility: "public" })).status).toBe(
+    "pending_approval",
+  );
+  expect((await call(token, "manage_series", { action: "update", seriesId, title: "Renamed" })).status).toBe(
+    "completed",
+  );
+  // A clip of the project: any asset row it owns stands in, since the delete is parked before it runs.
+  const [clip] = await h.deps.db.execute<{ id: string }>(sql`
+    insert into assets (project_id, type, storage_key, mime_type, byte_size, sha256)
+    values (${pid}, 'panel_clip', ${`audit/${crypto.randomUUID()}`}, 'video/mp4', 1, ${"0".repeat(64)})
+    returning id`);
+  expect(
+    (
+      await call(token, "video_clips", {
+        action: "delete",
+        panelId: crypto.randomUUID(),
+        assetId: clip!.id,
+        dryRun: true,
+      })
+    ).status,
+  ).toBe("pending_approval");
+  // Nothing became public while all of that waited.
+  const { chapter } = await u.get<{ chapter: { publishAt: string | null } }>(`/api/chapters/${chapterId}`);
+  expect(chapter.publishAt).toBeNull();
 }, 60_000);
 
 test("a production run needs the scopes of the steps it does, not just generations:run", async () => {
