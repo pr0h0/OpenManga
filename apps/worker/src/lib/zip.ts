@@ -208,7 +208,7 @@ export type ExtractedFiles = {
  * Nothing is buffered beyond the current chunk, so a 1.5 GB package costs the same memory as a small one.
  *
  * `wanted` maps an archive entry name to the key it should be stored under, or null to skip it (skipped entries
- * are never decompressed).
+ * are inflated and dropped, and count against the limits like any other).
  */
 export async function extractZip(opts: {
   path: string;
@@ -235,6 +235,18 @@ export async function extractZip(opts: {
   const fail = (message: string) => {
     failure ??= new UnrecoverableError(message);
   };
+  /** Every inflated byte, kept or skipped; the total and ratio limits apply to this. False once over a limit. */
+  let inflated = 0;
+  const inflate = (n: number) => {
+    inflated += n;
+    if (inflated > opts.limits.maxTotalBytes)
+      fail(`Package contents exceed the ${mb(opts.limits.maxTotalBytes)} MB uncompressed limit`);
+    else if (compressed >= floor && inflated > compressed * opts.limits.maxRatio)
+      fail(
+        `Package expands more than ${opts.limits.maxRatio}x (${mb(inflated)} MB from ${mb(compressed)} MB) and was refused`,
+      );
+    return !failure;
+  };
 
   // Collect every 64 MB of *input*: the chunks are dead as soon as they are written or skipped, but nothing else
   // in this loop allocates enough for the runtime to notice, so a large archive otherwise retains all of them.
@@ -249,7 +261,16 @@ export async function extractZip(opts: {
     if (key === null || paths.has(key)) {
       // Consume and drop it. An entry that is never started is buffered inside the unzipper rather than skipped,
       // so a pass that wants one entry out of a 1.5 GB archive would otherwise hold the whole archive in memory.
-      entry.ondata = () => {};
+      // Dropping still inflates it, so its bytes count against the same limits: a skipped entry of zeros was
+      // otherwise unlimited work (1 GiB from a 1 MB archive took the import queue 25 s, a 1 GB upload hours).
+      let skipped = 0;
+      entry.ondata = (err, chunk) => {
+        if (err || failure) return;
+        skipped += chunk.byteLength;
+        if (skipped > opts.limits.maxEntryBytes)
+          return fail(`ZIP entry ${entry.name} is larger than the ${mb(opts.limits.maxEntryBytes)} MB entry limit`);
+        inflate(chunk.byteLength);
+      };
       entry.start();
       return;
     }
@@ -267,12 +288,7 @@ export async function extractZip(opts: {
       total += chunk.byteLength;
       if (written > opts.limits.maxEntryBytes)
         return fail(`ZIP entry ${entry.name} is larger than the ${mb(opts.limits.maxEntryBytes)} MB entry limit`);
-      if (total > opts.limits.maxTotalBytes)
-        return fail(`Package contents exceed the ${mb(opts.limits.maxTotalBytes)} MB uncompressed limit`);
-      if (compressed >= floor && total > compressed * opts.limits.maxRatio)
-        return fail(
-          `Package expands more than ${opts.limits.maxRatio}x (${mb(total)} MB from ${mb(compressed)} MB) and was refused`,
-        );
+      if (!inflate(chunk.byteLength)) return;
       sink.write(chunk);
       if (final) {
         sinks.delete(key);

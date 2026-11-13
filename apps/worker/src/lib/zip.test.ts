@@ -79,6 +79,31 @@ test("extractZip refuses a zip bomb on the compression ratio, before the total l
   }
 });
 
+test("entries the caller skips still count: a skipped bomb is refused, not inflated without limit", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "om-unzip-skipped-"));
+  try {
+    const archive = zipSync(
+      { "project.json": new TextEncoder().encode('{"project":{}}'), "junk.bin": new Uint8Array(64 * 1024 * 1024) },
+      { level: 6 },
+    );
+    const path = join(dir, "skipped.zip");
+    await Bun.write(path, archive);
+    const run = (limits: { maxTotalBytes: number; maxRatio: number; ratioFloorBytes?: number }) =>
+      extractZip({
+        path,
+        dir: join(dir, "x"),
+        wanted: (name) => (name === "project.json" ? name : null),
+        limits: { maxEntryBytes: 512 * 1024 * 1024, ...limits },
+      });
+    await expect(run({ maxTotalBytes: 1024 * 1024, maxRatio: 1e9 })).rejects.toThrow(/uncompressed limit/);
+    await expect(run({ maxTotalBytes: 4096 * 1024 * 1024, maxRatio: 4, ratioFloorBytes: 0 })).rejects.toThrow(
+      /expands more than 4x/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("extractZip aborts an oversized entry mid-stream and keeps a legitimate ratio flowing", async () => {
   const dir = await mkdtemp(join(tmpdir(), "om-unzip-entry-"));
   try {
