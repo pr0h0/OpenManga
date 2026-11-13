@@ -109,3 +109,32 @@ test("an open event stream ends once its session is revoked (logout everywhere, 
   const timeout = new Promise<boolean>((r) => setTimeout(() => r(false), 40_000));
   expect(await Promise.race([ended, timeout])).toBe(true);
 }, 60_000);
+
+test("the project audit log shows a viewer no one else's address or agent connection", async () => {
+  const pid = (await owner.post<{ project: { id: string } }>("/api/projects", { title: "Audited" }, 201)).project.id;
+  const ownerId = (await owner.get<{ user: { id: string } }>("/api/auth/me")).user.id;
+  const viewer = h.client();
+  await viewer.post(
+    "/api/auth/register",
+    { username: "auditview", email: "av@example.com", password: "audit-view-1" },
+    201,
+  );
+  const viewerId = (await viewer.get<{ user: { id: string } }>("/api/auth/me")).user.id;
+  await h.deps.db.execute(
+    sql`insert into project_members (project_id, user_id, role) values (${pid}, ${viewerId}, 'viewer')`,
+  );
+  const serviceId = crypto.randomUUID();
+  await h.deps.db.execute(sql`
+    insert into audit_events (user_id, project_id, action, metadata, ip, service_id)
+    values (${ownerId}, ${pid}, 'panel.update', ${JSON.stringify({ via: "Secret agent", field: "x" })}::jsonb, '203.0.113.9', ${serviceId})`);
+  type Ev = { action: string; ip: string | null; serviceId: string | null; metadata: Record<string, unknown> };
+  const seen = (await viewer.get<{ events: Ev[] }>(`/api/projects/${pid}/audit`)).events.find(
+    (e) => e.action === "panel.update",
+  )!;
+  expect(seen).toMatchObject({ ip: null, serviceId: null, metadata: { field: "x" } });
+  expect(seen.metadata.via).toBeUndefined();
+  const own = (await owner.get<{ events: Ev[] }>(`/api/projects/${pid}/audit`)).events.find(
+    (e) => e.action === "panel.update",
+  )!;
+  expect(own).toMatchObject({ ip: "203.0.113.9", serviceId, metadata: { via: "Secret agent" } });
+});

@@ -745,5 +745,13 @@ projectRoutes.get("/:projectId/audit", async (c) => {
     .where(eq(auditEvents.projectId, p.id))
     .orderBy(desc(auditEvents.createdAt))
     .limit(100);
-  return c.json({ events: rows });
+  // Anyone who can read the project reads this log, so another member's address and agent connection (its id and
+  // name) are left out of their rows, as comments keep connection ids server-side. Your own rows stay whole.
+  const me = user(c).id;
+  const events = rows.map((r) => {
+    if (r.userId === me) return r;
+    const { via: _via, ...metadata } = r.metadata;
+    return { ...r, metadata, ip: null, serviceId: null };
+  });
+  return c.json({ events });
 });
