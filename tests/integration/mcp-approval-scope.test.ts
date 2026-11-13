@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { sql } from "@openmanga/db";
 import { advanceRun } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -183,3 +184,28 @@ test("an approved continue passes only the review it was asked for", async () =>
   expect(d.approval.status).toBe("stale");
   expect(r2.steps.find((s) => s.key === step2)?.status).toBe("review");
 }, 300_000);
+
+test("an admin's agent gets only the admin's membership role, not the admin shortcut to manage", async () => {
+  const boss = h.client();
+  await boss.post(
+    "/api/auth/register",
+    { username: "projboss", email: "pb@example.com", password: "proj-boss-12" },
+    201,
+  );
+  const pid = (await boss.post<{ project: { id: string } }>("/api/projects", { title: "Not mine" }, 201)).project.id;
+  const me = (await u.get<{ user: { id: string } }>("/api/auth/me")).user.id;
+  await h.deps.db.execute(
+    sql`insert into project_members (project_id, user_id, role) values (${pid}, ${me}, 'viewer')`,
+  );
+  await h.deps.db.execute(sql`update users set role = 'admin' where id = ${me}`);
+  try {
+    const token = await pat(ALL, "ALLOW_ALL");
+    const policy = { enabled: true, maxAgeDays: 1, kindAges: { trash: 1 }, capGb: null };
+    const r = await call(token, "project_storage", { action: "set", projectId: pid, policy });
+    expect(r.status).toBe("error");
+    expect((r.error as { code: string }).code).toBe("forbidden");
+    expect((await call(token, "project_storage", { action: "get", projectId: pid })).status).toBe("completed");
+  } finally {
+    await h.deps.db.execute(sql`update users set role = 'user' where id = ${me}`);
+  }
+}, 60_000);
