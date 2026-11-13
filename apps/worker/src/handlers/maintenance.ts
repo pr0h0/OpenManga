@@ -194,6 +194,42 @@ export async function runMaintenance(deps: WorkerDeps) {
   } catch {}
 
   /**
+   * Upload folders keep a fresh mtime while anything is written into them, so the pass above never reaches their
+   * files. An upload is orphaned when it is a day old and no live job points at it (a crash between write and job, or
+   * a job cancelled before it ran). A queued import can wait behind long renders, hence the reference check.
+   */
+  const live = new Set<string>();
+  for (const r of await deps.db
+    .select({ id: exportJobs.id, p: sql<string | null>`${exportJobs.options}->>'uploadPath'` })
+    .from(exportJobs)
+    .where(inArray(exportJobs.status, ["queued", "processing"]))) {
+    live.add(`x-${r.id}`);
+    if (r.p) live.add(r.p);
+  }
+  for (const r of await deps.db
+    .select({ p: sql<string | null>`${generationJobs.input}->>'uploadPath'` })
+    .from(generationJobs)
+    .where(
+      and(
+        inArray(generationJobs.status, ["queued", "processing"]),
+        sql`${generationJobs.input}->>'uploadPath' is not null`,
+      ),
+    ))
+    if (r.p) live.add(r.p);
+  for (const sub of ["imports", "narration-imports"]) {
+    const dir = join(deps.config.TEMP_ROOT, sub);
+    for (const name of await readdir(dir).catch(() => [] as string[])) {
+      const p = join(dir, name);
+      if (live.has(p) || live.has(name)) continue;
+      const s = await stat(p).catch(() => null);
+      if (s && now.getTime() - s.mtimeMs > 24 * 3600_000) {
+        await rm(p, { recursive: true, force: true });
+        result.tempEntriesRemoved++;
+      }
+    }
+  }
+
+  /**
    * Jobs abandoned by a crashed worker become failed so the UI and retries work. Liveness decides that, not
    * elapsed time: a row is only stalled if nothing has written to it for STALLED_JOB_TIMEOUT_MINUTES *and* Redis
    * no longer reports the job as active. A 2h+ video export writes progress throughout, so it stays alive — the

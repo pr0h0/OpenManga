@@ -188,8 +188,8 @@ export const chapterTools = [
     sensitivity: "delete",
     idempotent: false,
     routes: ["POST /api/projects/:projectId/chapters", "PATCH /api/chapters/:id", "DELETE /api/chapters/:id"],
-    actionKeys: ["chapter.create", "chapter.update", "chapter.delete"],
-    classify: async ({ action, projectId, chapterId }, ctx) => {
+    actionKeys: ["chapter.create", "chapter.update", "chapter.publish", "chapter.delete"],
+    classify: async ({ action, projectId, chapterId, fields }, ctx) => {
       if (action === "create") {
         if (!projectId) throw toolError(400, "bad_request", "projectId is required to create a chapter");
         return cls("write", "chapter.create", projectId, "Create a chapter");
@@ -206,6 +206,14 @@ export const chapterTools = [
           { target },
         );
       }
+      // A publish date puts the chapter on its series' public reader page: anyone can read it from then on.
+      if (fields?.publishAt)
+        return cls(
+          "sensitive-write",
+          "chapter.publish",
+          p,
+          `Publish a chapter on its series' reader page from ${fields.publishAt}`,
+        );
       return cls("write", "chapter.update", p, "Edit a chapter");
     },
     handler: async ({ action, projectId, chapterId, fields }, ctx) => {

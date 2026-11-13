@@ -151,6 +151,19 @@ async function loadPageProject(
   return { project, page };
 }
 
+/**
+ * Locked work is final for editors: only the owner takes it back out of `locked` (superseding it is still open). A
+ * status-only PATCH used to let any editor reopen a locked page or panel and then edit what had been frozen.
+ */
+const reopens = (from: string, to: string | undefined) =>
+  from === "locked" && to !== undefined && to !== "locked" && to !== "superseded";
+
+/** Lettering on a locked page is final, as the document save and the bulk lettering passes already enforce. */
+async function assertPageOpen(db: DbOrTx, pageId: string) {
+  const [pg] = await db.select({ status: pages.status }).from(pages).where(eq(pages.id, pageId));
+  if (pg?.status === "locked") throw conflict("Page is locked");
+}
+
 async function loadPanel(
   c: Parameters<typeof projectAccess>[0],
   panelId: string,
@@ -336,6 +349,7 @@ pageRoutes.patch("/pages/:id", async (c) => {
   await checkRefs(c.get("deps").db, { projectId: page.projectId }, { sceneId: input.sceneId });
   if (page.status === "locked" && input.status !== "superseded" && Object.keys(input).some((k) => k !== "status"))
     throw conflict("Page is locked");
+  if (reopens(page.status, input.status)) await projectAccess(c, page.projectId, "manage");
   const { db } = c.get("deps");
   const row = await db.transaction(async (tx) => {
     if (input.order && input.order !== page.order) {
@@ -786,6 +800,7 @@ pageRoutes.patch("/panels/:id", async (c) => {
   const changes = Object.keys(input).filter((k) => k !== "altText");
   if (panel.approvalStatus === "locked" && changes.length && (input.approvalStatus === undefined || changes.length > 1))
     throw conflict("Panel is locked");
+  if (reopens(panel.approvalStatus, input.approvalStatus)) await projectAccess(c, project.id, "manage");
   const { db } = c.get("deps");
   if (input.characterVersionIds?.length) {
     const found = await db
@@ -1456,6 +1471,7 @@ doc({
 });
 pageRoutes.post("/pages/:id/dialogue", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
+  if (page.status === "locked") throw conflict("Page is locked");
   const input = await body(c, NewDialogue);
   const { db } = c.get("deps");
   await checkRefs(db, { projectId: project.id, pageId: page.id }, input);
@@ -1602,6 +1618,7 @@ pageRoutes.patch("/dialogue/:id", async (c) => {
   const [d] = await db.select().from(dialogueLines).where(eq(dialogueLines.id, id));
   if (!d) throw notFound("Dialogue");
   await projectAccess(c, d.projectId, "write");
+  await assertPageOpen(db, d.pageId);
   const input = await body(c, PatchDialogue);
   await checkRefs(db, { projectId: d.projectId, pageId: d.pageId }, input);
   const [row] = await db.update(dialogueLines).set(input).where(eq(dialogueLines.id, id)).returning();
@@ -1613,6 +1630,7 @@ pageRoutes.delete("/dialogue/:id", async (c) => {
   const [d] = await db.select().from(dialogueLines).where(eq(dialogueLines.id, id));
   if (!d) throw notFound("Dialogue");
   await projectAccess(c, d.projectId, "write");
+  await assertPageOpen(db, d.pageId);
   await db.delete(dialogueLines).where(eq(dialogueLines.id, id));
   return c.json({ ok: true });
 });
@@ -1631,6 +1649,7 @@ doc({
 });
 pageRoutes.post("/pages/:id/sfx", async (c) => {
   const { page, project } = await loadPageProject(c, uuidParam(c, "id"), "write");
+  if (page.status === "locked") throw conflict("Page is locked");
   const input = await body(c, NewSfx);
   const { db } = c.get("deps");
   await checkRefs(db, { projectId: project.id, pageId: page.id }, input);
@@ -1664,6 +1683,7 @@ pageRoutes.patch("/sfx/:id", async (c) => {
   const [s] = await db.select().from(soundEffects).where(eq(soundEffects.id, id));
   if (!s) throw notFound("SFX");
   await projectAccess(c, s.projectId, "write");
+  await assertPageOpen(db, s.pageId);
   const input = await body(c, PatchSfx);
   await checkRefs(db, { projectId: s.projectId, pageId: s.pageId }, input);
   const [row] = await db.update(soundEffects).set(input).where(eq(soundEffects.id, id)).returning();
@@ -1675,6 +1695,7 @@ pageRoutes.delete("/sfx/:id", async (c) => {
   const [s] = await db.select().from(soundEffects).where(eq(soundEffects.id, id));
   if (!s) throw notFound("SFX");
   await projectAccess(c, s.projectId, "write");
+  await assertPageOpen(db, s.pageId);
   await db.delete(soundEffects).where(eq(soundEffects.id, id));
   return c.json({ ok: true });
 });

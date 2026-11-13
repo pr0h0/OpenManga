@@ -3029,7 +3029,7 @@ Create and run series. action=create { title, description?, channelProfileId?, p
 - **Sensitivity:** sensitive-write (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** no — accepts `idempotencyKey`
 - **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
-- **Approval action keys:** `series.manage`
+- **Approval action keys:** `series.manage`, `series.publish`
 - **Wraps:** `POST /api/series`, `PATCH /api/series/:id`, `POST /api/series/:id/episodes`, `POST /api/series/:id/adopt`, `POST /api/series/:id/episodes/:projectId/detach`, `POST /api/series/:id/sync`, `POST /api/series/:id/split`
 
 <details><summary>Input schema</summary>
@@ -6643,7 +6643,7 @@ create: add a chapter to a project (title, summary, sourceExcerpt: the story tex
 - **Sensitivity:** delete (the most sensitive action; each call is classified by what it does)
 - **Idempotent:** no — accepts `idempotencyKey`
 - **Annotations:** readOnly=false, destructive=true, idempotent=false, openWorld=false
-- **Approval action keys:** `chapter.create`, `chapter.update`, `chapter.delete`
+- **Approval action keys:** `chapter.create`, `chapter.update`, `chapter.publish`, `chapter.delete`
 - **Wraps:** `POST /api/projects/:projectId/chapters`, `PATCH /api/chapters/:id`, `DELETE /api/chapters/:id`
 
 <details><summary>Input schema</summary>

@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { and, eq, exportJobs, inArray, projectMembers, projects, sql } from "@openmanga/db";
+import { and, type DbOrTx, eq, exportJobs, inArray, projectMembers, projects, sql } from "@openmanga/db";
 import { ProjectSettings } from "@openmanga/schemas";
 import { recordAudit } from "@openmanga/services";
 import { Hono } from "hono";
@@ -27,6 +27,24 @@ const multipartTooLarge = () =>
 const safeName = (raw: string | undefined, fallback: string) =>
   (raw ?? "").replace(/[^\w.\- ]/g, "_").slice(0, 200) || fallback;
 
+/**
+ * Imports ride the render queue one at a time and each upload sits on disk until it is consumed, so a user cannot
+ * stack them: without this, repeated large uploads fill the volume long before any is processed.
+ */
+const assertImportSlot = async (db: DbOrTx, userId: string) => {
+  const [pending] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(exportJobs)
+    .where(
+      and(
+        eq(exportJobs.userId, userId),
+        eq(exportJobs.kind, "project_import"),
+        inArray(exportJobs.status, ["queued", "processing"]),
+      ),
+    );
+  if ((pending?.n ?? 0) >= 2) throw new ApiError(409, "conflict", "You already have an import in progress.");
+};
+
 doc({
   method: "POST",
   path: "/api/projects/import",
@@ -46,6 +64,9 @@ importRoutes.post("/projects/import", async (c) => {
   // this ceiling used to die inside that call and surface as a 502 instead of the 413 that explains the fix.
   // Content-length includes the multipart envelope, which only makes the ceiling slightly conservative.
   if (multipart && declared > MAX_MULTIPART_BYTES) throw multipartTooLarge();
+
+  // Refused before a byte is written, so a full slot costs no disk; checked again under a lock when the job is made.
+  await assertImportSlot(deps.db, u.id);
 
   const dir = join(deps.config.TEMP_ROOT, "imports");
   await mkdir(dir, { recursive: true });
@@ -132,22 +153,11 @@ importRoutes.post("/projects/import", async (c) => {
     throw e;
   }
 
-  // Imports ride the render queue one at a time and each upload sits on disk until it is consumed, so a user
-  // cannot stack them: without this, repeated 512 MB uploads fill the volume long before any is processed.
-  const [pending] = await deps.db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(exportJobs)
-    .where(
-      and(
-        eq(exportJobs.userId, u.id),
-        eq(exportJobs.kind, "project_import"),
-        inArray(exportJobs.status, ["queued", "processing"]),
-      ),
-    );
-  if ((pending?.n ?? 0) >= 2) throw new ApiError(409, "conflict", "You already have an import in progress.");
-
   try {
     const { project, job } = await deps.db.transaction(async (tx) => {
+      // Uploads run in parallel, so the count above can pass for several at once; this one is serialised per user.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`project-import:${u.id}`}))`);
+      await assertImportSlot(tx, u.id);
       const settings = ProjectSettings.parse({
         narrationVoice: deps.config.KOKORO_DEFAULT_VOICE,
         narrationSpeed: deps.config.KOKORO_DEFAULT_SPEED,

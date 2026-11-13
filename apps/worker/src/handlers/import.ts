@@ -41,7 +41,7 @@ import {
   type Tx,
 } from "@openmanga/db";
 import { segmentTextSha } from "@openmanga/domain";
-import { probeImage } from "@openmanga/image-utils";
+import { MAX_IMAGE_PIXELS, probeImage } from "@openmanga/image-utils";
 import { UnrecoverableError } from "@openmanga/queue";
 import { ProjectInterchange, type StoredPanelSpec } from "@openmanga/schemas";
 import type { AssetType } from "@openmanga/services";
@@ -305,6 +305,11 @@ async function restore(
         meta = { mimeType: "audio/wav", width: null, height: null, durationMs: wav.durationMs };
       } else {
         const img = await probeImage(data);
+        // Uploads are refused past this; an imported image is held to the same, or it would reach the thumbnailer.
+        if (img.width * img.height > MAX_IMAGE_PIXELS) {
+          warn(`${entry.path} is ${img.width}x${img.height}, larger than ${MAX_IMAGE_PIXELS / 1e6} MP; skipped`);
+          return null;
+        }
         meta = { mimeType: img.mime, width: img.width, height: img.height, durationMs: null };
       }
     } catch {

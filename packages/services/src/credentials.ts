@@ -207,6 +207,7 @@ export function isPrivateAddress(ip: string): boolean {
       (a === 192 && b === 168) ||
       (a === 100 && b >= 64 && b <= 127) ||
       (a === 198 && (b === 18 || b === 19)) ||
+      (a === 192 && b === 0 && ip.split(".")[2] === "0") ||
       a >= 224
     );
   }
@@ -220,6 +221,9 @@ export function isPrivateAddress(ip: string): boolean {
     if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return true;
     const nat64 = g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0);
     if (zeroTo(6) || (zeroTo(5) && g[5] === 0xffff) || nat64) return isPrivateAddress(v4());
+    // 6to4 (2002::/16) carries an IPv4 address in its next 32 bits; Teredo (2001::/32) tunnels to anything.
+    if (g[0] === 0x2002) return isPrivateAddress(`${g[1]! >> 8}.${g[1]! & 255}.${g[2]! >> 8}.${g[2]! & 255}`);
+    if (g[0] === 0x2001 && g[1] === 0) return true;
     return (g[0]! & 0xfe00) === 0xfc00 || (g[0]! & 0xffc0) === 0xfe80 || (g[0]! & 0xff00) === 0xff00;
   }
   return true;
@@ -437,7 +441,12 @@ export class CredentialService {
     try {
       res = await this.fetchImpl(url, { headers, signal: AbortSignal.timeout(15_000), redirect: "manual" });
     } catch (e) {
-      throw new CredentialError(`Could not reach ${cat.label}: ${(e as Error).message}`);
+      // Not the socket's error: refused, reset and TLS failures read differently, which for a custom endpoint made this
+      // a probe of what answers behind a host that resolves elsewhere a moment later (DNS rebinding).
+      const timedOut = (e as Error).name === "TimeoutError";
+      throw new CredentialError(
+        `Could not reach ${cat.label}${timedOut ? " (no answer within 15 s)" : ""}. Check the base URL and that it answers over HTTPS.`,
+      );
     }
     // A validated host must answer directly: following its redirect would reach an address we never checked.
     if (res.status >= 300 && res.status < 400)

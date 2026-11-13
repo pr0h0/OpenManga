@@ -424,17 +424,18 @@ storyRoutes.get("/projects/:projectId/story/coverage", async (c) => {
   const project = await projectAccess(c, uuidParam(c, "projectId"), "read");
   const { db } = c.get("deps");
   const coverageJobs = and(eq(generationJobs.projectId, project.id), eq(generationJobs.kind, "story_coverage"));
-  const [last] = await db
-    .select()
-    .from(generationJobs)
-    .where(and(coverageJobs, eq(generationJobs.status, "completed")))
-    .orderBy(desc(generationJobs.finishedAt))
-    .limit(1);
+  // Running first: a job that finishes between the two reads then shows up as the report, not as neither.
   const [running] = await db
     .select({ id: generationJobs.id, status: generationJobs.status })
     .from(generationJobs)
     .where(and(coverageJobs, inArray(generationJobs.status, ["queued", "processing", "awaiting_input", "submitted"])))
     .orderBy(desc(generationJobs.createdAt))
+    .limit(1);
+  const [last] = await db
+    .select()
+    .from(generationJobs)
+    .where(and(coverageJobs, eq(generationJobs.status, "completed")))
+    .orderBy(desc(generationJobs.finishedAt))
     .limit(1);
   const chapters = [
     ...(await db.execute<{ id: string; order: number; title: string }>(

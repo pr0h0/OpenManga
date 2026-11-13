@@ -1355,13 +1355,16 @@ describe("OAuth 2.1", () => {
   });
 
   test("authorize refuses missing or plain PKCE, a wrong resource and an unregistered redirect", async () => {
-    const plain = await authorize({ code_challenge_method: "plain" });
-    expect(new URL(plain.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
-    expect(new URL(plain.headers.get("location")!).searchParams.get("iss")).toBe("http://test.local");
-    const missing = await authorize({ code_challenge: "" });
-    expect(new URL(missing.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
-    const resource = await authorize({ resource: "https://other.example/mcp" });
-    expect(new URL(resource.headers.get("location")!).searchParams.get("error")).toBe("invalid_target");
+    // Refused on this origin, never redirected: every client registered itself, so its redirect is not trusted yet.
+    const refused = async (res: Response, error: string) => {
+      expect(res.status).toBe(400);
+      expect(res.headers.get("location")).toBeNull();
+      expect(await res.text()).toContain(`(${error})`);
+    };
+    await refused(await authorize({ code_challenge_method: "plain" }), "invalid_request");
+    await refused(await authorize({ code_challenge: "" }), "invalid_request");
+    await refused(await authorize({ resource: "https://other.example/mcp" }), "invalid_target");
+    await refused(await authorize({ response_type: "token" }), "unsupported_response_type");
     const redirectBad = await authorize({ redirect_uri: "https://agent.example/other" });
     expect(redirectBad.status).toBe(400);
     expect(redirectBad.headers.get("location")).toBeNull();
@@ -1448,7 +1451,8 @@ describe("OAuth 2.1", () => {
 
   test("scopes are strict: unknown ones are refused, and a refresh cannot widen the grant", async () => {
     const unknown = await authorize({ scope: "projects:read completely_fake_scope" });
-    expect(new URL(unknown.headers.get("location")!).searchParams.get("error")).toBe("invalid_scope");
+    expect(unknown.status).toBe(400);
+    expect(await unknown.text()).toContain("(invalid_scope)");
     const code = await consent();
     const t = (await (
       await token({

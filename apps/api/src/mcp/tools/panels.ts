@@ -1,4 +1,4 @@
-import { count, eq, inArray, pages, panels } from "@openmanga/db";
+import { assets, count, eq, inArray, pages, panels } from "@openmanga/db";
 import { videoModel } from "@openmanga/domain";
 import { z } from "zod";
 import {
@@ -707,14 +707,22 @@ export const panelTools = [
     actionKeys: ["panel.clip", "panel.clip_use", "panel.clip_delete", "chapter.clips"],
     classify: async (a, ctx) => {
       if (a.action === "models") return cls("read", "panel.clip", null, "List video models");
+      if (a.action === "delete") {
+        // The project of the clip itself, not of panelId: the handler deletes by assetId alone, and approval rules are
+        // per project. dryRun means nothing here (the handler ignores it), so it never makes a delete a read.
+        if (!a.assetId) throw toolError(400, "bad_request", "assetId is required for delete");
+        const [clip] = await ctx.deps.db.select({ p: assets.projectId }).from(assets).where(eq(assets.id, a.assetId));
+        if (!clip?.p) throw toolError(404, "not_found", "Clip not found");
+        return cls("delete", "panel.clip_delete", clip.p, "Move a clip to the trash");
+      }
       const project = await projectOf(
         ctx,
         a.action === "animate_chapter" ? "chapter" : "panel",
         (a.action === "animate_chapter" ? a.chapterId : a.panelId) ?? "",
       );
-      if (a.action === "list" || a.dryRun) return cls("read", "panel.clip", project, "Read or price video clips");
+      const priced = a.dryRun && (a.action === "generate" || a.action === "animate_chapter");
+      if (a.action === "list" || priced) return cls("read", "panel.clip", project, "Read or price video clips");
       if (a.action === "use") return cls("write", "panel.clip_use", project, "Choose what a shot plays in videos");
-      if (a.action === "delete") return cls("delete", "panel.clip_delete", project, "Move a clip to the trash");
       const runs = a.action === "animate_chapter" ? [a.ai] : (a.runs ?? []);
       const free = runs.every((r) => !r?.model || r.model === "still-motion");
       const what = a.action === "animate_chapter" ? "a clip of every shot of a chapter" : `${runs.length} clip(s)`;

@@ -7,6 +7,7 @@ import {
   generationInputs,
   generationJobs,
   generationOutputs,
+  ne,
   panels,
   projects,
   type ReferenceKind,
@@ -244,7 +245,7 @@ export async function activatePanelArt(
   assetId: string,
   review: (typeof panels.$inferSelect)["review"] = null,
 ) {
-  await deps.db.transaction(async (tx) => {
+  const activated = await deps.db.transaction(async (tx) => {
     // Cancellation may have been requested while we were storing; re-check inside the transaction.
     const [j] = await tx
       .select({ status: generationJobs.status })
@@ -252,15 +253,20 @@ export async function activatePanelArt(
       .where(eq(generationJobs.id, job.id))
       .for("update");
     if (j?.status === "cancel_requested" || j?.status === "cancelled") throw new JobCancelledError();
-    await tx
+    // A panel locked while this ran keeps its artwork; the new image stays in its versions to choose later.
+    const moved = await tx
       .update(panels)
       .set({ activeArtworkAssetId: assetId, status: "ready", review })
-      .where(eq(panels.id, panelId));
+      .where(and(eq(panels.id, panelId), ne(panels.approvalStatus, "locked")))
+      .returning({ id: panels.id });
+    if (!moved.length) return false;
     await tx
       .update(generationOutputs)
       .set({ activated: true })
       .where(and(eq(generationOutputs.jobId, job.id), eq(generationOutputs.assetId, assetId)));
+    return true;
   });
+  if (!activated) return;
   const [pn] = await deps.db.select({ pageId: panels.pageId }).from(panels).where(eq(panels.id, panelId));
   await deps.events.publish(job.projectId, {
     type: "panel.updated",

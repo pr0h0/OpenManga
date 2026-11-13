@@ -136,7 +136,12 @@ export function classifyFetchError(provider: string, e: unknown): ProviderError 
   const err = e as { name?: string; code?: string; message?: string };
   if (err?.name === "TimeoutError" || err?.name === "AbortError")
     return new ProviderError(provider, "timeout", `${provider} request timed out`);
-  return new ProviderError(provider, "network", `${provider} network error: ${err?.code ?? err?.message ?? "unknown"}`);
+  // The socket's own error (refused, reset, TLS, DNS) stays out of the message, which reaches users: for a custom base
+  // URL it told an address that answers from one that does not, a port scanner by way of DNS rebinding. It is kept
+  // in `raw` for the server's logs.
+  return new ProviderError(provider, "network", `${provider} could not be reached (network error)`, {
+    raw: { code: err?.code, message: err?.message },
+  });
 }
 
 export const backoffMs = (attempt: number, base = 1000, max = 30_000, rand = Math.random) =>

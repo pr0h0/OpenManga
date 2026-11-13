@@ -46,7 +46,10 @@ export async function projectAccess(
       throw new ApiError(403, "project_not_granted", "This connection has not been granted access to this project");
   }
   if (!role && u.role !== "admin") throw notFound("Project");
-  if (!canPerform(u, role, action)) throw role ? forbidden() : notFound("Project");
+  // For an agent the membership role alone decides: an admin's shortcut to "manage" would otherwise hand the agent
+  // owner powers (retention, deletion) in a project where the admin is only a viewer or editor.
+  const actor = service ? { ...u, role: "user" as const } : u;
+  if (!canPerform(actor, role, action)) throw role ? forbidden() : notFound("Project");
   if (row.project.deletedAt && action !== "read" && action !== "delete" && action !== "manage") throw forbidden();
   return row.project;
 }

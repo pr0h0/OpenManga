@@ -77,9 +77,16 @@ alone against five times that, which is what a distributed attempt runs into. Pa
 `login_throttled` with an estimated wait; each failure sets the key's TTL to `60 * 2^(count - max + 1)` seconds (at
 least 60, capped at one hour). A successful login deletes both counters.
 
-The client IP comes from nginx as `X-Real-IP`. nginx takes it from `CF-Connecting-IP` only when the request arrives
-from a private or loopback network (cloudflared or another proxy beside it) and otherwise uses the socket address, so
-the limiters key on the real client behind a Cloudflare tunnel and a forged header from the internet is ignored.
+The per-identifier counter can be filled by anyone for an account they do not own, which on its own would lock the
+owner out too. So a successful login also sets `om_device` (httpOnly, `SameSite=Strict`, path `/api/auth`, one year):
+the user id with an HMAC of it under `SESSION_SECRET`. A browser holding a genuine device cookie for the account
+being signed into is not held by the per-identifier counter; it still answers to the per-`identifier + IP` one. A
+guesser cannot make the cookie, so distributed guessing is still capped.
+
+The client IP comes from nginx as `X-Real-IP`. nginx takes it from `CF-Connecting-IP` only on its Docker-internal
+listener (port 80, where cloudflared or another proxy container connects) and only from a private or loopback
+address; the port published on the host never trusts the header. Otherwise it uses the socket address, so the limiters
+key on the real client behind a Cloudflare tunnel and a forged header is ignored.
 
 ## Password reset (mock email)
 

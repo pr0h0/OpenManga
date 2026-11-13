@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { sql } from "@openmanga/db";
 import { advanceRun } from "../../apps/api/src/lib/production.ts";
 import { startHarness, type TestClient, waitFor } from "./harness.ts";
 
@@ -136,6 +137,45 @@ test("update_project waits for approval for every owner-only setting, like proje
   ).toBe("completed");
 }, 60_000);
 
+test("publishing a chapter or a series' reader page, and deleting a clip with dryRun, wait for approval", async () => {
+  const pid = await project("Publishing");
+  const token = await pat(ALL, "REQUIRE_APPROVAL");
+  const chapterId = (await u.post<{ chapter: { id: string } }>(`/api/projects/${pid}/chapters`, { title: "One" }, 201))
+    .chapter.id;
+  const seriesId = (await u.post<{ series: { id: string } }>("/api/series", { title: "Public?" }, 201)).series.id;
+  const publish = { publishAt: new Date(Date.now() - 60_000).toISOString() };
+  expect((await call(token, "manage_chapter", { action: "update", chapterId, fields: publish })).status).toBe(
+    "pending_approval",
+  );
+  expect(
+    (await call(token, "manage_chapter", { action: "update", chapterId, fields: { title: "Renamed" } })).status,
+  ).toBe("completed");
+  expect((await call(token, "manage_series", { action: "update", seriesId, visibility: "public" })).status).toBe(
+    "pending_approval",
+  );
+  expect((await call(token, "manage_series", { action: "update", seriesId, title: "Renamed" })).status).toBe(
+    "completed",
+  );
+  // A clip of the project: any asset row it owns stands in, since the delete is parked before it runs.
+  const [clip] = await h.deps.db.execute<{ id: string }>(sql`
+    insert into assets (project_id, type, storage_key, mime_type, byte_size, sha256)
+    values (${pid}, 'panel_clip', ${`audit/${crypto.randomUUID()}`}, 'video/mp4', 1, ${"0".repeat(64)})
+    returning id`);
+  expect(
+    (
+      await call(token, "video_clips", {
+        action: "delete",
+        panelId: crypto.randomUUID(),
+        assetId: clip!.id,
+        dryRun: true,
+      })
+    ).status,
+  ).toBe("pending_approval");
+  // Nothing became public while all of that waited.
+  const { chapter } = await u.get<{ chapter: { publishAt: string | null } }>(`/api/chapters/${chapterId}`);
+  expect(chapter.publishAt).toBeNull();
+}, 60_000);
+
 test("a production run needs the scopes of the steps it does, not just generations:run", async () => {
   const pid = await project("B scope");
   const token = await pat(["generations:run"], "ALLOW_ALL");
@@ -183,3 +223,28 @@ test("an approved continue passes only the review it was asked for", async () =>
   expect(d.approval.status).toBe("stale");
   expect(r2.steps.find((s) => s.key === step2)?.status).toBe("review");
 }, 300_000);
+
+test("an admin's agent gets only the admin's membership role, not the admin shortcut to manage", async () => {
+  const boss = h.client();
+  await boss.post(
+    "/api/auth/register",
+    { username: "projboss", email: "pb@example.com", password: "proj-boss-12" },
+    201,
+  );
+  const pid = (await boss.post<{ project: { id: string } }>("/api/projects", { title: "Not mine" }, 201)).project.id;
+  const me = (await u.get<{ user: { id: string } }>("/api/auth/me")).user.id;
+  await h.deps.db.execute(
+    sql`insert into project_members (project_id, user_id, role) values (${pid}, ${me}, 'viewer')`,
+  );
+  await h.deps.db.execute(sql`update users set role = 'admin' where id = ${me}`);
+  try {
+    const token = await pat(ALL, "ALLOW_ALL");
+    const policy = { enabled: true, maxAgeDays: 1, kindAges: { trash: 1 }, capGb: null };
+    const r = await call(token, "project_storage", { action: "set", projectId: pid, policy });
+    expect(r.status).toBe("error");
+    expect((r.error as { code: string }).code).toBe("forbidden");
+    expect((await call(token, "project_storage", { action: "get", projectId: pid })).status).toBe("completed");
+  } finally {
+    await h.deps.db.execute(sql`update users set role = 'user' where id = ${me}`);
+  }
+}, 60_000);
