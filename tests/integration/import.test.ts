@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "@openmanga/db";
 import { mockImagePng } from "@openmanga/testing";
-import { unzipSync, zipSync } from "fflate";
+import { unzipSync, zipSync, zlibSync } from "fflate";
 import { type startHarness as Start, startHarness, type TestClient, waitFor } from "./harness.ts";
 
 const STORY = `Chapter 1: The Rooftop
@@ -329,6 +329,37 @@ describe("project import", () => {
     expect(`${job.status}:${job.failureReason ?? ""}`).toBe("completed:");
     expect(job.result!.warnings).toEqual([]);
     expect(await artworkShas(projectId)).toEqual(await artworkShas(sourceId));
+  }, 240_000);
+
+  test("an image past the 40 MP upload limit is skipped on import, not stored", async () => {
+    // A header and a sliver of data: 8000x6000 is 48 MP, refused on its dimensions before anything decodes it.
+    const chunk = (type: string, data: Uint8Array) => {
+      const body = new Uint8Array([...new TextEncoder().encode(type), ...data]);
+      const out = new Uint8Array(12 + data.length);
+      const v = new DataView(out.buffer);
+      v.setUint32(0, data.length);
+      out.set(body, 4);
+      v.setUint32(8 + data.length, Bun.hash.crc32(body));
+      return out;
+    };
+    const ihdr = new Uint8Array(13);
+    new DataView(ihdr.buffer).setUint32(0, 8000);
+    new DataView(ihdr.buffer).setUint32(4, 6000);
+    ihdr.set([8, 2, 0, 0, 0], 8);
+    const huge = new Uint8Array([
+      ...[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+      ...chunk("IHDR", ihdr),
+      ...chunk("IDAT", zlibSync(new Uint8Array(1024))),
+      ...chunk("IEND", new Uint8Array()),
+    ]);
+    const zip = await exportAndDownload(sourceId, "zip_package");
+    const entries = unzipSync(new Uint8Array(zip.data));
+    const art = Object.keys(entries).find((n) => n.endsWith(".png") && n.includes("panel"))!;
+    expect(art).toBeDefined();
+    entries[art] = huge;
+    const { job } = await importFile(zipSync(entries, { level: 0 }), "huge.zip");
+    expect(`${job.status}:${job.failureReason ?? ""}`).toBe("completed:");
+    expect(job.result!.warnings.join(" ")).toContain("larger than 40 MP; skipped");
   }, 240_000);
 
   test("project_json import completes with warnings about missing files", async () => {
