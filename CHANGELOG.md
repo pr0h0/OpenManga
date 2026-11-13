@@ -7,6 +7,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.20.1] — 2026-11-13
+
+Security release: fixes from an audit on 2026-11-12. No migrations, no new settings.
+
+Upgrading: pull the new images and run `docker compose up -d`. nginx must be recreated, not only restarted: the port
+published on the host (`NGINX_PORT`, default 3480) now maps to the container's port 8080 instead of 80. cloudflared
+and anything else on the Docker networks keep using `http://nginx:80`.
+
+### Security
+
+- **Imports cannot fill the disk or hold the render queue.** An import refused because two are already pending is
+  refused before its upload is written; the cleanup pass removes day-old uploads no job points at; entries the importer
+  skips in a ZIP count against its size and expansion limits; and an imported image over 40 MP is skipped, as an upload
+  of that size is refused.
+- **Agent approvals.** On a connection that requires approval, publishing a chapter (a publish date) and turning a
+  series' reader page on now wait for approval, and deleting a clip with `dryRun` no longer skips it. An
+  administrator's agent connection acts with the administrator's project role only, never the admin shortcut to
+  owner-level actions.
+- **Expert chats** check project access on attachments (a removed member can no longer upload into the project), and
+  replies keep to the project budget, the server's monthly AI ceiling and the storage cap.
+- **Locked work stays locked.** Only the project owner can take a page, panel or chapter plan out of locked; speech
+  bubbles and sound effects on a locked page cannot be added, edited or removed; and a retried draw never replaces a
+  locked panel's artwork.
+- **Sign-in.** A browser that has signed in to an account before is not held by the account-wide failed-login lockout,
+  so others can no longer keep the owner signed out; guessers are capped as before. Event streams close within about
+  15 seconds once their session is revoked (sign out everywhere, password change, disabled account).
+- **Client IP.** nginx no longer believes `CF-Connecting-IP` on the port published on the host, where any client could
+  set its own address for rate limits and the login lockout. A reverse proxy on the host now looks like one client; run
+  it as a container on `openmanga_edge` pointing at `nginx:80` to have its header trusted.
+- **OAuth.** A malformed `/oauth/authorize` request shows an error page instead of redirecting to the client's
+  self-registered address (an open redirect).
+- **Less exposed.** The project audit log shows other members' rows without their IP address or agent connection;
+  provider network errors no longer quote the socket error (which, with a custom base URL, could probe internal
+  addresses); and custom base URLs also refuse 192.0.0.0/24, Teredo and 6to4 addresses of private networks.
+
+### Fixed
+
+- The Story page's coverage check no longer stops refreshing when a check finishes within moments of starting.
+
 ## [0.20.0] — 2026-11-01
 
 Upgrading: pull the new images and restart; no migrations. To import recordings, add `stt` to `COMPOSE_PROFILES`
