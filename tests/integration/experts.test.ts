@@ -463,3 +463,38 @@ test("with no key, an extraction asks for its answer and holds it to the schema"
   expect(done.status).toBe("completed");
   expect((done.result as { chapters: unknown[] }).chapters.length).toBeGreaterThan(0);
 });
+
+test("a member who leaves can no longer upload into the project through a chat, and replies keep to the budget", async () => {
+  const png = async () => {
+    const f = new FormData();
+    f.set(
+      "file",
+      new File([(await mockImagePng({ width: 64, height: 64, prompt: "x" })) as BlobPart], "x.png", {
+        type: "image/png",
+      }),
+    );
+    return f;
+  };
+  const bobId = (await bob.get<{ user: { id: string } }>("/api/auth/me")).user.id;
+  await h.deps.db.execute(
+    sql`insert into project_members (project_id, user_id, role) values (${projectId}, ${bobId}, 'editor')`,
+  );
+  const bobChat = (await bob.post<{ chat: Chat }>("/api/expert-chats", { expert: "beta-reader", projectId }, 201)).chat;
+  await bob.json("POST", `/api/expert-chats/${bobChat.id}/attachments`, await png(), 201);
+  await h.deps.db.execute(sql`delete from project_members where project_id = ${projectId} and user_id = ${bobId}`);
+  await bob.json("POST", `/api/expert-chats/${bobChat.id}/attachments`, await png(), 404);
+
+  const chat = await newChat("beta-reader", projectId);
+  await alice.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: 0 } });
+  try {
+    const refused = await alice.json<{ error: { code: string } }>(
+      "POST",
+      `/api/expert-chats/${chat.id}/messages`,
+      { text: "Draw the hero", generateImage: true },
+      402,
+    );
+    expect(refused.error.code).toBe("budget_exceeded");
+  } finally {
+    await alice.patch(`/api/projects/${projectId}`, { settings: { budgetUsd: null } });
+  }
+});

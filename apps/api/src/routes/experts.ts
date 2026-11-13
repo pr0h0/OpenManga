@@ -29,7 +29,14 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
-import { AiChoiceInput, assertBudget, assertServerBudget, checkImageChoice, textRun } from "../lib/ai.ts";
+import {
+  AiChoiceInput,
+  assertBudget,
+  assertServerBudget,
+  assertStorageRoom,
+  checkImageChoice,
+  textRun,
+} from "../lib/ai.ts";
 import { chatChannel, finishReply, runExpertReply, STALE_REPLY_MS } from "../lib/experts.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
 import { doc } from "../lib/openapi.ts";
@@ -64,6 +71,15 @@ async function ownChat(c: Parameters<typeof user>[0], id: string) {
     .where(and(eq(expertChats.id, id), eq(expertChats.userId, user(c).id)));
   if (!chat) throw notFound("Chat");
   return chat;
+}
+
+/**
+ * The caps every other AI route answers to. A reply that calls a provider (text, or a drawn image) needs the project's
+ * budget, the server's monthly ceiling and the project's storage room; one that only stores what was pasted needs room.
+ */
+async function assertChatRoom(c: Parameters<typeof user>[0], chat: { projectId: string | null }, spends: boolean) {
+  if (chat.projectId) await (spends ? assertBudget(c, chat.projectId) : assertStorageRoom(c, chat.projectId));
+  else if (spends) await assertServerBudget(c);
 }
 
 doc({ method: "GET", path: "/api/experts", summary: "Built-in experts and the caller's own", tag: "experts" });
@@ -237,6 +253,9 @@ doc({
 });
 expertRoutes.post("/expert-chats/:id/attachments", async (c) => {
   const chat = await ownChat(c, uuidParam(c, "id"));
+  // The file lands in the project's library: a member who left or lost the role stops here, as on send.
+  if (chat.projectId) await projectAccess(c, chat.projectId, "generate");
+  await assertChatRoom(c, chat, false);
   const up = await readImageUpload(c);
   const deps = c.get("deps");
   const asset = await deps.assets.store({
@@ -277,6 +296,9 @@ async function replyChoices(
   const ai = text.parameters.ai as AiChoice | { manual: true } | undefined;
   return { ai: ai ?? null, imageAi: choiceOf(input.imageAi) };
 }
+/** A paste-mode reply calls no text provider; drawing its image still does. */
+const spends = (choices: { ai: AiChoice | { manual: true } | null }, image: boolean) =>
+  image || !(choices.ai && "manual" in choices.ai);
 
 doc({
   method: "POST",
@@ -306,6 +328,7 @@ expertRoutes.post("/expert-chats/:id/messages", async (c) => {
     .limit(1);
   if (busy.length) throw conflict("The expert is still answering the last message");
   const choices = await replyChoices(c, input, input.generateImage);
+  await assertChatRoom(c, chat, spends(choices, input.generateImage));
   const [sent] = await deps.db
     .insert(expertMessages)
     .values({ chatId: chat.id, role: "user", content: input.text.trim(), attachments: input.attachments })
@@ -429,6 +452,7 @@ expertRoutes.post("/expert-chats/:id/retry", async (c) => {
   if (last.status === "pending") throw conflict("The expert is still answering");
   const generateImage = input.generateImage ?? Boolean(last.options.generateImage);
   const choices = await replyChoices(c, input, generateImage);
+  await assertChatRoom(c, chat, spends(choices, generateImage));
   const [reply] = await deps.db
     .update(expertMessages)
     .set({
@@ -480,6 +504,7 @@ expertRoutes.post("/expert-messages/:id/answer", async (c) => {
   // The answer's image is the one uploaded with it. Otherwise it is drawn with the image key given here, and without
   // one the text is kept and the reply says why it has no picture.
   const imageAi = choiceOf(input.imageAi);
+  await assertChatRoom(c, chat, !input.images.length && Boolean(imageAi));
   await finishReply(deps, { chatId: chat.id, messageId: m.id, userId: user(c).id, imageAi }, input.text, {
     provider: "manual",
     model: "manual",
