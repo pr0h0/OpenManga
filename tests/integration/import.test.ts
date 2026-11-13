@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { sql } from "@openmanga/db";
 import { mockImagePng } from "@openmanga/testing";
 import { unzipSync, zipSync } from "fflate";
@@ -378,6 +380,25 @@ describe("project import", () => {
     // The one it did restore is whole, not a mixture of the two.
     expect(await artworkShas(projectId)).toEqual(await artworkShas(sourceId));
   }, 240_000);
+
+  test("with two imports pending, a third is refused before anything is written to disk", async () => {
+    const { project } = await bob.post<{ project: { id: string } }>("/api/projects", { title: "Bob slots" }, 201);
+    const me = await bob.get<{ user: { id: string } }>("/api/auth/me");
+    // Queued rows with no outbox entry: no worker picks them up, so they hold both slots for the whole test.
+    const held = await h.deps.db.execute<{ id: string }>(sql`
+      insert into export_jobs (project_id, user_id, kind, status)
+      values (${project.id}, ${me.user.id}, 'project_import', 'queued'), (${project.id}, ${me.user.id}, 'project_import', 'queued')
+      returning id`);
+    const dir = join(h.config.TEMP_ROOT, "imports");
+    const before = await readdir(dir).catch(() => [] as string[]);
+    try {
+      const res = await bob.raw("POST", "/api/projects/import?name=third.json", new Blob(['{"project":{}}']));
+      expect(res.status).toBe(409);
+      expect(await readdir(dir).catch(() => [] as string[])).toEqual(before);
+    } finally {
+      for (const r of held) await h.deps.db.execute(sql`delete from export_jobs where id = ${r.id}`);
+    }
+  }, 60_000);
 
   test("an oversized multipart upload is refused before the body is parsed", async () => {
     // The 413 has to come from the declared length: parsing a 1.5 GB multipart body is what used to fail, and it
