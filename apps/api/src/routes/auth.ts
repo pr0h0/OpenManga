@@ -11,6 +11,7 @@ import {
   clearSessionCookie,
   failureGuard,
   rateLimit,
+  setDeviceCookie,
   setSessionCookie,
 } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
@@ -71,7 +72,7 @@ authRoutes.post("/login", authLimit, async (c) => {
   const deps = c.get("deps");
   const { identifier, password } = await body(c, LoginInput);
   const ip = clientIp(c);
-  const throttle = await checkLoginThrottle(deps, identifier, ip);
+  const throttle = await checkLoginThrottle(c, identifier, ip);
   let u: Awaited<ReturnType<typeof deps.auth.verifyCredentials>>;
   try {
     u = await deps.auth.verifyCredentials(identifier, password);
@@ -88,6 +89,7 @@ authRoutes.post("/login", authLimit, async (c) => {
   await throttle.success();
   const s = await deps.auth.rotateSession(c.get("sessionId"), u.id, { ip, userAgent: c.req.header("user-agent") });
   setSessionCookie(c, s.token, s.expiresAt);
+  setDeviceCookie(c, u.id);
   await recordAudit(deps.db, { userId: u.id, action: "auth.login", ip, requestId: c.get("requestId") });
   return c.json({ user: u });
 });
