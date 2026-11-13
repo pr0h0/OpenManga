@@ -1,5 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { safeEqual } from "@openmanga/auth";
+import { and, eq, or, users } from "@openmanga/db";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { AppEnv, Deps } from "../context.ts";
@@ -8,6 +9,37 @@ import { ApiError, clientIp } from "./http.ts";
 export const SESSION_COOKIE = "om_session";
 export const CSRF_COOKIE = "om_csrf";
 export const CSRF_HEADER = "x-csrf-token";
+/** Marks a browser that has signed in to an account before (see checkLoginThrottle). */
+export const DEVICE_COOKIE = "om_device";
+
+const deviceMac = (secret: string, userId: string) =>
+  createHmac("sha256", secret).update(`login-device:${userId}`).digest("base64url");
+
+/** After a successful sign-in: this browser is now a known device of the account, for a year. */
+export function setDeviceCookie(c: Context<AppEnv>, userId: string) {
+  const cfg = c.get("deps").config;
+  setCookie(c, DEVICE_COOKIE, `${userId}.${deviceMac(cfg.SESSION_SECRET, userId)}`, {
+    httpOnly: true,
+    secure: cfg.COOKIE_SECURE,
+    sameSite: "Strict",
+    path: "/api/auth",
+    maxAge: 365 * 86_400,
+  });
+}
+
+/** Whether this browser's device cookie is genuine and belongs to the account `identifier` names. */
+async function knownDevice(c: Context<AppEnv>, identifier: string) {
+  const [userId, mac] = (getCookie(c, DEVICE_COOKIE) ?? "").split(".");
+  const { config, db } = c.get("deps");
+  if (!userId || !mac || !safeEqual(mac, deviceMac(config.SESSION_SECRET, userId))) return false;
+  const id = identifier.trim().toLowerCase();
+  const [row] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.id, userId), or(eq(users.username, id), eq(users.email, id))))
+    .catch(() => []);
+  return Boolean(row);
+}
 
 export function withDeps(deps: Deps): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
@@ -167,16 +199,21 @@ export async function failureGuard(c: Context<AppEnv>, scope: string, max: numbe
  * Login throttling with exponential lockout, counted twice: per identifier+IP, and per identifier alone at a
  * higher ceiling. The second counter is what a distributed attempt or a spoofed client address runs into, since
  * rotating the source only resets the first one.
+ *
+ * The second counter is also one anyone can fill for an account they do not own, from a handful of addresses, and
+ * then the owner could not sign in either. So a browser that has signed in to that account before (a genuine device
+ * cookie) is not held by it; it still answers to the first, per-address counter. A guesser has no such cookie.
  */
-export async function checkLoginThrottle(deps: Deps, identifier: string, ip: string | null) {
+export async function checkLoginThrottle(c: Context<AppEnv>, identifier: string, ip: string | null) {
+  const deps = c.get("deps");
   const id = identifier.toLowerCase();
-  const keys: [string, number][] = [
-    [`om:login:${id}:${ip ?? "?"}`, deps.config.LOGIN_MAX_ATTEMPTS],
-    [`om:login:${id}`, deps.config.LOGIN_MAX_ATTEMPTS * 5],
+  const keys: [string, number, boolean][] = [
+    [`om:login:${id}:${ip ?? "?"}`, deps.config.LOGIN_MAX_ATTEMPTS, false],
+    [`om:login:${id}`, deps.config.LOGIN_MAX_ATTEMPTS * 5, true],
   ];
-  for (const [key, max] of keys) {
+  for (const [key, max, accountWide] of keys) {
     const n = Number((await deps.redis.get(key).catch(() => null)) ?? 0);
-    if (n >= max) {
+    if (n >= max && !(accountWide && (await knownDevice(c, identifier)))) {
       const ttl = await deps.redis.ttl(key).catch(() => 60);
       throw new ApiError(
         429,

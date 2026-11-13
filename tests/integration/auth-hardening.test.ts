@@ -138,3 +138,59 @@ test("the project audit log shows a viewer no one else's address or agent connec
   )!;
   expect(own).toMatchObject({ ip: "203.0.113.9", serviceId, metadata: { via: "Secret agent" } });
 });
+
+test("failed sign-ins from many addresses lock a new browser out of an account, but not one it signed in from", async () => {
+  const known = h.client();
+  await known.post(
+    "/api/auth/register",
+    { username: "lockme", email: "lockme@example.com", password: "lock-me-pass-1" },
+    201,
+  );
+  await known.post("/api/auth/logout", {});
+  await known.post("/api/auth/login", { identifier: "lockme", password: "lock-me-pass-1" });
+  await known.post("/api/auth/logout", {});
+  // 50 wrong guesses from five addresses: under each address's own limit, at the account-wide one.
+  const guesser = h.client();
+  for (let i = 0; i < 50; i++)
+    await guesser.raw(
+      "POST",
+      "/api/auth/login",
+      { identifier: "lockme", password: `wrong-${i}` },
+      {
+        "x-real-ip": `198.51.100.${i % 5}`,
+      },
+    );
+  const fresh = h.client();
+  const refused = await fresh.raw(
+    "POST",
+    "/api/auth/login",
+    { identifier: "lockme", password: "lock-me-pass-1" },
+    {
+      "x-real-ip": "192.0.2.10",
+    },
+  );
+  expect(refused.status).toBe(429);
+  // A forged cookie is no key. (Checked first: a successful sign-in clears the counters.)
+  const forger = h.client();
+  const [uid] = (known.cookies.get("om_device") ?? "").split(".");
+  forger.cookies.set("om_device", `${uid}.forged`);
+  const forged = await forger.raw(
+    "POST",
+    "/api/auth/login",
+    { identifier: "lockme", password: "lock-me-pass-1" },
+    {
+      "x-real-ip": "192.0.2.12",
+    },
+  );
+  expect(forged.status).toBe(429);
+  // The owner's browser carries its device cookie, which the guesser cannot make, so the account-wide count does not hold it.
+  const res = await known.raw(
+    "POST",
+    "/api/auth/login",
+    { identifier: "LockMe", password: "lock-me-pass-1" },
+    {
+      "x-real-ip": "192.0.2.11",
+    },
+  );
+  expect(res.status).toBe(200);
+}, 60_000);
