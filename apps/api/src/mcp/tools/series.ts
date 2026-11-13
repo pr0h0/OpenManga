@@ -96,16 +96,28 @@ export const seriesTools = [
       "POST /api/series/:id/sync",
       "POST /api/series/:id/split",
     ],
-    actionKeys: ["series.manage"],
-    classify: async (a) =>
-      cls(
+    actionKeys: ["series.manage", "series.publish"],
+    classify: async (a) => {
+      // Turning the reader page on (or moving it to a new address) makes published chapters readable by anyone.
+      if (
+        a.action === "update" &&
+        ((a.visibility !== undefined && a.visibility !== "off") || a.publicSlug !== undefined)
+      )
+        return cls(
+          "sensitive-write",
+          "series.publish",
+          a.projectId ?? null,
+          `Make the series' reader page ${a.visibility ?? "reachable"}${a.publicSlug ? ` at /s/${a.publicSlug}` : ""}`,
+        );
+      return cls(
         a.action === "sync" || a.action === "update" || (a.action === "split" && !a.confirm)
           ? "write"
           : "sensitive-write",
         `series.${a.action}`,
         a.projectId ?? null,
         a.action === "create" ? `Create series "${a.title ?? ""}"` : `Series: ${a.action.replace("_", " ")}`,
-      ),
+      );
+    },
     handler: async (a, ctx) => {
       requireAllProjects(ctx);
       const need = (v: unknown, what: string) => {
