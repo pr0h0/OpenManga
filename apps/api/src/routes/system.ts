@@ -6,6 +6,7 @@ import type { AppEnv } from "../context.ts";
 import { projectAccess } from "../lib/access.ts";
 import { build } from "../lib/build.ts";
 import { ApiError, notFound, requireUser, user, uuidParam } from "../lib/http.ts";
+import { sessionStillValid } from "../lib/middleware.ts";
 import { docsHtml, openApiSpec } from "../lib/openapi.ts";
 
 export const healthRoutes = new Hono<AppEnv>();
@@ -89,6 +90,7 @@ miscRoutes.get("/projects/:projectId/events", requireUser, async (c) => {
   if (open >= MAX_STREAMS_PER_USER)
     throw new ApiError(429, "too_many_streams", "Too many open event streams. Close a tab and try again.");
   streamsPerUser.set(userId, open + 1);
+  const stillValid = sessionStillValid(c);
   c.header("x-accel-buffering", "no");
   c.header("cache-control", "no-cache, no-transform");
   return streamSSE(c, async (stream) => {
@@ -122,6 +124,8 @@ miscRoutes.get("/projects/:projectId/events", requireUser, async (c) => {
         while (queue.length) await stream.writeSSE({ event: "message", data: queue.shift()! });
         if (removed) break;
         if (Date.now() - lastPing > 14_000) {
+          // The session was checked when the stream opened; a revoked one (stolen cookie, password change) ends it.
+          if (!(await stillValid())) break;
           await stream.writeSSE({ event: "ping", data: String(Date.now()) });
           lastPing = Date.now();
         }

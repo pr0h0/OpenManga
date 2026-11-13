@@ -46,6 +46,16 @@ export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!c.res.headers.get("cache-control")) c.header("cache-control", "no-store");
 };
 
+/**
+ * For a response that outlives its request (an event stream): whether the session it was opened with still holds.
+ * Logout everywhere, a password change and a disabled account revoke it; a stream asks at every ping and ends.
+ */
+export function sessionStillValid(c: Context<AppEnv>): () => Promise<boolean> {
+  const token = getCookie(c, SESSION_COOKIE);
+  const { auth } = c.get("deps");
+  return async () => Boolean(token && (await auth.validateSession(token).catch(() => null)));
+}
+
 export const loadSession: MiddlewareHandler<AppEnv> = async (c, next) => {
   const token = getCookie(c, SESSION_COOKIE);
   if (token) {

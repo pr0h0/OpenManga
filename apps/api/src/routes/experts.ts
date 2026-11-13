@@ -39,6 +39,7 @@ import {
 } from "../lib/ai.ts";
 import { chatChannel, finishReply, runExpertReply, STALE_REPLY_MS } from "../lib/experts.ts";
 import { ApiError, badRequest, body, conflict, notFound, user, uuidParam } from "../lib/http.ts";
+import { sessionStillValid } from "../lib/middleware.ts";
 import { doc } from "../lib/openapi.ts";
 import { readImageUpload } from "../lib/uploads.ts";
 import { createProject, updateProject } from "./projects.ts";
@@ -382,6 +383,7 @@ expertRoutes.get("/expert-chats/:id/stream", async (c) => {
   if (open >= MAX_CHAT_STREAMS_PER_USER)
     throw new ApiError(429, "too_many_streams", "Too many chats are streaming. Close a tab and try again.");
   chatStreams.set(userId, open + 1);
+  const stillValid = sessionStillValid(c);
   c.header("x-accel-buffering", "no");
   c.header("cache-control", "no-cache, no-transform");
   return streamSSE(c, async (stream) => {
@@ -415,6 +417,7 @@ expertRoutes.get("/expert-chats/:id/stream", async (c) => {
           await stream.writeSSE({ event: "message", data });
         }
         if (Date.now() - lastPing > 14_000) {
+          if (!(await stillValid())) break;
           await stream.writeSSE({ event: "ping", data: String(Date.now()) });
           lastPing = Date.now();
         }
