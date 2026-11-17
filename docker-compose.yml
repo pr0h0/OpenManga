@@ -341,7 +341,7 @@ services:
   cloudflared:
     <<: *hardened
     mem_limit: 256m
-    image: cloudflare/cloudflared:2025.8.1
+    image: cloudflare/cloudflared:2026.10.7
     restart: unless-stopped
     user: "${CLOUDFLARED_UID:-65532}"
     # http2 transport: QUIC/UDP is often blocked from Docker bridge networks.
