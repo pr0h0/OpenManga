@@ -7,6 +7,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.20.2] — 2026-11-17
+
+Maintenance release. No migrations, no new settings; pull the new images and run `docker compose up -d`.
+
+### Security
+
+- **Speech-to-text service:** `requests` 2.32.3 → 2.33.0 in the whisper image (`.netrc` credential leak via crafted
+  URLs; insecure temp-file reuse in `extract_zipped_paths`).
+
+### Fixed
+
+- **CodeQL on master** no longer fails on a C/C++ scan: the nginx include `deploy/nginx/openmanga.inc` is marked as
+  Nginx in `.gitattributes`, so GitHub stops detecting the repository as containing C++.
+
+### Changed
+
+- CI: `docker/login-action` 4.7.0 → 4.8.0.
+
 ## [0.20.1] — 2026-11-13
 
 Security release: fixes from an audit on 2026-11-12. No migrations, no new settings.
