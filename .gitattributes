@@ -1,0 +1,2 @@
+# nginx include, not C/C++ (stops CodeQL default setup from adding a c-cpp scan)
+*.inc linguist-language=Nginx
