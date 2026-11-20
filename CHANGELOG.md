@@ -7,15 +7,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-11-20
+
+Text runs can now draw on a Claude or ChatGPT subscription instead of an API key. No migrations. New settings are all
+optional: `CHATGPT_OAUTH_PORT`, `AGENT_LOGIN_DIR`, and the build settings `WITH_CLAUDE_CODE` / `WITH_CODEX_CLI`. Pull
+the new images and run `docker compose up -d`.
+
 ### Added
 
-- **Subscription text providers:** "Claude subscription (Claude Code)" takes a `claude setup-token` token and
-  "ChatGPT subscription (Codex)" uses the server's Codex sign-in (admins only; `bun run codex:login` once). Both run
-  text and vision through the agent SDKs with every tool off. New setting `AGENT_LOGIN_DIR` and volume `agent-login`
-  (see [docs/WITHOUT_API_KEYS.md](docs/WITHOUT_API_KEYS.md)).
-- **`WITH_CLAUDE_CODE` / `WITH_CODEX_CLI` build settings** (default `false`): the Claude Code (+~550 MB) and Codex
-  (+~610 MB) CLIs are only built into the app image when their setting is `true`; a provider whose CLI is missing is
-  hidden.
+- **Sign in with ChatGPT** ("ChatGPT subscription (sign in)"): each user connects their own ChatGPT plan from
+  Account → AI providers, with OpenAI's agent OAuth. OpenManga then appears under ChatGPT's connected apps, where its
+  usage limits are set. OpenAI only redirects to `127.0.0.1`, so either paste the address the browser lands on (it
+  submits itself), or tunnel `CHATGPT_OAUTH_PORT` (default 1455) to the server's web port, wherever that listens:
+  `ssh -L 1455:127.0.0.1:<port> host`. After connecting, a test prompt confirms the connection works. Tokens are
+  stored encrypted and renewed under a row lock. Text and vision only: the token covers the streamed Responses API,
+  not image generation.
+- **Claude subscription (Claude Code):** paste the token from `claude setup-token`. It runs through the Claude Agent
+  SDK with every tool off.
+- **ChatGPT subscription (Codex):** uses the server's own Codex sign-in (admins only, checked on every use; sign in
+  once with `docker compose exec -it worker bun run codex:login`). New setting `AGENT_LOGIN_DIR` and volume
+  `agent-login`.
+- **`WITH_CLAUDE_CODE` / `WITH_CODEX_CLI` build settings** (default off): the Claude Code (+~550 MB) and Codex
+  (+~610 MB) CLIs are only built into the app image when their setting is on, and a provider whose CLI is missing is
+  hidden. The published images are built without either, so to use those two providers, build the app image
+  yourself with the setting on. See [docs/WITHOUT_API_KEYS.md](docs/WITHOUT_API_KEYS.md).
+
+### Fixed
+
+- A provider's cached client now changes when its key is edited or renewed; it was kept for the server's lifetime.
 
 ## [0.20.2] — 2026-11-17
 
