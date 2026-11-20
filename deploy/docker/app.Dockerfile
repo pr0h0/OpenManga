@@ -11,8 +11,10 @@ RUN rm -rf apps/web/src apps/web/public && bun install --frozen-lockfile --produ
 #   WITH_CODEX_CLI    Codex (~610 MB), run by "ChatGPT subscription (Codex)" on the server's `codex:login`.
 ARG WITH_CLAUDE_CODE=false
 ARG WITH_CODEX_CLI=false
-RUN if [ "$WITH_CLAUDE_CODE" != "true" ]; then rm -rf node_modules/.bun/@anthropic-ai+claude-agent-sdk-linux*; fi \
- && if [ "$WITH_CODEX_CLI" != "true" ]; then rm -rf node_modules/.bun/@openai+codex@*-linux*; fi
+# "On" means what the app's config reads as true (1/true/yes/on, any case), so build and app always agree.
+RUN on() { case "$(printf %s "$1" | tr A-Z a-z)" in 1|true|yes|on) return 0;; *) return 1;; esac; }; \
+    on "$WITH_CLAUDE_CODE" || rm -rf node_modules/.bun/@anthropic-ai+claude-agent-sdk-linux*; \
+    on "$WITH_CODEX_CLI" || rm -rf node_modules/.bun/@openai+codex@*-linux*
 
 FROM oven/bun:1.4-debian AS runtime
 ARG WITH_CLAUDE_CODE=false
