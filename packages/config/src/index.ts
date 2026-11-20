@@ -82,6 +82,11 @@ const EnvSchema = z.object({
   /** The server's own subscription sign-ins (`codex/` = CODEX_HOME), used by "ChatGPT subscription" keys. */
   AGENT_LOGIN_DIR: z.string().default("/data/agent-login"),
   /**
+   * Whether the Claude Code and Codex CLIs are installed. The app image sets it from its WITH_AGENT_CLIS build
+   * argument; without them the "Claude subscription" and "ChatGPT subscription (Codex)" providers are hidden.
+   */
+  AGENT_CLIS: bool.default(true),
+  /**
    * "Sign in with ChatGPT" sends the browser back to http://127.0.0.1:<this port>/api/auth/chatgpt/callback (OpenAI
    * only allows loopback). Forward it to the server's web port, wherever that is: `ssh -L 1455:127.0.0.1:<port> host`.
    * Without a tunnel the person pastes the address instead, so any free port works.

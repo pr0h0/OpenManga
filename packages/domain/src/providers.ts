@@ -206,6 +206,9 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   },
 ];
 
+/** Providers that run a bundled agent CLI; images built without them (WITH_AGENT_CLIS unset) cannot offer these. */
+export const AGENT_CLI_KINDS: ReadonlySet<ProviderKind> = new Set(["claude_code", "codex"]);
+
 export const providerCatalog = (kind: string) => PROVIDER_CATALOG.find((p) => p.kind === kind);
 /** A provider's suggested models for a capability. */
 export const catalogModels = (p: ProviderCatalogEntry, cap: AiCapability) =>

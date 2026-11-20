@@ -5,9 +5,16 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
 RUN rm -rf apps/web/src apps/web/public && bun install --frozen-lockfile --production --ignore-scripts
+# The Claude Code and Codex CLIs (~1.2 GB) are only for the "Claude subscription" and "ChatGPT subscription (Codex)"
+# providers. Left out unless asked for; "Sign in with ChatGPT" and the API-key providers do not need them.
+ARG WITH_AGENT_CLIS=false
+RUN if [ "$WITH_AGENT_CLIS" != "true" ]; then \
+      rm -rf node_modules/.bun/@anthropic-ai+claude-agent-sdk-linux* node_modules/.bun/@openai+codex@*-linux*; \
+    fi
 
 FROM oven/bun:1.4-debian AS runtime
-ENV NODE_ENV=production
+ARG WITH_AGENT_CLIS=false
+ENV NODE_ENV=production AGENT_CLIS=$WITH_AGENT_CLIS
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core fonts-comic-neue tini ca-certificates \
  && rm -rf /var/lib/apt/lists/* \

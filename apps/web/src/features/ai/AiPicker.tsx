@@ -1,4 +1,5 @@
 import {
+  AGENT_CLI_KINDS,
   type AiCapability as AnyCapability,
   PROVIDER_CATALOG,
   type ProviderKind,
@@ -34,6 +35,8 @@ type AiOptions = {
     tts: { provider: string } | null;
   };
   mockMode: boolean;
+  /** False when the server image has no Claude Code / Codex CLIs. */
+  agentClis?: boolean;
   credentials: Credential[];
 };
 type ConnectCheck = { ok: true; model: string; reply: string; ms: number } | { ok: false; error: string };
@@ -429,7 +432,7 @@ export function ProviderKeys() {
             value={form.kind}
             onChange={(e) => setForm({ ...form, kind: e.target.value as ProviderKind })}
           >
-            {PROVIDER_CATALOG.map((p) => (
+            {PROVIDER_CATALOG.filter((p) => opts.data?.agentClis !== false || !AGENT_CLI_KINDS.has(p.kind)).map((p) => (
               <option key={p.kind} value={p.kind}>
                 {p.label} ({caps(p.kind).join(", ")})
               </option>
