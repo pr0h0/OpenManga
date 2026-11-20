@@ -126,6 +126,8 @@ aiRoutes.get("/ai/voices", credentialLimit, async (c) => {
 const pendingKey = (state: string) => `chatgpt:oauth:${state}`;
 /** Its outcome, so the tab that started it sees a sign-in another tab (the tunnel's) finished. */
 const doneKey = (state: string) => `chatgpt:done:${state}`;
+/** Set while /complete runs (exchange + test prompt, up to a minute), so /status keeps saying "pending". */
+const busyKey = (state: string) => `chatgpt:busy:${state}`;
 
 type ConnectCheck = { ok: true; model: string; reply: string; ms: number } | { ok: false; error: string };
 type ChatgptDone = { userId: string; credential: unknown; check: ConnectCheck };
@@ -194,9 +196,12 @@ doc({
 aiRoutes.post("/ai/chatgpt/complete", credentialLimit, async (c) => {
   const { url } = await body(c, z.object({ url: z.string().trim().min(10).max(8192) }));
   const deps = c.get("deps");
+  let state: string | null = null;
   try {
     const returned = chatgptReturned(url);
+    state = returned.state;
     const raw = await deps.redis.getdel(pendingKey(returned.state));
+    if (raw) await deps.redis.set(busyKey(returned.state), raw, "EX", 120);
     const p = raw ? (JSON.parse(raw) as ChatgptPending) : null;
     // Bound to the account that started it: a sign-in someone else started cannot land on your account, or yours on theirs.
     if (!p || p.userId !== user(c).id)
@@ -209,6 +214,8 @@ aiRoutes.post("/ai/chatgpt/complete", credentialLimit, async (c) => {
     return c.json({ credential, check }, 201);
   } catch (e) {
     throw asApiError(e);
+  } finally {
+    if (state) await deps.redis.del(busyKey(state));
   }
 });
 
@@ -228,7 +235,7 @@ aiRoutes.get("/ai/chatgpt/status", async (c) => {
     if (d.userId !== user(c).id) throw notFound("Sign-in");
     return c.json({ status: "done", credential: d.credential, check: d.check });
   }
-  const pending = await deps.redis.get(pendingKey(state));
+  const pending = (await deps.redis.get(pendingKey(state))) ?? (await deps.redis.get(busyKey(state)));
   if (pending && (JSON.parse(pending) as ChatgptPending).userId === user(c).id) return c.json({ status: "pending" });
   return c.json({ status: "expired" });
 });
