@@ -453,8 +453,13 @@ export class CredentialService {
   private async chatgptAccess(id: string): Promise<ResolvedCredential> {
     return this.db.transaction(async (tx) => {
       const [row] = await tx.select().from(providerCredentials).where(eq(providerCredentials.id, id)).for("update");
-      let tokens = JSON.parse(this.ring.decrypt(row!.encryptedKey)) as ChatgptTokens;
-      let updatedAt = row!.updatedAt;
+      // Deleted between resolve's read and this one (or while another worker held the lock).
+      if (!row)
+        throw new ProviderError("byok", "auth", "The selected API key no longer exists or belongs to another user", {
+          retryable: false,
+        });
+      let tokens = JSON.parse(this.ring.decrypt(row.encryptedKey)) as ChatgptTokens;
+      let updatedAt = row.updatedAt;
       if (tokens.expiresAt - Date.now() < 5 * 60_000 && !this.offline) {
         try {
           tokens = await chatgptRefresh(tokens, this.fetchImpl);
@@ -469,7 +474,7 @@ export class CredentialService {
           .set({ encryptedKey: this.ring.encrypt(JSON.stringify(tokens)), updatedAt })
           .where(eq(providerCredentials.id, id));
       }
-      return { ...this.summary(row!), updatedAt, apiKey: tokens.accessToken };
+      return { ...this.summary(row), updatedAt, apiKey: tokens.accessToken };
     });
   }
 

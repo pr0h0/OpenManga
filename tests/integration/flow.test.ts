@@ -1045,6 +1045,45 @@ describe("full production flow (mock AI)", () => {
     await expect(svc.resolve(serverLogin.id, aliceId)).rejects.toThrow("Only an admin");
     await svc.remove(aliceId, serverLogin.id);
 
+    // ChatGPT sign-in: a token about to expire is renewed under the row lock and saved with a new updatedAt (the
+    // provider cache key), a fresh one is left alone, and a reused refresh token is a final sign-in error.
+    let refreshes = 0;
+    let reply: object = {};
+    const tokenStub = (async () => {
+      refreshes++;
+      return Response.json(reply, { status: "error" in reply ? 400 : 200 });
+    }) as unknown as typeof fetch;
+    const live = new CredentialService(h.workerDeps.db, { ...base, AI_MOCK_MODE: false }, tokenStub);
+    const tokens = (accessToken: string, inMs: number) => ({
+      clientId: "oaiapp_test",
+      accessToken,
+      refreshToken: `r-${accessToken}`,
+      expiresAt: Date.now() + inMs,
+      email: "alice@example.com",
+      subject: "sub",
+    });
+    const fresh = await live.createChatgpt(aliceId, "", tokens("a-fresh", 60 * 60_000));
+    expect((await live.resolve(fresh.id, aliceId)).apiKey).toBe("a-fresh");
+    expect(refreshes).toBe(0);
+    const stale = await live.createChatgpt(aliceId, "", tokens("a-old", 60_000));
+    reply = {
+      access_token: "a-new",
+      refresh_token: "r-new",
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: "openid chatgpt.tokens.use.direct",
+    };
+    const renewed = await live.resolve(stale.id, aliceId);
+    expect(renewed.apiKey).toBe("a-new");
+    expect(refreshes).toBe(1);
+    expect(renewed.updatedAt.getTime()).toBeGreaterThan(stale.createdAt.getTime());
+    expect((await live.resolve(stale.id, aliceId)).apiKey).toBe("a-new"); // saved: no second renewal
+    expect(refreshes).toBe(1);
+    const revoked = await live.createChatgpt(aliceId, "", tokens("a-gone", 60_000));
+    reply = { error: "refresh_token_reused" };
+    await expect(live.resolve(revoked.id, aliceId)).rejects.toMatchObject({ code: "auth", retryable: false });
+    for (const c of [fresh, stale, revoked]) await live.remove(aliceId, c.id);
+
     await alice.del(`/api/ai/credentials/${ant.credential.id}`);
     await alice.post(`/api/chapters/${chapterId}/narration/generate`, { ai: { credentialId: ant.credential.id } }, 400);
   });

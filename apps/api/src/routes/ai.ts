@@ -141,7 +141,13 @@ async function checkConnection(deps: AppEnv["Variables"]["deps"], credentialId: 
       ms: Math.round(performance.now() - started),
     } as const;
   } catch (e) {
-    return { ok: false, error: (e as Error).message.slice(0, 300) } as const;
+    // Provider and sign-in errors are written for people; anything else (a query, a bug) is logged, not shown.
+    const shown = e instanceof ProviderError || e instanceof ChatgptAuthError || e instanceof CredentialError;
+    if (!shown) deps.logger.warn("chatgpt connection check failed", { error: (e as Error).message });
+    return {
+      ok: false,
+      error: shown ? (e as Error).message.slice(0, 300) : "The test prompt failed unexpectedly.",
+    } as const;
   }
 }
 
@@ -161,7 +167,7 @@ aiRoutes.post("/ai/chatgpt/start", credentialLimit, async (c) => {
   const h = createHash("sha256").update(`${deps.config.SESSION_SECRET}:chatgpt-host`).digest("hex");
   const hostId = `urn:uuid:${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
   const s = chatgptAuthStart({ redirectUri, hostId, appName: "OpenManga" });
-  const pending: ChatgptPending & { nonce: string } = {
+  const pending: ChatgptPending = {
     userId: user(c).id,
     verifier: s.verifier,
     nonce: s.nonce,
@@ -186,7 +192,7 @@ aiRoutes.post("/ai/chatgpt/complete", credentialLimit, async (c) => {
   try {
     const returned = chatgptReturned(url);
     const raw = await deps.redis.getdel(pendingKey(returned.state));
-    const p = raw ? (JSON.parse(raw) as ChatgptPending & { nonce: string }) : null;
+    const p = raw ? (JSON.parse(raw) as ChatgptPending) : null;
     // Bound to the account that started it: a sign-in someone else started cannot land on your account, or yours on theirs.
     if (!p || p.userId !== user(c).id)
       throw new ChatgptAuthError("This sign-in expired or was already used. Start again.");
