@@ -119,6 +119,31 @@ aiRoutes.get("/ai/voices", credentialLimit, async (c) => {
 
 /** A started ChatGPT sign-in waits here under its state; single use, 15 minutes. */
 const pendingKey = (state: string) => `chatgpt:oauth:${state}`;
+/** Its outcome, so the tab that started it sees a sign-in another tab (the tunnel's) finished. */
+const doneKey = (state: string) => `chatgpt:done:${state}`;
+
+type ConnectCheck = { ok: true; model: string; reply: string; ms: number } | { ok: false; error: string };
+type ChatgptDone = { userId: string; credential: unknown; check: ConnectCheck };
+
+/** One tiny prompt through the new connection, so "connected" means a run would work. */
+async function checkConnection(deps: AppEnv["Variables"]["deps"], credentialId: string, userId: string) {
+  const started = performance.now();
+  try {
+    const p = await deps.resolver.text({ credentialId }, userId);
+    const r = await p.generateText({
+      messages: [{ role: "user", content: "Reply with exactly: OpenManga connected" }],
+      signal: AbortSignal.timeout(60_000),
+    });
+    return {
+      ok: true,
+      model: p.model,
+      reply: r.text.trim().slice(0, 200),
+      ms: Math.round(performance.now() - started),
+    } as const;
+  } catch (e) {
+    return { ok: false, error: (e as Error).message.slice(0, 300) } as const;
+  }
+}
 
 doc({
   method: "POST",
@@ -144,14 +169,14 @@ aiRoutes.post("/ai/chatgpt/start", credentialLimit, async (c) => {
     label,
   };
   await deps.redis.set(pendingKey(s.state), JSON.stringify(pending), "EX", 15 * 60);
-  return c.json({ url: s.url, redirectUri });
+  return c.json({ url: s.url, redirectUri, state: s.state });
 });
 
 doc({
   method: "POST",
   path: "/api/ai/chatgpt/complete",
   summary:
-    'Finish "Sign in with ChatGPT" with the address the browser was sent back to; saves it as the caller\'s ChatGPT credential.',
+    'Finish "Sign in with ChatGPT" with the address the browser was sent back to: saves it as the caller\'s ChatGPT credential and runs one tiny prompt through it (`check`).',
   tag: "ai",
   body: z.object({ url: z.string().trim().min(10).max(8192) }),
 });
@@ -167,10 +192,34 @@ aiRoutes.post("/ai/chatgpt/complete", credentialLimit, async (c) => {
       throw new ChatgptAuthError("This sign-in expired or was already used. Start again.");
     const tokens = await chatgptExchange(p, returned, p.nonce);
     const credential = await deps.credentials.createChatgpt(p.userId, p.label, tokens);
-    return c.json({ credential }, 201);
+    const check = await checkConnection(deps, credential.id, p.userId);
+    const done: ChatgptDone = { userId: p.userId, credential, check };
+    await deps.redis.set(doneKey(returned.state), JSON.stringify(done), "EX", 15 * 60);
+    return c.json({ credential, check }, 201);
   } catch (e) {
     throw asApiError(e);
   }
+});
+
+doc({
+  method: "GET",
+  path: "/api/ai/chatgpt/status",
+  summary:
+    'Whether a started "Sign in with ChatGPT" (?state= from /start) is still waiting, finished (with its credential and test prompt result) or expired.',
+  tag: "ai",
+});
+aiRoutes.get("/ai/chatgpt/status", async (c) => {
+  const { state } = query(c, z.object({ state: z.string().min(16).max(200) }));
+  const deps = c.get("deps");
+  const done = await deps.redis.get(doneKey(state));
+  if (done) {
+    const d = JSON.parse(done) as ChatgptDone;
+    if (d.userId !== user(c).id) throw notFound("Sign-in");
+    return c.json({ status: "done", credential: d.credential, check: d.check });
+  }
+  const pending = await deps.redis.get(pendingKey(state));
+  if (pending && (JSON.parse(pending) as ChatgptPending).userId === user(c).id) return c.json({ status: "pending" });
+  return c.json({ status: "expired" });
 });
 
 /**
