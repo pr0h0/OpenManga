@@ -39,7 +39,8 @@ aiRoutes.get("/ai/options", async (c) => {
 const NewCredential = z.object({
   kind: z.enum(KINDS),
   label: z.string().trim().max(80).default(""),
-  apiKey: z.string().trim().min(8).max(4096),
+  /** Empty for a provider that uses the server's own sign-in (catalog `auth: "server"`). */
+  apiKey: z.string().trim().max(4096).default(""),
   baseUrl: z.string().trim().max(500).nullable().optional(),
 });
 doc({
@@ -52,7 +53,7 @@ doc({
 aiRoutes.post("/ai/credentials", credentialLimit, async (c) => {
   const input = await body(c, NewCredential);
   try {
-    const credential = await c.get("deps").credentials.create(user(c).id, input);
+    const credential = await c.get("deps").credentials.create(user(c).id, input, { admin: user(c).role === "admin" });
     return c.json({ credential }, 201);
   } catch (e) {
     throw asApiError(e);

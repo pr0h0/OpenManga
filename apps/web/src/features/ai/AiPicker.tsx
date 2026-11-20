@@ -390,28 +390,40 @@ export function ProviderKeys() {
             </Field>
           </div>
         )}
-        <div className="sm:col-span-2">
-          <Field label="API key">
-            <input
-              className="input font-mono"
-              type="password"
-              autoComplete="off"
-              value={form.apiKey}
-              onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-            />
-          </Field>
-          {cat.keyUrl && (
-            <a className="muted text-xs underline" href={cat.keyUrl} target="_blank" rel="noreferrer">
-              Get a {cat.label} key
-            </a>
-          )}
-        </div>
+        {cat.auth === "server" ? (
+          <p className="muted text-xs sm:col-span-2">
+            No key: runs use the ChatGPT subscription this server is signed in to (admins only; the operator signs in
+            once with <code>docker compose exec -it worker bun run codex:login</code>).
+          </p>
+        ) : (
+          <div className="sm:col-span-2">
+            <Field label={cat.auth === "token" ? "Subscription token (from `claude setup-token`)" : "API key"}>
+              <input
+                className="input font-mono"
+                type="password"
+                autoComplete="off"
+                placeholder={cat.auth === "token" ? "sk-ant-oat01-…" : undefined}
+                value={form.apiKey}
+                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+              />
+            </Field>
+            {cat.keyUrl && (
+              <a className="muted text-xs underline" href={cat.keyUrl} target="_blank" rel="noreferrer">
+                {cat.auth === "token" ? "How to make a token" : `Get a ${cat.label} key`}
+              </a>
+            )}
+          </div>
+        )}
       </div>
       <ErrorBox error={error} />
       <button
         type="button"
         className="btn-primary"
-        disabled={busy || form.apiKey.trim().length < 8 || (form.kind === "openai_compatible" && !form.baseUrl.trim())}
+        disabled={
+          busy ||
+          (cat.auth !== "server" && form.apiKey.trim().length < 8) ||
+          (form.kind === "openai_compatible" && !form.baseUrl.trim())
+        }
         onClick={save}
       >
         {busy && <Spinner />} Verify and save key

@@ -1038,6 +1038,13 @@ describe("full production flow (mock AI)", () => {
     await alice.get(`/api/ai/credentials/${legacy.id}/models`);
     await alice.get("/api/admin/credentials/encryption", 403);
 
+    // The server's ChatGPT sign-in is admin-only when used, not just when added: a key whose owner is not (or no
+    // longer) an admin is refused. alice is a plain user; `admin: true` stands in for her having been one.
+    const svc = new CredentialService(h.workerDeps.db, base);
+    const serverLogin = await svc.create(aliceId, { kind: "codex", label: "", apiKey: "" }, { admin: true });
+    await expect(svc.resolve(serverLogin.id, aliceId)).rejects.toThrow("Only an admin");
+    await svc.remove(aliceId, serverLogin.id);
+
     await alice.del(`/api/ai/credentials/${ant.credential.id}`);
     await alice.post(`/api/chapters/${chapterId}/narration/generate`, { ai: { credentialId: ant.credential.id } }, 400);
   });

@@ -11,6 +11,8 @@ import {
 } from "@openmanga/ai-image";
 import {
   AnthropicTextProvider,
+  ClaudeAgentTextProvider,
+  CodexTextProvider,
   DeepSeekTextProvider,
   FakeTextAIProvider,
   GeminiTextBatchProvider,
@@ -40,7 +42,7 @@ import {
   providerSupports,
 } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
-import { type CredentialService, credentialFingerprint } from "./credentials.ts";
+import { type CredentialService, codexHome, credentialFingerprint } from "./credentials.ts";
 
 /**
  * There are no server-level provider keys: text and image runs always use a key the user added. The only
@@ -101,6 +103,10 @@ function byokText(
       return new DeepSeekTextProvider({ ...common, baseUrl: base });
     case "anthropic":
       return new AnthropicTextProvider({ ...common, baseUrl: base });
+    case "claude_code":
+      return new ClaudeAgentTextProvider({ ...common, oauthToken: cred.apiKey, tempRoot: c.TEMP_ROOT });
+    case "codex":
+      return new CodexTextProvider({ ...common, codexHome: codexHome(c), tempRoot: c.TEMP_ROOT });
     case "meta":
       return new MetaMuseTextProvider({ ...common, baseUrl: base });
     case "google":

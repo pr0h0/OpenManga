@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **Subscription text providers:** "Claude subscription (Claude Code)" takes a `claude setup-token` token and
+  "ChatGPT subscription (Codex)" uses the server's Codex sign-in (admins only; `bun run codex:login` once). Both run
+  text and vision through the agent SDKs with every tool off. New setting `AGENT_LOGIN_DIR` and volume `agent-login`
+  (see [docs/WITHOUT_API_KEYS.md](docs/WITHOUT_API_KEYS.md)).
+
 ## [0.20.2] — 2026-11-17
 
 Maintenance release. No migrations, no new settings; pull the new images and run `docker compose up -d`.

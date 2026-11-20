@@ -14,7 +14,9 @@ export type ProviderKind =
   | "runway"
   | "minimax"
   | "byteplus"
-  | "openai_compatible";
+  | "openai_compatible"
+  | "claude_code"
+  | "codex";
 export type AiCapability = "text" | "image" | "tts" | "video";
 
 export type ProviderCatalogEntry = {
@@ -28,6 +30,11 @@ export type ProviderCatalogEntry = {
   ttsModels: string[];
   /** Video models (image-to-video / text-to-video): ids of `VIDEO_MODELS` for this provider. */
   videoModels: string[];
+  /**
+   * How the key field is filled: `token` = a `claude setup-token` token pasted like a key; `server` = no key, the
+   * run uses the server's own subscription sign-in (admins only). Absent = an ordinary API key.
+   */
+  auth?: "token" | "server";
 };
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
@@ -151,6 +158,28 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     imageModels: [],
     ttsModels: [],
     videoModels: videoModelsOf("byteplus").map((m) => m.id),
+  },
+  {
+    kind: "claude_code",
+    label: "Claude subscription (Claude Code)",
+    baseUrl: null,
+    keyUrl: "https://docs.anthropic.com/en/docs/claude-code/sdk/sdk-overview#authentication",
+    textModels: ["sonnet", "opus", "haiku"],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: [],
+    auth: "token",
+  },
+  {
+    kind: "codex",
+    label: "ChatGPT subscription (Codex)",
+    baseUrl: null,
+    keyUrl: null,
+    textModels: ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6-luna"],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: [],
+    auth: "server",
   },
   {
     kind: "openai_compatible",
