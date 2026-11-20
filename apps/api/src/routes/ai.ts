@@ -90,7 +90,8 @@ aiRoutes.get("/ai/credentials/:id/models", credentialLimit, async (c) => {
     const cred = await deps.credentials.resolve(uuidParam(c, "id"), user(c).id);
     return c.json({ models: await deps.credentials.listModels(cred, capability) });
   } catch (e) {
-    if (e instanceof ProviderError && e.code === "auth") throw notFound("Credential");
+    // Only a missing key is "not found"; an expired sign-in (e.g. ChatGPT) keeps its own "connect again" message.
+    if (e instanceof ProviderError && e.code === "auth" && e.provider === "byok") throw notFound("Credential");
     throw asApiError(e);
   }
 });
@@ -112,7 +113,8 @@ aiRoutes.get("/ai/voices", credentialLimit, async (c) => {
     if (!tts) return c.json({ voices: [], provider: null });
     return c.json({ voices: await tts.voices(), provider: tts.provider });
   } catch (e) {
-    if (e instanceof ProviderError && e.code === "auth") throw notFound("Credential");
+    // Only a missing key is "not found"; an expired sign-in (e.g. ChatGPT) keeps its own "connect again" message.
+    if (e instanceof ProviderError && e.code === "auth" && e.provider === "byok") throw notFound("Credential");
     throw asApiError(e);
   }
 });
