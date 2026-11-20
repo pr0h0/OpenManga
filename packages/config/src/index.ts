@@ -79,6 +79,8 @@ const EnvSchema = z.object({
   /** Lifetime of the signed download URLs `/cdn` redirects to. */
   S3_PRESIGN_EXPIRES_SECONDS: z.coerce.number().int().min(60).max(604_800).default(900),
   TEMP_ROOT: z.string().default("/data/tmp"),
+  /** The server's own subscription sign-ins (`codex/` = CODEX_HOME), used by "ChatGPT subscription" keys. */
+  AGENT_LOGIN_DIR: z.string().default("/data/agent-login"),
   UPLOAD_MAX_BYTES: int(15 * 1024 * 1024),
   /**
    * Project import ceilings. The package is streamed to disk, so these bound disk and time rather than memory.

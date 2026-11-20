@@ -20,7 +20,7 @@ COPY --from=deps /app /app
 # commit arrives as a build argument (GIT_SHA=$(git rev-parse --short HEAD) docker compose build).
 ARG GIT_SHA=""
 RUN bun -e 'const p = require("/app/package.json"); require("fs").writeFileSync("/app/build-info.json", JSON.stringify({ version: p.version, builtAt: new Date().toISOString(), sha: process.env.GIT_SHA || null }))'
-RUN mkdir -p /data/assets /data/tmp && chown -R bun:bun /data
+RUN mkdir -p /data/assets /data/tmp /data/agent-login && chown -R bun:bun /data
 USER bun
 EXPOSE 3000
 ENTRYPOINT ["/usr/bin/tini", "--"]

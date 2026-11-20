@@ -242,6 +242,8 @@ services:
     volumes:
       - assets-data:/data/assets
       - tmp-data:/data/tmp
+      # The server's ChatGPT sign-in for "ChatGPT subscription" keys (bun run codex:login).
+      - agent-login:/data/agent-login
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -266,6 +268,7 @@ services:
     volumes:
       - assets-data:/data/assets
       - tmp-data:/data/tmp
+      - agent-login:/data/agent-login
     healthcheck:
       # The worker touches a heartbeat file every 30 s; stale for 2 min = event loop stuck or process wedged.
       test: ["CMD-SHELL", "test -f /tmp/worker-heartbeat && [ $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 120 ]"]
@@ -296,6 +299,7 @@ services:
   #   volumes:
   #     - assets-data:/data/assets
   #     - tmp-data:/data/tmp
+  #     - agent-login:/data/agent-login
   #   healthcheck:
   #     test: ["CMD-SHELL", "test -f /tmp/worker-heartbeat && [ $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 120 ]"]
   #     interval: 30s
@@ -360,6 +364,7 @@ volumes:
   redis-data:
   assets-data:
   tmp-data:
+  agent-login:
   kokoro-cache:
   whisper-cache:
 

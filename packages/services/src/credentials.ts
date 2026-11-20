@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from "node:crypto";
 import { lookup } from "node:dns/promises";
+import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import type { AppConfig } from "@openmanga/config";
 import { and, type Database, type DbOrTx, desc, eq, providerCredentials, sql, youtubeChannels } from "@openmanga/db";
@@ -295,18 +296,25 @@ export type ResolvedCredential = CredentialSummary & { apiKey: string; updatedAt
  */
 const UNCHECKED_KINDS = new Set<ProviderKind>(["kling", "runway", "minimax", "byteplus"]);
 
+/** CODEX_HOME of the server's ChatGPT sign-in (made once with `bun run codex:login`). */
+export const codexHome = (c: Pick<AppConfig, "AGENT_LOGIN_DIR">) => `${c.AGENT_LOGIN_DIR.replace(/\/$/, "")}/codex`;
+/** What a `server` credential stores in place of a key. */
+const SERVER_LOGIN = "server-login";
+
 export class CredentialService {
   readonly ring: KeyRing;
   /** Mock mode never calls providers: keys are stored unverified and model lists come from the catalog. */
   private readonly offline: boolean;
   /** Development only (AI_ALLOW_PRIVATE_BASE_URLS), so a custom endpoint can name the bundled `mock-ai` service. */
   private readonly allowPrivateEndpoints: boolean;
+  private readonly loginDirs: Pick<AppConfig, "AGENT_LOGIN_DIR">;
   constructor(
     private readonly db: Database,
     config: AppConfig,
     private readonly fetchImpl: typeof fetch = fetch,
   ) {
     this.ring = new KeyRing(config);
+    this.loginDirs = config;
     this.offline = config.AI_MOCK_MODE;
     this.allowPrivateEndpoints = config.AI_ALLOW_PRIVATE_BASE_URLS;
   }
@@ -333,10 +341,24 @@ export class CredentialService {
   }
 
   /** Validates the endpoint and verifies the key by listing models before storing it. */
-  async create(userId: string, input: { kind: ProviderKind; label: string; apiKey: string; baseUrl?: string | null }) {
+  async create(
+    userId: string,
+    input: { kind: ProviderKind; label: string; apiKey: string; baseUrl?: string | null },
+    opts: { admin?: boolean } = {},
+  ) {
     const cat = providerCatalog(input.kind);
     if (!cat) throw new CredentialError("Unknown provider");
-    const apiKey = input.apiKey.trim();
+    let apiKey = input.apiKey.trim();
+    if (cat.auth === "server") {
+      // The server's own subscription: whoever holds this key spends the operator's plan.
+      if (!opts.admin) throw new CredentialError(`Only an admin can add ${cat.label}`);
+      if (!this.offline && !existsSync(`${codexHome(this.loginDirs)}/auth.json`))
+        throw new CredentialError(
+          "The server is not signed in to ChatGPT yet. Run `docker compose exec -it worker bun run codex:login` once.",
+        );
+      apiKey = SERVER_LOGIN;
+    } else if (cat.auth === "token" && !/^sk-ant-oat\d*-/.test(apiKey))
+      throw new CredentialError("Paste the token `claude setup-token` prints (it starts with sk-ant-oat)");
     if (apiKey.length < 8) throw new CredentialError("API key looks too short");
     const baseUrl =
       input.kind === "openai_compatible"
@@ -344,7 +366,8 @@ export class CredentialService {
             allowPrivate: this.allowPrivateEndpoints,
           })
         : null;
-    if (!this.offline && !UNCHECKED_KINDS.has(input.kind))
+    // Subscription sign-ins have no free check: a bad token fails the first run with a sign-in error.
+    if (!this.offline && !UNCHECKED_KINDS.has(input.kind) && !cat.auth)
       await this.fetchModels({ kind: input.kind, baseUrl, apiKey });
     const [row] = await this.db
       .insert(providerCredentials)
@@ -354,7 +377,7 @@ export class CredentialService {
         label: input.label.trim() || cat.label,
         baseUrl,
         encryptedKey: this.ring.encrypt(apiKey),
-        keyHint: `…${apiKey.slice(-4)}`,
+        keyHint: cat.auth === "server" ? "server sign-in" : `…${apiKey.slice(-4)}`,
       })
       .returning();
     return this.summary(row!);
@@ -395,7 +418,7 @@ export class CredentialService {
     const cat = providerCatalog(cred.kind)!;
     const suggested = catalogModels(cat, cap);
     // Video models come from the catalog only: their request shapes are per model, so an unknown id cannot run.
-    if (cap === "video") return suggested;
+    if (cap === "video" || cat.auth) return suggested;
     const all = this.offline ? [] : await this.fetchModels(cred);
     const isImage = (id: string) => /image|dall-e|imagen|flux|stable-diffusion|sdxl|seedream|recraft/i.test(id);
     const isTts = (id: string, m: { tts?: boolean }) => Boolean(m.tts) || /tts|speech|eleven_/i.test(id);
