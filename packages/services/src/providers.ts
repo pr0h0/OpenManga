@@ -11,6 +11,7 @@ import {
 } from "@openmanga/ai-image";
 import {
   AnthropicTextProvider,
+  ChatgptTextProvider,
   ClaudeAgentTextProvider,
   CodexTextProvider,
   DeepSeekTextProvider,
@@ -121,7 +122,7 @@ function byokText(
       return new OpenAIChatTextProvider("openai", "OpenAI", { ...common, baseUrl: base });
     case "chatgpt":
       // The key is the connection's current access token (renewed by CredentialService.resolve).
-      return new OpenAIChatTextProvider("chatgpt", "ChatGPT", { ...common, baseUrl: base });
+      return new ChatgptTextProvider({ ...common, baseUrl: base });
     case "openai_compatible":
       return new OpenAIChatTextProvider("openai_compatible", "Custom endpoint", { ...common, baseUrl: base });
     default:

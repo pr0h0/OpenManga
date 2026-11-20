@@ -544,7 +544,7 @@ export class CredentialService {
       throw new CredentialError(`${cat.label} model list failed (HTTP ${res.status}): ${text.slice(0, 200)}`);
     let json: {
       data?: { id?: string; architecture?: { output_modalities?: string[] } }[];
-      models?: { name?: string; supportedGenerationMethods?: string[] }[];
+      models?: { name?: string; supportedGenerationMethods?: string[]; slug?: string; visibility?: string }[];
     } = {};
     try {
       json = JSON.parse(text);
@@ -556,6 +556,11 @@ export class CredentialService {
       return (json as { model_id?: string; can_do_text_to_speech?: boolean }[])
         .filter((m) => m.model_id)
         .map((m) => ({ id: m.model_id!, image: false, tts: m.can_do_text_to_speech !== false }));
+    // A ChatGPT connection lists Codex's models: { models: [{ slug, visibility }] }.
+    if (cred.kind === "chatgpt")
+      return (json.models ?? [])
+        .filter((m) => m.slug && m.visibility !== "hide")
+        .map((m) => ({ id: m.slug!, image: false }));
     if (json.models)
       return json.models
         .filter((m) => m.name && m.supportedGenerationMethods?.includes("generateContent"))
