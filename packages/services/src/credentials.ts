@@ -590,6 +590,6 @@ export class CredentialService {
   }
 }
 
-/** Cache key for a credential + model (keys are create/delete only, so id identifies the key revision). */
+/** Cache key for a credential + model. A ChatGPT connection renews its token in place, so callers add `updatedAt`. */
 export const credentialFingerprint = (c: { id: string }, model: string) =>
   createHash("sha256").update(`${c.id}:${model}`).digest("hex").slice(0, 24);
