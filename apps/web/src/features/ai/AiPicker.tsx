@@ -11,7 +11,7 @@ type AiCapability = Exclude<AnyCapability, "video">;
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Cpu, KeyRound, Trash2 } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { del, get, post } from "../../api/client.ts";
@@ -292,7 +292,44 @@ export function ProviderKeys() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [removing, setRemoving] = useState<Credential | null>(null);
+  /** A started "Sign in with ChatGPT": waiting for the tunnel to bring the browser back, or for a pasted address. */
+  const [chatgpt, setChatgpt] = useState<{ redirectUri: string; pasted: string } | null>(null);
   const cat = providerCatalog(form.kind)!;
+
+  const completeChatgpt = async (url: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await post("/ai/chatgpt/complete", { url });
+      setChatgpt(null);
+      toast.success("ChatGPT connected");
+      await qc.invalidateQueries({ queryKey: aiOptionsKey });
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Back from OpenAI through the loopback tunnel: the callback handed the address on as ?chatgpt_return.
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const ret = u.searchParams.get("chatgpt_return");
+    if (!ret) return;
+    u.searchParams.delete("chatgpt_return");
+    window.history.replaceState(null, "", u.toString());
+    void completeChatgpt(new URL(ret, "http://127.0.0.1").toString());
+  }, []);
+
+  const startChatgpt = async () => {
+    setError(null);
+    try {
+      const r = await post<{ url: string; redirectUri: string }>("/ai/chatgpt/start", { label: form.label });
+      setChatgpt({ redirectUri: r.redirectUri, pasted: "" });
+      window.open(r.url, "_blank", "noopener");
+    } catch (e) {
+      setError(e);
+    }
+  };
   const caps = (k: ProviderKind) =>
     (["text", "image", "tts"] as const).filter((c) => supports(k, c)).map((c) => (c === "tts" ? "voice" : c));
 
@@ -390,7 +427,43 @@ export function ProviderKeys() {
             </Field>
           </div>
         )}
-        {cat.auth === "server" ? (
+        {cat.auth === "oauth" ? (
+          <div className="space-y-2 text-xs sm:col-span-2">
+            <p className="muted">
+              No key: sign in with ChatGPT and allow OpenManga to use your plan. Usage limits for connected apps are set
+              in{" "}
+              <a className="underline" href="https://chatgpt.com/#settings/Usage" target="_blank" rel="noreferrer">
+                ChatGPT → Settings → Usage
+              </a>
+              .
+            </p>
+            {chatgpt && (
+              <>
+                <p className="muted">
+                  After you approve, the browser goes to <code>{chatgpt.redirectUri}</code>. With an SSH tunnel to this
+                  server (<code>ssh -L {new URL(chatgpt.redirectUri).port}:127.0.0.1:&lt;web port&gt; host</code>) that
+                  finishes the connection by itself. Otherwise the page fails to load: copy its address here.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    className="input font-mono"
+                    placeholder={`${chatgpt.redirectUri}?code=…`}
+                    value={chatgpt.pasted}
+                    onChange={(e) => setChatgpt({ ...chatgpt, pasted: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy || !chatgpt.pasted.trim()}
+                    onClick={() => completeChatgpt(chatgpt.pasted)}
+                  >
+                    {busy && <Spinner />} Finish
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ) : cat.auth === "server" ? (
           <p className="muted text-xs sm:col-span-2">
             No key: runs use the ChatGPT subscription this server is signed in to (admins only; the operator signs in
             once with <code>docker compose exec -it worker bun run codex:login</code>).
@@ -416,18 +489,24 @@ export function ProviderKeys() {
         )}
       </div>
       <ErrorBox error={error} />
-      <button
-        type="button"
-        className="btn-primary"
-        disabled={
-          busy ||
-          (cat.auth !== "server" && form.apiKey.trim().length < 8) ||
-          (form.kind === "openai_compatible" && !form.baseUrl.trim())
-        }
-        onClick={save}
-      >
-        {busy && <Spinner />} Verify and save key
-      </button>
+      {cat.auth === "oauth" ? (
+        <button type="button" className="btn-primary" disabled={busy} onClick={startChatgpt}>
+          {chatgpt ? "Start again" : "Connect ChatGPT"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={
+            busy ||
+            (cat.auth !== "server" && form.apiKey.trim().length < 8) ||
+            (form.kind === "openai_compatible" && !form.baseUrl.trim())
+          }
+          onClick={save}
+        >
+          {busy && <Spinner />} Verify and save key
+        </button>
+      )}
       <ConfirmDialog
         open={Boolean(removing)}
         danger

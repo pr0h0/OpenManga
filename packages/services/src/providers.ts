@@ -119,6 +119,9 @@ function byokText(
       });
     case "openai":
       return new OpenAIChatTextProvider("openai", "OpenAI", { ...common, baseUrl: base });
+    case "chatgpt":
+      // The key is the connection's current access token (renewed by CredentialService.resolve).
+      return new OpenAIChatTextProvider("chatgpt", "ChatGPT", { ...common, baseUrl: base });
     case "openai_compatible":
       return new OpenAIChatTextProvider("openai_compatible", "Custom endpoint", { ...common, baseUrl: base });
     default:
@@ -390,7 +393,8 @@ export class ProviderResolver {
     void this.credentials.touch(cred.id).catch(() => {});
     if (this.config.AI_MOCK_MODE)
       return cap === "tts" ? (this.defaults.tts ?? new FakeTTSProvider()) : (this.defaults[cap] ?? null);
-    return this.cached(`${cap}:${credentialFingerprint(cred, chosen)}`, () =>
+    // updatedAt is part of the key: a ChatGPT connection's token changes on every renewal.
+    return this.cached(`${cap}:${credentialFingerprint(cred, chosen)}:${cred.updatedAt.getTime()}`, () =>
       cap === "text"
         ? byokText(cred.kind, cred, chosen, this.config, this.logger)
         : cap === "image"

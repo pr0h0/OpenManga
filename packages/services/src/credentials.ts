@@ -16,6 +16,7 @@ import {
 } from "@openmanga/db";
 import { type AiCapability, catalogModels, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
+import { ChatgptAuthError, type ChatgptTokens, chatgptRefresh } from "./chatgpt-oauth.ts";
 
 type KeyConfig = Pick<AppConfig, "CREDENTIALS_ENCRYPTION_KEY" | "CREDENTIALS_ENCRYPTION_OLD_KEYS" | "SESSION_SECRET">;
 
@@ -359,6 +360,7 @@ export class CredentialService {
     const cat = providerCatalog(input.kind);
     if (!cat) throw new CredentialError("Unknown provider");
     let apiKey = input.apiKey.trim();
+    if (cat.auth === "oauth") throw new CredentialError(`${cat.label} is connected with its Connect button, not a key`);
     if (cat.auth === "server") {
       // The server's own subscription: whoever holds this key spends the operator's plan.
       if (!opts.admin) throw new CredentialError(`Only an admin can add ${cat.label}`);
@@ -424,7 +426,51 @@ export class CredentialService {
       } catch (e) {
         throw new ProviderError("byok", "invalid_request", (e as Error).message, { retryable: false });
       }
+    if (row.kind === "chatgpt") return this.chatgptAccess(row.id);
     return { ...this.summary(row), updatedAt: row.updatedAt, apiKey: this.ring.decrypt(row.encryptedKey) };
+  }
+
+  /** Saves a finished "Sign in with ChatGPT" as the user's credential; its key is the token set, encrypted. */
+  async createChatgpt(userId: string, label: string, tokens: ChatgptTokens) {
+    const [row] = await this.db
+      .insert(providerCredentials)
+      .values({
+        userId,
+        kind: "chatgpt",
+        label: label.trim() || providerCatalog("chatgpt")!.label,
+        baseUrl: null,
+        encryptedKey: this.ring.encrypt(JSON.stringify(tokens)),
+        keyHint: tokens.email ?? "ChatGPT",
+      })
+      .returning();
+    return this.summary(row!);
+  }
+
+  /**
+   * A ChatGPT credential's current access token, renewed first when it is about to expire. The renewal runs under a
+   * row lock: refresh tokens rotate, so two workers renewing at once would sign the connection out.
+   */
+  private async chatgptAccess(id: string): Promise<ResolvedCredential> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx.select().from(providerCredentials).where(eq(providerCredentials.id, id)).for("update");
+      let tokens = JSON.parse(this.ring.decrypt(row!.encryptedKey)) as ChatgptTokens;
+      let updatedAt = row!.updatedAt;
+      if (tokens.expiresAt - Date.now() < 5 * 60_000 && !this.offline) {
+        try {
+          tokens = await chatgptRefresh(tokens, this.fetchImpl);
+        } catch (e) {
+          if (e instanceof ChatgptAuthError)
+            throw new ProviderError("chatgpt", "auth", e.message, { retryable: !e.expired });
+          throw e;
+        }
+        updatedAt = new Date();
+        await tx
+          .update(providerCredentials)
+          .set({ encryptedKey: this.ring.encrypt(JSON.stringify(tokens)), updatedAt })
+          .where(eq(providerCredentials.id, id));
+      }
+      return { ...this.summary(row!), updatedAt, apiKey: tokens.accessToken };
+    });
   }
 
   async touch(id: string) {
@@ -436,7 +482,7 @@ export class CredentialService {
     const cat = providerCatalog(cred.kind)!;
     const suggested = catalogModels(cat, cap);
     // Video models come from the catalog only: their request shapes are per model, so an unknown id cannot run.
-    if (cap === "video" || cat.auth) return suggested;
+    if (cap === "video" || cat.auth === "token" || cat.auth === "server") return suggested;
     const all = this.offline ? [] : await this.fetchModels(cred);
     const isImage = (id: string) => /image|dall-e|imagen|flux|stable-diffusion|sdxl|seedream|recraft/i.test(id);
     const isTts = (id: string, m: { tts?: boolean }) => Boolean(m.tts) || /tts|speech|eleven_/i.test(id);
