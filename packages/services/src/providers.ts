@@ -11,6 +11,9 @@ import {
 } from "@openmanga/ai-image";
 import {
   AnthropicTextProvider,
+  ChatgptTextProvider,
+  ClaudeAgentTextProvider,
+  CodexTextProvider,
   DeepSeekTextProvider,
   FakeTextAIProvider,
   GeminiTextBatchProvider,
@@ -29,10 +32,11 @@ import {
   OpenAITTSProvider,
   type TTSProvider,
 } from "@openmanga/audio";
-import type { AppConfig } from "@openmanga/config";
+import { type AppConfig, installedClis } from "@openmanga/config";
 import {
   type AiCapability,
   catalogModels,
+  cliMissing,
   LOCAL_VIDEO_MODEL,
   ProviderError,
   type ProviderKind,
@@ -40,7 +44,7 @@ import {
   providerSupports,
 } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
-import { type CredentialService, credentialFingerprint } from "./credentials.ts";
+import { type CredentialService, codexHome, credentialFingerprint } from "./credentials.ts";
 
 /**
  * There are no server-level provider keys: text and image runs always use a key the user added. The only
@@ -96,11 +100,24 @@ function byokText(
     logger,
   };
   const base = cred.baseUrl ?? providerCatalog(kind)?.baseUrl ?? "";
+  if (cliMissing(kind, installedClis(c)))
+    throw new ProviderError(
+      kind,
+      "invalid_request",
+      `${providerCatalog(kind)?.label} is not installed on this server`,
+      {
+        retryable: false,
+      },
+    );
   switch (kind) {
     case "deepseek":
       return new DeepSeekTextProvider({ ...common, baseUrl: base });
     case "anthropic":
       return new AnthropicTextProvider({ ...common, baseUrl: base });
+    case "claude_code":
+      return new ClaudeAgentTextProvider({ ...common, oauthToken: cred.apiKey, tempRoot: c.TEMP_ROOT });
+    case "codex":
+      return new CodexTextProvider({ ...common, codexHome: codexHome(c), tempRoot: c.TEMP_ROOT });
     case "meta":
       return new MetaMuseTextProvider({ ...common, baseUrl: base });
     case "google":
@@ -113,6 +130,9 @@ function byokText(
       });
     case "openai":
       return new OpenAIChatTextProvider("openai", "OpenAI", { ...common, baseUrl: base });
+    case "chatgpt":
+      // The key is the connection's current access token (renewed by CredentialService.resolve).
+      return new ChatgptTextProvider({ ...common, baseUrl: base });
     case "openai_compatible":
       return new OpenAIChatTextProvider("openai_compatible", "Custom endpoint", { ...common, baseUrl: base });
     default:
@@ -384,7 +404,8 @@ export class ProviderResolver {
     void this.credentials.touch(cred.id).catch(() => {});
     if (this.config.AI_MOCK_MODE)
       return cap === "tts" ? (this.defaults.tts ?? new FakeTTSProvider()) : (this.defaults[cap] ?? null);
-    return this.cached(`${cap}:${credentialFingerprint(cred, chosen)}`, () =>
+    // updatedAt is part of the key: a ChatGPT connection's token changes on every renewal.
+    return this.cached(`${cap}:${credentialFingerprint(cred, chosen)}:${cred.updatedAt.getTime()}`, () =>
       cap === "text"
         ? byokText(cred.kind, cred, chosen, this.config, this.logger)
         : cap === "image"

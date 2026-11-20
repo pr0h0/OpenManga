@@ -11,6 +11,30 @@ is synthesised locally. Nothing in this mode contacts a provider, and nothing is
 | Covers, video thumbnails, masked edits | the provider draws | not available without an image key |
 | Narration audio | a TTS key, or local Kokoro | local Kokoro, unchanged |
 
+## On a Claude or ChatGPT subscription
+
+Between a key and pasting by hand: text runs (vision checks included) can go through the Claude Code or Codex agent
+SDK and draw on a subscription instead of an API key. Usage rows record the tokens and $0, since the plan bills
+nothing per call; the plan's own 5-hour and weekly limits apply, and a run that hits one fails with `quota`.
+
+- **Claude subscription (Claude Code):** run `claude setup-token` on any machine signed in to a Pro or Max plan and
+  paste the `sk-ant-oat…` token it prints in Account → AI providers. It is stored encrypted like any key and only its
+  owner can use it.
+- **ChatGPT subscription (Codex):** Codex has no pasteable token, so this uses the server's own sign-in and only an
+  admin can add it. Sign the server in once (a device code, finished in a browser):
+  `docker compose exec -it worker bun run codex:login`. It lands in the `agent-login` volume, shared by `api` and
+  `worker`, apart from anyone's personal `~/.codex`. Do not copy a personal `auth.json` in: both copies would refresh
+  the same token and one of them gets signed out.
+
+The agent answers and nothing else: no tools, no shell, no MCP servers, no settings or plugins, an empty working
+directory and none of the server's environment. Story text is untrusted, and an agent that could run a command could
+be talked into printing the server's secrets. Codex's transcript of each run is deleted when it ends.
+
+Each runs a bundled CLI, left out of the app image by default. Turn on the one you want in `.env` and rebuild
+(`docker compose build migrate api worker`): `WITH_CLAUDE_CODE=true` for the Claude subscription (+~550 MB),
+`WITH_CODEX_CLI=true` for the Codex one (+~610 MB). A provider whose CLI is missing is hidden from the provider
+list. "Sign in with ChatGPT" needs no CLI and is always available.
+
 ## The idea
 
 A pasted answer is not a second-class input. It goes through the same funnel a provider's reply does:

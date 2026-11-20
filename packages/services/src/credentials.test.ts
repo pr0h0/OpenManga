@@ -16,6 +16,7 @@ const cfg = {
   CREDENTIALS_ENCRYPTION_KEY: "",
   CREDENTIALS_ENCRYPTION_OLD_KEYS: "",
   AI_MOCK_MODE: false,
+  AGENT_LOGIN_DIR: "/nonexistent",
 } as AppConfig;
 
 describe("credential encryption and key rotation", () => {
@@ -158,6 +159,23 @@ describe("model listing", () => {
       cfg,
       (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch,
     );
+
+  test("subscription keys: a Claude token must be a setup-token, the server's ChatGPT sign-in is admin-only", async () => {
+    const s = svc({});
+    const add = (kind: "claude_code" | "codex", apiKey: string, admin = false) =>
+      s.create("u1", { kind, label: "", apiKey }, { admin });
+    await expect(add("claude_code", "sk-ant-api03-not-a-subscription")).rejects.toThrow("setup-token");
+    await expect(add("codex", "")).rejects.toThrow("Only an admin");
+    await expect(add("codex", "", true)).rejects.toThrow("codex:login");
+    expect(await s.listModels({ kind: "codex", baseUrl: null, apiKey: "server-login" }, "text")).toContain(
+      "gpt-6-luna",
+    );
+    // An image built without the CLIs cannot offer them.
+    const slim = new CredentialService({} as Database, { ...cfg, CLAUDE_CODE_CLI: false } as AppConfig);
+    await expect(
+      slim.create("u1", { kind: "claude_code", label: "", apiKey: "sk-ant-oat01-abcdefgh" }),
+    ).rejects.toThrow("not installed");
+  });
 
   test("splits OpenAI-style lists by capability and merges catalog suggestions", async () => {
     const s = svc({ data: [{ id: "gpt-image-2" }, { id: "gpt-5" }, { id: "whisper-1" }] });

@@ -738,7 +738,17 @@ function ConsistencySection({
   };
   const modes = visualCheckModes(cur.checks);
   const creds = (opts.data?.credentials ?? []).filter((c) =>
-    ["openai", "anthropic", "google", "meta", "openrouter", "openai_compatible"].includes(c.kind),
+    [
+      "openai",
+      "anthropic",
+      "google",
+      "meta",
+      "openrouter",
+      "openai_compatible",
+      "claude_code",
+      "codex",
+      "chatgpt",
+    ].includes(c.kind),
   );
   return (
     <section className="card space-y-3 p-4">

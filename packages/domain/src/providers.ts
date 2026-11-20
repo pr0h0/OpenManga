@@ -14,7 +14,10 @@ export type ProviderKind =
   | "runway"
   | "minimax"
   | "byteplus"
-  | "openai_compatible";
+  | "openai_compatible"
+  | "claude_code"
+  | "codex"
+  | "chatgpt";
 export type AiCapability = "text" | "image" | "tts" | "video";
 
 export type ProviderCatalogEntry = {
@@ -28,6 +31,12 @@ export type ProviderCatalogEntry = {
   ttsModels: string[];
   /** Video models (image-to-video / text-to-video): ids of `VIDEO_MODELS` for this provider. */
   videoModels: string[];
+  /**
+   * How the key field is filled: `token` = a `claude setup-token` token pasted like a key; `server` = no key, the
+   * run uses the server's own subscription sign-in (admins only); `oauth` = no key, connected with "Sign in with
+   * ChatGPT". Absent = an ordinary API key.
+   */
+  auth?: "token" | "server" | "oauth";
 };
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
@@ -153,6 +162,39 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     videoModels: videoModelsOf("byteplus").map((m) => m.id),
   },
   {
+    kind: "claude_code",
+    label: "Claude subscription (Claude Code)",
+    baseUrl: null,
+    keyUrl: "https://docs.anthropic.com/en/docs/claude-code/sdk/sdk-overview#authentication",
+    textModels: ["sonnet", "opus", "haiku"],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: [],
+    auth: "token",
+  },
+  {
+    kind: "codex",
+    label: "ChatGPT subscription (Codex)",
+    baseUrl: null,
+    keyUrl: null,
+    textModels: ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6-luna"],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: [],
+    auth: "server",
+  },
+  {
+    kind: "chatgpt",
+    label: "ChatGPT subscription (sign in)",
+    baseUrl: "https://api.openai.com/v1",
+    keyUrl: "https://chatgpt.com/#settings/Usage",
+    textModels: ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6-luna"],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: [],
+    auth: "oauth",
+  },
+  {
     kind: "openai_compatible",
     label: "OpenAI-compatible (custom URL)",
     baseUrl: null,
@@ -163,6 +205,15 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     videoModels: [],
   },
 ];
+
+/** Which bundled CLIs this server's image has (build settings WITH_CLAUDE_CODE / WITH_CODEX_CLI). */
+export type InstalledClis = { claude: boolean; codex: boolean };
+/** The CLI a provider runs; one an image was built without is hidden and refused. */
+const CLI_OF: Partial<Record<ProviderKind, keyof InstalledClis>> = { claude_code: "claude", codex: "codex" };
+export const cliMissing = (kind: ProviderKind, installed: InstalledClis) => {
+  const cli = CLI_OF[kind];
+  return cli !== undefined && !installed[cli];
+};
 
 export const providerCatalog = (kind: string) => PROVIDER_CATALOG.find((p) => p.kind === kind);
 /** A provider's suggested models for a capability. */

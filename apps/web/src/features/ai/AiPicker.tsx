@@ -1,5 +1,7 @@
 import {
   type AiCapability as AnyCapability,
+  cliMissing,
+  type InstalledClis,
   PROVIDER_CATALOG,
   type ProviderKind,
   providerCatalog,
@@ -11,7 +13,7 @@ type AiCapability = Exclude<AnyCapability, "video">;
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Cpu, KeyRound, Trash2 } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { del, get, post } from "../../api/client.ts";
@@ -34,8 +36,11 @@ type AiOptions = {
     tts: { provider: string } | null;
   };
   mockMode: boolean;
+  /** The bundled CLIs the server image has (providers needing a missing one are hidden). */
+  clis?: InstalledClis;
   credentials: Credential[];
 };
+type ConnectCheck = { ok: true; model: string; reply: string; ms: number } | { ok: false; error: string };
 type Choice = {
   credentialId: string | null;
   provider?: ProviderKind | null;
@@ -292,7 +297,73 @@ export function ProviderKeys() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [removing, setRemoving] = useState<Credential | null>(null);
+  /** A started "Sign in with ChatGPT": waiting for the tunnel to bring the browser back, or for a pasted address. */
+  const [chatgpt, setChatgpt] = useState<{ redirectUri: string; state: string; pasted: string } | null>(null);
+  /** The test prompt run through a just-connected ChatGPT. */
+  const [chatgptCheck, setChatgptCheck] = useState<ConnectCheck | null>(null);
   const cat = providerCatalog(form.kind)!;
+
+  const connected = async (check: ConnectCheck) => {
+    setChatgpt(null);
+    setChatgptCheck(check);
+    if (check.ok) toast.success(`ChatGPT connected: ${check.model} answered in ${(check.ms / 1000).toFixed(1)} s`);
+    else toast.error(new Error(`ChatGPT connected, but the test prompt failed: ${check.error}`));
+    await qc.invalidateQueries({ queryKey: aiOptionsKey });
+  };
+  const completeChatgpt = async (url: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await post<{ check: ConnectCheck }>("/ai/chatgpt/complete", { url });
+      await connected(r.check);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Back from OpenAI through the loopback tunnel: the callback handed the address on as ?chatgpt_return.
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const ret = u.searchParams.get("chatgpt_return");
+    if (!ret) return;
+    u.searchParams.delete("chatgpt_return");
+    window.history.replaceState(null, "", u.toString());
+    void completeChatgpt(new URL(ret, "http://127.0.0.1").toString());
+  }, []);
+  // While waiting, watch the sign-in: when the tunnel finishes it in the other tab, close the paste box here.
+  useEffect(() => {
+    if (!chatgpt) return;
+    const t = setInterval(async () => {
+      try {
+        const r = await get<{ status: "pending" | "done" | "expired"; check?: ConnectCheck }>(
+          `/ai/chatgpt/status?state=${encodeURIComponent(chatgpt.state)}`,
+        );
+        if (r.status === "done") await connected(r.check!);
+        else if (r.status === "expired") setChatgpt(null);
+      } catch {}
+    }, 2000);
+    return () => clearInterval(t);
+  }, [chatgpt?.state]);
+
+  const startChatgpt = async () => {
+    setError(null);
+    setChatgptCheck(null);
+    try {
+      const r = await post<{ url: string; redirectUri: string; state: string }>("/ai/chatgpt/start", {
+        label: form.label,
+      });
+      setChatgpt({ redirectUri: r.redirectUri, state: r.state, pasted: "" });
+      window.open(r.url, "_blank", "noopener");
+    } catch (e) {
+      setError(e);
+    }
+  };
+  /** A pasted address that already carries the sign-in code is submitted at once. */
+  const pasteChatgpt = (value: string) => {
+    setChatgpt((c) => (c ? { ...c, pasted: value } : c));
+    if (/[?&]code=/.test(value) && /[?&]state=/.test(value) && !busy) void completeChatgpt(value);
+  };
   const caps = (k: ProviderKind) =>
     (["text", "image", "tts"] as const).filter((c) => supports(k, c)).map((c) => (c === "tts" ? "voice" : c));
 
@@ -362,11 +433,13 @@ export function ProviderKeys() {
             value={form.kind}
             onChange={(e) => setForm({ ...form, kind: e.target.value as ProviderKind })}
           >
-            {PROVIDER_CATALOG.map((p) => (
-              <option key={p.kind} value={p.kind}>
-                {p.label} ({caps(p.kind).join(", ")})
-              </option>
-            ))}
+            {PROVIDER_CATALOG.filter((p) => !cliMissing(p.kind, opts.data?.clis ?? { claude: true, codex: true })).map(
+              (p) => (
+                <option key={p.kind} value={p.kind}>
+                  {p.label} ({caps(p.kind).join(", ")})
+                </option>
+              ),
+            )}
           </select>
         </Field>
         <Field label="Label (optional)">
@@ -390,32 +463,97 @@ export function ProviderKeys() {
             </Field>
           </div>
         )}
-        <div className="sm:col-span-2">
-          <Field label="API key">
-            <input
-              className="input font-mono"
-              type="password"
-              autoComplete="off"
-              value={form.apiKey}
-              onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-            />
-          </Field>
-          {cat.keyUrl && (
-            <a className="muted text-xs underline" href={cat.keyUrl} target="_blank" rel="noreferrer">
-              Get a {cat.label} key
-            </a>
-          )}
-        </div>
+        {cat.auth === "oauth" ? (
+          <div className="space-y-2 text-xs sm:col-span-2">
+            <p className="muted">
+              No key: sign in with ChatGPT and allow OpenManga to use your plan. Usage limits for connected apps are set
+              in{" "}
+              <a className="underline" href="https://chatgpt.com/#settings/Usage" target="_blank" rel="noreferrer">
+                ChatGPT → Settings → Usage
+              </a>
+              .
+            </p>
+            {chatgpt && (
+              <>
+                <p className="muted">
+                  After you approve, the browser goes to <code>{chatgpt.redirectUri}</code>. If that page fails to load,
+                  copy its whole address from the address bar and paste it here. With an SSH tunnel to this server (
+                  <code>ssh -L {new URL(chatgpt.redirectUri).port}:127.0.0.1:&lt;web port&gt; host</code>) or when
+                  OpenManga runs on this computer, it finishes by itself and this box closes.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    className="input font-mono"
+                    placeholder={`${chatgpt.redirectUri}?code=…`}
+                    value={chatgpt.pasted}
+                    onChange={(e) => pasteChatgpt(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy || !chatgpt.pasted.trim()}
+                    onClick={() => completeChatgpt(chatgpt.pasted)}
+                  >
+                    {busy && <Spinner />} Finish
+                  </button>
+                </div>
+                <p className="muted flex items-center gap-1">
+                  <Spinner /> Waiting for the sign-in…
+                </p>
+              </>
+            )}
+            {chatgptCheck && (
+              <p className={chatgptCheck.ok ? "text-green-600" : "text-red-500"}>
+                {chatgptCheck.ok
+                  ? `Connected. Test prompt: ${chatgptCheck.model} replied "${chatgptCheck.reply}" in ${(chatgptCheck.ms / 1000).toFixed(1)} s.`
+                  : `Connected, but the test prompt failed: ${chatgptCheck.error}`}
+              </p>
+            )}
+          </div>
+        ) : cat.auth === "server" ? (
+          <p className="muted text-xs sm:col-span-2">
+            No key: runs use the ChatGPT subscription this server is signed in to (admins only; the operator signs in
+            once with <code>docker compose exec -it worker bun run codex:login</code>).
+          </p>
+        ) : (
+          <div className="sm:col-span-2">
+            <Field label={cat.auth === "token" ? "Subscription token (from `claude setup-token`)" : "API key"}>
+              <input
+                className="input font-mono"
+                type="password"
+                autoComplete="off"
+                placeholder={cat.auth === "token" ? "sk-ant-oat01-…" : undefined}
+                value={form.apiKey}
+                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+              />
+            </Field>
+            {cat.keyUrl && (
+              <a className="muted text-xs underline" href={cat.keyUrl} target="_blank" rel="noreferrer">
+                {cat.auth === "token" ? "How to make a token" : `Get a ${cat.label} key`}
+              </a>
+            )}
+          </div>
+        )}
       </div>
       <ErrorBox error={error} />
-      <button
-        type="button"
-        className="btn-primary"
-        disabled={busy || form.apiKey.trim().length < 8 || (form.kind === "openai_compatible" && !form.baseUrl.trim())}
-        onClick={save}
-      >
-        {busy && <Spinner />} Verify and save key
-      </button>
+      {cat.auth === "oauth" ? (
+        <button type="button" className="btn-primary" disabled={busy} onClick={startChatgpt}>
+          {chatgpt ? "Start again" : "Connect ChatGPT"}
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={
+            busy ||
+            (cat.auth !== "server" && form.apiKey.trim().length < 8) ||
+            (form.kind === "openai_compatible" && !form.baseUrl.trim())
+          }
+          onClick={save}
+        >
+          {busy && <Spinner />} Verify and save key
+        </button>
+      )}
       <ConfirmDialog
         open={Boolean(removing)}
         danger

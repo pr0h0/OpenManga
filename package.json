@@ -1,6 +1,6 @@
 {
   "name": "openmanga",
-  "version": "0.20.2",
+  "version": "0.21.0",
   "private": true,
   "description": "Self-hosted studio that turns a story into a consistent AI-illustrated comic, webtoon or narrated video.",
   "license": "Apache-2.0",
@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "bun run --filter './apps/api' --filter './apps/worker' --filter './apps/web' dev",
     "test": "bun test packages apps/api apps/worker apps/web",
+    "codex:login": "mkdir -p ${AGENT_LOGIN_DIR:-/data/agent-login}/codex && CODEX_HOME=${AGENT_LOGIN_DIR:-/data/agent-login}/codex packages/ai-text/node_modules/.bin/codex login --device-auth",
     "test:integration": "bun test tests/integration",
     "test:e2e": "bunx playwright test -c tests/e2e/playwright.config.ts",
     "lint": "biome check .",
