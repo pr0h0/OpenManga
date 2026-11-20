@@ -40,8 +40,8 @@ export function classifyAgentError(provider: string, msg: string): ProviderError
   const m = msg.slice(0, 500);
   if (USAGE_LIMIT_ERROR_PREFIXES.some((p) => m.includes(p)) || /usage limit|quota|out of credits/i.test(m))
     return new ProviderError(provider, "quota", `Subscription usage limit reached: ${m}`, { retryable: false });
-  if (/rate.?limit|429|overloaded/i.test(m)) return new ProviderError(provider, "rate_limited", m);
-  if (/401|403|unauthori[sz]ed|authenticat|not logged in|log ?in again|(oauth|access|refresh) token/i.test(m))
+  if (/rate.?limit|\b429\b|overloaded/i.test(m)) return new ProviderError(provider, "rate_limited", m);
+  if (/\b40[13]\b|unauthori[sz]ed|authenticat|not logged in|log ?in again|(oauth|access|refresh) token/i.test(m))
     return new ProviderError(provider, "auth", `The subscription sign-in was rejected: ${m}`, {
       retryable: false,
     });
@@ -95,11 +95,12 @@ abstract class AgentTextProvider implements TextAIProvider {
         },
       };
     } catch (e) {
-      if (e instanceof ProviderError) throw e;
+      // Abort first: the CLI may report a cancel or timeout as an ordinary failed result before it stops.
       if (signal.aborted)
         throw new ProviderError(this.provider, req.signal?.aborted ? "cancelled" : "timeout", String(signal.reason), {
           retryable: !req.signal?.aborted,
         });
+      if (e instanceof ProviderError) throw e;
       throw classifyAgentError(this.provider, (e as Error).message ?? String(e));
     } finally {
       await rm(cwd, { recursive: true, force: true });
