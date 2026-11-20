@@ -81,6 +81,12 @@ const EnvSchema = z.object({
   TEMP_ROOT: z.string().default("/data/tmp"),
   /** The server's own subscription sign-ins (`codex/` = CODEX_HOME), used by "ChatGPT subscription" keys. */
   AGENT_LOGIN_DIR: z.string().default("/data/agent-login"),
+  /**
+   * "Sign in with ChatGPT" sends the browser back to http://127.0.0.1:<this port>/api/auth/chatgpt/callback (OpenAI
+   * only allows loopback). Forward it to the server's web port, wherever that is: `ssh -L 1455:127.0.0.1:<port> host`.
+   * Without a tunnel the person pastes the address instead, so any free port works.
+   */
+  CHATGPT_OAUTH_PORT: int(1455),
   UPLOAD_MAX_BYTES: int(15 * 1024 * 1024),
   /**
    * Project import ceilings. The package is streamed to disk, so these bound disk and time rather than memory.

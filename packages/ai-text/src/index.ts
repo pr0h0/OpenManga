@@ -200,6 +200,7 @@ export async function runStructured<T>(p: TextAIProvider, req: StructuredRequest
 export { ClaudeAgentTextProvider, CodexTextProvider, classifyAgentError } from "./agent-sdk.ts";
 export { AnthropicTextProvider } from "./anthropic.ts";
 export * from "./batch.ts";
+export { ChatgptTextProvider } from "./chatgpt.ts";
 export { DeepSeekTextProvider } from "./deepseek.ts";
 export { FakeTextAIProvider } from "./fake.ts";
 export { MetaMuseTextProvider, type OpenAIChatOptions, OpenAIChatTextProvider } from "./meta.ts";

@@ -16,7 +16,8 @@ export type ProviderKind =
   | "byteplus"
   | "openai_compatible"
   | "claude_code"
-  | "codex";
+  | "codex"
+  | "chatgpt";
 export type AiCapability = "text" | "image" | "tts" | "video";
 
 export type ProviderCatalogEntry = {
@@ -32,9 +33,10 @@ export type ProviderCatalogEntry = {
   videoModels: string[];
   /**
    * How the key field is filled: `token` = a `claude setup-token` token pasted like a key; `server` = no key, the
-   * run uses the server's own subscription sign-in (admins only). Absent = an ordinary API key.
+   * run uses the server's own subscription sign-in (admins only); `oauth` = no key, connected with "Sign in with
+   * ChatGPT". Absent = an ordinary API key.
    */
-  auth?: "token" | "server";
+  auth?: "token" | "server" | "oauth";
 };
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
@@ -180,6 +182,17 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     ttsModels: [],
     videoModels: [],
     auth: "server",
+  },
+  {
+    kind: "chatgpt",
+    label: "ChatGPT subscription (sign in)",
+    baseUrl: "https://api.openai.com/v1",
+    keyUrl: "https://chatgpt.com/#settings/Usage",
+    textModels: ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6-luna"],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: [],
+    auth: "oauth",
   },
   {
     kind: "openai_compatible",

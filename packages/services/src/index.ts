@@ -5,6 +5,7 @@ export * from "./audit.ts";
 export * from "./bible.ts";
 export * from "./bootstrap.ts";
 export * from "./budget.ts";
+export * from "./chatgpt-oauth.ts";
 export * from "./compose.ts";
 export * from "./credentials.ts";
 export * from "./jobs.ts";
