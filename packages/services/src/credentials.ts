@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } f
 import { lookup } from "node:dns/promises";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
-import type { AppConfig } from "@openmanga/config";
+import { type AppConfig, installedClis } from "@openmanga/config";
 import {
   and,
   type Database,
@@ -14,7 +14,15 @@ import {
   users,
   youtubeChannels,
 } from "@openmanga/db";
-import { type AiCapability, catalogModels, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
+import {
+  type AiCapability,
+  catalogModels,
+  cliMissing,
+  type InstalledClis,
+  ProviderError,
+  type ProviderKind,
+  providerCatalog,
+} from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 import { ChatgptAuthError, type ChatgptTokens, chatgptRefresh } from "./chatgpt-oauth.ts";
 
@@ -319,6 +327,7 @@ export class CredentialService {
   /** Development only (AI_ALLOW_PRIVATE_BASE_URLS), so a custom endpoint can name the bundled `mock-ai` service. */
   private readonly allowPrivateEndpoints: boolean;
   private readonly loginDirs: Pick<AppConfig, "AGENT_LOGIN_DIR">;
+  private readonly clis: InstalledClis;
   constructor(
     private readonly db: Database,
     config: AppConfig,
@@ -326,6 +335,7 @@ export class CredentialService {
   ) {
     this.ring = new KeyRing(config);
     this.loginDirs = config;
+    this.clis = installedClis(config);
     this.offline = config.AI_MOCK_MODE;
     this.allowPrivateEndpoints = config.AI_ALLOW_PRIVATE_BASE_URLS;
   }
@@ -360,6 +370,10 @@ export class CredentialService {
     const cat = providerCatalog(input.kind);
     if (!cat) throw new CredentialError("Unknown provider");
     let apiKey = input.apiKey.trim();
+    if (cliMissing(input.kind, this.clis))
+      throw new CredentialError(
+        `${cat.label} is not installed on this server (build it with ${input.kind === "codex" ? "WITH_CODEX_CLI" : "WITH_CLAUDE_CODE"}=true)`,
+      );
     if (cat.auth === "oauth") throw new CredentialError(`${cat.label} is connected with its Connect button, not a key`);
     if (cat.auth === "server") {
       // The server's own subscription: whoever holds this key spends the operator's plan.

@@ -170,6 +170,11 @@ describe("model listing", () => {
     expect(await s.listModels({ kind: "codex", baseUrl: null, apiKey: "server-login" }, "text")).toContain(
       "gpt-6-luna",
     );
+    // An image built without the CLIs cannot offer them.
+    const slim = new CredentialService({} as Database, { ...cfg, CLAUDE_CODE_CLI: false } as AppConfig);
+    await expect(
+      slim.create("u1", { kind: "claude_code", label: "", apiKey: "sk-ant-oat01-abcdefgh" }),
+    ).rejects.toThrow("not installed");
   });
 
   test("splits OpenAI-style lists by capability and merges catalog suggestions", async () => {

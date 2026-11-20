@@ -32,10 +32,11 @@ import {
   OpenAITTSProvider,
   type TTSProvider,
 } from "@openmanga/audio";
-import type { AppConfig } from "@openmanga/config";
+import { type AppConfig, installedClis } from "@openmanga/config";
 import {
   type AiCapability,
   catalogModels,
+  cliMissing,
   LOCAL_VIDEO_MODEL,
   ProviderError,
   type ProviderKind,
@@ -99,6 +100,15 @@ function byokText(
     logger,
   };
   const base = cred.baseUrl ?? providerCatalog(kind)?.baseUrl ?? "";
+  if (cliMissing(kind, installedClis(c)))
+    throw new ProviderError(
+      kind,
+      "invalid_request",
+      `${providerCatalog(kind)?.label} is not installed on this server`,
+      {
+        retryable: false,
+      },
+    );
   switch (kind) {
     case "deepseek":
       return new DeepSeekTextProvider({ ...common, baseUrl: base });

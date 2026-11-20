@@ -206,6 +206,15 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   },
 ];
 
+/** Which bundled CLIs this server's image has (build settings WITH_CLAUDE_CODE / WITH_CODEX_CLI). */
+export type InstalledClis = { claude: boolean; codex: boolean };
+/** The CLI a provider runs; one an image was built without is hidden and refused. */
+const CLI_OF: Partial<Record<ProviderKind, keyof InstalledClis>> = { claude_code: "claude", codex: "codex" };
+export const cliMissing = (kind: ProviderKind, installed: InstalledClis) => {
+  const cli = CLI_OF[kind];
+  return cli !== undefined && !installed[cli];
+};
+
 export const providerCatalog = (kind: string) => PROVIDER_CATALOG.find((p) => p.kind === kind);
 /** A provider's suggested models for a capability. */
 export const catalogModels = (p: ProviderCatalogEntry, cap: AiCapability) =>

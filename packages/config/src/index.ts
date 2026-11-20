@@ -81,6 +81,10 @@ const EnvSchema = z.object({
   TEMP_ROOT: z.string().default("/data/tmp"),
   /** The server's own subscription sign-ins (`codex/` = CODEX_HOME), used by "ChatGPT subscription" keys. */
   AGENT_LOGIN_DIR: z.string().default("/data/agent-login"),
+  /** Claude Code CLI installed (the image sets it from WITH_CLAUDE_CODE); without it "Claude subscription" is hidden. */
+  CLAUDE_CODE_CLI: bool.default(true),
+  /** Codex CLI installed (the image sets it from WITH_CODEX_CLI); without it "ChatGPT subscription (Codex)" is hidden. */
+  CODEX_CLI: bool.default(true),
   /**
    * "Sign in with ChatGPT" sends the browser back to http://127.0.0.1:<this port>/api/auth/chatgpt/callback (OpenAI
    * only allows loopback). Forward it to the server's web port, wherever that is: `ssh -L 1455:127.0.0.1:<port> host`.
@@ -273,6 +277,12 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
 }
 
 let cached: AppConfig | undefined;
+/** The bundled CLIs this server has, for `cliMissing`. */
+export const installedClis = (c: Pick<AppConfig, "CLAUDE_CODE_CLI" | "CODEX_CLI">) => ({
+  claude: c.CLAUDE_CODE_CLI !== false,
+  codex: c.CODEX_CLI !== false,
+});
+
 export function getConfig(): AppConfig {
   cached ??= parseConfig(process.env);
   return cached;

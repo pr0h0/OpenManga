@@ -28,8 +28,12 @@ nothing per call; the plan's own 5-hour and weekly limits apply, and a run that 
 
 The agent answers and nothing else: no tools, no shell, no MCP servers, no settings or plugins, an empty working
 directory and none of the server's environment. Story text is untrusted, and an agent that could run a command could
-be talked into printing the server's secrets. Codex's transcript of each run is deleted when it ends. The CLIs make
-the app image about 1.2 GB bigger.
+be talked into printing the server's secrets. Codex's transcript of each run is deleted when it ends.
+
+Each runs a bundled CLI, left out of the app image by default. Turn on the one you want in `.env` and rebuild
+(`docker compose build migrate api worker`): `WITH_CLAUDE_CODE=true` for the Claude subscription (+~550 MB),
+`WITH_CODEX_CLI=true` for the Codex one (+~610 MB). A provider whose CLI is missing is hidden from the provider
+list. "Sign in with ChatGPT" needs no CLI and is always available.
 
 ## The idea
 

@@ -1,5 +1,7 @@
 import {
   type AiCapability as AnyCapability,
+  cliMissing,
+  type InstalledClis,
   PROVIDER_CATALOG,
   type ProviderKind,
   providerCatalog,
@@ -34,6 +36,8 @@ type AiOptions = {
     tts: { provider: string } | null;
   };
   mockMode: boolean;
+  /** The bundled CLIs the server image has (providers needing a missing one are hidden). */
+  clis?: InstalledClis;
   credentials: Credential[];
 };
 type ConnectCheck = { ok: true; model: string; reply: string; ms: number } | { ok: false; error: string };
@@ -429,11 +433,13 @@ export function ProviderKeys() {
             value={form.kind}
             onChange={(e) => setForm({ ...form, kind: e.target.value as ProviderKind })}
           >
-            {PROVIDER_CATALOG.map((p) => (
-              <option key={p.kind} value={p.kind}>
-                {p.label} ({caps(p.kind).join(", ")})
-              </option>
-            ))}
+            {PROVIDER_CATALOG.filter((p) => !cliMissing(p.kind, opts.data?.clis ?? { claude: true, codex: true })).map(
+              (p) => (
+                <option key={p.kind} value={p.kind}>
+                  {p.label} ({caps(p.kind).join(", ")})
+                </option>
+              ),
+            )}
           </select>
         </Field>
         <Field label="Label (optional)">
