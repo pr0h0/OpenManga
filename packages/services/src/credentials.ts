@@ -3,7 +3,17 @@ import { lookup } from "node:dns/promises";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import type { AppConfig } from "@openmanga/config";
-import { and, type Database, type DbOrTx, desc, eq, providerCredentials, sql, youtubeChannels } from "@openmanga/db";
+import {
+  and,
+  type Database,
+  type DbOrTx,
+  desc,
+  eq,
+  providerCredentials,
+  sql,
+  users,
+  youtubeChannels,
+} from "@openmanga/db";
 import { type AiCapability, catalogModels, ProviderError, type ProviderKind, providerCatalog } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 
@@ -398,6 +408,14 @@ export class CredentialService {
       throw new ProviderError("byok", "auth", "The selected API key no longer exists or belongs to another user", {
         retryable: false,
       });
+    // The server's own sign-in is admin-only when used, not just when added: a demoted admin keeps the row.
+    if (providerCatalog(row.kind)?.auth === "server") {
+      const [owner] = await this.db.select({ role: users.role }).from(users).where(eq(users.id, row.userId));
+      if (owner?.role !== "admin")
+        throw new ProviderError("byok", "auth", "Only an admin can use the server's ChatGPT sign-in", {
+          retryable: false,
+        });
+    }
     // Re-check a custom endpoint every time it is used: the name was public when it was saved, but DNS can be
     // repointed at an internal address afterwards, and this is the last moment before the server calls it.
     if (row.kind === "openai_compatible" && row.baseUrl && !this.offline)
