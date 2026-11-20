@@ -169,7 +169,7 @@ export class ClaudeAgentTextProvider extends AgentTextProvider {
             PATH: process.env.PATH,
             HOME: cwd,
             CLAUDE_CODE_OAUTH_TOKEN: this.auth.oauthToken,
-            CLAUDE_CODE_ENTRYPOINT: "openmanga",
+            CLAUDE_CODE_ENTRYPOINT: "open-manga",
             CLAUDE_AGENT_SDK_CLIENT_APP: "openmanga",
           },
         },
