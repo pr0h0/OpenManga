@@ -32,11 +32,11 @@ import {
   OpenAITTSProvider,
   type TTSProvider,
 } from "@openmanga/audio";
-import type { AppConfig } from "@openmanga/config";
+import { type AppConfig, installedClis } from "@openmanga/config";
 import {
-  AGENT_CLI_KINDS,
   type AiCapability,
   catalogModels,
+  cliMissing,
   LOCAL_VIDEO_MODEL,
   ProviderError,
   type ProviderKind,
@@ -100,7 +100,7 @@ function byokText(
     logger,
   };
   const base = cred.baseUrl ?? providerCatalog(kind)?.baseUrl ?? "";
-  if (AGENT_CLI_KINDS.has(kind) && !c.AGENT_CLIS)
+  if (cliMissing(kind, installedClis(c)))
     throw new ProviderError(
       kind,
       "invalid_request",

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { AGENT_CLI_KINDS, PROVIDER_CATALOG, ProviderError, type ProviderKind } from "@openmanga/domain";
+import { installedClis } from "@openmanga/config";
+import { cliMissing, PROVIDER_CATALOG, ProviderError, type ProviderKind } from "@openmanga/domain";
 import {
   CHATGPT_CALLBACK_PATH,
   ChatgptAuthError,
@@ -41,9 +42,9 @@ aiRoutes.get("/ai/options", async (c) => {
     defaults: deps.providers,
     byokOnly: true,
     mockMode: deps.config.AI_MOCK_MODE,
-    /** False on an image built without the Claude Code / Codex CLIs: those providers are left out of `catalog`. */
-    agentClis: deps.config.AGENT_CLIS,
-    catalog: PROVIDER_CATALOG.filter((p) => deps.config.AGENT_CLIS || !AGENT_CLI_KINDS.has(p.kind)),
+    /** The bundled CLIs this image has; a provider whose CLI is missing is left out of `catalog`. */
+    clis: installedClis(deps.config),
+    catalog: PROVIDER_CATALOG.filter((p) => !cliMissing(p.kind, installedClis(deps.config))),
     credentials: await deps.credentials.list(user(c).id),
   });
 });

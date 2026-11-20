@@ -217,8 +217,9 @@ services:
       dockerfile: deploy/docker/app.Dockerfile
       args:
         GIT_SHA: "${GIT_SHA:-}"
-        # true = include the Claude Code / Codex CLIs (+~1.2 GB) for the subscription providers that run them.
-        WITH_AGENT_CLIS: "${WITH_AGENT_CLIS:-false}"
+        # Optional CLIs, each only for one subscription provider (see .env.example). Rebuild after changing.
+        WITH_CLAUDE_CODE: "${WITH_CLAUDE_CODE:-false}"
+        WITH_CODEX_CLI: "${WITH_CODEX_CLI:-false}"
     image: openmanga-app:1
     command: ["bun", "apps/api/src/cli/bootstrap.ts"]
     environment:

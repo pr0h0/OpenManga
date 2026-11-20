@@ -171,7 +171,7 @@ describe("model listing", () => {
       "gpt-6-luna",
     );
     // An image built without the CLIs cannot offer them.
-    const slim = new CredentialService({} as Database, { ...cfg, AGENT_CLIS: false } as AppConfig);
+    const slim = new CredentialService({} as Database, { ...cfg, CLAUDE_CODE_CLI: false } as AppConfig);
     await expect(
       slim.create("u1", { kind: "claude_code", label: "", apiKey: "sk-ant-oat01-abcdefgh" }),
     ).rejects.toThrow("not installed");

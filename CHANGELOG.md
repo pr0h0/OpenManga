@@ -13,8 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   "ChatGPT subscription (Codex)" uses the server's Codex sign-in (admins only; `bun run codex:login` once). Both run
   text and vision through the agent SDKs with every tool off. New setting `AGENT_LOGIN_DIR` and volume `agent-login`
   (see [docs/WITHOUT_API_KEYS.md](docs/WITHOUT_API_KEYS.md)).
-- **`WITH_AGENT_CLIS` build setting** (default `false`): the Claude Code and Codex CLIs (+~1.2 GB) are only built into
-  the app image when it is `true`; without them their two providers are hidden.
+- **`WITH_CLAUDE_CODE` / `WITH_CODEX_CLI` build settings** (default `false`): the Claude Code (+~550 MB) and Codex
+  (+~610 MB) CLIs are only built into the app image when their setting is `true`; a provider whose CLI is missing is
+  hidden.
 
 ## [0.20.2] — 2026-11-17
 
