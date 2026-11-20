@@ -11,6 +11,11 @@ test("agent CLI failures map to provider error codes", () => {
   // Status digits inside ids and counts are not status codes.
   expect(code("request req_011403a9 failed after 4013 tokens")).toBe("server_error");
   expect(classifyAgentError("codex", "usage limit reached").retryable).toBe(false);
+  // The CLI's text stays out of the message (paths, stderr); the plan's reset notice is kept.
+  const crash = classifyAgentError("codex", "Codex Exec exited with code 1: /data/agent-login/codex/auth.json");
+  expect(crash.message).not.toContain("/data");
+  expect(crash.opts.raw).toEqual({ message: "Codex Exec exited with code 1: /data/agent-login/codex/auth.json" });
+  expect(classifyAgentError("claude_code", "You've hit your limit · resets 5pm").message).toContain("resets 5pm");
 });
 
 test("a cancel the CLI reports as a failed result is a non-retryable cancel, not a server error", async () => {

@@ -35,17 +35,30 @@ function flatten(messages: ChatMessage[]) {
   return { system, prompt, images: rest.flatMap((m) => m.images ?? []) };
 }
 
-/** An agent CLI failure as a provider error: a spent plan is final, a busy one is retried. */
+/**
+ * An agent CLI failure as a provider error: a spent plan is final, a busy one is retried. The CLI's own text can
+ * carry server paths and stderr, so it is kept in `raw` (and logged) and people get a fixed message. The one
+ * exception is the plan's own usage-limit notice, which says when it resets.
+ */
 export function classifyAgentError(provider: string, msg: string): ProviderError {
   const m = msg.slice(0, 500);
-  if (USAGE_LIMIT_ERROR_PREFIXES.some((p) => m.includes(p)) || /usage limit|quota|out of credits/i.test(m))
-    return new ProviderError(provider, "quota", `Subscription usage limit reached: ${m}`, { retryable: false });
-  if (/rate.?limit|\b429\b|overloaded/i.test(m)) return new ProviderError(provider, "rate_limited", m);
+  const raw = { message: m };
+  const notice = USAGE_LIMIT_ERROR_PREFIXES.find((p) => m.startsWith(p)) ? m.split("\n")[0]!.slice(0, 200) : "";
+  if (notice || /usage limit|quota|out of credits/i.test(m))
+    return new ProviderError(
+      provider,
+      "quota",
+      `The subscription's usage limit is reached${notice ? `: ${notice}` : "; try again after it resets"}`,
+      { retryable: false, raw },
+    );
+  if (/rate.?limit|\b429\b|overloaded/i.test(m))
+    return new ProviderError(provider, "rate_limited", "The subscription is busy right now; retrying", { raw });
   if (/\b40[13]\b|unauthori[sz]ed|authenticat|not logged in|log ?in again|(oauth|access|refresh) token/i.test(m))
-    return new ProviderError(provider, "auth", `The subscription sign-in was rejected: ${m}`, {
+    return new ProviderError(provider, "auth", "The subscription sign-in was rejected; add the key or sign in again", {
       retryable: false,
+      raw,
     });
-  return new ProviderError(provider, "server_error", m);
+  return new ProviderError(provider, "server_error", "The agent CLI failed; the server log has the details", { raw });
 }
 
 abstract class AgentTextProvider implements TextAIProvider {
@@ -100,8 +113,9 @@ abstract class AgentTextProvider implements TextAIProvider {
         throw new ProviderError(this.provider, req.signal?.aborted ? "cancelled" : "timeout", String(signal.reason), {
           retryable: !req.signal?.aborted,
         });
-      if (e instanceof ProviderError) throw e;
-      throw classifyAgentError(this.provider, (e as Error).message ?? String(e));
+      const err = e instanceof ProviderError ? e : classifyAgentError(this.provider, (e as Error).message ?? String(e));
+      this.opts.logger?.warn(`${this.provider} failed`, { code: err.code, raw: err.opts.raw ?? err.message });
+      throw err;
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
