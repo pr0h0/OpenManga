@@ -199,7 +199,11 @@ export class ClaudeAgentTextProvider extends AgentTextProvider {
           const text = m.subtype === "success" ? m.result : m.errors.join("; ");
           if (m.subtype !== "success" || m.is_error) {
             const e = classifyAgentError(this.provider, text || m.subtype);
-            throw limited && e.code !== "quota" ? new ProviderError(this.provider, "rate_limited", e.message) : e;
+            throw limited && e.code !== "quota"
+              ? new ProviderError(this.provider, "rate_limited", "The subscription is busy right now; retrying", {
+                  raw: e.opts.raw,
+                })
+              : e;
           }
           if (m.stop_reason === "refusal")
             throw new ProviderError(this.provider, "content_policy", "Claude declined the request");
