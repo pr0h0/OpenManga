@@ -1,7 +1,14 @@
 import { join } from "node:path";
 import { and, assets, eq, exportsTable, like } from "@openmanga/db";
+import { ProviderError } from "@openmanga/domain";
 import { UnrecoverableError } from "@openmanga/queue";
-import { publishZernioPost, uploadZernioVideo, type ZernioPublishInput, zernioPostBody } from "@openmanga/services";
+import {
+  publishZernioPost,
+  uploadZernioVideo,
+  ZernioError,
+  type ZernioPublishInput,
+  zernioPostBody,
+} from "@openmanga/services";
 import { withTempDir } from "@openmanga/storage";
 import type { WorkerDeps } from "../context.ts";
 
@@ -28,8 +35,10 @@ export async function publishToZernio(deps: WorkerDeps, job: Job, progress: (p: 
       ),
     );
   if (!file) throw new UnrecoverableError("The video was deleted. Render it again, then publish.");
+  // Only messages written for the user become the job's failure reason; anything else (a database or storage
+  // error) is logged and shown as the generic "Publishing failed" text.
   const fail = (e: unknown): never => {
-    throw new UnrecoverableError(e instanceof Error ? e.message : String(e));
+    throw e instanceof ZernioError || e instanceof ProviderError ? new UnrecoverableError(e.message) : e;
   };
   const cred = await deps.credentials.resolve(o.credentialId, job.userId).catch(fail);
   await deps.credentials.touch(cred.id);

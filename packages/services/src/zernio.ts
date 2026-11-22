@@ -14,6 +14,14 @@ export class ZernioError extends Error {
   }
 }
 
+/** Socket, TLS and timeout errors carry internals; the user sees a fixed message instead. */
+const unreachable = (e: unknown): never => {
+  throw new ZernioError(
+    503,
+    `Could not reach Zernio${(e as Error)?.name === "TimeoutError" ? " (no answer in time)" : ""}. Try again in a moment.`,
+  );
+};
+
 async function call<T>(
   apiKey: string,
   path: string,
@@ -29,7 +37,7 @@ async function call<T>(
     },
     body: init.body ? JSON.stringify(init.body) : undefined,
     signal: AbortSignal.timeout(init.timeoutMs ?? 30_000),
-  });
+  }).catch(unreachable);
   const text = await res.text();
   let json: { error?: unknown; message?: unknown } | undefined;
   try {
@@ -45,6 +53,8 @@ async function call<T>(
         : `Zernio: ${typeof msg === "string" ? msg : `HTTP ${res.status}`}`,
     );
   }
+  // A maintenance page or a proxy's reply: never hand callers `undefined` to destructure.
+  if (!json || typeof json !== "object") throw new ZernioError(502, "Zernio returned an unexpected response");
   return json as T;
 }
 
@@ -87,13 +97,14 @@ export async function uploadZernioVideo(apiKey: string, name: string, file: Blob
     method: "POST",
     body: { filename: name, contentType: "video/mp4", size: file.size },
   });
+  if (!uploadUrl || !publicUrl) throw new ZernioError(502, "Zernio did not return an upload URL");
   // A Blob (a file on disk), not a stream: a presigned PUT needs Content-Length, and a stream body goes chunked.
   const res = await fetch(uploadUrl, {
     method: "PUT",
     headers: { "content-type": "video/mp4" },
     body: file,
     signal: AbortSignal.timeout(60 * 60_000),
-  });
+  }).catch(unreachable);
   if (!res.ok) throw new ZernioError(res.status, `Zernio upload failed (HTTP ${res.status})`);
   return publicUrl;
 }
