@@ -275,7 +275,9 @@ export type ExportKind =
   | "psd_pages"
   /** Finishing: text-free pages, SVG lettering and every layer as its own PNG, with a placement manifest. */
   | "layered_package"
-  | "project_import";
+  | "project_import"
+  /** Not a file: publishes a finished video export to social accounts through Zernio (result.zernio). */
+  | "social_publish";
 
 export const exportJobs = pgTable(
   "export_jobs",

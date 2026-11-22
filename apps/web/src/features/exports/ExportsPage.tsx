@@ -32,6 +32,7 @@ import { HookVariants } from "./HookVariants.tsx";
 import { CoverCheck, PRINT_SIZES, PreflightReport, type PreflightReportData, PrintIssues } from "./PrintPanels.tsx";
 import { CaptionsField, ShortsPicker } from "./ShortsPicker.tsx";
 import { YoutubePackageCard } from "./YoutubePackage.tsx";
+import { ZernioPublishButton, ZernioResult } from "./ZernioPublish.tsx";
 
 const KINDS = [
   { value: "png_pages", label: "PNG page sequence", chapter: true },
@@ -984,11 +985,13 @@ export function ExportsPage() {
                     <span className="font-medium">
                       {j.kind === "project_import"
                         ? "Project import"
-                        : j.kind === "carousel"
-                          ? "Carousel images (ZIP)"
-                          : j.kind === "quote_image"
-                            ? "Quote image"
-                            : (KINDS.find((k) => k.value === j.kind)?.label ?? j.kind)}
+                        : j.kind === "social_publish"
+                          ? "Published with Zernio"
+                          : j.kind === "carousel"
+                            ? "Carousel images (ZIP)"
+                            : j.kind === "quote_image"
+                              ? "Quote image"
+                              : (KINDS.find((k) => k.value === j.kind)?.label ?? j.kind)}
                     </span>
                     {j.chapter && (
                       <span className="rounded bg-[var(--panel-2)] px-1.5 py-0.5 text-xs" title={j.chapter.title}>
@@ -1060,8 +1063,12 @@ export function ExportsPage() {
                       guides={j.files.find((f) => f.fileName.endsWith("_cover_guides.png"))?.assetId}
                     />
                   ) : null}
+                  {j.status === "completed" && j.kind === "social_publish" && <ZernioResult result={j.result} />}
                   {j.files.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
+                      {isVideo(j.kind) && j.files.some((f) => f.fileName.endsWith(".mp4")) && (
+                        <ZernioPublishButton job={j} />
+                      )}
                       {j.files.map((f) => (
                         <a
                           key={f.id}

@@ -41,7 +41,7 @@ export type Readiness = {
 };
 
 /** Export kinds and the readiness areas they depend on. */
-export const EXPORT_AREAS: Record<Exclude<ExportKind, "project_import">, ("art" | "narration")[]> = {
+export const EXPORT_AREAS: Record<Exclude<ExportKind, "project_import" | "social_publish">, ("art" | "narration")[]> = {
   png_pages: ["art"],
   jpg_pages: ["art"],
   pdf: ["art"],
@@ -169,7 +169,7 @@ export async function projectReadiness(
 
 /** Issues that matter for an export kind. */
 export const issuesForExport = (r: Readiness, kind: ExportKind) => {
-  const areas = kind === "project_import" ? [] : EXPORT_AREAS[kind];
+  const areas = kind === "project_import" || kind === "social_publish" ? [] : EXPORT_AREAS[kind];
   return r.issues.filter((i) => areas.includes(i.area));
 };
 

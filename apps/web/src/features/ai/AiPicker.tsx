@@ -436,7 +436,7 @@ export function ProviderKeys() {
             {PROVIDER_CATALOG.filter((p) => !cliMissing(p.kind, opts.data?.clis ?? { claude: true, codex: true })).map(
               (p) => (
                 <option key={p.kind} value={p.kind}>
-                  {p.label} ({caps(p.kind).join(", ")})
+                  {p.label} ({caps(p.kind).join(", ") || "publishing"})
                 </option>
               ),
             )}
