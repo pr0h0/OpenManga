@@ -5,7 +5,14 @@ import type { AppConfig, PublicUrlService } from "@openmanga/config";
 import type { Database } from "@openmanga/db";
 import type { Logger } from "@openmanga/logger";
 import type { EventBus, JobQueue } from "@openmanga/queue";
-import type { AssetService, JobService, ProviderResolver, UsageService, YouTubeService } from "@openmanga/services";
+import type {
+  AssetService,
+  CredentialService,
+  JobService,
+  ProviderResolver,
+  UsageService,
+  YouTubeService,
+} from "@openmanga/services";
 import type { BatchCollector } from "./lib/text-batch-provider.ts";
 
 export type WorkerDeps = {
@@ -25,6 +32,8 @@ export type WorkerDeps = {
   tts: TTSProvider | null;
   urls: PublicUrlService;
   youtube: YouTubeService;
+  /** BYOK keys that are not AI providers (Zernio publishing). */
+  credentials: CredentialService;
   /**
    * Set only while a batch submitter is harvesting requests: text handlers then record what they would have sent
    * and park instead of calling the provider. Absent on every ordinary run.

@@ -25,6 +25,7 @@ import {
 } from "@openmanga/domain";
 import type { Logger } from "@openmanga/logger";
 import { ChatgptAuthError, type ChatgptTokens, chatgptRefresh } from "./chatgpt-oauth.ts";
+import { listZernioAccounts, ZernioError } from "./zernio.ts";
 
 type KeyConfig = Pick<AppConfig, "CREDENTIALS_ENCRYPTION_KEY" | "CREDENTIALS_ENCRYPTION_OLD_KEYS" | "SESSION_SECRET">;
 
@@ -393,8 +394,15 @@ export class CredentialService {
           })
         : null;
     // Subscription sign-ins have no free check: a bad token fails the first run with a sign-in error.
-    if (!this.offline && !UNCHECKED_KINDS.has(input.kind) && !cat.auth)
-      await this.fetchModels({ kind: input.kind, baseUrl, apiKey });
+    if (!this.offline && !UNCHECKED_KINDS.has(input.kind) && !cat.auth) {
+      if (input.kind === "zernio")
+        // Not a model provider: listing the connected accounts is its free key check.
+        await listZernioAccounts(apiKey, this.fetchImpl).catch((e: unknown) => {
+          // Only the client's own messages; anything else is ours, not the user's to read.
+          throw e instanceof ZernioError ? new CredentialError(e.message) : e;
+        });
+      else await this.fetchModels({ kind: input.kind, baseUrl, apiKey });
+    }
     const [row] = await this.db
       .insert(providerCredentials)
       .values({

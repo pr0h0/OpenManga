@@ -31,3 +31,4 @@ export * from "./video-edits.ts";
 export * from "./video-plan.ts";
 export * from "./why-stale.ts";
 export * from "./youtube.ts";
+export * from "./zernio.ts";

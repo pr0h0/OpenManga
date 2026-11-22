@@ -58,6 +58,7 @@ export function buildWorkerDeps(config: AppConfig) {
     tts,
     urls,
     youtube: new YouTubeService(db, createYouTubeClient(config, urls), credentials.ring, config, logger),
+    credentials,
   };
   return {
     deps,

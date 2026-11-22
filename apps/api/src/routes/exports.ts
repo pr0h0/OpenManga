@@ -28,12 +28,14 @@ import {
   appBuild,
   buildProvenance,
   issuesForExport,
+  listZernioAccounts,
   narrationTranscript,
   printCoverCheck,
   projectReadiness,
   provenanceMarkdown,
   recordAudit,
   sweepRenderSections,
+  ZernioError,
 } from "@openmanga/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -705,4 +707,106 @@ exportRoutes.get("/projects/:projectId/transcript", async (c) => {
         }
       : {}),
   });
+});
+
+/** Zernio platforms that take a single video post (Pinterest needs a board, Reddit and Snapchat are off on Zernio). */
+const ZERNIO_VIDEO_PLATFORMS = new Set([
+  "youtube",
+  "tiktok",
+  "instagram",
+  "facebook",
+  "twitter",
+  "linkedin",
+  "threads",
+  "bluesky",
+]);
+
+/** The caller's own Zernio key (credential kind `zernio`), decrypted for this request. */
+async function zernioKey(c: Context<AppEnv>, credentialId: string) {
+  const cred = await c
+    .get("deps")
+    .credentials.resolve(credentialId, user(c).id)
+    .catch(() => null);
+  if (!cred || cred.kind !== "zernio") throw notFound("Zernio key");
+  return cred.apiKey;
+}
+
+/** Zernio's own errors reach the user as they are: a rejected key, a disconnected account, a duplicate post. */
+const zernioAccounts = (apiKey: string) =>
+  listZernioAccounts(apiKey).catch((e: unknown) => {
+    if (e instanceof ZernioError) throw new ApiError(e.status === 401 ? 422 : 503, "zernio_error", e.message);
+    throw e;
+  });
+
+const ZernioAccountsQuery = z.object({ credentialId: z.string().uuid() });
+doc({
+  method: "GET",
+  path: "/api/zernio/accounts",
+  summary:
+    "The social accounts connected to a Zernio key of yours (accounts are connected on zernio.com), with whether each can post a video here.",
+  tag: "exports",
+  query: ZernioAccountsQuery,
+});
+exportRoutes.get("/zernio/accounts", async (c) => {
+  const { credentialId } = query(c, ZernioAccountsQuery);
+  const accounts = await zernioAccounts(await zernioKey(c, credentialId));
+  return c.json({ accounts: accounts.map((a) => ({ ...a, supported: ZERNIO_VIDEO_PLATFORMS.has(a.platform) })) });
+});
+
+const PublishInput = z.object({
+  credentialId: z.string().uuid(),
+  accountIds: z.array(z.string().min(1).max(64)).min(1).max(20),
+  title: z.string().trim().max(100).default(""),
+  caption: z.string().trim().max(5000).default(""),
+  tags: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
+  visibility: z.enum(["public", "unlisted", "private"]).default("public"),
+  aiGenerated: z.boolean().default(true),
+  tiktokConsent: z.boolean().default(false),
+});
+doc({
+  method: "POST",
+  path: "/api/exports/:id/publish",
+  summary:
+    "Publish a finished video export (film or Short) now to social accounts through your Zernio key. Queues a social_publish job (202 { job }); its result.zernio lists each platform's status and post URL. Posts publicly unless visibility says otherwise (YouTube).",
+  tag: "exports",
+  body: PublishInput,
+});
+exportRoutes.post("/exports/:id/publish", async (c) => {
+  const id = uuidParam(c, "id");
+  const deps = c.get("deps");
+  const [source] = await deps.db.select().from(exportJobs).where(eq(exportJobs.id, id));
+  if (!source) throw notFound("Export");
+  const p = await projectAccess(c, source.projectId, "write");
+  const input = await body(c, PublishInput);
+  if (!["video_pages", "video_panels", "video_shorts"].includes(source.kind) || source.status !== "completed")
+    throw badRequest("Only a finished video export can be published");
+  const accounts = await zernioAccounts(await zernioKey(c, input.credentialId));
+  const targets = input.accountIds.map((accountId) => {
+    const a = accounts.find((x) => x.id === accountId);
+    if (!a) throw notFound("Zernio account");
+    if (!ZERNIO_VIDEO_PLATFORMS.has(a.platform)) throw badRequest(`Zernio can't post a video to ${a.platform} here`);
+    if (!a.usable) throw badRequest(`Reconnect @${a.username} (${a.platform}) on zernio.com first`);
+    return { accountId, platform: a.platform };
+  });
+  if (targets.some((t) => t.platform === "tiktok") && !input.tiktokConsent)
+    throw badRequest("TikTok needs your consent to post this video (tiktokConsent)");
+  const job = await deps.db.transaction((tx) =>
+    deps.jobs.createExportJob(tx, {
+      projectId: p.id,
+      userId: user(c).id,
+      kind: "social_publish",
+      chapterId: source.chapterId,
+      options: { ...input, accountIds: undefined, targets, sourceJobId: source.id },
+    }),
+  );
+  await deps.jobs.kick();
+  await recordAudit(deps.db, {
+    userId: user(c).id,
+    projectId: p.id,
+    action: "export.publish",
+    targetId: job.id,
+    metadata: { sourceJobId: source.id, platforms: targets.map((t) => t.platform) },
+    requestId: c.get("requestId"),
+  });
+  return c.json({ job }, 202);
 });

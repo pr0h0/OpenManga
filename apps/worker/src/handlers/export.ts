@@ -93,6 +93,7 @@ import { renderPageCutVideo, renderPanelCutVideo, type VideoOptions } from "../l
 import { ZipWriter } from "../lib/zip.ts";
 import { buildAgentPackage } from "./agent-package.ts";
 import { importProject } from "./import.ts";
+import { publishToZernio } from "./zernio.ts";
 
 type ExportJob = typeof exportJobs.$inferSelect;
 type Opts = {
@@ -180,8 +181,11 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
   };
   try {
     // Project import rides the render queue: it restores into job.projectId instead of producing files.
-    if (job.kind === "project_import") {
-      const result = await importProject(deps, job, progress);
+    if (job.kind === "project_import" || job.kind === "social_publish") {
+      const result =
+        job.kind === "project_import"
+          ? await importProject(deps, job, progress)
+          : await publishToZernio(deps, job, progress);
       await deps.db
         .update(exportJobs)
         .set({ status: "completed", progress: 1, finishedAt: new Date(), failureReason: null, result })
@@ -290,15 +294,18 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
       error: message,
       stack: e instanceof Error ? e.stack : undefined,
     });
-    const isImport = job.kind === "project_import"; // imports delete their upload, so they never retry
+    // Imports delete their upload and a publish may already be live, so neither retries.
+    const isImport = job.kind === "project_import" || job.kind === "social_publish";
     const final =
       isImport || e instanceof UnrecoverableError || bullJob.attemptsMade + 1 >= (bullJob.opts.attempts ?? 1);
     const safe =
       e instanceof UnrecoverableError
         ? message
-        : isImport
-          ? "Import failed while restoring the project. Check the logs and upload the file again."
-          : "Export failed while composing files. Check the logs or retry.";
+        : job.kind === "social_publish"
+          ? "Publishing failed before it reached Zernio. Check the logs and publish again."
+          : isImport
+            ? "Import failed while restoring the project. Check the logs and upload the file again."
+            : "Export failed while composing files. Check the logs or retry.";
     await deps.db
       .update(exportJobs)
       .set({ status: final ? "failed" : "queued", failureReason: safe, finishedAt: final ? new Date() : null })
@@ -882,7 +889,8 @@ async function buildExport(
       return [{ name: `${prefix}_youtube.zip`, path: await zip.close(), mime: "application/zip" }];
     }
     case "project_import":
-      throw new UnrecoverableError("Project imports are handled by the import processor");
+    case "social_publish":
+      throw new UnrecoverableError("Imports and publishing make no files");
     case "agent_package": {
       const pkg = await buildAgentPackage(deps, project, opts.chapterId, progress, {
         scale: opts.scale,
