@@ -97,7 +97,15 @@ function PublishDialog({ job, onClose }: { job: ExportListItem; onClose: () => v
         <div className="space-y-3">
           {keys.length > 1 && (
             <Field label="Zernio key">
-              <select className="input" value={cred} onChange={(e) => setCredentialId(e.target.value)}>
+              <select
+                className="input"
+                value={cred}
+                onChange={(e) => {
+                  // Another key has other accounts: ticks from the previous one would be sent and refused.
+                  setCredentialId(e.target.value);
+                  setPicked([]);
+                }}
+              >
                 {keys.map((k) => (
                   <option key={k.id} value={k.id}>
                     {k.label} ({k.keyHint})
@@ -209,8 +217,8 @@ export function ZernioResult({ result }: { result: Record<string, unknown> | nul
   if (!post?.platforms.length) return null;
   return (
     <ul className="mt-1 space-y-0.5 text-xs">
-      {post.platforms.map((p) => (
-        <li key={p.accountId} className={p.error ? "text-red-600" : undefined}>
+      {post.platforms.map((p, i) => (
+        <li key={`${p.accountId}-${i}`} className={p.error ? "text-red-600" : undefined}>
           <span className="chip">{p.platform}</span> {p.status}
           {p.url && (
             <a

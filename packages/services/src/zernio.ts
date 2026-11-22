@@ -192,7 +192,7 @@ export async function publishZernioPost(
       status: string;
       platforms?: {
         platform: string;
-        accountId: string | { _id: string };
+        accountId?: string | { _id: string } | null;
         status?: string;
         platformPostUrl?: string;
         errorMessage?: string;
@@ -214,9 +214,10 @@ export async function publishZernioPost(
   return {
     postId: post._id,
     status: post.status,
-    platforms: (post.platforms ?? []).map((p) => ({
+    // Read defensively: the post is live by now, so an odd shape must not turn into a failure.
+    platforms: (Array.isArray(post.platforms) ? post.platforms : []).map((p) => ({
       platform: p.platform,
-      accountId: typeof p.accountId === "string" ? p.accountId : p.accountId._id,
+      accountId: typeof p.accountId === "string" ? p.accountId : (p.accountId?._id ?? ""),
       status: p.status ?? post.status,
       url: p.platformPostUrl ?? null,
       error: p.errorMessage ?? null,

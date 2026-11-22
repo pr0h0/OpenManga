@@ -302,7 +302,7 @@ export async function processExport(deps: WorkerDeps, bullJob: Job) {
       e instanceof UnrecoverableError
         ? message
         : job.kind === "social_publish"
-          ? "Publishing failed before it reached Zernio. Check the logs and publish again."
+          ? "Publishing failed, and the post may already be live. Check zernio.com before publishing again."
           : isImport
             ? "Import failed while restoring the project. Check the logs and upload the file again."
             : "Export failed while composing files. Check the logs or retry.";
