@@ -38,7 +38,8 @@ async function call<T>(
     body: init.body ? JSON.stringify(init.body) : undefined,
     signal: AbortSignal.timeout(init.timeoutMs ?? 30_000),
   }).catch(unreachable);
-  const text = await res.text();
+  // The body is read under the same timeout: a reset or timeout here is just as unreachable.
+  const text = await res.text().catch(unreachable);
   let json: { error?: unknown; message?: unknown } | undefined;
   try {
     json = text ? JSON.parse(text) : undefined;
@@ -197,7 +198,15 @@ export async function publishZernioPost(
         errorMessage?: string;
       }[];
     };
-  }>(apiKey, "/v1/posts", { method: "POST", body, idempotencyKey, timeoutMs: 30 * 60_000 });
+  }>(apiKey, "/v1/posts", { method: "POST", body, idempotencyKey, timeoutMs: 30 * 60_000 }).catch((e: unknown) => {
+    // No answer is not "not published": Zernio may have posted it, and a new job would post it again.
+    if (e instanceof ZernioError && e.status === 503 && /^Could not reach/.test(e.message))
+      throw new ZernioError(
+        503,
+        "Zernio did not answer, so the post may already be live. Check zernio.com before publishing again.",
+      );
+    throw e;
+  });
   const post = res.post;
   if (!post) throw new ZernioError(502, "Zernio did not return the post");
   return {

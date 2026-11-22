@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { listZernioAccounts, ZernioError, zernioPostBody } from "./zernio.ts";
+import { listZernioAccounts, publishZernioPost, ZernioError, zernioPostBody } from "./zernio.ts";
 
 test("one post, each platform with its own fields, published now", () => {
   const body = zernioPostBody(
@@ -38,4 +38,24 @@ test("a non-JSON reply or a network failure is a ZernioError with a fixed messag
   const err = await listZernioAccounts("k", down).catch((e) => e);
   expect(err).toBeInstanceOf(ZernioError);
   expect(err.message).toBe("Could not reach Zernio. Try again in a moment.");
+});
+
+test("a body that fails mid-read is unreachable too; for a publish it may already be live", async () => {
+  const broken = (async () =>
+    new Response(
+      new ReadableStream({
+        pull(c) {
+          c.error(new TypeError("socket reset"));
+        },
+      }),
+    )) as unknown as typeof fetch;
+  const err = await listZernioAccounts("k", broken).catch((e) => e);
+  expect(err.message).toBe("Could not reach Zernio. Try again in a moment.");
+  const real = globalThis.fetch;
+  globalThis.fetch = broken;
+  try {
+    await expect(publishZernioPost("k", {} as never, "job")).rejects.toThrow("may already be live");
+  } finally {
+    globalThis.fetch = real;
+  }
 });
