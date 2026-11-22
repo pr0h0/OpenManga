@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-11-22
+
+Finished videos can be published to social accounts through Zernio. No migrations and no new settings: each user
+adds their own Zernio API key in the app. Pull the new images and run `docker compose up -d`.
+
+### Added
+
+- Publish a finished video (film or Short) to YouTube, TikTok, Instagram, Facebook, X, LinkedIn, Threads or Bluesky
+  through [Zernio](https://zernio.com): add your Zernio API key under Account → AI providers, connect the accounts on
+  zernio.com, then Exports → Publish on the video. Runs as a `social_publish` job; no migration.
+
 ## [0.21.0] — 2026-11-20
 
 Text runs can now draw on a Claude or ChatGPT subscription instead of an API key. No migrations. New settings are all

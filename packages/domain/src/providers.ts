@@ -17,7 +17,9 @@ export type ProviderKind =
   | "openai_compatible"
   | "claude_code"
   | "codex"
-  | "chatgpt";
+  | "chatgpt"
+  /** Not AI: social publishing of finished videos through the user's Zernio workspace. */
+  | "zernio";
 export type AiCapability = "text" | "image" | "tts" | "video";
 
 export type ProviderCatalogEntry = {
@@ -193,6 +195,16 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     ttsModels: [],
     videoModels: [],
     auth: "oauth",
+  },
+  {
+    kind: "zernio",
+    label: "Zernio (publish to social accounts)",
+    baseUrl: "https://zernio.com/api",
+    keyUrl: "https://zernio.com/dashboard",
+    textModels: [],
+    imageModels: [],
+    ttsModels: [],
+    videoModels: [],
   },
   {
     kind: "openai_compatible",
