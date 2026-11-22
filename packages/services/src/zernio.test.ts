@@ -55,6 +55,8 @@ test("a body that fails mid-read is unreachable too; for a publish it may alread
   globalThis.fetch = broken;
   try {
     await expect(publishZernioPost("k", {} as never, "job")).rejects.toThrow("may already be live");
+    globalThis.fetch = (async () => new Response("bad gateway", { status: 504 })) as unknown as typeof fetch;
+    await expect(publishZernioPost("k", {} as never, "job")).rejects.toThrow("may already be live");
   } finally {
     globalThis.fetch = real;
   }

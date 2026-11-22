@@ -199,16 +199,18 @@ export async function publishZernioPost(
       }[];
     };
   }>(apiKey, "/v1/posts", { method: "POST", body, idempotencyKey, timeoutMs: 30 * 60_000 }).catch((e: unknown) => {
-    // No answer is not "not published": Zernio may have posted it, and a new job would post it again.
-    if (e instanceof ZernioError && e.status === 503 && /^Could not reach/.test(e.message))
+    // No answer, a gateway error or a reply we can't read is not "not published": Zernio may have posted it, and a
+    // new job would post it again. (Unreachable and unreadable replies are 503/502 too.)
+    if (e instanceof ZernioError && e.status >= 500)
       throw new ZernioError(
-        503,
-        "Zernio did not answer, so the post may already be live. Check zernio.com before publishing again.",
+        e.status,
+        "Zernio did not confirm the post, so it may already be live. Check zernio.com before publishing again.",
       );
     throw e;
   });
   const post = res.post;
-  if (!post) throw new ZernioError(502, "Zernio did not return the post");
+  if (!post)
+    throw new ZernioError(502, "Zernio did not return the post, so it may already be live. Check zernio.com first.");
   return {
     postId: post._id,
     status: post.status,
